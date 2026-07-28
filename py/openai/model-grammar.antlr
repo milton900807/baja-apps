@@ -1,0 +1,144 @@
+grammar TableFormula;
+
+// -------------------------
+// Entry points
+// -------------------------
+start
+  : mapping EOF
+  | expr    EOF
+  ;
+
+// JSON-like key→formula mapping (optional top-level)
+// Accepts: key ":" formula   OR   key "=>" formula
+mapping
+  : entry (',' entry)* (',')?
+  ;
+
+entry
+  : key sepRHS formula
+  ;
+
+key
+  : tableRefKey
+  ;
+
+sepRHS
+  : ':' 
+  | '=>'
+  ;
+
+tableRefKey
+  : IDENT indexing+                       // e.g., pipelinecost[1:1][2:2]
+  ;
+
+formula
+  : expr
+  ;
+
+// -------------------------
+// Expressions & functions
+// Precedence (high → low): ^  →  * /  →  + -
+// -------------------------
+expr
+  : <assoc=right> expr '^' expr                              # Pow
+  | expr op=('*'|'/') expr                                   # MulDiv
+  | expr op=('+'|'-') expr                                   # AddSub
+  | primary                                                  # ToPrimary
+  ;
+
+primary
+  : NUMBER                                                   # NumberLiteral
+  | functionCall                                             # Func
+  | tableRef                                                 # TableReference
+  | variable                                                 # ScalarVar
+  | '(' expr ')'                                             # Paren
+  ;
+
+functionCall
+  : IDENT '(' argList? ')'
+  ;
+
+argList
+  : expr (',' expr)*
+  ;
+
+// -------------------------
+// Table references
+// -------------------------
+tableRef
+  : IDENT indexing+                                          // at least one block
+  ;
+
+indexing
+  : '[' selectorList ']'
+  ;
+
+selectorList
+  : selector (',' selector)?                                 // 1 or 2 selectors per []
+  ;
+
+selector
+  : rangeSelector
+  | labelSelector
+  | posVarSelector
+  ;
+
+rangeSelector
+  : bound ':' bound
+  ;
+
+bound
+  : INT
+  ;
+
+labelSelector
+  : IDENT
+  | QUOTED_LABEL                                             // allows labels with spaces, punctuation
+  ;
+
+posVarSelector
+  : ROW VAR                                                  // row${i}
+  | COL VAR                                                  // col${j}
+  | VAR                                                      // ${k} (axis inferred by position)
+  ;
+
+// Scalar variable usable anywhere (outside selectors too)
+variable
+  : VAR
+  ;
+
+// -------------------------
+// Lexer rules
+// -------------------------
+ROW           : 'row';
+COL           : 'col';
+
+// Numbers
+NUMBER        : FLOAT | INT;
+FLOAT         : INT '.' [0-9]+;
+INT           : [0-9]+;
+
+// Identifiers (tables, labels, function names)
+IDENT         : [A-Za-z_] [A-Za-z0-9_]*;
+
+// ${varName}
+VAR           : '${' [A-Za-z_] [A-Za-z0-9_]* '}' ;
+
+// "Quoted Label" with escapes
+QUOTED_LABEL  : '"' ( ~["\\] | '\\' . )* '"' ;
+
+// Operators & punctuation
+WS            : [ \t\r\n]+ -> skip;
+COMMENT       : '//' ~[\r\n]* -> skip;
+COMMA         : ',';
+COLON_T       : ':';            // (not used directly; left for clarity)
+LBRACK        : '[';
+RBRACK        : ']';
+LPAREN        : '(';
+RPAREN        : ')';
+PLUS          : '+';
+MINUS         : '-';
+STAR          : '*';
+SLASH         : '/';
+CARET         : '^';
+ARROW         : '=>';

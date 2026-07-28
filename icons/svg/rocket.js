@@ -1,0 +1,64 @@
+function () {
+  let _svg = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg6987"
+   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
+   sodipodi:docname="mars.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview6989"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="0.60667088"
+     inkscape:cx="396.42582"
+     inkscape:cy="561.25984"
+     inkscape:window-width="1536"
+     inkscape:window-height="939"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs6984" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       d="m 109.47849,152.44839 c 38.76851,-16.49589 33.19815,-41.44786 33.19815,-41.44786 l -0.0564,-0.0564 c 0,0 -24.95197,-5.56683 -41.4468,33.19992 z"
+       style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
+       id="path482" />
+    <path
+       d="m 123.41498,145.033 -0.9137,10.98197 c -0.28575,3.4477 -4.47322,4.98299 -6.91797,2.53718 l -6.10482,-6.10376 -4.43936,4.43794 c -0.28151,0.28222 -0.73765,0.28222 -1.01882,0 l -7.28627,-7.28486 c -0.281517,-0.28222 -0.281517,-0.73731 0,-1.01953 l 4.43936,-4.43794 -5.63951,-5.64092 c -2.543881,-2.54353 -0.987072,-6.90033 2.593269,-7.25664 l 10.462331,-1.03716"
+       style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
+       id="path484" />
+    <path
+       d="m 126.90395,133.99458 c -2.04964,2.04964 -5.37281,2.04964 -7.42597,0 -2.04964,-2.05316 -2.04964,-5.3728 0,-7.42597 2.05316,-2.04964 5.37633,-2.04964 7.42597,0 2.04964,2.05317 2.04964,5.37281 0,7.42597 z"
+       style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
+       id="path486" />
+    <path
+       d="m 125.94439,113.98503 13.69131,13.6913"
+       style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
+       id="path488" />
+  </g>
+</svg>
+`
+  let svgData = btoa(unescape(encodeURIComponent(_svg)));
+  let svg = 'data:image/svg+xml;base64,' + svgData;
+  return svg;
+}

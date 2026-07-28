@@ -1,0 +1,1 @@
+{"name": "5-10-5 LNA", "type":"gapmer","template":"[(?)lna.sp.]{1}[(?)lna.p.]{4}[(?)d.sp]{10}[(?)lna.p]{2}[(?)lna.sp]{2}[(?)d]{1}","shapeFunction":"ljl/shapes/myshapefunction.js", "description": "Locked nucleic acid gapmer:  Often used as a tool compound for RNase H mediated knockdown. " }

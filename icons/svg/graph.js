@@ -1,0 +1,24 @@
+function () {
+  let _svg = `<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg" width="68.825697" height="68.825697" viewBox="61.53431299999999 107.23904149999998 68.825697 68.825697" version="1.1" id="svg2650" inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)" sodipodi:docname="graph.svg">
+  <sodipodi:namedview id="namedview2652" pagecolor="#ffffff" bordercolor="#666666" borderopacity="1.0" inkscape:pageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:document-units="mm" showgrid="false" inkscape:zoom="0.60667088" inkscape:cx="396.42582" inkscape:cy="561.25984" inkscape:window-width="1536" inkscape:window-height="939" inkscape:window-x="0" inkscape:window-y="0" inkscape:window-maximized="1" inkscape:current-layer="layer1"/>
+  <defs id="defs2647"/>
+  <g inkscape:label="Layer 1" inkscape:groupmode="layer" id="layer1">
+    <path d="M 125.36001,168.43478 H 66.534313 v -7.40128 h 58.825697 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path28"/>
+    <path d="m 70.167924,160.79714 v -9.65553 h 6.681611 v 9.65553" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path30"/>
+    <path d="m 100.08348,160.79714 v -15.93145 h 6.68514 v 15.93145" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path32"/>
+    <path d="m 85.125702,160.79714 v -23.72431 h 6.681611 v 23.72431" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path34"/>
+    <path d="m 115.04126,160.79714 v -33.85256 h 6.68514 v 33.85256" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path36"/>
+    <path d="m 76.821313,140.97103 c 0,1.82739 -1.485194,3.30905 -3.312583,3.30905 -1.827389,0 -3.312584,-1.48166 -3.312584,-3.30905 0,-1.83092 1.485195,-3.31259 3.312584,-3.31259 1.827389,0 3.312583,1.48167 3.312583,3.31259 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path38"/>
+    <path d="m 106.73687,131.61889 c 0,1.83092 -1.48167,3.31258 -3.31259,3.31258 -1.82738,0 -3.30905,-1.48166 -3.30905,-3.31258 0,-1.82739 1.48167,-3.30906 3.30905,-3.30906 1.83092,0 3.31259,1.48167 3.31259,3.30906 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path40"/>
+    <path d="m 91.77909,124.60919 c 0,1.82739 -1.481666,3.30906 -3.312583,3.30906 -1.827389,0 -3.312583,-1.48167 -3.312583,-3.30906 0,-1.83091 1.485194,-3.31258 3.312583,-3.31258 1.830917,0 3.312583,1.48167 3.312583,3.31258 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path42"/>
+    <path d="m 121.69465,114.869 c 0,1.82739 -1.48167,3.30906 -3.31259,3.30906 -1.82739,0 -3.30905,-1.48167 -3.30905,-3.30906 0,-1.83092 1.48166,-3.31258 3.30905,-3.31258 1.83092,0 3.31259,1.48166 3.31259,3.31258 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path44"/>
+    <path d="m 75.710063,138.49806 10.82675,-11.20423" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path46"/>
+    <path d="m 91.581535,125.7275 8.748885,4.72017" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path48"/>
+    <path d="m 105.50567,129.04361 11.01725,-11.43705" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path50"/>
+  </g>
+</svg>
+`
+  let svgData = btoa(unescape(encodeURIComponent(_svg)));
+  let svg = 'data:image/svg+xml;base64,' + svgData;
+  return svg;
+}

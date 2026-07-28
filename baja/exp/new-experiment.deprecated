@@ -1,0 +1,160 @@
+function () {
+    let sharepoint_config = {
+        'scope': ['User.Read', 'Files.Read', 'Files.ReadWrite', 'Files.ReadWrite.All', 'Sites.Read.All',
+            'Sites.ReadWrite.All']
+    }
+    showWidget({
+        'wid': 'html',
+        'data': 'version 1.0b'
+    });
+    MSGraph.getClient(sharepoint_config).then(client => {
+        client.api('/me').get().then(async (user) => {
+
+            /*****************************************************************************************************
+             *                            Create the experiment folder in onedrive 
+             ******************************************************************************************************/
+            let createExperimentFolder = async (experimentID, title, description) => {
+                try {
+                    let v = await client.api('/me/drive/root:/ljl-screens').get();
+                    if (!v) {
+                        await createLJScreensFolder()
+                    }
+                } catch (excep) {
+                    await createLJScreensFolder()
+
+                }
+                let folder = null;
+                debugger;
+
+                try {
+                    folder = await client.api(`/me/drive/root:/ljl-screens/${experimentID}`).get()
+                } catch (excep) {
+                    log("Creating experiment : " + experimentID);
+                    let new_exp_dir = {
+                        "name": experimentID,
+                        "folder": {
+                        },
+                        "@microsoft.graph.conflictBehavior": "fail"
+                    }
+                    let eln_path = '/me/drive/root:/ljl-screens:/children'
+                    folder = await client.api(eln_path)
+                        .post(new_exp_dir)
+                        .catch(error => {
+                            log("Folder already exists in this location...  Error creating experiment, please send the following output to informatics:")
+                            let cs = JSON.stringify(error);
+                            let jsonv = {
+                                'wid': 'json',
+                                'data': cs
+                            }
+                            showWidget(jsonv);
+                        })
+
+                }
+
+
+                if (folder != null) {
+                    debugger;
+                    let author = user['displayName'] + ' (' + user['userPrincipalName'] + ')'
+                    debugger
+                                //  ljl/exp/create-summary-doc.js
+                    await exec('ljl/exp/create-summary-doc.js', experimentID, title, description, author)
+                    // await exec('arct-eln/db/update-experiment-folderid.js', experimentID, folder['id'])
+                    // await exec('arct-eln/eln-viewer/init.js', experimentID)
+                }
+
+
+            }
+
+            let createLJScreensFolder = async () => {
+                let new_exp_dir = {
+                    "name": 'ljl-screens',
+                    "folder": {
+                    },
+                    "@microsoft.graph.conflictBehavior": "fail"
+                }
+                console.log(' creating folder ')
+                let eln_path = '/me/drive/root/children'
+                folder = await client.api(eln_path)
+                    .post(new_exp_dir)
+                    .catch(error => {
+                        log("Folder already exists in this location...  Error creating experiment, please send the following output to informatics:")
+                        let cs = JSON.stringify(error);
+                        let jsonv = {
+                            'wid': 'json',
+                            'data': cs
+                        }
+                        showWidget(jsonv);
+                    })
+
+            }
+
+
+
+
+
+
+            /*****************************************************************************************************
+             *  Entry point  
+             */
+            // showWidget ( {wid:'json', 
+            // data:JSON.stringify(user)})
+
+            let email = user['userPrincipalName']
+            email = email.substring(0, email.indexOf('@'));
+
+
+            let titleHook;
+            let descHook;
+
+            let html = {
+                'wid': 'html',
+                'data': ' ' + user['displayName'] + ' (' + user['userPrincipalName'] + ')'
+            }
+            showWidget(html).then(async (_t) => {
+                let html2 = {
+                    'wid': 'html',
+                    'data': '<h4> New experiment </h4>'
+                }
+                await showWidget(html2);
+
+
+                let title_text = {
+                    'wid': 'input-textfield',
+                    'title': ' Title ',
+                    'data': {
+                        'blocking': false,
+                        'show-button': false,
+                        'ionHookFunction': createIonFunction((w) => {
+                            titleHook = w
+                        }),
+                        'ionfunction': createIonFunction((title) => {
+                            console.log(" title " + title);
+                        })
+                    }
+                }
+                await showWidget(title_text)
+                let desc = {
+                    'wid': 'input-textarea-editor',
+                    'title': 'Experiment Description',
+                    'data': {
+                        'ionHookFunction': createIonFunction((w) => {
+                            descHook = w
+                        }),
+                        'button-label': 'Create experiment',
+                        'ionFunction': createIonFunction((description) => {
+                            console.log(" description " + description);
+                        })
+                    }
+                }
+                await showWidget(desc)
+                let progress = await showWidget({ wid: 'working' })
+                title = titleHook.getWidgetValue();
+                descv = descHook.getWidgetValue();
+                let author = user['userPrincipalName'].split('@')[0]
+                let experiment_id = title;
+                return await createExperimentFolder(experiment_id, title, descv);
+            })
+        })
+        // await exec('arct-eln/select-experiment-type.js')
+    })
+}

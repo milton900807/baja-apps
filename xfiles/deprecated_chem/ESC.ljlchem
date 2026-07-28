@@ -1,0 +1,6 @@
+{"name":"ESC","description":"ESC used by Alnylam",
+"type":"siRNA", "length":23,
+"structure":
+{"sense":"m(?)[sp].m(?)[sp].m(?)p.m(?)p.m(?)p.m(?)p.[fl2r](?)p.m(?)p.[fl2r](?)p.[fl2r](?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)",
+"antisense":"m(?)[sp].[fl2r](?)[sp].m(?)p.m(?)p.m(?)p.[fl2r](?)p.[fl2r](?)p.[fl2r](?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.[fl2r](?)p.m(?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)"},
+"shapeFunction":"ljl/chem/structure/esc-structure.js", "buildFunction":"ljl/chem/structure/esc-build-structure.js"}

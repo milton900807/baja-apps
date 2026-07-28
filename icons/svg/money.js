@@ -1,0 +1,13 @@
+function () {
+  let _svg = `<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg" width="28.104556000000002" height="28.104556000000002" viewBox="78.85113599999998 148.63624199999998 28.104556000000002 28.104556000000002" version="1.1" id="svg6639" inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)" sodipodi:docname="money.svg">
+  <sodipodi:namedview id="namedview6641" pagecolor="#ffffff" bordercolor="#666666" borderopacity="1.0" inkscape:pageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:document-units="mm" showgrid="false" inkscape:zoom="0.60667088" inkscape:cx="396.42582" inkscape:cy="561.25984" inkscape:window-width="1536" inkscape:window-height="939" inkscape:window-x="0" inkscape:window-y="0" inkscape:window-maximized="1" inkscape:current-layer="layer1"/>
+  <defs id="defs6636"/>
+  <g inkscape:label="Layer 1" inkscape:groupmode="layer" id="layer1">
+    <path d="m 83.96403,163.24062 c 0.268111,6.25475 4.423833,11.42294 10.082388,13.23622 v 5.969 h 8.960552 v -5.97253 c 5.85611,-1.89441 10.10003,-7.39775 10.10003,-13.87475 0,-8.03627 -6.5405,-14.57677 -14.580304,-14.57677 -3.097389,0 -5.61975,-2.52237 -5.61975,-5.61975 0,-3.09739 2.522361,-5.61975 5.61975,-5.61975 2.737554,0 5.125864,2.03552 5.549194,4.73075 h 9.03111 l -0.17992,-1.39348 c -0.87841,-5.58447 -4.79072,-9.9695 -9.92011,-11.60286 v -5.67619 h -8.960552 v 5.6903 c -5.852583,1.89442 -10.0965,7.39423 -10.0965,13.87123 0,8.0398 6.5405,14.5803 14.576778,14.5803 3.100914,0 5.619754,2.51883 5.619754,5.61622 0,3.10092 -2.51884,5.61975 -5.619754,5.61975 -3.01625,0 -5.482167,-2.35655 -5.612694,-5.36575 h -8.964084 z" style="fill:none;stroke:#231f20;stroke-width:1.41111;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1" id="path650"/>
+  </g>
+</svg>
+`
+  let svgData = btoa(unescape(encodeURIComponent(_svg)));
+  let svg = 'data:image/svg+xml;base64,' + svgData;
+  return svg;
+}

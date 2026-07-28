@@ -1,0 +1,8 @@
+from pyensembl import EnsemblRelease
+import os
+
+os.environ['PYENSEMBL_CACHE_DIR'] = '/home/milton/.cache/pyensembl'
+grch38 = EnsemblRelease(77)
+
+
+

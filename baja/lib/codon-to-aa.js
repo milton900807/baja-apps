@@ -1,0 +1,71 @@
+function () {
+
+    let __codonToAminoAcid = []
+    __codonToAminoAcid['AAA'] = 'K';
+    __codonToAminoAcid['AAT'] = 'N';
+    __codonToAminoAcid['AAG'] = 'K';
+    __codonToAminoAcid['AAC'] = 'N';
+    __codonToAminoAcid['ATA'] = 'I';
+    __codonToAminoAcid['ATT'] = 'I';
+    __codonToAminoAcid['ATG'] = 'M';
+    __codonToAminoAcid['ATC'] = 'I';
+    __codonToAminoAcid['AGA'] = 'R';
+    __codonToAminoAcid['AGT'] = 'S';
+    __codonToAminoAcid['AGG'] = 'R';
+    __codonToAminoAcid['AGC'] = 'S';
+    __codonToAminoAcid['ACA'] = 'T';
+    __codonToAminoAcid['ACT'] = 'T';
+    __codonToAminoAcid['ACG'] = 'T';
+    __codonToAminoAcid['ACC'] = 'T';
+    __codonToAminoAcid['TAA'] = '*';
+    __codonToAminoAcid['TAT'] = 'Y';
+    __codonToAminoAcid['TAG'] = '&';
+    __codonToAminoAcid['TAC'] = 'Y';
+    __codonToAminoAcid['TTA'] = 'L';
+    __codonToAminoAcid['TTT'] = 'F';
+    __codonToAminoAcid['TTG'] = 'L';
+    __codonToAminoAcid['TTC'] = 'F';
+    __codonToAminoAcid['TGA'] = '$';
+    __codonToAminoAcid['TGT'] = 'C';
+    __codonToAminoAcid['TGG'] = 'W';
+    __codonToAminoAcid['TGC'] = 'C';
+    __codonToAminoAcid['TCA'] = 'S';
+    __codonToAminoAcid['TCT'] = 'S';
+    __codonToAminoAcid['TCG'] = 'S';
+    __codonToAminoAcid['TCC'] = 'S';
+    __codonToAminoAcid['GAA'] = 'E';
+    __codonToAminoAcid['GAT'] = 'D';
+    __codonToAminoAcid['GAG'] = 'E';
+    __codonToAminoAcid['GAC'] = 'D';
+    __codonToAminoAcid['GTA'] = 'V';
+    __codonToAminoAcid['GTT'] = 'V';
+    __codonToAminoAcid['GTG'] = 'V';
+    __codonToAminoAcid['GTC'] = 'V';
+    __codonToAminoAcid['GGA'] = 'G';
+    __codonToAminoAcid['GGT'] = 'G';
+    __codonToAminoAcid['GGG'] = 'G';
+    __codonToAminoAcid['GGC'] = 'G';
+    __codonToAminoAcid['GCA'] = 'A';
+    __codonToAminoAcid['GCT'] = 'A';
+    __codonToAminoAcid['GCG'] = 'A';
+    __codonToAminoAcid['GCC'] = 'A';
+    __codonToAminoAcid['CAA'] = 'Q';
+    __codonToAminoAcid['CAT'] = 'H';
+    __codonToAminoAcid['CAG'] = 'Q';
+    __codonToAminoAcid['CAC'] = 'H';
+    __codonToAminoAcid['CTA'] = 'L';
+    __codonToAminoAcid['CTT'] = 'L';
+    __codonToAminoAcid['CTG'] = 'L';
+    __codonToAminoAcid['CTC'] = 'L';
+    __codonToAminoAcid['CGA'] = 'R';
+    __codonToAminoAcid['CGT'] = 'R';
+    __codonToAminoAcid['CGG'] = 'R';
+    __codonToAminoAcid['CGC'] = 'R';
+    __codonToAminoAcid['CCA'] = 'P';
+    __codonToAminoAcid['CCT'] = 'P';
+    __codonToAminoAcid['CCG'] = 'P';
+    __codonToAminoAcid['CCC'] = 'P';
+
+    return __codonToAminoAcid;
+
+}

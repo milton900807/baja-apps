@@ -1,0 +1,1 @@
+{"name":"3-10-3 LNA", "description": "LNA chemistry is more potent than MOE chemistry; as a gapmer it is often shortened to 3-10-3 instead of 5-10-5.", "type":"gapmer","template":"[(?)lna.sp.]{1}[(?)lna.p.]{2}[(?)d.sp]{10}[(?)lna.sp]{2}[(?)d]{1}","shapeFunction":"ljl/shapes/myshapefunction.js"}

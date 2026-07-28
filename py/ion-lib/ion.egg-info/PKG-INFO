@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: ion
+Version: 0.0.3
+Requires-Dist: requests
+Requires-Dist: numpy
+Requires-Dist: pandas

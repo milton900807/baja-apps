@@ -1,0 +1,3 @@
+{"name":"ESC","description":"(Alnylam)",
+"type":"siRNA", "length":23,
+"shapeFunction":"ljl/chem/structure/esc-structure.js",  "buildFunction":"ljl/chem/structure/esc-build-structure.js"}

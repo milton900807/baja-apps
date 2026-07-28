@@ -1,0 +1,8 @@
+pyproject.toml
+setup.cfg
+ion/works.py
+ion.egg-info/PKG-INFO
+ion.egg-info/SOURCES.txt
+ion.egg-info/dependency_links.txt
+ion.egg-info/requires.txt
+ion.egg-info/top_level.txt

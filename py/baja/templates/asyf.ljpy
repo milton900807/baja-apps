@@ -1,0 +1,15 @@
+from datetime import datetime
+
+from ion import works
+
+    name = input("What is your name? ")
+    age = int(input("How old are you? "))
+
+    current_year = datetime.now().year
+    year_turn_100 = current_year + (100 - age)
+
+    print(f"Hi {name}, you will turn 100 years old in the year {year_turn_100}.")
+
+works.resolve(year_turn_100)
+
+

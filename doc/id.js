@@ -1,0 +1,4 @@
+function ( id ) {
+
+    log ( ` ${id} `)
+}
