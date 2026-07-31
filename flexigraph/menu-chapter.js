@@ -201,17 +201,17 @@ function () {
             yoffset = 0;
             menu_width = 250;
             title = ''
-            sg = 'cyan'
-            sf = 'blue'
-            bg = 'rgb(205, 255, 155)'
-            fg = 'black'
+            sg = '#eef2f8'
+            sf = '#1d4ed8'
+            bg = 'rgba(255,255,255,0.98)'
+            fg = '#344054'
             activeitems = []
             scrollIndex = 0;
             scrollTimer = null;
             columns = 1;
             menu_type = null;
-            titleFont = '21px Arial'
-            titleColor = 'Black'
+            titleFont = '600 14px Arial'
+            titleColor = '#111827'
             isdisplayed = false;
 
             static removeDuplicateLabels(items) {

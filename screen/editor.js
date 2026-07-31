@@ -876,6 +876,7 @@ function (path, config) {
             }
 
             let geneGraph = await graph.createComponent();
+            geneGraph.height = '100%'
             let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
             let plates_panel;
             let platePanel = createIonFunction((p) => {
@@ -967,8 +968,11 @@ function (path, config) {
                                         cards: [
                                             [
                                                 {
+                                                    // Navigation controls now live in the menubar; keep
+                                                    // this as an empty swappable slot (Tools > Navigation
+                                                    // and other panels still inject content here).
                                                     'title': '',
-                                                    'component': button_canvas
+                                                    'component': { wid: 'html', data: '' }
                                                 },
                                             ]]
                                     }
@@ -1065,10 +1069,8 @@ function (path, config) {
 
             let tools_menu = []
             tools_menu = [
-
                 {
                     'label': 'Navigation', 'ionfunction': createIonFunction(async () => {
-
                         let button_canvas_ = await exec('screen/controls/navigation-panel.js', graph)
                         CurrentLayout.clearComponent('buttonMenuPanel,labelPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
@@ -1564,6 +1566,34 @@ function (path, config) {
                 )
             }
 
+            // Build a menubar copy of the navigation buttons with group separators
+            // (pan | zoom | bookmark | tools). This is a NEW array — the shared
+            // button-canvas array (button_canvas.data.buttons) is left untouched.
+            let menubarNavButtons = (() => {
+                let src = (button_canvas &&
+                    (button_canvas.buttons || (button_canvas.data && button_canvas.data.buttons))) || [];
+                const groups = [
+                    ['left', 'right', 'up', 'down'],
+                    ['zoom out', 'zoom in', 'expand up', 'expand down', 'resize x', 'expand'],
+                    ['bookmark', 'show bookmark'],
+                    ['show tracks', 'map oligos', 'move options', 'box zoom', 'lasso things', 'lasso']
+                ];
+                const groupIndex = (label) => {
+                    const l = (label || '').toString().trim().toLowerCase();
+                    for (let i = 0; i < groups.length; i++) if (groups[i].includes(l)) return i;
+                    return -1;
+                };
+                let out = [];
+                let prev = null;
+                for (let b of src) {
+                    const gi = groupIndex(b && b.label);
+                    if (prev !== null && gi !== -1 && gi !== prev) out.push({ separator: true });
+                    if (gi !== -1) prev = gi;
+                    out.push(b);
+                }
+                return out;
+            })();
+
             genegraph_panel_layout = {
                 wid: 'card',
                 componentRef: 'geneGraphPanel',
@@ -1576,16 +1606,17 @@ function (path, config) {
                                 'component': {
                                     wid: 'menu',
                                     data: {
+                                        // Navigation/zoom/bookmark controls (built in
+                                        // screen/controls/navigation-panel.js) surfaced as icon
+                                        // buttons in the menubar, grouped with separators.
+                                        buttons: menubarNavButtons,
                                         menus: [
 
                                             {
                                                 'label': 'Apps', 'items': [{
                                                     'label': 'Assay Design', 'ionfunction': createIonFunction(async () => {
-
                                                         clear();
                                                         await exec('screen/assay-design', graph, genegraph_panel_layout)
-
-
                                                     })
                                                 },
 
@@ -1793,11 +1824,12 @@ function (path, config) {
                                 }
                             },
                             {
-                                'width': '100%',
+                                'width': '50%',
                                 'component': buttonMenuPanel
-                            },
+                            }], [
                             {
                                 'width': '100%',
+                                'height': '100%',
                                 'component': geneGraph
                             }
 

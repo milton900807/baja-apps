@@ -2,10 +2,10 @@ function (message, execFunction) {
 
     let zoom_to = {
         wid: 'card',
-        height:'230px',
+        height: '230px',
         componentRef: 'bottomPanel',
         data: {
-            height: '300px',
+            height: '500px',
             cards: [
                 [
                     {
@@ -17,7 +17,7 @@ function (message, execFunction) {
                             wid: 'html',
                             data: `<font color=red> ${message} </font>`
                         }
-                    },
+                    }], [
                     {
                         'title': '',
                         'width': '100%',
@@ -26,7 +26,7 @@ function (message, execFunction) {
                                 buttons: [
                                     {
                                         label: 'Yes', ionFunction: createIonFunction(() => {
-                                            execFunction ();
+                                            execFunction();
                                             hideAllModal();
                                         })
                                     },
@@ -37,6 +37,15 @@ function (message, execFunction) {
                                     }
                                 ]
                             }
+                        }
+                    }
+                ],
+                [
+                    {
+                        'title': '',
+                        'width': '100%',
+                        'component': {
+                            wid: 'html', data: ''
                         }
                     }
                 ]]

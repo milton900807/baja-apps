@@ -1441,7 +1441,6 @@ function () {
             }
 
             showViews() {
-                console.log('debubg');
                 let ml = []
                 for (let key of this.ptracks) {
                     ml.push({

@@ -4,7 +4,7 @@ function (progress) {
         if (progress) {
             progress(5)
         }
-        const ORANGE = "rgba(255, 140, 0, 1)";
+        const ORANGE = "rgb(1, 12, 110)";
         let CanvasToSVGProxy = await exec('flexigraph/svg-canvas.js')
         const HM = await exec('baja/history/HM.js')
         let Oligo = await exec('flexigraph/oligo.js')
@@ -367,7 +367,6 @@ function (progress) {
 
                 const currentBg = (self.side_menu && self.side_menu.bg) ? self.side_menu.bg : 'rgba(20,20,20,1)';
                 st.baseBgRGBA = _parseColorToRGBA(currentBg);
-
                 st.alpha = 0;
             }
 
@@ -4518,10 +4517,10 @@ function (progress) {
                     this.graph.mousex = xwc
                     let xs = this.graph.X(xwc);
                     let ys = this.graph.Y(ywc);
-                    if (xs >= 10 && xs < 30 && ys >= 250 && ys < 270) {
-                    }
-                    if (xs >= 10 && xs < 30 && ys >= 285 && ys < 305) {
-                    }
+
+                    // Track which on-canvas navigation control (if any) is hovered so
+                    // the draw loop can highlight it and show its tooltip.
+                    this.hoverButton = this.hitControlButton(xs, ys);
                     if (this.select_ && this.mouseDown) {
                         this.endX = xwc;
                     }
@@ -6366,88 +6365,154 @@ pattern, GGGG | Required`
             }
 
             showSideMenu(list) {
+                console.trace('showSideMenu() called', {
+                    list,
+                    side_menu: this.side_menu,
+                    showChapters: this.showChapters
+                });
 
                 if (!list) {
                     this.side_menu = null;
                     return;
                 }
 
-                console.log ( ' ')
-
-
                 if (this.chapter_menu && this.showChapters) {
                     this.showChapters = false;
                 }
+
                 if (isMobile()) {
-                    exec('flexigraph/show-mobile-menu.js', 0, 2, list, this.graph, this.genegraph_panel_layout)
-                } else {
-                    if (this.side_menu && this.side_menu.list == list) {
-                        this.setMouseMode('menu')
+                    exec(
+                        'flexigraph/show-mobile-menu.js',
+                        0,
+                        2,
+                        list,
+                        this.graph,
+                        this.genegraph_panel_layout
+                    );
+
+                    return;
+                }
+
+                if (this.side_menu && this.side_menu.list === list) {
+                    this.setMouseMode('menu');
+                    return;
+                }
+
+                setTimeout(() => {
+                    const safeList = Array.isArray(list) ? list : [];
+
+                    if (safeList.length === 0) {
+                        this.side_menu = null;
                         return;
                     }
-                    setTimeout(() => {
-                        const safeList = Array.isArray(list) ? list : [];
 
-                        if (safeList.length === 0) {
-                            this.side_menu = null;
-                            return;
-                        }
-                        const maxPerColumn = 10;
-                        const itemCount = safeList.length;
-                        const cols = Math.ceil(itemCount / maxPerColumn);
-                        const bg = 'rgb(255, 247, 141)';
-                        const fg = 'black';
+                    const maxPerColumn = 10;
+                    const itemCount = safeList.length;
+                    const cols = Math.ceil(itemCount / maxPerColumn);
+                    const bg = 'rgb(255, 247, 141)';
+                    const fg = 'black';
 
-                        const screen_width = this?.graph?.grid?.width ?? window.innerWidth ?? 800;
-                        const screen_height = this?.graph?.grid?.height ?? window.innerHeight ?? 600;
-                        const itemHeight = 35;
+                    const screenWidth =
+                        this?.graph?.grid?.width ??
+                        window.innerWidth ??
+                        800;
 
-                        const getItemLabel = (item) => {
-                            if (typeof item === 'string') return item;
-                            if (item == null) return '';
-                            return item.label || item.name || item.title || String(item);
-                        };
+                    const screenHeight =
+                        this?.graph?.grid?.height ??
+                        window.innerHeight ??
+                        600;
 
-                        let maxLabelWidth = 0;
-                        try {
-                            const canvas = document.createElement('canvas');
-                            const ctx = canvas.getContext('2d');
+                    const itemHeight = 35;
 
-                            if (ctx) {
-                                ctx.font = '18px Arial';
-                                maxLabelWidth = Math.max(
-                                    ...safeList.map(item => ctx.measureText(getItemLabel(item)).trim().width),
-                                    0
-                                );
-                            }
-                        } catch (e) {
-                            maxLabelWidth = 0;
+                    const getItemLabel = (item) => {
+                        if (typeof item === 'string') {
+                            return item;
                         }
 
-                        const width = Math.max(120, Math.ceil(maxLabelWidth) + 40);
-                        const menuWidth = cols * width;
-                        const rows = Math.min(itemCount, maxPerColumn);
-                        const menuHeight = rows * itemHeight;
-
-                        const xpos = (screen_width - menuWidth) / 2;
-                        const ypos = (screen_height - menuHeight) / 2;
-
-                        if (!this?.graph?.Xwc || !this?.graph?.Ywc) {
-                            return;
+                        if (item == null) {
+                            return '';
                         }
 
-                        this.side_menu = new Menu(
-                            safeList,
-                            this.graph.Xwc(xpos),
-                            this.graph.Ywc(ypos),
-                            bg,
-                            fg,
-                            cols
+                        return (
+                            item.label ||
+                            item.name ||
+                            item.title ||
+                            String(item)
+                        );
+                    };
+
+                    let maxLabelWidth = 0;
+
+                    try {
+                        const canvas =
+                            document.createElement('canvas');
+
+                        const context =
+                            canvas.getContext('2d');
+
+                        if (context) {
+                            context.font = '18px Arial';
+
+                            maxLabelWidth = Math.max(
+                                ...safeList.map((item) =>
+                                    context.measureText(
+                                        getItemLabel(item)
+                                    ).width
+                                ),
+                                0
+                            );
+                        }
+                    } catch (error) {
+                        console.error(
+                            'Unable to measure side-menu labels:',
+                            error
                         );
 
-                        this.side_menu.menu_width = menuWidth;
-                    }, 100);
-                }
+                        maxLabelWidth = 0;
+                    }
+
+                    const columnWidth = Math.max(
+                        120,
+                        Math.ceil(maxLabelWidth) + 40
+                    );
+
+                    const menuWidth =
+                        cols * columnWidth;
+
+                    const rows =
+                        Math.min(itemCount, maxPerColumn);
+
+                    const menuHeight =
+                        rows * itemHeight;
+
+                    const xpos =
+                        (screenWidth - menuWidth) / 2;
+
+                    const ypos =
+                        (screenHeight - menuHeight) / 2;
+
+                    if (
+                        typeof this?.graph?.Xwc !== 'function' ||
+                        typeof this?.graph?.Ywc !== 'function'
+                    ) {
+                        console.warn(
+                            'showSideMenu(): graph coordinate conversion is unavailable.'
+                        );
+
+                        return;
+                    }
+
+                    this.side_menu = new Menu(
+                        safeList,
+                        this.graph.Xwc(xpos),
+                        this.graph.Ywc(ypos),
+                        bg,
+                        fg,
+                        cols
+                    );
+
+                    this.side_menu.menu_width = menuWidth;
+                }, 10);
             }
             showMenu(list, x, y, width) {
                 if (this.chapter_menu && this.showChapters) {
@@ -6469,7 +6534,7 @@ pattern, GGGG | Required`
 
 
 
-                        if (list.length === 0) {
+                        if (!list || list.length === 0) {
                             return;
                         }
 
@@ -6528,14 +6593,14 @@ pattern, GGGG | Required`
                 ctx,
                 {
                     font = "600 12px Arial",
-                    fill = "rgba(255,255,255,0.95)",
-                    stroke = ORANGE,
-                    lineWidth = 2,
-                    shadowColor = "rgba(0,0,0,0.18)",
-                    shadowBlur = 8,
+                    fill = "#ffffff",
+                    stroke = "#d4dae3",
+                    lineWidth = 1,
+                    shadowColor = "rgba(16,24,40,0.14)",
+                    shadowBlur = 4,
                     shadowOffsetX = 0,
-                    shadowOffsetY = 2,
-                    textColor = "rgba(20,20,20,0.95)",
+                    shadowOffsetY = 1.5,
+                    textColor = "#475467",
                 } = {}
             ) {
                 ctx.font = font;
@@ -6560,18 +6625,55 @@ pattern, GGGG | Required`
                 ctx.shadowOffsetY = 0;
             }
 
+            roundRectPath(ctx, x, y, w, h, r) {
+                const rr = Math.min(r, w / 2, h / 2);
+                ctx.beginPath();
+                ctx.moveTo(x + rr, y);
+                ctx.arcTo(x + w, y, x + w, y + h, rr);
+                ctx.arcTo(x + w, y + h, x, y + h, rr);
+                ctx.arcTo(x, y + h, x, y, rr);
+                ctx.arcTo(x, y, x + w, y, rr);
+                ctx.closePath();
+            }
+
+            // Professional rounded-square control button that matches the
+            // menubar icon buttons: soft grey border, subtle vertical gradient,
+            // and a light drop shadow. Geometry is kept centered on (cx, cy)
+            // so the existing circular hit-testing still lines up.
             drawCircleButton(ctx, cx, cy, r = 11, { pressed = false } = {}) {
                 ctx.save();
 
-                if (pressed) {
-                    ctx.shadowBlur = 4;
-                    ctx.shadowOffsetY = 1;
-                    ctx.fillStyle = "rgba(255,255,255,0.90)";
-                }
+                const size = r * 2;
+                const x = cx - r, y = cy - r;
+                const radius = Math.max(3, r * 0.38);
 
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2, false);
+                // Soft drop shadow
+                ctx.shadowColor = pressed ? "rgba(16,24,40,0.10)" : "rgba(16,24,40,0.14)";
+                ctx.shadowBlur = pressed ? 2 : 4;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = pressed ? 0.5 : 1.5;
+
+                // Vertical white -> light-grey gradient (pressed = slightly darker)
+                const grad = ctx.createLinearGradient(0, y, 0, y + size);
+                if (pressed) {
+                    grad.addColorStop(0, "#eef2f8");
+                    grad.addColorStop(1, "#e2e8f2");
+                } else {
+                    grad.addColorStop(0, "#ffffff");
+                    grad.addColorStop(1, "#f3f5f9");
+                }
+                ctx.fillStyle = grad;
+                this.roundRectPath(ctx, x, y, size, size, radius);
                 ctx.fill();
+
+                // Crisp 1px neutral border, drawn without the shadow
+                ctx.shadowColor = "transparent";
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = pressed ? "#c7d0dd" : "#d4dae3";
+                this.roundRectPath(ctx, x, y, size, size, radius);
                 ctx.stroke();
 
                 ctx.restore();
@@ -6592,7 +6694,7 @@ pattern, GGGG | Required`
                 ctx.save();
                 this.resetCanvasEffects(ctx);
                 ctx.font = font;
-                ctx.fillStyle = color ?? ctx._buttonTextColor ?? "black";
+                ctx.fillStyle = color ?? ctx._buttonTextColor ?? "#475467";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText(glyph, cx, cy);
@@ -6629,15 +6731,93 @@ pattern, GGGG | Required`
 
                 this.drawButtonGlyph(ctx, "B", cx, cy, {
                     font: "700 12px Arial",
-                    color: "rgba(20,20,20,0.95)",
+                    color: "#475467",
                 });
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Bookmark", cx + 20, cy, {
                         font: "11px Arial",
-                        color: "rgba(20,20,20,0.90)",
+                        color: "#475467",
                     });
                 }
+            }
+
+            // Metadata for the on-canvas navigation controls: center, screen-space
+            // hit range (x is always 10..30), and the info text shown on hover.
+            controlButtonDefs() {
+                return [
+                    { id: 'zoom_in', cx: 25, cy: 170, y0: 160, y1: 185, info: 'Zoom in' },
+                    { id: 'zoom_out', cx: 25, cy: 205, y0: 190, y1: 228, info: 'Zoom out' },
+                    { id: 'navigate', cx: 25, cy: 240, y0: 229, y1: 258, info: 'Move / pan the graph' },
+                    { id: 'bpx', cx: 25, cy: 275, y0: 264, y1: 292, info: 'Box zoom — drag a rectangle' },
+                    { id: 'expand_vertical', cx: 25, cy: 310, y0: 299, y1: 327, info: 'Expand vertically' },
+                    { id: 'contract_vertical', cx: 25, cy: 345, y0: 334, y1: 362, info: 'Contract vertically' },
+                    { id: 'expand_horizontal', cx: 25, cy: 380, y0: 369, y1: 397, info: 'Expand horizontally' },
+                    { id: 'contract_horizontal', cx: 25, cy: 415, y0: 404, y1: 432, info: 'Contract horizontally' },
+                ];
+            }
+
+            // Returns the id of the control button under the given screen point.
+            hitControlButton(xs, ys) {
+                if (!this.showNavigationControl) return null;
+                if (xs < 10 || xs >= 30) return null;
+                const b = this.controlButtonDefs().find(d => ys >= d.y0 && ys < d.y1);
+                return b ? b.id : null;
+            }
+
+            // Draws a highlight ring around the hovered control button and a small
+            // dark tooltip with its description. Called after the buttons are drawn.
+            drawControlButtonHover(ctx) {
+                if (!this.hoverButton) return;
+                const b = this.controlButtonDefs().find(d => d.id === this.hoverButton);
+                if (!b) return;
+
+                const r = 11;
+                ctx.save();
+                this.resetCanvasEffects(ctx);
+
+                // Accent highlight ring around the hovered button
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#2f6feb";
+                this.roundRectPath(ctx, b.cx - r, b.cy - r, r * 2, r * 2, Math.max(3, r * 0.38));
+                ctx.stroke();
+
+                // Tooltip to the right of the button
+                const text = b.info;
+                ctx.font = "600 11px Arial";
+                const padX = 8;
+                const bh = 22;
+                const tw = ctx.measureText(text).width;
+                const bx = b.cx + r + 10;
+                const by = b.cy - bh / 2;
+                const bw = tw + padX * 2;
+
+                // Tooltip background (rounded, soft shadow)
+                ctx.shadowColor = "rgba(16,24,40,0.20)";
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = "rgba(33,43,54,0.96)";
+                this.roundRectPath(ctx, bx, by, bw, bh, 5);
+                ctx.fill();
+
+                // Little pointer triangle toward the button
+                this.resetCanvasEffects(ctx);
+                ctx.beginPath();
+                ctx.moveTo(bx, b.cy - 4);
+                ctx.lineTo(bx - 5, b.cy);
+                ctx.lineTo(bx, b.cy + 4);
+                ctx.closePath();
+                ctx.fillStyle = "rgba(33,43,54,0.96)";
+                ctx.fill();
+
+                // Tooltip text
+                ctx.fillStyle = "#ffffff";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+                ctx.fillText(text, bx + padX, b.cy);
+
+                ctx.restore();
             }
 
             drawZoomButton(ctx) {
@@ -6650,7 +6830,7 @@ pattern, GGGG | Required`
 
                 this.drawButtonGlyph(ctx, "+", cx, cy, {
                     font: "700 16px Arial",
-                    color: "rgba(20,20,20,0.95)",
+                    color: "#475467",
                 });
 
                 if (this.showHelp) {
@@ -6668,7 +6848,7 @@ pattern, GGGG | Required`
 
                 this.drawButtonGlyph(ctx, "–", cx, cy, {
                     font: "700 18px Arial",
-                    color: "rgba(20,20,20,0.95)",
+                    color: "#475467",
                 });
 
                 if (this.showHelp) {
@@ -6705,7 +6885,7 @@ pattern, GGGG | Required`
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Move the graph", cx + 20, cy, {
                         font: "11px Arial",
-                        color: "rgba(20,20,20,0.90)",
+                        color: "#475467",
                     });
                 }
             }
@@ -6726,7 +6906,7 @@ pattern, GGGG | Required`
                 this.resetCanvasEffects(ctx);
                 ctx.beginPath();
                 ctx.rect(cx - halfSide, cy - halfSide, side, side);
-                ctx.strokeStyle = "rgba(20,20,20,0.9)";
+                ctx.strokeStyle = "#475467";
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
                 ctx.restore();
@@ -6960,72 +7140,93 @@ pattern, GGGG | Required`
 
                         }
                         if (this.showDisplay) {
+                            // ---- Professional status HUD (top-left) ----
+                            ctx.save();
+                            this.resetCanvasEffects(ctx);
                             ctx.textAlign = 'left';
-                            ctx.shadowBlur = 0;
-                            ctx.shadowColor = 'black';
-                            ctx.font = 'bold 10px Arial';
-                            ctx.fillStyle = 'navy';
+                            ctx.textBaseline = 'middle';
 
-                            let str = Math.floor((this.graph.grid.xmax - this.graph.grid.xmin) / (this.graph.grid.ymax - this.graph.grid.ymin)) + '';
-                            ctx.fillText(str, 2, 10);
-                            ctx.fillText('Tracks: ' + this.track.length, 2, 25);
-                            ctx.fillText('Oligos: ' + ocount, 2, 40);
-                            if (!this.props.selected_chemistry) {
-                                const text = '(No chemistry selected)';
-                                const x = 2;
-                                const y = 55;
+                            const chemSelected = !!this.props.selected_chemistry;
+                            let chemName = this.props.selected_chemistry?.name ?? '';
+                            if (chemName.endsWith('.json')) chemName = chemName.substring(0, chemName.indexOf('.json'));
+                            if (chemName.length > 22) chemName = chemName.slice(0, 21) + '…';
 
-                                const pulse = (Math.sin(performance.now() * 0.002) + 1) * 0.5;
+                            const rows = [
+                                { label: 'Tracks', value: String(this.track.length) },
+                                { label: 'Oligos', value: String(ocount) },
+                            ];
 
-                                ctx.save();
-                                ctx.font = 'bold 10px Arial';
-                                ctx.textBaseline = 'middle';
-                                ctx.textAlign = 'left';
+                            const LABEL_FONT = '600 10px Arial';
+                            const VALUE_FONT = '700 10px Arial';
 
-                                if (!this.__noChemWidth) {
-                                    this.__noChemWidth = ctx.measureText(text).width;
-                                }
+                            // Measure to size the panel to its content
+                            ctx.font = VALUE_FONT;
+                            let maxValW = 0;
+                            for (const r of rows) maxValW = Math.max(maxValW, ctx.measureText(r.value).width);
+                            const chemMeasure = chemSelected
+                                ? ctx.measureText(chemName || '—').width
+                                : ctx.measureText('None selected').width + 14;
+                            maxValW = Math.max(maxValW, chemMeasure);
 
-                                const padX = 8;
-                                const boxH = 16;
-                                const boxW = this.__noChemWidth + padX * 2;
-                                const bx = x - padX;
-                                const by = y - boxH / 2;
+                            const panelX = 8, panelY = 8;
+                            const padX = 10, padY = 8;
+                            const rowH = 16;
+                            const labelColW = 44;
+                            const panelW = padX * 2 + labelColW + maxValW + 6;
+                            const panelH = padY * 2 + rowH * (rows.length + 1);
 
-                                ctx.shadowColor = 'orange';
-                                ctx.shadowBlur = 8 + pulse * 20;
-                                ctx.fillStyle = `rgba(255,240,120,${0.25 + pulse * 0.35})`;
-                                roundRectPath(ctx, bx, by, boxW, boxH, 6);
-                                ctx.fill();
+                            // Panel background: subtle translucent card with soft shadow + border
+                            ctx.shadowColor = 'rgba(16,24,40,0.12)';
+                            ctx.shadowBlur = 6;
+                            ctx.shadowOffsetY = 2;
+                            ctx.fillStyle = 'rgba(255,255,255,0.92)';
+                            this.roundRectPath(ctx, panelX, panelY, panelW, panelH, 7);
+                            ctx.fill();
 
-                                ctx.shadowBlur = 0;
-                                ctx.strokeStyle = `rgba(255,140,0,${0.4 + pulse * 0.4})`;
-                                roundRectPath(ctx, bx, by, boxW, boxH, 6);
-                                ctx.stroke();
+                            this.resetCanvasEffects(ctx);
+                            ctx.lineWidth = 1;
+                            ctx.strokeStyle = '#d4dae3';
+                            this.roundRectPath(ctx, panelX, panelY, panelW, panelH, 7);
+                            ctx.stroke();
 
-                                ctx.fillStyle = `rgba(160,30,0,${0.8 + pulse * 0.2})`;
-                                ctx.fillText(text, x, y);
+                            const lx = panelX + padX;
+                            const vx = panelX + padX + labelColW;
+                            let ry = panelY + padY + rowH / 2;
 
-                                ctx.restore();
-                            } else {
-                                let t = this.props.selected_chemistry?.name ?? '';
-
-                                if (t.endsWith('.json')) {
-                                    t = t.substring(0, t.indexOf('.json'));
-                                }
-
-                                if (t) {
-                                    ctx.save();
-                                    ctx.textAlign = 'left';
-                                    ctx.textBaseline = 'middle';
-                                    ctx.font = 'bold 10px Arial';
-                                    ctx.fillStyle = 'blue';
-
-                                    ctx.fillText(t, 2, 55);
-
-                                    ctx.restore();
-                                }
+                            for (const r of rows) {
+                                ctx.font = LABEL_FONT; ctx.fillStyle = '#667085';
+                                ctx.fillText(r.label, lx, ry);
+                                ctx.font = VALUE_FONT; ctx.fillStyle = '#344054';
+                                ctx.fillText(r.value, vx, ry);
+                                ry += rowH;
                             }
+
+                            // Chemistry row
+                            ctx.font = LABEL_FONT; ctx.fillStyle = '#667085';
+                            ctx.fillText('Chem', lx, ry);
+
+                            if (chemSelected) {
+                                ctx.font = VALUE_FONT; ctx.fillStyle = '#1d4ed8';
+                                ctx.fillText(chemName || '—', vx, ry);
+                            } else {
+                                // Calm amber "None selected" badge (no pulsing alarm)
+                                const t = 'None selected';
+                                ctx.font = '600 10px Arial';
+                                const tw = ctx.measureText(t).width;
+                                const pillPadX = 6, pillH = 14;
+                                const pillX = vx, pillY = ry - pillH / 2;
+                                ctx.fillStyle = 'rgba(251,191,36,0.18)';
+                                this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                                ctx.fill();
+                                ctx.lineWidth = 1;
+                                ctx.strokeStyle = 'rgba(217,119,6,0.45)';
+                                this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                                ctx.stroke();
+                                ctx.fillStyle = '#b45309';
+                                ctx.fillText(t, pillX + pillPadX, ry);
+                            }
+
+                            ctx.restore();
                         }
 
                         if (this.highlight_text) {
@@ -7203,6 +7404,7 @@ pattern, GGGG | Required`
                         this.drawContractVerticalButton(ctx);
                         this.drawExpandHorizontalButton(ctx);
                         this.drawExpandVerticalButton(ctx);
+                        this.drawControlButtonHover(ctx);
                     }
                     ctx.fillStyle = "white";
                     ctx.lineWidth = 0;
@@ -7232,16 +7434,14 @@ pattern, GGGG | Required`
                         this.__last_side_menu_ref = this.side_menu;
                     }
                     const menuToDraw = this.side_menu || this.__last_side_menu_ref;
+
+
                     const presentNow = !!this.side_menu;
                     const fadeState = _stepSideMenuFade(this, presentNow);
-
                     if (menuToDraw) {
-
                         menuToDraw.x = this.Xwc(100);
                         menuToDraw.y = this.Ywc(100);
-
                         _applySideMenuBgAlpha(this, fadeState.alpha);
-
                         if (fadeState.alpha > 0.001 && menuToDraw.draw) {
                             menuToDraw.draw(ctx, this.graph.grid);
                         }
@@ -7252,10 +7452,10 @@ pattern, GGGG | Required`
 
                         ctx.shadowBlur = 0;
                         ctx.shadowColor = 'black';
+                    } else {
                     }
                     ctx.textAlign = 'left';
                     if (this.bookmark_menu && this.showBookmarks) {
-
                         this.graph.drawMenu(this.bookmark_menu, ctx)
                     }
                     if (this.chapter_menu && this.showChapters) {
@@ -7264,12 +7464,9 @@ pattern, GGGG | Required`
                     if (isMobile()) {
                         this.showNavigationControl = false;
                     }
-
                     if (this.center_paragraph_text) {
-
                         ctx.save();
                         ctx.globalAlpha = 1;
-
                         this._drawCenteredParagraph(ctx, this.center_paragraph_text, {
                             maxWidth: 300,
                             minFontSize: 18,

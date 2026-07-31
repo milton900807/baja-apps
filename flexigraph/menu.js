@@ -187,6 +187,17 @@ function () {
             ctx.lineWidth = 1;
         }
 
+        function menuRoundPath(ctx, x, y, w, h, r) {
+            const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+            ctx.beginPath();
+            ctx.moveTo(x + rr, y);
+            ctx.arcTo(x + w, y, x + w, y + h, rr);
+            ctx.arcTo(x + w, y + h, x, y + h, rr);
+            ctx.arcTo(x, y + h, x, y, rr);
+            ctx.arcTo(x, y, x + w, y, rr);
+            ctx.closePath();
+        }
+
         let Menu = class Menu {
             name;
             x = 0;
@@ -196,22 +207,22 @@ function () {
             mx = -1;
             my = -1;
             highlight = -1;
-            mheight = 45;
+            mheight = 34;
             xoffset = 0;
             yoffset = 0;
-            menu_width = 350;
+            menu_width = 300;
             title = ''
-            sg = 'cyan'
-            sf = 'blue'
-            bg = 'rgb(205, 255, 155)'
-            fg = 'black'
+            sg = '#eef2f8'
+            sf = '#1d4ed8'
+            bg = 'rgba(255,255,255,0)'
+            fg = '#344054'
             activeitems = []
             scrollIndex = 0;
             scrollTimer = null;
             columns = 1;
             menu_type = null;
-            titleFont = '21px Arial'
-            titleColor = 'Black'
+            titleFont = '600 13px Arial'
+            titleColor = '#111827'
             isdisplayed = false;
 
             static removeDuplicateLabels(items) {
@@ -357,85 +368,107 @@ function () {
                     return;
                 }
 
-                ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 if (!this.list) return;
 
-                let itemsPerColumn = this.getItemsPerColumn();
-                ctx.font = '15px Arial';
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                let radius = 8;
-                let borderPadding = 4;
+                ctx.save();
+
+                const itemsPerColumn = this.getItemsPerColumn();
+                const borderPadding = 4;
+                const itemRadius = 6;
+
+                const px = grid.X(this.x) + this.xoffset;
+                const py = grid.Y(this.y) + this.yoffset;
+                const totalW = this.menu_width * this.columns + 20 * (this.columns - 1);
+                const rowsH = itemsPerColumn * this.mheight;
+                const titleH = this.title ? 24 : 0;
+
+                // Unified menu panel: white card with soft shadow + neutral border
+                const panelX = px;
+                const panelY = py - titleH;
+                const panelW = totalW;
+                const panelH = rowsH + titleH + borderPadding;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(16,24,40,0.22)';
+                ctx.shadowBlur = 14;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 5;
+                ctx.fillStyle = 'rgba(255,255,255,0.98)';
+                menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#d4dae3';
+                menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
+                ctx.stroke();
 
                 if (this.title) {
-                    ctx.font = this.titleFont;
-                    ctx.fillStyle = this.titleColor;
-                    ctx.strokeStyle = this.titleColor;
-                    ctx.fillText(
-                        this.title,
-                        grid.X(this.x) + this.xoffset + this.menu_width / 2,
-                        grid.Y(this.y) + borderPadding - 10
-                    );
-                    ctx.shadowBlur = 0;
+                    ctx.font = this.titleFont || '600 13px Arial';
+                    ctx.fillStyle = this.titleColor || '#111827';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(this.title, panelX + 12, panelY + titleH / 2 + 1);
                 }
 
                 for (let i = 0; i < this.list.length; i++) {
-                    let column = Math.floor(i / itemsPerColumn);
-                    let row = i % itemsPerColumn;
-                    let menuItem = this.list[i];
-                    let columnXOffset = column * (this.menu_width + 20);
+                    const column = Math.floor(i / itemsPerColumn);
+                    const row = i % itemsPerColumn;
+                    const menuItem = this.list[i];
+                    if (!menuItem) continue;
+                    const columnXOffset = column * (this.menu_width + 20);
 
-                    let x = grid.X(this.x) + this.xoffset + columnXOffset + borderPadding;
-                    let y = grid.Y(this.y) + this.yoffset + (row * this.mheight) + borderPadding;
-                    let width = this.menu_width - 2 * borderPadding;
-                    let height = this.mheight - 2 * borderPadding;
+                    const x = px + columnXOffset + borderPadding;
+                    const y = py + (row * this.mheight) + borderPadding;
+                    const width = this.menu_width - 2 * borderPadding;
+                    const height = this.mheight - 2 * borderPadding;
 
-                    ctx.fillStyle = this.bg;
-                    if (this.highlight === i) {
-                        ctx.fillStyle = this.sg;
+                    const isHi = this.highlight === i;
+
+                    // Separator rows render as a thin divider
+                    if (menuItem.type === 'separator') {
+                        ctx.strokeStyle = '#e5e8ee';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(x + 8, y + height / 2);
+                        ctx.lineTo(x + width - 8, y + height / 2);
+                        ctx.stroke();
+                        continue;
+                    }
+
+                    // Row background: hover highlight (with an accent bar) or a per-item bg
+                    if (isHi) {
+                        ctx.fillStyle = menuItem.sg || this.sg || '#eef2f8';
+                        menuRoundPath(ctx, x, y, width, height, itemRadius);
+                        ctx.fill();
+                        ctx.fillStyle = '#2f6feb';
+                        menuRoundPath(ctx, x, y, 3, height, 1.5);
+                        ctx.fill();
                     } else if (menuItem.bg) {
                         ctx.fillStyle = menuItem.bg;
+                        menuRoundPath(ctx, x, y, width, height, itemRadius);
+                        ctx.fill();
                     }
 
-                    if (menuItem.sg) {
-                        ctx.fillStyle = menuItem.sg;
-                    }
-
-                    drawRoundedRect(ctx, x, y, width, height, radius, this.menu_type);
-
-                    ctx.font = "18px Arial";
-                    ctx.fillStyle = this.fg;
-                    if (this.highlight === i) {
-                        ctx.fillStyle = this.sf;
-                    } else if (menuItem.fg) {
-                        ctx.fillStyle = menuItem.fg;
-                    }
-
-                    if (!this.fg) {
-                        this.fg = getContrastColor(this.bg);
-                    }
-
+                    // Label: left-aligned, ellipsis-truncated
                     if (menuItem.label) {
-                        let textToDisplay = menuItem.label;
-                        let availableWidth = width - 10;
+                        ctx.font = '14px Arial';
+                        ctx.fillStyle = isHi ? (menuItem.sf || this.sf || '#1d4ed8')
+                            : (menuItem.fg || this.fg || '#344054');
+                        ctx.textAlign = 'left';
 
-                        while (ctx.measureText(textToDisplay + '...').width > availableWidth) {
+                        let textToDisplay = menuItem.label;
+                        const availableWidth = width - 24;
+                        while (textToDisplay.length && ctx.measureText(textToDisplay + '…').width > availableWidth) {
                             textToDisplay = textToDisplay.slice(0, -1);
                         }
+                        if (textToDisplay !== menuItem.label) textToDisplay += '…';
 
-                        if (textToDisplay !== menuItem.label) {
-                            textToDisplay += '...';
-                        }
-
-                        ctx.fillText(
-                            textToDisplay,
-                            x + width / 2,
-                            y + height / 2
-                        );
+                        ctx.fillText(textToDisplay, x + 12, y + height / 2);
                     }
-
-                    ctx.strokeStyle = 'transparent';
                 }
+
+                ctx.restore();
             }
 
             toJSON() {

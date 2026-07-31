@@ -10,6 +10,18 @@ function (graph, genegraph_panel_layout) {
         let diffy = 0
         let MenuFactory = await exec('baja/screens/menu/menu-factory.js')
         let panel;
+
+        // Any submenu opened from a menu-item click is deferred ~1s so it does not
+        // collide with the in-progress canvas mouse interaction that triggered the
+        // click. Closing a menu (null) still happens immediately.
+        const MENU_OPEN_DELAY_MS = 1000;
+        const showSideMenuDelayed = (menu, x, y) => {
+            if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
+            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(menu, x, y); }, MENU_OPEN_DELAY_MS);
+        };
+        const showWindowMenuDelayed = (menu, a, b, c) => {
+            setTimeout(() => { if (graph && graph.showWindowMenu) graph.showWindowMenu(menu, a, b, c); }, MENU_OPEN_DELAY_MS);
+        };
         const getAmpliconMenuItems = (selectedTrack, graph) => {
             let t = [
                 {
@@ -164,11 +176,11 @@ function (graph, genegraph_panel_layout) {
                                                 }
                                             }
                                         ];
-                                        graph.showSideMenu(ssubmenu);
+                                        showSideMenuDelayed(ssubmenu);
                                     }
                                 }));
 
-                                return { label: `Filter ${attrLabel}`, click: () => graph.showSideMenu(submenu) };
+                                return { label: `Filter ${attrLabel}`, click: () => showSideMenuDelayed(submenu) };
                             }
 
                             function makePromptFilterItem(attrLabel, promptTitle, promptFieldLabel, fieldAccessor) {
@@ -267,7 +279,7 @@ function (graph, genegraph_panel_layout) {
                                                 }
                                             }
                                         ];
-                                        graph.showSideMenu(submenu);
+                                        showSideMenuDelayed(submenu);
                                     }
                                 });
                             }
@@ -345,7 +357,7 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            graph.showSideMenu(menuItems);
+                            showSideMenuDelayed(menuItems);
                         }
 
                         showAmpliconFilterSideMenu(graph, selTrack, 20);
@@ -441,7 +453,7 @@ function (graph, genegraph_panel_layout) {
                 }
             ];
 
-            graph.showSideMenu(submenu);
+            showSideMenuDelayed(submenu);
         }
 
         const getOligoMenuItems = (selectedTrack, graph) => {
@@ -552,13 +564,13 @@ function (graph, genegraph_panel_layout) {
                                                 }
                                             }
                                         ];
-                                        graph.showSideMenu(ssubmenu);
+                                        showSideMenuDelayed(ssubmenu);
                                     }
                                 }));
 
                                 return {
                                     label: `Filter ${attrLabel}`,
-                                    click: () => graph.showSideMenu(submenu)
+                                    click: () => showSideMenuDelayed(submenu)
                                 };
                             }
 
@@ -727,7 +739,7 @@ function (graph, genegraph_panel_layout) {
 
                                     if (submenu.length === 0) return;
 
-                                    graph.showSideMenu(submenu);
+                                    showSideMenuDelayed(submenu);
                                 }
                             });
 
@@ -741,7 +753,7 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            graph.showSideMenu(menuItems);
+                            showSideMenuDelayed(menuItems);
                         }
 
                         showOligoFilterSideMenu(graph, selTrack, 20);
@@ -863,14 +875,14 @@ function (graph, genegraph_panel_layout) {
                                                 },
                                             },
                                         ]
-                                        graph.showSideMenu(ssubmenu)
+                                        showSideMenuDelayed(ssubmenu)
                                     }
                                 }));
 
                                 return {
                                     label: `Filter ${attrLabel}`,
                                     click: () => {
-                                        graph.showSideMenu(submenu)
+                                        showSideMenuDelayed(submenu)
                                     }
                                 };
                             }
@@ -945,7 +957,7 @@ function (graph, genegraph_panel_layout) {
                                 })
 
 
-                            graph.showSideMenu(menuItems);
+                            showSideMenuDelayed(menuItems);
                         }
 
                         showSnpIndelFilterSideMenu(graph, selectedTrack, 20);
@@ -1278,6 +1290,7 @@ function (graph, genegraph_panel_layout) {
 
             move = null;
 
+            await showContextMenu(x, y);
             if (!graph.menuVisible()) {
                 let t = graph.getTrack(x, y);
                 if (t >= 0) {
@@ -1325,7 +1338,7 @@ function (graph, genegraph_panel_layout) {
                             const m = await exec('baja/screens/menu/snp-menu', graph, track, snp);
                             let m_ = {
                                 label: '' + snp.name, click: () => {
-                                    graph.showSideMenu(m)
+                                    showSideMenuDelayed(m)
                                 }
                             }
                             mergedMenu.items.push(m_)
@@ -1341,24 +1354,19 @@ function (graph, genegraph_panel_layout) {
 
         })
 
-        graph.addMouseDownListener(async (x, y) => {
-            if (move) {
-                move.x = x + diffx;
-                move.y = y + diffy
-            }
-            md = true;
+        // Builds and displays the context menu. This used to live in the
+        // mouse-down listener; it now runs on mouse-up so a press+drag no
+        // longer pops a menu. Drag/resize initiation stays in mouse-down below.
+        let showContextMenu = async (x, y) => {
 
-            if (graph && graph.setCenterParagraph)
-                graph.setCenterParagraph(null)
-
+            // Pressing on a plot handle/tab is handled on mouse-down (resize/move).
+            // Here we only need to suppress the context menu in those cases.
             for (let pl of graph.plots) {
                 const activeTab = pl.inside(graph, x, y);
                 if (pl.inResize(graph.X(x), graph.Y(y))) {
-                    resize(pl);
                     return;
                 } else
                     if (activeTab) {
-                        move = pl;
                         return;
                     }
             }
@@ -1385,6 +1393,68 @@ function (graph, genegraph_panel_layout) {
                         }
 
                     }
+                }
+            }
+
+            // --- Shapes (free drawings held in graph.shapes) ---
+            // getStructure(x, y) already hit-tests graph.shapes via sh.isIn and
+            // returns matching shapes alongside oligos (oligos come back as arrays,
+            // shapes as individual objects). Open a context menu for any shape under
+            // the cursor. This is an initial context menu, so it opens immediately;
+            // its own sub-menus use the deferred helper like everywhere else.
+            {
+                const hitShapes = (graph.getStructure(x, y) || [])
+                    .filter(g => g && !Array.isArray(g) && typeof g.isIn === 'function');
+
+                if (hitShapes.length > 0) {
+                    const COLORS = ['red', 'blue', 'green', 'orange', 'purple', 'black', 'gray', 'white'];
+                    const shapeMenu = [];
+
+                    for (const sh of hitShapes) {
+                        const title = sh.name || sh.type || 'Shape';
+
+                        shapeMenu.push({
+                            label: `Edit comment: ${title}`,
+                            click: async () => {
+                                graph.currentShape = sh;
+                                const res = await prompt('Comment', ['Comment'], { Comment: sh.comment || '' }, 500, 300);
+                                if (res && res.Comment != null) sh.comment = res.Comment;
+                                graph.showSideMenu(null);
+                            }
+                        });
+
+                        shapeMenu.push({
+                            label: `Color: ${title}`,
+                            click: () => {
+                                const colorSub = COLORS.map(c => ({
+                                    label: c,
+                                    click: () => {
+                                        if (typeof sh.setColor === 'function') sh.setColor(c);
+                                        else sh.color = c;
+                                        graph.showSideMenu(null);
+                                    }
+                                }));
+                                showSideMenuDelayed(colorSub);
+                            }
+                        });
+
+                        shapeMenu.push({
+                            label: `Delete: ${title}`,
+                            click: async () => {
+                                let confirm = await exec('baja/lib/confirm.js', 'Delete this shape?', async () => {
+                                    graph.currentShape = null;
+                                    graph.removeShape(sh);
+                                    graph.showSideMenu(null);
+                                });
+                                showModal(confirm);
+                            }
+                        });
+
+                        if (hitShapes.length > 1) shapeMenu.push({ type: 'separator' });
+                    }
+
+                    graph.showSideMenu(shapeMenu, x, y);
+                    return;
                 }
             }
 
@@ -1540,7 +1610,7 @@ function (graph, genegraph_panel_layout) {
                                                 },
 
                                             ]
-                                            graph.showSideMenu(models)
+                                            showSideMenuDelayed(models)
 
                                         }, 100)
 
@@ -1569,7 +1639,7 @@ function (graph, genegraph_panel_layout) {
 
                                                         }
                                                     }
-                                                    graph.showSideMenu(lll)
+                                                    showSideMenuDelayed(lll)
 
                                                 })
                                             }, {
@@ -1590,7 +1660,7 @@ function (graph, genegraph_panel_layout) {
                                                     }
                                                 })
                                             }]
-                                        graph.showSideMenu(lll)
+                                        showSideMenuDelayed(lll)
                                     })
                                 },
                                 {
@@ -1617,7 +1687,7 @@ function (graph, genegraph_panel_layout) {
                                                                 if (currentSequence != null && currentSequence.length > 0) {
 
                                                                     let menuList = await exec('baja/screens/menu/compound-menu-list.js', track, graph, genegraph_panel_layout)
-                                                                    await graph.showWindowMenu(menuList, 10, 10, 200);
+                                                                    await showWindowMenuDelayed(menuList, 10, 10, 200);
                                                                 }
                                                             }
                                                         }
@@ -1637,7 +1707,7 @@ function (graph, genegraph_panel_layout) {
                                                     graph.pushOntoHistory()
                                                     graph.clearMouseListeners();
 
-                                                    graph.addMouseDownListener(async (x, y) => {
+                                                    graph.addMouseUpListener(async (x, y) => {
 
                                                         let trackIndex = graph.getTrack(x, y);
                                                         if (trackIndex >= 0) {
@@ -1761,7 +1831,7 @@ function (graph, genegraph_panel_layout) {
                                                     })
                                                 })
                                             }]
-                                        graph.showSideMenu(lll)
+                                        showSideMenuDelayed(lll)
 
                                     })
                                 }
@@ -1848,7 +1918,7 @@ function (graph, genegraph_panel_layout) {
                                                         },
 
                                                     ]
-                                                    graph.showSideMenu(golist);
+                                                    showSideMenuDelayed(golist);
 
                                                 },
                                             },
@@ -1862,7 +1932,7 @@ function (graph, genegraph_panel_layout) {
                                                     )
 
                                                     const mml = await exec('baja/screens/menu/annotations-type-menu', graph, genegraph_panel_layout, annotations, selectedTrack)
-                                                    graph.showSideMenu(mml)
+                                                    showSideMenuDelayed(mml)
 
                                                 },
                                             }
@@ -1901,7 +1971,7 @@ function (graph, genegraph_panel_layout) {
 
                                                                                 const annotationsOfType = annotations.filter(a => a?.type === type)
 
-                                                                                graph.showSideMenu([
+                                                                                showSideMenuDelayed([
                                                                                     {
                                                                                         label: 'View',
                                                                                         click: () => {
@@ -1936,12 +2006,12 @@ function (graph, genegraph_panel_layout) {
                                                                             }
                                                                         })
                                                                     }
-                                                                    graph.showSideMenu(ch)
+                                                                    showSideMenuDelayed(ch)
 
                                                                 }
                                                             },
                                                         ]
-                                                        graph.showSideMenu(mml)
+                                                        showSideMenuDelayed(mml)
 
                                                         if (graph.track && graph.track.length === 1) {
 
@@ -1977,7 +2047,7 @@ function (graph, genegraph_panel_layout) {
 
                                                                             }
                                                                         })
-                                                                        graph.showSideMenu(mmml)
+                                                                        showSideMenuDelayed(mmml)
                                                                     }
                                                                 })
                                                             }
@@ -1985,14 +2055,14 @@ function (graph, genegraph_panel_layout) {
                                                             ml.push({
                                                                 label: 'Data Layers',
                                                                 click: () => {
-                                                                    graph.showSideMenu(mml)
+                                                                    showSideMenuDelayed(mml)
                                                                 }
                                                             })
                                                         }
 
                                                     }
                                                 }
-                                                graph.showSideMenu(ml)
+                                                showSideMenuDelayed(ml)
 
                                             }
                                         }
@@ -2139,7 +2209,7 @@ function (graph, genegraph_panel_layout) {
                                     })
 
                                 }
-                                graph.showWindowMenu(menuList, 10, 10, 200);
+                                showWindowMenuDelayed(menuList, 10, 10, 200);
                             },
                             move: () => {
                             }
@@ -2181,21 +2251,6 @@ function (graph, genegraph_panel_layout) {
 
                     graph.showMenu(menuList, x, y)
 
-                }
-                else if (plot.grid && plot.inside(graph, graph.X(x), graph.Y(y))) {
-                    move = true;
-                    xi = x;
-                    yi = y;
-                    plot.x = x + (plot.x - x);
-                    diffx = (plot.x - x);
-                    diffy = (plot.y - y);
-
-                    if (plot.inside(graph, graph.X(x), graph.Y(y))) {
-                        plot.highlight();
-                    } else {
-                        plot.unhighlight();
-                    }
-                    move = plot;
                 }
 
             }
@@ -2280,7 +2335,7 @@ function (graph, genegraph_panel_layout) {
                                             },
 
                                         ]
-                                        graph.showSideMenu(golist);
+                                        showSideMenuDelayed(golist);
 
                                     },
                                 },
@@ -2294,7 +2349,7 @@ function (graph, genegraph_panel_layout) {
                                         )
 
                                         const mml = await exec('baja/screens/menu/annotations-type-menu', graph, genegraph_panel_layout, annotations, selectedTrack)
-                                        graph.showSideMenu(mml)
+                                        showSideMenuDelayed(mml)
 
                                     },
                                 }
@@ -2333,7 +2388,7 @@ function (graph, genegraph_panel_layout) {
 
                                                                     const annotationsOfType = annotations.filter(a => a?.type === type)
 
-                                                                    graph.showSideMenu([
+                                                                    showSideMenuDelayed([
                                                                         {
                                                                             label: 'View',
                                                                             click: () => {
@@ -2368,12 +2423,12 @@ function (graph, genegraph_panel_layout) {
                                                                 }
                                                             })
                                                         }
-                                                        graph.showSideMenu(ch)
+                                                        showSideMenuDelayed(ch)
 
                                                     }
                                                 },
                                             ]
-                                            graph.showSideMenu(mml)
+                                            showSideMenuDelayed(mml)
 
                                             if (graph.track && graph.track.length === 1) {
 
@@ -2409,7 +2464,7 @@ function (graph, genegraph_panel_layout) {
 
                                                                 }
                                                             })
-                                                            graph.showSideMenu(mmml)
+                                                            showSideMenuDelayed(mmml)
                                                         }
                                                     })
                                                 }
@@ -2417,14 +2472,14 @@ function (graph, genegraph_panel_layout) {
                                                 ml.push({
                                                     label: 'Data Layers',
                                                     click: () => {
-                                                        graph.showSideMenu(mml)
+                                                        showSideMenuDelayed(mml)
                                                     }
                                                 })
                                             }
 
                                         }
                                     }
-                                    graph.showSideMenu(ml)
+                                    showSideMenuDelayed(ml)
 
                                 }
                             }
@@ -2674,7 +2729,7 @@ function (graph, genegraph_panel_layout) {
 
                                                 if (!topTen.length) {
                                                     console.warn("No annotations available.");
-                                                    graph.showSideMenu([{ label: 'No annotations found', click: () => { } }]);
+                                                    showSideMenuDelayed([{ label: 'No annotations found', click: () => { } }]);
                                                     return;
                                                 }
 
@@ -2705,7 +2760,7 @@ function (graph, genegraph_panel_layout) {
                                                     click: () => openNearestAnnotationsMenu(graph, selectedTrack),
                                                 });
 
-                                                graph.showSideMenu(menuList);
+                                                showSideMenuDelayed(menuList);
                                             }
 
                                             setTimeout(() => {
@@ -2843,7 +2898,7 @@ function (graph, genegraph_panel_layout) {
                                                     click: () => { }
                                                 });
                                             }
-                                            graph.showSideMenu(menuItems);
+                                            showSideMenuDelayed(menuItems);
 
                                         }, 1300)
 
@@ -2899,7 +2954,7 @@ function (graph, genegraph_panel_layout) {
 
                                                 if (!topTen.length) {
                                                     console.warn("No SNPs available.");
-                                                    graph.showSideMenu([{ label: 'No SNPs found', click: () => { } }]);
+                                                    showSideMenuDelayed([{ label: 'No SNPs found', click: () => { } }]);
                                                     return;
                                                 }
 
@@ -2937,7 +2992,7 @@ function (graph, genegraph_panel_layout) {
                                                         graph.showSideMenu(null)
                                                     },
                                                 });
-                                                graph.showSideMenu(menuList);
+                                                showSideMenuDelayed(menuList);
                                             }
                                             setTimeout(() => {
                                                 openNearestSnpsMenu(graph, selectedTrack);
@@ -2947,7 +3002,7 @@ function (graph, genegraph_panel_layout) {
                                 }
 
                             ]
-                            graph.showSideMenu(golist);
+                            showSideMenuDelayed(golist);
                         },
 
                     },
@@ -3008,7 +3063,7 @@ function (graph, genegraph_panel_layout) {
 
                             ];
 
-                            graph.showSideMenu(ssubmenu);
+                            showSideMenuDelayed(ssubmenu);
 
                         }
                     },
@@ -3042,7 +3097,7 @@ function (graph, genegraph_panel_layout) {
                                     })
                                 }
                             }
-                            graph.showSideMenu(submenus)
+                            showSideMenuDelayed(submenus)
                         }
                     }, {
                         label: "Design",
@@ -3667,7 +3722,13 @@ function (graph, genegraph_panel_layout) {
 
 
                             ]
-                            graph.showSideMenu(submenu)
+
+                            setTimeout(() => {
+
+                                showSideMenuDelayed(submenu)
+
+                            }, 1000)
+
                         }
                     },
                     annotations_menu,
@@ -3994,7 +4055,7 @@ function (graph, genegraph_panel_layout) {
                                                         },
                                                     }
                                                 ]
-                                                graph.showSideMenu(protein_list)
+                                                showSideMenuDelayed(protein_list)
 
                                             }, 1000);
                                         } else {
@@ -4095,7 +4156,7 @@ function (graph, genegraph_panel_layout) {
                                             }
                                         });
 
-                                        graph.showSideMenu(golist);
+                                        showSideMenuDelayed(golist);
                                     }
                                 }
 
@@ -4203,7 +4264,7 @@ function (graph, genegraph_panel_layout) {
                                                     wid: 'json',
                                                     data: JSON.stringify(r)
                                                 })
-                                                graph.showSideMenu(lll)
+                                                showSideMenuDelayed(lll)
 
                                             })
                                         }, {
@@ -4233,11 +4294,11 @@ function (graph, genegraph_panel_layout) {
                                                 })
                                             })
                                         }]
-                                    graph.showSideMenu(lll)
+                                    showSideMenuDelayed(lll)
                                 })
                             },)
 
-                            graph.showSideMenu(golist);
+                            showSideMenuDelayed(golist);
 
                         },
                     },
@@ -4273,7 +4334,7 @@ function (graph, genegraph_panel_layout) {
                                                 })
                                             }
                                         }
-                                        graph.showSideMenu(data_menu);
+                                        showSideMenuDelayed(data_menu);
                                     }
                                 },
                                 {
@@ -4296,7 +4357,10 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            graph.showSideMenu(golist);
+                            setTimeout(() => {
+                                showSideMenuDelayed(golist);
+
+                            }, 1000)
 
                         },
                     },
@@ -4412,8 +4476,6 @@ function (graph, genegraph_panel_layout) {
                     track_list.push(gm_2)
 
                 }
-
-
                 track_list.push({
                     label: 'Delete track',
                     click: async () => {
@@ -4428,8 +4490,6 @@ function (graph, genegraph_panel_layout) {
                         }, 1000)
                     }
                 })
-
-
                 if (selectedTrack.oligos && selectedTrack.oligos.length > 0)
                     track_list = track_list.concat(getOligoMenuItems(selectedTrack, graph))
                 if (selectedTrack?.ampliconResults && selectedTrack?.ampliconResults && selectedTrack?.ampliconResults?.hits?.length > 0)
@@ -4437,6 +4497,46 @@ function (graph, genegraph_panel_layout) {
                 graph.showSideMenu(track_list);
             }
 
+        };
+
+        // Mouse-down only initiates drags/resizes and sets state. It never
+        // opens a menu — menus are opened from mouse-up (showContextMenu).
+        graph.addMouseDownListener((x, y) => {
+            md = true;
+
+            if (move) {
+                move.x = x + diffx;
+                move.y = y + diffy;
+            }
+
+            if (graph && graph.setCenterParagraph)
+                graph.setCenterParagraph(null);
+
+            // Start a resize or a tab-move if the press landed on a plot handle/tab
+            for (let pl of graph.plots) {
+                const activeTab = pl.inside(graph, x, y);
+                if (pl.inResize(graph.X(x), graph.Y(y))) {
+                    resize(pl);
+                    return;
+                } else if (activeTab) {
+                    move = pl;
+                    return;
+                }
+            }
+            move = null;
+
+            // Start dragging a plot body if the press landed inside it
+            for (let plot of graph.plots) {
+                if (plot.grid && plot.inside(graph, graph.X(x), graph.Y(y))) {
+                    xi = x;
+                    yi = y;
+                    plot.x = x + (plot.x - x);
+                    diffx = (plot.x - x);
+                    diffy = (plot.y - y);
+                    plot.highlight();
+                    move = plot;
+                }
+            }
         });
 
         return resolve();

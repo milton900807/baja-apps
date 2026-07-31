@@ -7,7 +7,7 @@ function (graph) {
             graph.setMouseMode("navigate")
 
             let xmac_ = 40
-            let height = 26;
+            let height = 24;
             let buttons = []
             let bbuttons = []
 
@@ -623,6 +623,10 @@ function (graph) {
                 }
             }
 
+            // Expose the raw button list so callers (e.g. the menubar) can render
+            // these controls as icon buttons without re-parsing the canvas widget.
+            button_canvas.buttons = buttons;
+
             if (!isMobile()) {
                 resolve(button_canvas)
             } else {
@@ -663,6 +667,9 @@ function (graph) {
                             ]]
                     }
                 }
+
+                // Flat list of all mobile controls, for menubar rendering.
+                buttonMenuPanel.buttons = buttons.concat(bbuttons);
 
                 return resolve(buttonMenuPanel)
             }

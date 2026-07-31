@@ -1266,16 +1266,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
             showModal(v)
         }
         let importSaveScreen = async () => {
-
             let g = CurrentLayout.getStashed('graph')
-
             let v = await exec('baja/table/io/import-yakro', g)
             showModal(v)
         }
-
-
-
-
 
 
         let menuItm = {

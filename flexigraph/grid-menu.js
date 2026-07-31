@@ -29,10 +29,10 @@ function () {
             yoffset = 0;
             menu_width = 250;
             title = '';
-            sg = 'cyan';
-            sf = 'blue';
-            bg = 'maroon';
-            fg = 'white';
+            sg = '#eef2f8';
+            sf = '#1d4ed8';
+            bg = 'rgba(255,255,255,0.98)';
+            fg = '#344054';
             activeitems = [];
             scrollIndex = 0;
             scrollTimer = null;
