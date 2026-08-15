@@ -8765,7 +8765,7 @@ function (MGrid) {
                                 console.log(pngBase64);
 
                                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
-                                await exec('screen/io/save-timeline-to-public.js', graph, genegraph_panel_layout, '', '/app/cpd/editor', im)
+                                await exec('manchester/io/save-timeline-to-public.js', graph, genegraph_panel_layout, '', '/app/cpd/editor', im)
                             }
                             publicPublish();
                         },

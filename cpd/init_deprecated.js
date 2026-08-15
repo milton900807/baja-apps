@@ -66,7 +66,7 @@ function () {
                                             }),
                                             click: createIonFunction(() => {
                                                 clear();
-                                                exec('screen/init')
+                                                exec('manchester/init')
                                             })
                                         },
                                     }

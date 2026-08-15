@@ -343,7 +343,7 @@ function () {
                                                     oligo.offtarget.forEach(async off => {
                                                         block += `${off.chr}\t${off.start}\t${off.end}\t${off.strand}\t${off.editdistance}\n`;
                                                         let sitev = {'chr': off.chr, 'start': off.start, 'end': off.end }
-                                                        let rs = await exec('https://data.lajollalabs.com/ionworks/py/gene/gff.py', ([sitev]))
+                                                        let rs = await exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', ([sitev]))
                                                         block += '<hr> ' + rs['html']
 
                                                     });

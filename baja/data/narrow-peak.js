@@ -78,7 +78,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
                             }
                             layer.sortPolygonPoints();
                             selectedTrack.addLayer(layer)
-                            let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
                             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel');
                             CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
 
@@ -152,7 +152,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
         }
     }
 
-    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
     graph.setMessage(" Select a track... ")
     const nameHook = createIonFunction((editor) => {
@@ -188,7 +188,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
     menuList.push({
         label: 'Edit Layer',
         click: async (xwc, ywc) => {
-            let track_layers_panel = await exec('baja/screens/menu/select-track-action-layers-edit-panel.js', selectedTrack, genegraph_panel_layout)
+            let track_layers_panel = await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js', selectedTrack, genegraph_panel_layout)
             CurrentLayout.clearComponent('mainPanel')
             CurrentLayout.setComponent('mainPanel', track_layers_panel);
 

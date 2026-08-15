@@ -27,7 +27,7 @@ function (path) {
         let userFilesRef = createIonFunction((panel) => {
             userFiles_panel = panel;
         })
-        let commands = await exec('screen/controls/cmds')
+        let commands = await exec('manchester/controls/cmds')
         let userfiles = {
             wid: 'market-file-browser',
             width: '100%',
@@ -120,12 +120,12 @@ function (path) {
                             }
                             exec('cpd/baja-analytics', element.path, config, `/app/cpd/baja-analytics`)
                         }
-                        else if (element.path.endsWith(".screen")) {
+                        else if (element.path.endsWith(".baja")) {
 
                             const path = element.path;
                             clear();
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${path}`);
-                            exec('screen/editor', path, { mode: 'editor' })
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                            exec('manchester/editor', path, { mode: 'editor' })
                         } else if (element.path.endsWith('.bjb')) {
                             clear();
                             let config = {
@@ -385,10 +385,10 @@ function (path) {
                             return;
                         }
 
-                        if (lowerPath.endsWith('.screen')) {
+                        if (lowerPath.endsWith('.baja')) {
                             const path = element.path;
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${encodeURIComponent(path)}`);
-                            exec('screen/editor', path, { mode: 'editor' });
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${encodeURIComponent(path)}`);
+                            exec('manchester/editor', path, { mode: 'editor' });
                             return;
                         }
 
@@ -474,7 +474,7 @@ function (path) {
                         if (!currentPath.endsWith('/'))
                             currentPath += '/'
 
-                        exec('screen/editor.js', currentPath)
+                        exec('manchester/editor.js', currentPath)
                     })
                 },
 

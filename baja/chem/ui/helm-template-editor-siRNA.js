@@ -228,7 +228,7 @@ function (graph, genegraph_panel_layout) {
 
         let rjl = `RNA1{m(?)[sp].m(?)[sp].m(?)p.m(?)p.m(?)p.m(?)p.[fl2r](?)p.m(?)p.[fl2r](?)p.[fl2r](?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)}|RNA2{m(?)[sp].[fl2r](?)[sp].m(?)p.m(?)p.m(?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)p.[fl2r](?)p.m(?)p.m(?)p.m(?)p.m(?)p.m(?)[sp].m(?)[sp].m(?)}$RNA1,RNA2,2:pair-62:pair|RNA1,RNA2,5:pair-59:pair|RNA1,RNA2,8:pair-56:pair|RNA1,RNA2,11:pair-53:pair|RNA1,RNA2,14:pair-50:pair|RNA1,RNA2,17:pair-47:pair|RNA1,RNA2,20:pair-44:pair|RNA1,RNA2,23:pair-41:pair|RNA1,RNA2,26:pair-38:pair|RNA1,RNA2,29:pair-35:pair|RNA1,RNA2,32:pair-32:pair|RNA1,RNA2,35:pair-29:pair|RNA1,RNA2,38:pair-26:pair|RNA1,RNA2,41:pair-23:pair|RNA1,RNA2,44:pair-20:pair|RNA1,RNA2,47:pair-17:pair|RNA1,RNA2,50:pair-14:pair|RNA1,RNA2,53:pair-11:pair|RNA1,RNA2,56:pair-8:pair|RNA1,RNA2,59:pair-5:pair|RNA1,RNA2,62:pair-2:pair$$$V2.0`
 
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let panel = null;
         let __nameHook = createIonFunction((name) => {
             panel = name;

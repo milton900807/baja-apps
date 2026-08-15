@@ -473,12 +473,24 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
         drawImage = (src, x, y, w, h) => {
             if (this.canvas) {
                 var ctx = this.canvas.getCTX();
+
+                // Guard against not-yet-loaded / invalid image sources so a single
+                // bad layer or icon doesn't throw drawImage TypeErrors every frame.
+                if (!src || typeof src !== 'object') return;
+                if (typeof HTMLImageElement !== 'undefined' && src instanceof HTMLImageElement) {
+                    if (!src.complete || src.naturalWidth === 0) return;
+                }
+
                 ctx.shadowColor = "#000000";
                 ctx.shadowBlur = 2;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
 
-                ctx.drawImage(src, this.grid.X(x), this.grid.Y(y), this.grid.screenWidth(w), this.screenHeight(h));
+                try {
+                    ctx.drawImage(src, this.grid.X(x), this.grid.Y(y), this.grid.screenWidth(w), this.screenHeight(h));
+                } catch (e) {
+                    // image source not drawable yet
+                }
             }
         }
 

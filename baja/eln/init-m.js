@@ -91,7 +91,7 @@ function (lib, folder, experimentFile) {
                                             let id = f.id;
                                             let libid = lib.id;
 
-                                            window.open(`/app/baja/screens/open-screen?lib_id=${libid}&file_id=${id}`)
+                                            window.open(`/app/baja/manchester/open-screen?lib_id=${libid}&file_id=${id}`)
 
                                         })
                                     }
@@ -105,9 +105,9 @@ function (lib, folder, experimentFile) {
                                             let rooturl = window.location.hostname;
                                             if (isMobile()) {
                                                 clear ();
-                                                exec(`baja/screens/open-screen`, libid, id)
+                                                exec(`baja/manchester/open-screen`, libid, id)
                                             } else {
-                                                window.open(`/app/baja/screens/open-screen?lib_id=${libid}&file_id=${id}`)
+                                                window.open(`/app/baja/manchester/open-screen?lib_id=${libid}&file_id=${id}`)
                                             }
 
                                         })
@@ -173,7 +173,7 @@ function (lib, folder, experimentFile) {
 
                                         clear();
 
-                                        exec('baja/screens/open-screen', lib.id, folder.id)
+                                        exec('baja/manchester/open-screen', lib.id, folder.id)
 
                                     })
                                 }, {

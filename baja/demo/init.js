@@ -166,24 +166,24 @@ function (slideShow) {
 
         track_items.push({
             'label': 'Set Track', ionfunction: createIonFunction(() => {
-                exec('baja/screens/modal/set-track.js', graph)
+                exec('baja/manchester/modal/set-track.js', graph)
             })
         })
         track_items.push({
             'label': 'Drag Track', ionfunction: createIonFunction(() => {
-                exec('baja/screens/modal/clear-tracks.js', graph)
+                exec('baja/manchester/modal/clear-tracks.js', graph)
 
             })
         })
         track_items.push({
             'label': 'Resize Track', ionfunction: createIonFunction(async () => {
-                await exec('baja/screens/menu/resize-track.js', graph, io)
+                await exec('baja/manchester/menu/resize-track.js', graph, io)
 
             })
         })
         track_items.push({
             'label': 'Move Track', ionfunction: createIonFunction(async () => {
-                await exec('baja/screens/menu/translate-track.js', graph, io)
+                await exec('baja/manchester/menu/translate-track.js', graph, io)
 
             })
         })
@@ -198,13 +198,13 @@ function (slideShow) {
         })
         track_items.push({
             'label': 'Clear All', 'ionfunction': createIonFunction(() => {
-                exec('baja/screens/modal/clear-tracks.js', graph)
+                exec('baja/manchester/modal/clear-tracks.js', graph)
             })
         })
 
         track_items.push({
             'label': 'Add+', 'ionfunction': createIonFunction(() => {
-                exec('baja/screens/add-track.js', graph)
+                exec('baja/manchester/add-track.js', graph)
             })
         })
         let exptracks = {

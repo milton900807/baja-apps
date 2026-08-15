@@ -2,7 +2,7 @@ function (graph, genegraph_panel_layout) {
 
     return new Promise(async (resolve, reject) => {
         let Line = await exec('flexigraph/shapes/line.js')
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         graph.selectOff();
         graph.setMessage(" Select a track... ")
         const nameHook = createIonFunction((editor) => {

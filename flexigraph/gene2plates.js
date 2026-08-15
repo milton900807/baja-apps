@@ -1163,7 +1163,7 @@ function (plateManager, progress) {
                     this.graph.mode = mode;
 
                 } else {
-                    this.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                    this.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                     this.graph.mode = mode;
                 }
             }
@@ -2632,7 +2632,7 @@ function (plateManager, progress) {
 
             getState() {
 
-                let name = '.current.screen'
+                let name = '.current.baja'
                 let currentPath = '.'
                 const seenObjects = new WeakSet();
 
@@ -2753,11 +2753,11 @@ function (plateManager, progress) {
 
             async isPreviousState() {
                 let host_ = window['env']['apiUrl']
-                let rf = await GETJSON(host_ + '/get-folder?key=user&path=' + getUser() + '&filetype=.screen')
+                let rf = await GETJSON(host_ + '/get-folder?key=user&path=' + getUser() + '&filetype=.baja')
                 let ch = rf.children;
                 if (ch && ch.length > 0)
                     for (let i of ch) {
-                        if (i && i.path.endsWith('/.current.screen')) {
+                        if (i && i.path.endsWith('/.current.baja')) {
                             return true;
                         }
                     }

@@ -215,7 +215,7 @@ function (file, lib) {
         }
 
         showWidget({
-            wid: 'html',
+            wid: 'title',
             data: '<h6> Oligo chemistry template editor </h6>'
         });
         showWidget({

@@ -71,7 +71,7 @@ function (library, folderid) {
                     progress.status = 'complete'
                     clear();
 
-                    await exec('baja/screens/open-screen-editor.js', library, folderid, experimentObject['values'][0][0])
+                    await exec('baja/manchester/open-screen-editor.js', library, folderid, experimentObject['values'][0][0])
 
                 })
             })

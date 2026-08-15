@@ -101,7 +101,7 @@ function (graph, genegraph_panel_layout) {
                 if (track.markstart >= 0 && track.markend > track.markstart) {
                     track.findMotifsFromSelectedSequence();
                     setTimeout(async () => {
-                        let ml = await exec('baja/screens/menu/load_seleced_sequence_menulist', graph, genegraph_panel_layout)
+                        let ml = await exec('baja/manchester/menu/load_seleced_sequence_menulist', graph, genegraph_panel_layout)
                         graph.showMenu(ml)
                     }, 1000)
                 }
@@ -137,7 +137,7 @@ function (graph, genegraph_panel_layout) {
                         CurrentLayout.clearComponent('mainPanel')
                         CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
                         setTimeout(async () => {
-                            let ml = await exec('baja/screens/menu/load_seleced_sequence_menulist', graph, genegraph_panel_layout, true)
+                            let ml = await exec('baja/manchester/menu/load_seleced_sequence_menulist', graph, genegraph_panel_layout, true)
                         }, 200)
                     }
                 }

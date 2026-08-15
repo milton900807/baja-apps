@@ -55,7 +55,7 @@ function (pm) {
 
                         CurrentLayout.reset('mainPanel')
                         setTimeout ( async () => {
-                            let button_canvas_ = await exec('screen/controls/nautilus-navigation.js', pm, rs)
+                            let button_canvas_ = await exec('manchester/controls/nautilus-navigation.js', pm, rs)
 
                         }, 1000)
 

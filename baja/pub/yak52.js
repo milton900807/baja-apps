@@ -53,7 +53,7 @@ function (path) {
         let userFilesRef = createIonFunction((panel) => {
             userFiles_panel = panel;
         })
-        let commands = await exec('screen/controls/cmds')
+        let commands = await exec('manchester/controls/cmds')
         progressBar(80);
         let userfiles = {
             wid: 'simple-file-browser',
@@ -146,9 +146,9 @@ function (path) {
                     }
                 }),
                 "ionfunction.fileClick": createIonFunction(async (element) => {
-                    if (element.path.endsWith('.screen')) {
+                    if (element.path.endsWith('.baja')) {
 
-                        exec('screen/screening_editor', element.path, config)
+                        exec('manchester/screening_editor', element.path, config)
                     }
                     else if (element.path.endsWith('.bjb') || element.path.endsWith('.bjb-share')) {
                         clear();
@@ -221,7 +221,7 @@ function (path) {
                 label: 'Simple Gene Editor ',
                 ionfunction: createIonFunction(async () => {
                     clear();
-                    await exec('screen/screening_editor.js', path)
+                    await exec('manchester/screening_editor.js', path)
                 })
             },
             {

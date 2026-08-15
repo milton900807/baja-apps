@@ -49,7 +49,7 @@ function () {
                     'onclick': createIonFunction(() => {
                         clear();
 
-                        exec('baja/screens/myscreens.js')
+                        exec('baja/manchester/myscreens.js')
                     })
                 },
                 {
@@ -64,7 +64,7 @@ function () {
                     'onclick': createIonFunction(() => {
                         clear();
 
-                        exec('baja/screens/screen-editor.js')
+                        exec('baja/manchester/screen-editor.js')
                     })
                 },
                 {

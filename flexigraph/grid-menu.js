@@ -78,9 +78,9 @@ function () {
                         row++;
                     }
 
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    ctx.shadowBlur = 12;
-                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.fillStyle = 'rgba(16,24,40,0.15)';
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = 'rgba(16,24,40,0.15)';
                     if (this.highlight === i) {
                         ctx.fillStyle = this.sg;
                     } else {

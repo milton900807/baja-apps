@@ -103,7 +103,7 @@ function (graph, genegraph_panel_layout, selectedTrack, xwc) {
 
             if (strack) {
                 strack.addLayer(layer);
-                let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
                 CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                 CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
             }

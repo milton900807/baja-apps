@@ -1,7 +1,7 @@
 function () {
 
     showWidget ( {
-        wid:'html',
+        wid:'title',
         data:'<H3> hello world </h3>'
     })
 

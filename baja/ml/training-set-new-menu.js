@@ -26,7 +26,7 @@ function (graph, genegraph_panel_layout) {
                 'label': 'Secondary structure context model', click: (async () => {
                     setTimeout(async () => {
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        exec('baja/screens/menu/draw-secondary-structure3.js', graph, genegraph_panel_layout);
+                        exec('baja/manchester/menu/draw-secondary-structure3.js', graph, genegraph_panel_layout);
                     }, 1000)
 
                     CurrentLayout.clearComponent('mainPanel')

@@ -18,7 +18,7 @@ function (jsonObject, listenerMethod) {
                             'width': '100%',
                             'component':
                             {
-                                wid: 'html',
+                                wid: 'title',
                                 data: `<h1> Edit annotation type </h1> `
                             }
                         },

@@ -91,13 +91,21 @@ function () {
                 let width = graph.screenWidth(this.w);
                 let height = graph.screenHeight(this.h);
 
-                if (this.img && width > 10 && height > 10 && width < 15000 && height < 15000) {
+                const imgReady = this.img && typeof this.img === 'object' &&
+                    (!(typeof HTMLImageElement !== 'undefined' && this.img instanceof HTMLImageElement) ||
+                        (this.img.complete && this.img.naturalWidth > 0));
+
+                if (imgReady && width > 10 && height > 10 && width < 15000 && height < 15000) {
                     if (ctx) {
                         ctx.shadowColor = "#000000";
                         ctx.shadowBlur = 2;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 0;
-                        ctx.drawImage(this.img, graph.X(this.x), graph.Y(this.y), graph.screenWidth(this.w), graph.screenHeight(this.h));
+                        try {
+                            ctx.drawImage(this.img, graph.X(this.x), graph.Y(this.y), graph.screenWidth(this.w), graph.screenHeight(this.h));
+                        } catch (e) {
+                            // image not drawable yet
+                        }
                     }
                     else
                         graph.drawImageSc(this.img, graph.X(this.x), graph.Y(this.y), this.drawShadow);

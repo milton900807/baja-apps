@@ -188,8 +188,8 @@ function (library, id) {
 
                                     let d = `drives/${lib}/items/${currentPath.id}`;
                                     let fileObject = await client.api(d).get();
-                                    if (fileObject.name.endsWith('.screen'))
-                                        window.open(`/app/baja/screens/open-screen?lib_id=${lib}&file_id=${currentPath.id}`)
+                                    if (fileObject.name.endsWith('.baja'))
+                                        window.open(`/app/baja/manchester/open-screen?lib_id=${lib}&file_id=${currentPath.id}`)
                                     else {
 
                                         if (fileObject != null && fileObject['webUrl'] != null) {
@@ -236,7 +236,7 @@ function (library, id) {
                             },
                         ]
 
-                        if (!currentPath.name.endsWith('.screen')) {
+                        if (!currentPath.name.endsWith('.baja')) {
 
                             if (currentPath.name.endsWith('VCF') || currentPath.name.endsWith("vcf")) {
 
@@ -372,7 +372,7 @@ function (library, id) {
                                     }
                                     clearMenu();
                                     clear();
-                                    exec('baja/screens/exp-view', library, viewdoc.parentReference, id, value.entryFile)
+                                    exec('baja/manchester/exp-view', library, viewdoc.parentReference, id, value.entryFile)
                                 } else {
                                 }
 

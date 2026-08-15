@@ -1,5 +1,5 @@
 function (graph) {
-    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
     graph.setMessage(" Select a track... ")
     const nameHook = createIonFunction((editor) => {
@@ -193,7 +193,7 @@ function (graph) {
                 });
                 em.addProgressListener(async (v) => {
                     if (v >= 100) {
-                        let script_canvas = await exec('baja/screens/menu/annotation-navigation-tools.js', graph)
+                        let script_canvas = await exec('baja/manchester/menu/annotation-navigation-tools.js', graph)
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', script_canvas);
 

@@ -50,7 +50,7 @@ function (graph, library) {
                                         {
                                             'width': '900px',
                                             'component': {
-                                                wid: 'html',
+                                                wid: 'title',
                                                 data: '<h5> Chemistry template editor </h5>'
                                             }
 
@@ -265,7 +265,7 @@ function (graph, library) {
                             }
                             if (hasSnpindel == 1) {
                                 graph.setMessage('Select a phase')
-                                await exec('baja/screens/annotation/variant-primer-probe-actions.js', graph, true, true);
+                                await exec('baja/manchester/annotation/variant-primer-probe-actions.js', graph, true, true);
                             } else {
                                 graph.setMessage('No variants found')
                             }
@@ -285,7 +285,7 @@ function (graph, library) {
                             }
                             if (hasSnpindel == 1) {
                                 graph.setMessage('Select a phase')
-                                await exec('baja/screens/annotation/variant-primer-probe-actions.js', graph, false, true);
+                                await exec('baja/manchester/annotation/variant-primer-probe-actions.js', graph, false, true);
                             } else {
                                 graph.setMessage('No variants found')
                             }

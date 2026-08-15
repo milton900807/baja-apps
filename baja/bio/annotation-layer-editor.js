@@ -1,7 +1,7 @@
 function ( graph, genegraph_panel_layout) {
 
     return new Promise(async (resolve, reject) => {
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         graph.selectOff();
         let ed;
         let ywc = -1;
@@ -72,7 +72,7 @@ function ( graph, genegraph_panel_layout) {
                         click: async (x, y) => {
                             console.log('debubg');
 
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             graph.selectOff();
 
                             if (selectedTrack.targetPhase != null) {
@@ -90,13 +90,13 @@ function ( graph, genegraph_panel_layout) {
                                 for (let v of variants) {
                                     if (v.xi > selectedTrack.xi && v.xf < selectedTrack.xf) {
                                         console.log(v, selectedTrack, graph)
-                                        await exec('baja/screens/annotation/tile-variant.js', v, selectedTrack, graph, false, true);
+                                        await exec('baja/manchester/annotation/tile-variant.js', v, selectedTrack, graph, false, true);
                                     }
                                 }
                                 for (let v of variantso) {
                                     if (v.xi > selectedTrack.xi && v.xf < selectedTrack.xf) {
                                         console.log(v, selectedTrack, graph)
-                                        await exec('baja/screens/annotation/tile-variant.js', v, selectedTrack, graph, true, true);
+                                        await exec('baja/manchester/annotation/tile-variant.js', v, selectedTrack, graph, true, true);
                                     }
                                 }
                             } else {

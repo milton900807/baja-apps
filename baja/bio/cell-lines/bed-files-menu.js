@@ -1,5 +1,5 @@
 function (graph, library, folder) {
-    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
     graph.setMessage(" Select a track... ")
     const nameHook = createIonFunction((editor) => {
@@ -46,7 +46,7 @@ function (graph, library, folder) {
                 em.addProgressListener(async(v) => {
                     if (v >= 100) {
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        let hl = await exec('baja/screens/menu/splicing-tools.js', graph, library.id, folder.id)
+                        let hl = await exec('baja/manchester/menu/splicing-tools.js', graph, library.id, folder.id)
                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                     }
                     progressBar(v);

@@ -3,7 +3,7 @@ function (lib, folderid, graph, props) {
     return new Promise(async (resolve, reject) => {
 
         props.selected_chemistry = { "type": "DNA", "template": "[(?)d.p.]{n-1}[(?)d]{1}", "shapeFunction": "baja/shapes/myshapefunction.js" }
-        let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+        let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
         let Biopolymer = await exec('baja/chem/biopolymer.js')
         let display = {
             wid: 'html',

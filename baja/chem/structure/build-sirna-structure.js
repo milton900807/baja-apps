@@ -145,7 +145,7 @@ function () {
                             'width': '900px',
                             'height': '50px',
                             'component': {
-                                wid: 'html',
+                                wid: 'title',
                                 data: '<h5> Oligo chemistry template editor </h5>'
                             }
 

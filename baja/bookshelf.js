@@ -23,7 +23,7 @@ function (__path) {
             userFiles_panel = panel;
         })
 
-        let commands = await exec('screen/controls/cmds')
+        let commands = await exec('manchester/controls/cmds')
 
         let userfiles = {
             wid: 'simple-file-browser',
@@ -115,12 +115,12 @@ function (__path) {
                             }
                             exec('cpd/bajabio-analytics', element.path, config, `/app/cpd/bajabio-analytics`)
                         }
-                        else if (element.path.endsWith(".screen")) {
+                        else if (element.path.endsWith(".baja")) {
 
                             const path = element.path;
                             clear();
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${path}`);
-                            exec('screen/editor', path, { mode: 'editor' })
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                            exec('manchester/editor', path, { mode: 'editor' })
                         } else if (element.path.endsWith('.bjb')) {
                             clear();
                             let config = {
@@ -376,12 +376,12 @@ function (__path) {
                             }
                             exec('cpd/bajabio-analytics', element.path, config, `/app/cpd/bajabio-analytics`)
                         }
-                        else if (element.path.endsWith(".screen")) {
+                        else if (element.path.endsWith(".baja")) {
 
                             const path = element.path;
                             clear();
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${path}`);
-                            exec('screen/editor', path, { mode: 'editor' })
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                            exec('manchester/editor', path, { mode: 'editor' })
                         } else if (element.path.endsWith('.bjb')) {
                             clear();
                             let config = {
@@ -408,7 +408,7 @@ function (__path) {
                             }),
                         },
                         ]
-                        if (!element.name.endsWith('.screen')) {
+                        if (!element.name.endsWith('.baja')) {
                         }
                     }),
                     "ionfunction.openfile": createIonFunction(async (file, text) => {
@@ -465,7 +465,7 @@ function (__path) {
                         if (!currentPath.endsWith('/'))
                             currentPath += '/'
 
-                        exec('screen/editor.js', currentPath)
+                        exec('manchester/editor.js', currentPath)
                     })
                 },
 

@@ -19,7 +19,7 @@ function () {
         let expectation;
         let result;
         let screencapture = false;
-        let uri = 'https://bugs.lajollalabs.com';
+        let uri = 'https://bugs.oligodesigner.com';
 
         let bug_card = {
             wid: 'card',

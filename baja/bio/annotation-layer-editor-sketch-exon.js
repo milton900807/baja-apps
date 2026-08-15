@@ -2,7 +2,7 @@ function (graph, genegraph_panel_layout) {
 
     return new Promise(async (resolve, reject) => {
         let TrackLayer = await exec('baja/bio/track-layer.js');
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let trackLayer = null;
         let md = false;
 
@@ -14,7 +14,7 @@ function (graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'Draw', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -48,7 +48,7 @@ function (graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'Draw', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },

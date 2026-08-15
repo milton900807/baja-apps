@@ -78,7 +78,7 @@ function (price) {
             let tracks;
             let genegraph_panel_layout;
             let { Track, TrackRef } = await exec('baja/bio/track.js')
-            if (path.endsWith('.screen')) {
+            if (path.endsWith('.baja')) {
                 let host_ = window['env']['apiUrl']
                 let index = path.lastIndexOf('/')
                 if ((config != null && config.user != null) || path.startsWith('/myfiles/')) {
@@ -386,7 +386,7 @@ function (price) {
                                             }, 2000)
                                         }
                                         else if (s != null && s.startsWith('c.')) {
-                                            let MutationParser = await exec('baja/screens/menu/annotation/mutation-parser.js');
+                                            let MutationParser = await exec('baja/manchester/menu/annotation/mutation-parser.js');
                                             let SnpIndel = await exec('flexigraph/snpindel.js')
                                             let mp = new MutationParser();
                                             let mutation = mp.parse(s.trim())
@@ -613,7 +613,7 @@ function (price) {
                         };
                         img.src = src;
                     }
-                    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                     graph.setMouseMode('navigate')
 
                     graph.selectOff();
@@ -693,34 +693,34 @@ function (price) {
             let track_items = []
             track_items.push({
                 'label': 'Add', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/add-track.js', graph)
+                    exec('baja/manchester/add-track.js', graph)
                 })
             })
             track_items.push({
                 'label': 'Track from sequence', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/new-track.js', graph, genegraph_panel_layout)
+                    exec('baja/manchester/new-track.js', graph, genegraph_panel_layout)
                 })
             })
             track_items.push({
                 'label': 'Measure...', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/menu/measure-track.js', graph, genegraph_panel_layout)
+                    exec('baja/manchester/menu/measure-track.js', graph, genegraph_panel_layout)
                 })
             })
             track_items.push({
                 'label': 'Stats...', ionfunction: createIonFunction(async () => {
                     graph.setMessage("Click on a track to see stat menu for that track");
-                    await exec('baja/screens/menu/track-stats.js', graph)
+                    await exec('baja/manchester/menu/track-stats.js', graph)
                 })
             })
             track_items.push({
                 'label': 'Show...', 'ionfunction': createIonFunction(async () => {
-                    exec('baja/screens/menu/annotation/show-annotations-menu.js', graph)
+                    exec('baja/manchester/menu/annotation/show-annotations-menu.js', graph)
                 })
             })
             track_items.push({
                 'label': 'Edit', ionfunction: createIonFunction(async () => {
                     graph.setMessage("Click on a track to see available edit options. ")
-                    await exec('baja/screens/menu/edit-track.js', graph, genegraph_panel_layout)
+                    await exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout)
                 })
             })
 
@@ -778,7 +778,7 @@ function (price) {
                 'label': 'Track', 'items': track_items
             }
             let geneGraph = await graph.createComponent();
-            let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
             let plates_panel;
             let platePanel = createIonFunction((p) => {
                 updateStatsPanel();
@@ -819,13 +819,13 @@ function (price) {
                 io = editor;
             })
             let submittedPanel = async (expid) => {
-                return await exec('baja/screens/my-submitted-screens-w.js', expid)
+                return await exec('baja/manchester/my-submitted-screens-w.js', expid)
             }
 
             let select_display = createIonFunction((ref) => {
                 select_display_html = ref;
             })
-            let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+            let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
             let display = {
                 wid: 'html',
                 refCallback: select_display,
@@ -949,19 +949,19 @@ function (price) {
             }
 
             let publishSaveScreen = async () => {
-                let savedScreens = await exec('screen/io/publish.js', graph, genegraph_panel_layout)
+                let savedScreens = await exec('manchester/io/publish.js', graph, genegraph_panel_layout)
                 showModal(savedScreens);
             }
             let saveSaveScreen = async () => {
-                let savedScreens = await exec('screen/io/save-obj.js', graph, genegraph_panel_layout, path)
+                let savedScreens = await exec('manchester/io/save-obj.js', graph, genegraph_panel_layout, path)
                 showModal(savedScreens);
             }
             let goHome = async () => {
-                exec('screen/fb.js', getUser() + '/')
+                exec('manchester/fb.js', getUser() + '/')
             }
 
             let openSaveScreen = async () => {
-                let savedScreens = await exec('screen/io/open-obj.js', graph, genegraph_panel_layout)
+                let savedScreens = await exec('manchester/io/open-obj.js', graph, genegraph_panel_layout)
                 showModal(savedScreens);
             }
 
@@ -982,7 +982,7 @@ function (price) {
                 {
                     'label': 'Navigation', 'ionfunction': createIonFunction(async () => {
 
-                        let button_canvas_ = await exec('screen/controls/navigation-panel.js', graph)
+                        let button_canvas_ = await exec('manchester/controls/navigation-panel.js', graph)
                         CurrentLayout.clearComponent('buttonMenuPanel,labelPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
                     })
@@ -991,7 +991,7 @@ function (price) {
 
                     'label': 'Mutations', 'ionfunction': createIonFunction(async () => {
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        await exec('baja/screens/menu/variant-tools1.js', graph, genegraph_panel_layout)
+                        await exec('baja/manchester/menu/variant-tools1.js', graph, genegraph_panel_layout)
                     })
                 }
             ]
@@ -1013,7 +1013,7 @@ function (price) {
             file_items.push(
                 {
                     'label': 'New track', 'ionfunction': createIonFunction(() => {
-                        exec('baja/screens/add-track.js', graph)
+                        exec('baja/manchester/add-track.js', graph)
                     })
                 },
                 {
@@ -1032,7 +1032,7 @@ function (price) {
             file_items.push(
                 {
                     'label': 'Paste...', 'ionfunction': createIonFunction(async () => {
-                        await exec('screen/controls/paste-panel.js', graph, genegraph_panel_layout, eeditor_state)
+                        await exec('manchester/controls/paste-panel.js', graph, genegraph_panel_layout, eeditor_state)
                     })
 
                 },
@@ -1082,13 +1082,13 @@ function (price) {
                                                             graph.clearMouseListeners();
                                                             graph.setMouseMode('none')
 
-                                                            await exec('baja/screens/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                            await exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
                                                         })
                                                     },
                                                     {
                                                         label: 'Track Sequence',
                                                         'ionfunction': createIonFunction(async () => {
-                                                            await exec('baja/screens/menu/select-tracks-sub-menu.js', graph, genegraph_panel_layout)
+                                                            await exec('baja/manchester/menu/select-tracks-sub-menu.js', graph, genegraph_panel_layout)
 
                                                             graph.setMessage(" Click on the track to highlight the entire sequence ");
                                                             graph.clearMouseListeners();
@@ -1115,13 +1115,13 @@ function (price) {
                                                 items: [
                                                     {
                                                         label: 'Show/Hide Bookmarks', ionfunction: createIonFunction(async () => {
-                                                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                                                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                                             graph.showBookmarkMenu();
                                                         })
                                                     }, {
                                                         label: 'Create Bookmark', ionfunction: createIonFunction(async () => {
-                                                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
-                                                            let m = await exec('baja/screens/modal/label-bookmark.js', graph);
+                                                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                                            let m = await exec('baja/manchester/modal/label-bookmark.js', graph);
                                                             showModal(m);
                                                             graph.setMouseMode('navigate')
 

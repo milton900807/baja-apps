@@ -328,7 +328,7 @@ function (library, id) {
                     },
                     ]
 
-                    if (!currentPath.name.endsWith('.screen')) {
+                    if (!currentPath.name.endsWith('.baja')) {
 
                         if (currentPath.name.endsWith('VCF') || currentPath.name.endsWith("vcf")) {
 

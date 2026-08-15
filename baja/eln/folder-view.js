@@ -29,9 +29,9 @@ function (libraryid, folderid, graph) {
                     }else if ( file['name'].endsWith ( '.json')){
                         let url = f["@microsoft.graph.downloadUrl"]
                         downloadFile(url);
-                    } else if (file['name'].endsWith ( '.screen') ){
+                    } else if (file['name'].endsWith ( '.baja') ){
 
-                        window.open (`/app/baja/screens/open-screen?lib_id=${libraryid}&file_id=${file.id}`)
+                        window.open (`/app/baja/manchester/open-screen?lib_id=${libraryid}&file_id=${file.id}`)
                     } else {
 
                     }

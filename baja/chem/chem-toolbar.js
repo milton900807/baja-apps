@@ -50,7 +50,7 @@ function (graph, library, parent_panel) {
                                             'width': '900px',
                                             'height': '50px',
                                             'component': {
-                                                wid: 'html',
+                                                wid: 'title',
                                                 data: '<h5> Loading chemistry from library files...  </h5>'
                                             }
 
@@ -78,7 +78,7 @@ function (graph, library, parent_panel) {
                                             'width': '900px',
                                             'height': '50px',
                                             'component': {
-                                                wid: 'html',
+                                                wid: 'title',
                                                 data: '<h5> Oligo chemistry template editor </h5>'
                                             }
 
@@ -284,7 +284,7 @@ function (graph, library, parent_panel) {
                                             'width': '900px',
                                             'height': '50px',
                                             'component': {
-                                                wid: 'html',
+                                                wid: 'title',
                                                 data: '<h5> Oligo chemistry template editor </h5>'
                                             }
 

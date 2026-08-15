@@ -91,7 +91,7 @@ function (lib, select, props) {
                                                                     {
                                                                         width: '100%',
                                                                         'component': {
-                                                                            wid: 'html',
+                                                                            wid: 'title',
                                                                             data: '<h4> Chemistry Editor </h4>'
                                                                         }
                                                                     },

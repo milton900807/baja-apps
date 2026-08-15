@@ -17,7 +17,7 @@ function () {
                 //     try {
                 //         const loggedIn = await MSGraph.isLoggedIn();
                 //         if (loggedIn) {
-                //             await exec('screen/fb.js');
+                //             await exec('manchester/fb.js');
                 //             clearInterval(loginCheckInterval);
                 //             return;
                 //         }
@@ -86,7 +86,7 @@ function () {
                                             }),
                                             click: createIonFunction(() => {
                                                 clear();
-                                                exec('screen/init')
+                                                exec('manchester/init')
                                             })
                                         },
                                     }

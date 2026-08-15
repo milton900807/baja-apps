@@ -1,5 +1,5 @@
 function (graph) {
-    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.setMouseMode('navigate')
 
     graph.selectOff();
@@ -9,7 +9,7 @@ function (graph) {
     })
     let selectedTrack = null;
     exec('baja/bio/aa/codons.js').then(codon => {
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let generateCodons = async (selectedTrack) => {
             let NMDAnnotation = await exec('baja/bio/splicing/nmd-annotation.js')
             let startIndex = -1;

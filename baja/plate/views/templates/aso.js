@@ -122,7 +122,7 @@ function (template, libid) {
                                 'height': '50px',
                                 'component':
                                 {
-                                    wid: 'html',
+                                    wid: 'title',
                                     data: "<h5> 3' </h5> "
                                 }
                             },

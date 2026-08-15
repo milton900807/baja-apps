@@ -4,7 +4,7 @@ function (graph, genegraph_panel_layout) {
 
         let ml = () => {
 
-            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
             graph.selectOff();
             graph.addMouseMoveListener((x, y) => {
                 if (graph.menuVisible()) {

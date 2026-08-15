@@ -173,7 +173,7 @@ function (path, filebrowserplease) {
                                             {
                                                 width: '100%',
                                                 component: {
-                                                    wid: 'html',
+                                                    wid: 'title',
                                                     data: '<h2 style="padding: 8px 16px;">System Status</h2><hr>'
                                                 }
                                             },
@@ -230,7 +230,7 @@ function (path, filebrowserplease) {
                                             {
                                                 width: '100%',
                                                 component: {
-                                                    wid: 'html',
+                                                    wid: 'title',
                                                     data: '<h2 style="padding: 8px 16px;">System Logs</h2><hr>'
                                                 }
                                             },

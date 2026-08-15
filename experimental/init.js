@@ -145,7 +145,7 @@ function () {
                     };
                     img.src = src;
                 }
-                graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                 graph.selectOff();
                 let ed;
                 const nameHook = createIonFunction((editor) => {
@@ -171,7 +171,7 @@ function () {
                 })
             }
         });
-        let savedScreens = await exec('baja/screens/my-saved-screens-w.js', library.id, folder.id, graph)
+        let savedScreens = await exec('baja/manchester/my-saved-screens-w.js', library.id, folder.id, graph)
         let paste_sequences_panel = await exec('baja/chem/paste-sequences-w.js', library, folder.id, graph, graph.props)
         let showSavedScreens = async () => {
             showModal(savedScreens);
@@ -247,7 +247,7 @@ function () {
 
                 let screen_algos = {};
 
-                let algorithms = await exec('baja/screens/load-algoithms.js')
+                let algorithms = await exec('baja/manchester/load-algoithms.js')
                 for (let a of algorithms) {
                     if (a['name']) {
                         let n = a['name']
@@ -416,45 +416,45 @@ function () {
 
         track_items.push({
             'label': 'Add...', 'ionfunction': createIonFunction(() => {
-                exec('baja/screens/add-track.js', graph)
+                exec('baja/manchester/add-track.js', graph)
             })
         })
 
         track_items.push({
             'label': 'Add annotations...', 'ionfunction': createIonFunction(async () => {
 
-                exec('baja/screens/menu/add-track-annotations.js', graph, library, folder)
+                exec('baja/manchester/menu/add-track-annotations.js', graph, library, folder)
             })
         })
 
         track_items.push({
             'label': 'Measure', 'ionfunction': createIonFunction(() => {
 
-                exec('baja/screens/menu/measure-track.js', graph, library)
+                exec('baja/manchester/menu/measure-track.js', graph, library)
             })
         })
 
         track_items.push({
             'label': 'Add layer', 'ionfunction': createIonFunction(async () => {
-                exec('baja/screens/menu/annotation/add-track-layer.js', graph)
+                exec('baja/manchester/menu/annotation/add-track-layer.js', graph)
             })
         })
         track_items.push({
             'label': 'Edit layers', 'ionfunction': createIonFunction(async () => {
-                exec('baja/screens/menu/annotation/edit-track-layer.js', graph)
+                exec('baja/manchester/menu/annotation/edit-track-layer.js', graph)
             })
         })
 
         track_items.push({
             'label': 'Show...', 'ionfunction': createIonFunction(async () => {
-                exec('baja/screens/menu/annotation/show-annotations-menu.js', graph)
+                exec('baja/manchester/menu/annotation/show-annotations-menu.js', graph)
             })
         })
 
         track_items.push({
             'label': 'Go to...', 'ionfunction': createIonFunction(() => {
 
-                exec('baja/screens/menu/navigate-track.js', graph)
+                exec('baja/manchester/menu/navigate-track.js', graph)
 
             })
         })
@@ -462,19 +462,19 @@ function () {
         track_items.push({
             'label': 'Edit', ionfunction: createIonFunction(async () => {
 
-                await exec('baja/screens/menu/edit-track.js', graph)
+                await exec('baja/manchester/menu/edit-track.js', graph)
             })
         })
         track_items.push({
             'label': 'Stats', ionfunction: createIonFunction(async () => {
 
-                await exec('baja/screens/menu/track-stats.js', graph)
+                await exec('baja/manchester/menu/track-stats.js', graph)
             })
         })
 
         track_items.push({
             'label': 'Clear All', 'ionfunction': createIonFunction(() => {
-                exec('baja/screens/modal/clear-tracks.js', graph)
+                exec('baja/manchester/modal/clear-tracks.js', graph)
             })
         })
 
@@ -488,7 +488,7 @@ function () {
                     label: 'Tile...',
                     ionfunction: createIonFunction(async () => {
                         graph.setMessage('Select a point on a track')
-                        exec('baja/screens/menu/paint-oligos.js', graph)
+                        exec('baja/manchester/menu/paint-oligos.js', graph)
                     })
                 },
                 {
@@ -503,7 +503,7 @@ function () {
                             }
                             if (hasSnpindel == 1) {
                                 graph.setMessage('Choose variant to tile...')
-                                await exec('baja/screens/annotation/paint-oligos-snps.js', graph)
+                                await exec('baja/manchester/annotation/paint-oligos-snps.js', graph)
                             } else {
                                 graph.setMessage('No variants found')
                             }
@@ -520,7 +520,7 @@ function () {
                             return;
                         }
                         graph.setMessage('Select location on track')
-                        exec('baja/screens/menu/draw-oligos.js', graph)
+                        exec('baja/manchester/menu/draw-oligos.js', graph)
                     })
                 },
                 {
@@ -535,14 +535,14 @@ function () {
                     label: 'Move oligo',
                     ionfunction: createIonFunction(async () => {
                         graph.setMessage('Select a locus on a track')
-                        exec('baja/screens/menu/move-oligos.js', graph)
+                        exec('baja/manchester/menu/move-oligos.js', graph)
                     })
                 },
                 {
                     label: 'View oligo',
                     ionfunction: createIonFunction(async () => {
                         graph.setMessage('Select a track')
-                        exec('baja/screens/menu/find-oligos.js', graph)
+                        exec('baja/manchester/menu/find-oligos.js', graph)
                     })
                 },
                 {
@@ -616,13 +616,13 @@ function () {
                 {
                     label: 'Apply compound filtering rule',
                     ionfunction: createIonFunction(async () => {
-                        await exec('baja/screens/annotation/dynamic-rule-application.js', library, folder.id, graph);
+                        await exec('baja/manchester/annotation/dynamic-rule-application.js', library, folder.id, graph);
                     })
                 }
             ]
         }
         let geneGraph = await graph.createComponent();
-        let m = await exec('baja/screens/modal/label-bookmark.js', graph);
+        let m = await exec('baja/manchester/modal/label-bookmark.js', graph);
 
         let button_canvas = {
             wid: 'button-canvas',
@@ -716,21 +716,21 @@ function () {
                     },
                     {
                         x: 20, y: 0, label: 'Move options', ionFunction: createIonFunction(async () => {
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         }), icon: '/assets/img/icons/png/move.png'
 
                     }, {
                         x: 22, y: 0, label: 'Box zoom', ionFunction: createIonFunction(async () => {
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             graph.setMessage(" Drag a rectangle ")
-                            await exec('baja/screens/menu/zoom-box.js', graph, io)
+                            await exec('baja/manchester/menu/zoom-box.js', graph, io)
                         }), icon: '/assets/img/icons/png/nav.png'
 
                     },
 
                     {
                         x: 27, y: 0, label: 'Bookmark', ionFunction: createIonFunction(async () => {
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             showModal(m)
                         }), icon: '/assets/img/icons/png/bookmark.png'
 
@@ -738,7 +738,7 @@ function () {
                     {
                         x: 30, y: 0, label: 'Show Bookmark', ionFunction: createIonFunction(async () => {
 
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             graph.showBookmarkMenu();
                         }), icon: '/assets/img/icons/png/show-bookmarks.png'
 
@@ -746,7 +746,7 @@ function () {
                     {
                         x: 33, y: 0, label: 'Show Tracks', ionFunction: createIonFunction(async () => {
 
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             graph.showTracksMenu();
                         }), icon: '/assets/img/icons/png/menu-bar.png'
 
@@ -754,7 +754,7 @@ function () {
 
                     {
                         x: 36, y: 0, label: 'Map Oligos', ionFunction: createIonFunction(async () => {
-                            graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                             graph.setMessage("Highlighting oligos")
 
                             let xstart = graph.graph.Xwc(0);
@@ -821,7 +821,7 @@ function () {
             io = editor;
         })
         let submittedPanel = async (expid) => {
-            return await exec('baja/screens/my-submitted-screens-w.js', expid)
+            return await exec('baja/manchester/my-submitted-screens-w.js', expid)
         }
         let dbFunctions = await db.loadFunctions();
         let folderPath = `/me/drive/root:/bajabio-screens/.algorithms:/`;
@@ -1027,7 +1027,7 @@ function () {
             select_display_html = ref;
         })
         let code_panel = await getCodePanel();
-        let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+        let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
 
         let display = {
             wid: 'html',
@@ -1065,7 +1065,7 @@ function () {
 
         let showSaveScreen = async () => {
 
-            let t2 = await exec('baja/screens/my-saved-screens-w.js', library.id, folder.id, graph, 'save', genegraph_panel_layout)
+            let t2 = await exec('baja/manchester/my-saved-screens-w.js', library.id, folder.id, graph, 'save', genegraph_panel_layout)
 
             let save_tab = {
                 wid: 'card',
@@ -1115,7 +1115,7 @@ function () {
                                             'label': 'Tools', 'icon': 'more_vert', 'items': [
                                                 {
                                                     'label': 'Draw motif', 'ionfunction': createIonFunction(async () => {
-                                                        await exec(`baja/screens/search/find-in-visible-screen.js`, graph)
+                                                        await exec(`baja/manchester/search/find-in-visible-screen.js`, graph)
                                                     })
                                                 },
                                                 {
@@ -1126,7 +1126,7 @@ function () {
                                                 },
                                                 {
                                                     'label': 'Track Navigation', 'ionfunction': createIonFunction(async () => {
-                                                        let script_canvas = await exec('baja/screens/menu/annotation-navigation-tools.js', graph)
+                                                        let script_canvas = await exec('baja/manchester/menu/annotation-navigation-tools.js', graph)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', script_canvas);
                                                     })
@@ -1134,7 +1134,7 @@ function () {
                                                 {
                                                     'label': 'Assay design', 'ionfunction': createIonFunction(async () => {
 
-                                                        let hl = await exec('baja/screens/menu/assay-tools.js', graph)
+                                                        let hl = await exec('baja/manchester/menu/assay-tools.js', graph)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                     })
@@ -1142,14 +1142,14 @@ function () {
                                                 {
                                                     'label': 'Secondary Structure', 'ionfunction': createIonFunction(async () => {
 
-                                                        let hl = await exec('baja/screens/menu/secondary-structure-tools.js', graph)
+                                                        let hl = await exec('baja/manchester/menu/secondary-structure-tools.js', graph)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                     })
                                                 },
                                                 {
                                                     'label': 'Annotation ', 'ionfunction': createIonFunction(async () => {
-                                                        let hl = await exec('baja/screens/menu/annotation-tools.js', graph, library.id, folder.id)
+                                                        let hl = await exec('baja/manchester/menu/annotation-tools.js', graph, library.id, folder.id)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                     })
@@ -1157,7 +1157,7 @@ function () {
                                                 {
                                                     'label': 'Targets', 'ionfunction': createIonFunction(async () => {
 
-                                                        let hl = await exec('baja/screens/menu/target-tools.js', graph, library, folder, genegraph_panel_layout)
+                                                        let hl = await exec('baja/manchester/menu/target-tools.js', graph, library, folder, genegraph_panel_layout)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                     })
@@ -1165,7 +1165,7 @@ function () {
                                                 {
                                                     'label': 'Splicing', 'ionfunction': createIonFunction(async () => {
 
-                                                        let hl = await exec('baja/screens/menu/splicing/splicing-tools.js', graph, library, folder)
+                                                        let hl = await exec('baja/manchester/menu/splicing/splicing-tools.js', graph, library, folder)
                                                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
 
@@ -1176,13 +1176,13 @@ function () {
                                         },
                                         {
                                             'label': 'Select', 'items': [
-                                                await exec('baja/screens/menu/select-structure.js', library.id, graph, showMainScreen),
-                                                await exec('baja/screens/menu/select-structures.js', library.id, graph, showMainScreen),
-                                                await exec('baja/screens/menu/select-gene.js', graph, io),
-                                                await exec('baja/screens/menu/select-track.js', graph, io),
-                                                await exec('baja/screens/menu/select-annotation.js', graph, io),
-                                                await exec('baja/screens/menu/track-reference.js', graph),
-                                                await exec('baja/screens/menu/sequence.js', graph, io)
+                                                await exec('baja/manchester/menu/select-structure.js', library.id, graph, showMainScreen),
+                                                await exec('baja/manchester/menu/select-structures.js', library.id, graph, showMainScreen),
+                                                await exec('baja/manchester/menu/select-gene.js', graph, io),
+                                                await exec('baja/manchester/menu/select-track.js', graph, io),
+                                                await exec('baja/manchester/menu/select-annotation.js', graph, io),
+                                                await exec('baja/manchester/menu/track-reference.js', graph),
+                                                await exec('baja/manchester/menu/sequence.js', graph, io)
                                             ],
                                         },
 
@@ -1236,28 +1236,28 @@ function () {
 
                                         {
                                             'label': 'Draw', 'items': [
-                                                await exec('baja/screens/menu/draw-oval.js', graph, io),
-                                                await exec('baja/screens/menu/draw-rect.js', graph, io),
-                                                await exec('baja/screens/menu/text-box.js', graph, io),
-                                                await exec('baja/screens/menu/draw-line.js', graph, io),
-                                                await exec('baja/screens/menu/draw-citation.js', graph, io),
+                                                await exec('baja/manchester/menu/draw-oval.js', graph, io),
+                                                await exec('baja/manchester/menu/draw-rect.js', graph, io),
+                                                await exec('baja/manchester/menu/text-box.js', graph, io),
+                                                await exec('baja/manchester/menu/draw-line.js', graph, io),
+                                                await exec('baja/manchester/menu/draw-citation.js', graph, io),
                                                 {
                                                     'label': 'Object ', 'ionfunction': createIonFunction(async () => {
-                                                        await exec('baja/screens/menu/edit-drawing.js', graph);
+                                                        await exec('baja/manchester/menu/edit-drawing.js', graph);
                                                     })
                                                 },
                                                 {
                                                     'label': 'Remove object', 'ionfunction': createIonFunction(async () => {
-                                                        exec('baja/screens/editor/remove-items.js', graph)
+                                                        exec('baja/manchester/editor/remove-items.js', graph)
                                                     })
                                                 },
                                                 {
                                                     'label': 'Copy items in current view', 'ionfunction': createIonFunction(async () => {
-                                                        exec('baja/screens/menu/copy-all-objects-in-view.js', graph)
+                                                        exec('baja/manchester/menu/copy-all-objects-in-view.js', graph)
                                                     })
                                                 },
-                                                await exec('baja/screens/menu/edit-citation.js', graph),
-                                                await exec('baja/screens/menu/highlight-features.js', library.id, graph, io),
+                                                await exec('baja/manchester/menu/edit-citation.js', graph),
+                                                await exec('baja/manchester/menu/highlight-features.js', library.id, graph, io),
 
                                             ],
                                         },
@@ -1266,7 +1266,7 @@ function () {
                                             'label': 'Window', 'items': [
                                                 {
                                                     'label': 'Drag Navigate', 'ionfunction': createIonFunction(() => {
-                                                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                                                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                                         graph.setMouseMode('navigate')
                                                     })
                                                 },
@@ -1275,7 +1275,7 @@ function () {
 
                                                         let start = 0;
                                                         graph.select();
-                                                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                                                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                                         graph.addMouseDownListener((x, y) => {
                                                             start = x;
                                                         })
@@ -1287,12 +1287,12 @@ function () {
                                                 },
                                                 {
                                                     'label': 'ZoomXY', 'ionfunction': createIonFunction(async () => {
-                                                        await exec('baja/screens/menu/zoom-box.js', graph, io)
+                                                        await exec('baja/manchester/menu/zoom-box.js', graph, io)
                                                     })
                                                 },
                                                 {
                                                     'label': 'Zoom to', 'ionfunction': createIonFunction(() => {
-                                                        exec('baja/screens/modal/show-zoom-to.js', graph, io);
+                                                        exec('baja/manchester/modal/show-zoom-to.js', graph, io);
                                                     })
                                                 },
                                             ],

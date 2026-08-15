@@ -3,22 +3,22 @@ function () {
 
 
     let myfiles_button = [{
-        label: 'bajabio Designer',
+        label: 'Screening Editor',
         ionfunction: createIonFunction(async () => {
-            await exec('screen/editor', '', { mode: 'editor' })
+            await exec('manchester/editor', '', { mode: 'editor' })
         })
     }]
     myfiles_button.push({
-        label: 'MoA Assay Designer',
+        label: 'Simple Designer',
         ionfunction: createIonFunction(async () => {
-            await exec('screen/assay-design')
+            await exec('manchester/assay-design')
         })
 
     })
     myfiles_button.push({
         label: 'RNA-binding',
         ionfunction: createIonFunction(async () => {
-            await exec('screen/editor', '', { mode: 'editor' })
+            await exec('manchester/editor', '', { mode: 'editor' })
         })
 
     })
@@ -44,7 +44,7 @@ function () {
         label: 'Models',
         ionfunction: createIonFunction(async () => {
             view = '' + getUser();
-            await exec('screen/editor', path, { mode: 'editor' })
+            await exec('manchester/editor', path, { mode: 'editor' })
         })
 
     })

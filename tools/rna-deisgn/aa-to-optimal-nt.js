@@ -94,7 +94,7 @@ function () {
                         if (res != null && res['CAI'] != null) {
                             let ca = res['CAI']
                             showWidget({
-                                wid: 'html',
+                                wid: 'title',
                                 data: '<h5> CAI = ' + ca + '</h5>'
                             })
                         } else {

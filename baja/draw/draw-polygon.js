@@ -12,7 +12,7 @@ function (pm) {
 
         platetrack.setMessage("Click to set points. Double-click to finish.");
         let menu = null;
-        let button_canvas2 = await exec('screen/controls/draw-polygon-panel-plates.js', pm, fixAngleTo90)
+        let button_canvas2 = await exec('manchester/controls/draw-polygon-panel-plates.js', pm, fixAngleTo90)
         CurrentLayout.setComponent('buttonMenuPanel', button_canvas2)
 
         const drawOptionsMenu = (x, y) => {

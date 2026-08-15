@@ -115,7 +115,7 @@ function (path, config) {
                     if (!sel) {
                         this.selectedPanel = null;
                         setTimeout(async () => {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm, sel)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
 
                         }, 200);
@@ -128,10 +128,10 @@ function (path, config) {
                                 this.selectedPanel = sel;
 
                                 if (config.mode === 'viewer') {
-                                    let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, sel)
+                                    let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, sel)
                                     CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                 } else {
-                                    let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm, sel)
+                                    let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
                                     CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                 }
                             }
@@ -141,10 +141,10 @@ function (path, config) {
                     else {
                         this.selectedPanel = sel;
                         if (config.mode === 'viewer') {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, sel)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, sel)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                         } else {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm, sel)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                         }
                         if (sel) {
@@ -191,15 +191,15 @@ function (path, config) {
                                         }
 
                                         if (!this.selectedPoint) {
-                                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
+                                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
                                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                             return;
                                         }
                                         if (config.mode === 'viewer') {
-                                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, s)
+                                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, s)
                                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                         } else {
-                                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm, this.selectedPanel, s)
+                                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, s)
                                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                         }
                                     }
@@ -227,16 +227,16 @@ function (path, config) {
                     } else {
                         this.selectedPoint = sel;
                         if (!this.selectedPoint) {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                             return;
                         }
 
                         if (config.mode === 'viewer') {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, sel)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, sel)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                         } else {
-                            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm, this.selectedPanel, sel)
+                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, sel)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                         }
                     }
@@ -2071,7 +2071,7 @@ function (path, config) {
             let select_display = createIonFunction((ref) => {
                 select_display_html = ref;
             })
-            let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+            let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
             let display = {
                 wid: 'html',
                 refCallback: select_display,
@@ -2097,11 +2097,11 @@ function (path, config) {
             const MSGraph = await exec('lib/msgraph.js')
 
             if (isMobile()) {
-                button_canvas = await exec('screen/controls/navigation-panel-plates-mobile.js', pm)
+                button_canvas = await exec('manchester/controls/navigation-panel-plates-mobile.js', pm)
             } else {
-                button_canvas = await exec('screen/controls/navigation-panel-plates.js', pm)
+                button_canvas = await exec('manchester/controls/navigation-panel-plates.js', pm)
             }
-            let button_canvas2 = await exec('screen/controls/navigation-panel-plates2.js', pm)
+            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm)
 
             buttonMenuPanel = {
                 wid: 'card',
@@ -2148,7 +2148,7 @@ function (path, config) {
 
             progressBar(60);
             let saveAsSaveScreen = async () => {
-                await exec('screen/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path)
+                await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path)
             }
             let openSaveScreen = async () => {
                 let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/bajabio-analytics')
@@ -2174,9 +2174,9 @@ function (path, config) {
                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                 if (pm.plateTrack && im) {
 
-                    await exec('screen/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
                 } else {
-                    await exec('screen/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
                 }
             }
             progressBar(80);
@@ -2195,7 +2195,7 @@ function (path, config) {
                             pm.plateTrack.reset('/app/cpd/bajabio-analytics')
 
                             let button_canvas2 = await exec(
-                                'screen/controls/navigation-panel-plates2.js',
+                                'manchester/controls/navigation-panel-plates2.js',
                                 pm,
                                 null
                             )
@@ -2321,7 +2321,7 @@ function (path, config) {
                         if (pm.plateTrack && im) {
 
                             await exec(
-                                'screen/io/save-as-obj-tp-internal-news.js',
+                                'manchester/io/save-as-obj-tp-internal-news.js',
                                 graph,
                                 genegraph_panel_layout,
                                 path,
@@ -2332,7 +2332,7 @@ function (path, config) {
                         } else {
 
                             await exec(
-                                'screen/io/save-as-obj-tp-internal-news.js',
+                                'manchester/io/save-as-obj-tp-internal-news.js',
                                 graph,
                                 genegraph_panel_layout,
                                 path,
@@ -5550,9 +5550,9 @@ function (path, config) {
                         console.log(pngBase64);
                         let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                         if (pm.plateTrack && im) {
-                            await exec('screen/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
+                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
                         } else {
-                            await exec('screen/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
+                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
                         }
                     }
 
@@ -5856,7 +5856,7 @@ function (path, config) {
                                     },
                                     {
                                         label: 'Moledulear Editor', ionfunction: createIonFunction(async () => {
-                                            let button_canvas2 = await exec('screen/controls/navigation-molecular-editor.js', graph)
+                                            let button_canvas2 = await exec('manchester/controls/navigation-molecular-editor.js', graph)
                                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                         })
                                     },
@@ -6027,7 +6027,7 @@ function (path, config) {
                                     },
                                     {
                                         label: 'Open workflow', ionfunction: createIonFunction(async () => {
-                                            let rs = await exec('screen/io/open-workstream.js', pm)
+                                            let rs = await exec('manchester/io/open-workstream.js', pm)
                                             await exec('baja/table/show-flow-editor', rs)
 
                                         })

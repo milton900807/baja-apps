@@ -69,7 +69,7 @@ function (library, folder) {
                 })
                 progress.status = 'complete'
                 clear();
-                await exec('baja/screen/fb', library + '/' + title )
+                await exec('manchester/fb', library + '/' + title )
 
             }
         })

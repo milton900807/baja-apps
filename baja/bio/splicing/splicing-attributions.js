@@ -148,7 +148,7 @@ function (graph, genegraph_panel_layout) {
 
                 if (strack) {
                     strack.addLayer(layer);
-                    let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                    let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                     CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
                 }
@@ -270,7 +270,7 @@ function (graph, genegraph_panel_layout) {
                         graph.setError(exception);
                     }
 
-                    let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                    let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
 
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                     CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
@@ -397,7 +397,7 @@ function (graph, genegraph_panel_layout) {
                             graph.setError(' Failed to run ' + donorsite.name)
                         }
 
-                        let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                        let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
 
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
@@ -488,7 +488,7 @@ function (graph, genegraph_panel_layout) {
 
                         if (strack) {
                             strack.addLayer(layer);
-                            let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
                             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                             CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
                         }
@@ -500,7 +500,7 @@ function (graph, genegraph_panel_layout) {
 
         if (selectedTrack) {
             graph.showMenu(menuList, x, y, 300)
-            let button_canvas_ = await exec('screen/controls/navigation-panel.js', graph)
+            let button_canvas_ = await exec('manchester/controls/navigation-panel.js', graph)
             CurrentLayout.clearComponent('buttonMenuPanel,labelPanel')
             CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
         }

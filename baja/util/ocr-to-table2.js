@@ -340,13 +340,13 @@ function (imageBuffer, graph, genegraph_panel_layout) {
 
                                                             try {
                                                                 let list = JSON.parse(jsonPanel.data);
-                                                                await exec('screen/io/map-sequences2.js', list, graph, genegraph_panel_layout)
+                                                                await exec('manchester/io/map-sequences2.js', list, graph, genegraph_panel_layout)
                                                                 CurrentLayout.clearComponent('mainPanel')
                                                                 CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
                                                             } catch (exception) {
 
                                                                 let list = jsonPanel.data;
-                                                                await exec('screen/io/map-sequences2.js', list, graph, genegraph_panel_layout)
+                                                                await exec('manchester/io/map-sequences2.js', list, graph, genegraph_panel_layout)
                                                                 CurrentLayout.clearComponent('mainPanel')
                                                                 CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
@@ -636,7 +636,7 @@ function (imageBuffer, graph, genegraph_panel_layout) {
                                             label: ' Map  sequence list ', ionFunction: createIonFunction(async () => {
 
                                                 let list = JSON.parse(jsonPanel.data);
-                                                await exec('screen/io/map-sequences2.js', list, graph, genegraph_panel_layout)
+                                                await exec('manchester/io/map-sequences2.js', list, graph, genegraph_panel_layout)
 
                                                 CurrentLayout.clearComponent('mainPanel')
                                                 CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);

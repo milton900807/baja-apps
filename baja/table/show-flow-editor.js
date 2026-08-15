@@ -38,7 +38,7 @@ function (code) {
                 {
                     'label': 'Export', "color": 'blue', action: async () => {
                         let code = canvas.getEditorText();
-                        await exec('screen/io/save-workstream', '/', code, pm.plateTrack)
+                        await exec('manchester/io/save-workstream', '/', code, pm.plateTrack)
                     }
 
                 },

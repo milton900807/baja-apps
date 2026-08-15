@@ -19,7 +19,7 @@ function (graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -34,7 +34,7 @@ function (graph, genegraph_panel_layout) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []
@@ -80,7 +80,7 @@ function (graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -95,7 +95,7 @@ function (graph, genegraph_panel_layout) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []

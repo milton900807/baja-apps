@@ -36,7 +36,7 @@ function (path, filebrowserplease) {
                     const loggedIn = await MSGraph.isLoggedIn();
 
                     if (loggedIn) {
-                        await exec('screen/fb.js', path);
+                        await exec('manchester/fb.js', path);
                         clearInterval(loginCheckInterval);
 
                         return;
@@ -230,7 +230,7 @@ function (path, filebrowserplease) {
                                                                         ,
                                                                         'width': '100%',
                                                                         'component': {
-                                                                            wid: 'html',
+                                                                            wid: 'title',
                                                                             data: '<hr>  <h3> </h3>'
                                                                         },
                                                                     }, {
@@ -384,7 +384,7 @@ function (path, filebrowserplease) {
                 let t = null;
                 let mode = 'load'
                 let path_j = '.'
-                let commands = await exec('screen/controls/cmds')
+                let commands = await exec('manchester/controls/cmds')
                 progressBar(80);
                 let userfiles = {
                     wid: 'simple-file-browser',
@@ -398,7 +398,7 @@ function (path, filebrowserplease) {
                         user: getUser(),
                         root: '/' + getUser(),
                         columns: 3,
-                        filetype: 'ljl,screen,ljlpx',
+                        filetype: 'baja',
                         showSearch: true,
                         "ionfunction.cmd": createIonFunction((element) => {
                             commands.go(path_j, element.cmd);
@@ -480,12 +480,12 @@ function (path, filebrowserplease) {
                                     }
                                     exec('cpd/editor', element.path, config, `/app/cpd/editor`)
                                 }
-                                else if (element.path.endsWith(".screen")) {
+                                else if (element.path.endsWith(".baja")) {
 
                                     const path = element.path;
                                     clear();
-                                    window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${path}`);
-                                    exec('screen/editor', path, { mode: 'editor' })
+                                    window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                                    exec('manchester/editor', path, { mode: 'editor' })
                                 } else if (element.path.endsWith('.bjb')) {
                                     clear();
                                     let config = {
@@ -668,7 +668,7 @@ function (path, filebrowserplease) {
                             [
                                 {
                                     'component': {
-                                        wid: 'html',
+                                        wid: 'title',
                                         data: '<h4>Your Files </h4>'
 
                                     },
@@ -937,7 +937,7 @@ function (path, filebrowserplease) {
                                             let userFilesRef = createIonFunction((panel) => {
                                                 userFiles_panel = panel;
                                             })
-                                            let commands = await exec('screen/controls/cmds')
+                                            let commands = await exec('manchester/controls/cmds')
 
                                             let userfiles = {
                                                 wid: 'simple-file-browser',

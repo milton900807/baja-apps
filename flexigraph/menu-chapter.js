@@ -85,10 +85,10 @@ function () {
 
             if (radius < 100) {
 
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                ctx.shadowBlur = 10;
-                ctx.shadowOffsetX = 5;
-                ctx.shadowOffsetY = 5;
+                ctx.shadowColor = 'rgba(16,24,40,0.15)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
                 ctx.lineWidth = 0;
 
                 ctx.beginPath();
@@ -98,16 +98,16 @@ function () {
 
                 ctx.shadowColor = 'transparent';
 
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowColor = 'rgba(16,24,40,0.15)';
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
                 ctx.lineWidth = 1;
             } else {
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                ctx.shadowBlur = 10;
-                ctx.shadowOffsetX = 5;
-                ctx.shadowOffsetY = 5;
+                ctx.shadowColor = 'rgba(16,24,40,0.15)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
                 ctx.lineWidth = 0;
 
                 ctx.beginPath();
@@ -130,18 +130,18 @@ function () {
             }
 
             if (mt === 'xx-small-left') {
-                return drawChevronLeft(ctx, x - 5, y, 8, color, 'rgba(0, 0, 0, 0.5)', 10, 5, 5);
+                return drawChevronLeft(ctx, x - 5, y, 8, color, 'rgba(16,24,40,0.15)', 10, 5, 5);
             } else if (mt === 'xx-small-right') {
-                return drawChevronRight(ctx, x + 15, y, 8, color, 'rgba(0, 0, 0, 0.5)', 10, 5, 5);
+                return drawChevronRight(ctx, x + 15, y, 8, color, 'rgba(16,24,40,0.15)', 10, 5, 5);
 
             }
 
             if (width < 70) {
                 drawRRect(ctx, x, y, width, height);
             } else {
-                ctx.shadowColor = 'rgba(10, 10, 10, 0.6)';
-                ctx.shadowBlur = 15;
-                ctx.shadowOffsetX = 2;
+                ctx.shadowColor = 'rgba(16,24,40,0.18)';
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 2;
                 ctx.lineWidth = 0;
 
@@ -159,7 +159,7 @@ function () {
                 ctx.fill();
                 ctx.shadowColor = 'transparent';
 
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowColor = 'rgba(16,24,40,0.15)';
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
@@ -169,10 +169,10 @@ function () {
         }
         function drawRRect(ctx, x, y, width, height) {
 
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            ctx.shadowBlur = 10;
-            ctx.shadowOffsetX = 5;
-            ctx.shadowOffsetY = 5;
+            ctx.shadowColor = 'rgba(16,24,40,0.15)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 2;
             ctx.lineWidth = 0;
 
             ctx.beginPath();
@@ -180,7 +180,7 @@ function () {
             ctx.closePath();
             ctx.fill();
             ctx.shadowColor = 'transparent';
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowColor = 'rgba(16,24,40,0.15)';
             ctx.shadowBlur = 0;
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 0;
@@ -356,7 +356,7 @@ function () {
 
                 let itemsPerColumn = this.getItemsPerColumn();
                 ctx.font = '14px Arial';
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowColor = 'rgba(16,24,40,0.15)';
                 let radius = 8;
                 let borderPadding = 4;
 

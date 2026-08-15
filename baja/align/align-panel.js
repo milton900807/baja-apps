@@ -440,7 +440,7 @@ function (__sequence) {
                             'width': '15%',
                             'component':
                             {
-                                wid: 'html',
+                                wid: 'title',
                                 data: '<h4>Edit distance:</h4>'
                             }
                         },

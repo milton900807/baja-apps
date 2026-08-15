@@ -1,5 +1,5 @@
 function (datapath, server, graph, genegraph_panel_layout) {
-    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
 
     graph.setMessage(" Select a track... ")
@@ -227,7 +227,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
 
                                     layer.sortPolygonPoints();
                                     t.addLayer(layer)
-                                    let button_canvas = await exec('screen/controls/navigation-panel.js', graph)
+                                    let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
 
                                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel');
                                     CurrentLayout.setComponent('buttonMenuPanel', button_canvas);

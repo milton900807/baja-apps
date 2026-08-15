@@ -236,7 +236,7 @@ function (graph, genegraph_panel_layout) {
             for o in t.oligos:
                 o.sequence = t.getSequenceRange(o.xi, o.xf);
         `
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let panel = null;
         let __nameHook = createIonFunction((name) => {
             panel = name;

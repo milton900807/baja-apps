@@ -1502,6 +1502,7 @@ function (progress) {
 
             timeout;
             setMessage(m, messagex, messagey) {
+                if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
                 if (messagex != null && messagex > 0) {
@@ -1537,6 +1538,7 @@ function (progress) {
             }
 
             setCenterMessage(m, fontSize) {
+                if (this.wake) this.wake();
                 this.setMessageCenter(m, fontSize)
             }
             isConnected() {
@@ -1816,6 +1818,14 @@ function (progress) {
             }
 
             async update(graph) {
+
+
+
+                console.log(" update graph ")
+
+
+
+                if (this.wake) this.wake();
                 if (graph.msg) {
                     log(graph.msg)
                     return;
@@ -2064,6 +2074,7 @@ function (progress) {
             }
 
             addTrack(newTrack) {
+                if (this.wake) this.wake();
 
                 setTimeout(() => {
                     function overlap(track1, track2) {
@@ -2157,7 +2168,8 @@ function (progress) {
             }
 
             setMouseMode(mode) {
-                this.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+
+                this.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                 this.graph.mode = mode;
             }
             setBaseIndex(b) {
@@ -2646,7 +2658,7 @@ function (progress) {
                     }
 
                     if (!fasta) {
-                        let ensembl_sequence = prefix + `/sequence/id/${transcriptId}?content-type=text/plain`;
+                        let ensembl_sequence = (window['env']?.['apiUrl'] || window.location.origin) + `/api/ensembl/sequence/${transcriptId}?prefix=${encodeURIComponent(prefix)}`;
                         fasta = (await GETXT(ensembl_sequence)).trim();
 
                         if (t.strand < 0) {
@@ -2830,7 +2842,7 @@ function (progress) {
                     // ------------------------------------------------------------
                     // 1. Try local transcript endpoint first for ENST ids
                     // ------------------------------------------------------------
-                    if (ensembleId.toUpperCase().startsWith("ENST")) {
+                    if (/^ENS[A-Z]*T\d/i.test(ensembleId)) {   // any Ensembl transcript: ENST / ENSMUST / ENSRNOT ...
 
                         let localLoaded = false;
 
@@ -2847,10 +2859,30 @@ function (progress) {
 
 
 
-                            let localJs = await GETJSON(try_local);
+                            let localResp = await GETJSON(try_local);
 
+                            // The local /transcript endpoint may return either a legacy
+                            // GFF feature array, or the newer payload object
+                            //   { transcriptId, sequence, annotations, strand }.
+                            // Normalise both shapes to a GFF feature array (+ sequence).
+                            let localJs = null;
+                            let localSequence = null;
+                            if (Array.isArray(localResp)) {
+                                localJs = localResp;
+                            } else if (localResp && typeof localResp === 'object') {
+                                localJs = Array.isArray(localResp.annotations) ? localResp.annotations : [];
+                                localSequence = localResp.sequence || null;
 
-                            if (localJs && Array.isArray(localJs) && localJs.length > 0) {
+                                // Let the user know when the local reference is still
+                                // downloading and this came from the remote service.
+                                if (localResp.referencesLoading) {
+                                    let sp = localResp.species || 'reference';
+                                    this.graph.setMessage(' ' + sp
+                                        + ' reference data is still downloading — using the remote service for now (local will be faster once ready).');
+                                }
+                            }
+
+                            if (localJs && localJs.length > 0) {
 
 
 
@@ -2897,45 +2929,45 @@ function (progress) {
 
                                 applyTrackViewport(t);
 
-                                // try new local sequence+annotation endpoint first
-                                let localTranscriptPayload = null;
-                                try {
-                                    const localTranscriptUrl =
-                                        `${host_}/api/ensembl/transcript/${encodeURIComponent(ensembleId)}` +
-                                        `?prefix=${encodeURIComponent(prefix)}`;
+                                // Sequence: prefer what the local payload already returned;
+                                // otherwise ask the dedicated local endpoint, then fall back
+                                // to Ensembl REST. Every remote hop here is failsafe.
+                                if (!localSequence) {
+                                    try {
+                                        const localTranscriptUrl =
+                                            `${host_}/api/ensembl/transcript/${encodeURIComponent(ensembleId)}` +
+                                            `?prefix=${encodeURIComponent(prefix)}`;
 
-                                    const resp = await fetch(localTranscriptUrl);
-                                    if (resp.ok) {
-                                        localTranscriptPayload = await resp.json();
+                                        const resp = await fetch(localTranscriptUrl);
+                                        if (resp.ok) {
+                                            const p = await resp.json();
+                                            if (p && p.sequence) localSequence = p.sequence;
+                                            if (p && Array.isArray(p.annotations) && p.annotations.length > 0) {
+                                                localJs = p.annotations;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.warn('Local sequence/annotation endpoint failed for transcript:', e);
                                     }
-                                } catch (e) {
-                                    console.warn('Local sequence/annotation endpoint failed for transcript:', e);
                                 }
 
-                                if (localTranscriptPayload && localTranscriptPayload.sequence) {
-                                    // assume local server already handled strand if needed
-                                    t.setSequence(String(localTranscriptPayload.sequence).trim());
+                                if (localSequence) {
+                                    // local server already handled strand if needed
+                                    t.setSequence(String(localSequence).trim());
                                 } else {
-                                    let ensembl_sequence = `${prefix}/sequence/id/${ensembleId}?content-type=text/plain`;
-                                    this.graph.setMessage(" Loading sequence " + prefix)
-                                    let fasta = await GETXT(ensembl_sequence);
-                                    setTrackSequenceFromRawFasta(t, fasta);
+                                    try {
+                                        let ensembl_sequence = `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/sequence/${ensembleId}?prefix=${encodeURIComponent(prefix)}`;
+                                        this.graph.setMessage(" Loading sequence " + prefix)
+                                        let fasta = await GETXT(ensembl_sequence);
+                                        setTrackSequenceFromRawFasta(t, fasta);
+                                    } catch (seqEx) {
+                                        console.warn('Ensembl sequence fetch failed (continuing without sequence):', seqEx);
+                                    }
                                 }
 
-                                if (
-                                    localTranscriptPayload &&
-                                    localTranscriptPayload.annotations &&
-                                    Array.isArray(localTranscriptPayload.annotations)
-                                ) {
-                                    let annotations = this.createTrackFromLocal(localTranscriptPayload.annotations);
-                                    for (let an of annotations) {
-                                        t.add(an);
-                                    }
-                                } else {
-                                    let annotations = this.createTrackFromLocal(localJs);
-                                    for (let an of annotations) {
-                                        t.add(an);
-                                    }
+                                let annotations = this.createTrackFromLocal(localJs);
+                                for (let an of annotations) {
+                                    t.add(an);
                                 }
 
                                 t.generateORF();
@@ -2957,36 +2989,56 @@ function (progress) {
 
 
                                 js = await GETJSON(
-                                    `${prefix}/lookup/id/${ensembleId}?expand=1;content-type=application/json`
+                                    `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/lookup/${ensembleId}?prefix=${encodeURIComponent(prefix)}`
                                 );
                             } catch (restException) {
-                                console.error('Ensembl REST lookup failed for transcript:', restException);
-                                throw restException;
+                                // Direct rest.ensembl.org calls are CORS-blocked from the
+                                // browser. Don't let that abort the whole track load.
+                                console.warn('Ensembl REST lookup failed for transcript (continuing without remote enrichment):', restException);
+                                js = null;
                             }
                         }
                     } else {
                         // ------------------------------------------------------------
                         // 3. Non-ENST: use Ensembl REST lookup
                         // ------------------------------------------------------------
-                        js = await GETJSON(
-                            `${prefix}/lookup/id/${ensembleId}?expand=1;content-type=application/json`
-                        );
+                        try {
+                            js = await GETJSON(
+                                `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/lookup/${ensembleId}?prefix=${encodeURIComponent(prefix)}`
+                            );
+                        } catch (restException) {
+                            console.warn('Ensembl REST lookup failed (continuing):', restException);
+                            js = null;
+                        }
                     }
                 } catch (exception) {
                     console.warn('Primary lookup failed, retrying Ensembl REST:', exception);
-                    js = await GETJSON(
-                        `${prefix}/lookup/id/${ensembleId}?expand=1;content-type=application/json`
-                    );
+                    try {
+                        js = await GETJSON(
+                            `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/lookup/${ensembleId}?prefix=${encodeURIComponent(prefix)}`
+                        );
+                    } catch (retryException) {
+                        console.warn('Ensembl REST retry failed (continuing):', retryException);
+                        js = null;
+                    }
                 }
 
                 if (!js) {
-                    console.log(" ensembl " + `${prefix}/lookup/id/${ensembleId}?expand=1;content-type=application/json`);
-                    js = await GETJSON(
-                        `${prefix}/lookup/id/${ensembleId}?expand=1;content-type=application/json`
-                    );
+                    console.log(" ensembl " + `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/lookup/${ensembleId}?prefix=${encodeURIComponent(prefix)}`);
+                    try {
+                        js = await GETJSON(
+                            `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/lookup/${ensembleId}?prefix=${encodeURIComponent(prefix)}`
+                        );
+                    } catch (finalException) {
+                        console.warn('Ensembl REST lookup unavailable (CORS/network); loading track without remote annotations:', finalException);
+                        js = null;
+                    }
                 }
 
                 if (!js) {
+                    if (this.graph && this.graph.setMessage) {
+                        this.graph.setMessage('Could not reach Ensembl for ' + ensembleId + ' — loaded without remote annotations.');
+                    }
                     return null;
                 }
 
@@ -3051,7 +3103,7 @@ function (progress) {
                 }
 
                 if (!usedLocalPayload) {
-                    let ensembl_sequence = `${prefix}/sequence/id/${ensembleId}?content-type=text/plain`;
+                    let ensembl_sequence = `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/sequence/${ensembleId}?prefix=${encodeURIComponent(prefix)}`;
                     let fasta = await GETXT(ensembl_sequence);
                     setTrackSequenceFromRawFasta(t, fasta);
                     this.buildENSEMBLAnnotations(t, js);
@@ -3200,7 +3252,7 @@ function (progress) {
                     } else {
                         try {
                             let prefix = `https://rest.ensembl.org`;
-                            let ensembl_sequence = prefix + `/sequence/id/${js.id}?content-type=text/plain`;
+                            let ensembl_sequence = (window['env']?.['apiUrl'] || window.location.origin) + `/api/ensembl/sequence/${js.id}?prefix=${encodeURIComponent(prefix)}`;
                             let fasta = GETXT(ensembl_sequence)
                             if (fasta && fasta.length > 0) {
                                 fasta = fasta.trim();
@@ -3968,7 +4020,7 @@ function (progress) {
             saving = false;
             async saveState() {
                 this.saving = true;
-                let name = '.current.screen'
+                let name = '.current.baja'
                 let currentPath = '.'
                 const seenObjects = new WeakSet();
                 let gs = JSON.stringify(this, function (key, value) {
@@ -3990,8 +4042,8 @@ function (progress) {
                     }
                     return value;
                 });
-                if (!name.endsWith('.screen')) {
-                    name = name + '.screen'
+                if (!name.endsWith('.baja')) {
+                    name = name + '.baja'
                 }
                 let host_ = window['env']['apiUrl']
                 let jsonobj = {
@@ -4011,11 +4063,11 @@ function (progress) {
 
             async isPreviousState() {
                 let host_ = window['env']['apiUrl']
-                let rf = await GETJSON(host_ + '/get-folder?key=user&path=' + getUser() + '&filetype=.screen')
+                let rf = await GETJSON(host_ + '/get-folder?key=user&path=' + getUser() + '&filetype=.baja')
                 let ch = rf.children;
                 if (ch && ch.length > 0)
                     for (let i of ch) {
-                        if (i && i.path.endsWith('/.current.screen')) {
+                        if (i && i.path.endsWith('/.current.baja')) {
                             return true;
                         }
                     }
@@ -4704,6 +4756,10 @@ function (progress) {
                         this.graph.rescale();
                     }
 
+                    // Tag tracks with a back-ref so Track.addOligo (and similar) can
+                    // wake the redraw loop when they mutate the graph while idle.
+                    if (this.track) for (let t of this.track) { if (t) t.__gg = this; }
+
                     if (!this.___captureSwipesSet && this.graph.canvas) {
                         captureSwipes(this.graph.canvas.canvas.nativeElement, (direction) => {
                             this.panGridSlide(direction, { fromScreen: { x: this.graph.grid.width / 2, y: this.graph.grid.height / 2 } })
@@ -4724,14 +4780,38 @@ function (progress) {
                         observer.observe(this.graph.canvas.canvas.nativeElement);
                     }
 
+                    // One-time: track user interaction on the canvas so the redraw
+                    // loop can go idle when nothing is happening and resume instantly
+                    // on the next mouse move / key / touch / wheel.
+                    if (!this.__idleListenersSet && this.graph.canvas) {
+                        if (this.idleTimeoutMs == null) this.idleTimeoutMs = 15000;
+                        this.__lastInteraction = performance.now();
+                        const wake = () => this.wake();
+                        const el = this.graph.canvas.canvas.nativeElement;
+                        el.addEventListener('mousemove', wake, { passive: true });
+                        el.addEventListener('mousedown', wake, { passive: true });
+                        el.addEventListener('wheel', wake, { passive: true });
+                        el.addEventListener('touchstart', wake, { passive: true });
+                        el.addEventListener('touchmove', wake, { passive: true });
+                        window.addEventListener('keydown', wake);
+                        this.__idleListenersSet = true;
+                    }
+
                     if (document.hidden) {
                         this.pauseDraw = true;
                     } else {
                         this.pauseDraw = false;
                     }
 
-                    if (!this.pauseDraw) {
+                    // Idle pause: after idleTimeoutMs of no interaction, paint one
+                    // final frame and then stop redrawing. wake() (fired by any
+                    // interaction, or callable programmatically) resumes the loop.
+                    const idleFor = performance.now() - (this.__lastInteraction || 0);
+                    const isIdle = idleFor > (this.idleTimeoutMs || 15000);
+
+                    if (!this.pauseDraw && (!isIdle || !this.__idleRendered)) {
                         await this.redraw();
+                        if (isIdle) this.__idleRendered = true;
                         if (this.post_graphics_modifications) {
                             if (this.graph.canvas) {
                                 let ctx = this.graph.canvas.getCTX();
@@ -4743,12 +4823,18 @@ function (progress) {
                             if (this.autosave) this.saveState();
                         }
                         save_index += 200;
-                    } else {
-                        console.log(" pause.... ")
                     }
 
                 }, 100);
 
+            }
+
+            // Resets the idle timer and resumes the redraw loop. Fired by canvas
+            // interaction; also callable programmatically after a background change
+            // (e.g. a model finishing) so the new state gets painted while idle.
+            wake() {
+                this.__lastInteraction = performance.now();
+                this.__idleRendered = false;
             }
 
             innerComponentCallback = (panl) => {
@@ -5418,7 +5504,7 @@ function (progress) {
                                                             label: 'Remove homopolymer contigs',
                                                             click: async () => {
                                                                 await exec(
-                                                                    'baja/screens/annotation/rule-application-wizard-min.js',
+                                                                    'baja/manchester/annotation/rule-application-wizard-min.js',
                                                                     this,
                                                                     this.genegraph_panel_layout,
                                                                     `pattern, TTTT | Required
@@ -5433,7 +5519,7 @@ pattern, GGGG | Required`
                                                             label: 'Remove palindromes',
                                                             click: async () => {
                                                                 await exec(
-                                                                    'baja/screens/annotation/rule-application-wizard-min.js',
+                                                                    'baja/manchester/annotation/rule-application-wizard-min.js',
                                                                     this,
                                                                     this.genegraph_panel_layout,
                                                                     `palindrome,10 | Required`
@@ -5447,7 +5533,7 @@ pattern, GGGG | Required`
                                                                 this.setMessage('Filter seed sequences that hit the same 3UTR >= 10 times');
 
                                                                 await exec(
-                                                                    'baja/screens/annotation/rule-application-wizard-min.js',
+                                                                    'baja/manchester/annotation/rule-application-wizard-min.js',
                                                                     this,
                                                                     this.genegraph_panel_layout,
                                                                     'offtarget-seed, Human3utr, 1, 10 | Required'
@@ -5519,7 +5605,7 @@ pattern, GGGG | Required`
                                                                                         let folder = await client.api(`/drives/${library.id}/items/${this.parentId}`).get();
 
                                                                                         let hl = await exec(
-                                                                                            'baja/screens/menu/target-tools.js',
+                                                                                            'baja/manchester/menu/target-tools.js',
                                                                                             graph,
                                                                                             library,
                                                                                             folder,
@@ -5530,7 +5616,7 @@ pattern, GGGG | Required`
                                                                                         CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                                                     } else {
                                                                                         await exec(
-                                                                                            'baja/screens/annotation/rule-application-wizard-min.js',
+                                                                                            'baja/manchester/annotation/rule-application-wizard-min.js',
                                                                                             graph,
                                                                                             this.genegraph_panel_layout
                                                                                         );
@@ -5546,7 +5632,7 @@ pattern, GGGG | Required`
                                                                                 let folder = await client.api(`/drives/${library.id}/items/${this.parentId}`).get();
 
                                                                                 let hl = await exec(
-                                                                                    'baja/screens/menu/target-tools.js',
+                                                                                    'baja/manchester/menu/target-tools.js',
                                                                                     graph,
                                                                                     library,
                                                                                     folder,
@@ -5557,7 +5643,7 @@ pattern, GGGG | Required`
                                                                                 CurrentLayout.setComponent('buttonMenuPanel', hl);
                                                                             } else {
                                                                                 await exec(
-                                                                                    'baja/screens/annotation/rule-application-wizard-min.js',
+                                                                                    'baja/manchester/annotation/rule-application-wizard-min.js',
                                                                                     graph,
                                                                                     this.genegraph_panel_layout
                                                                                 );
@@ -6365,6 +6451,7 @@ pattern, GGGG | Required`
             }
 
             showSideMenu(list) {
+                if (this.wake) this.wake();
                 console.trace('showSideMenu() called', {
                     list,
                     side_menu: this.side_menu,
@@ -6515,6 +6602,7 @@ pattern, GGGG | Required`
                 }, 10);
             }
             showMenu(list, x, y, width) {
+                if (this.wake) this.wake();
                 if (this.chapter_menu && this.showChapters) {
                     this.showChapters = false;
                 }
@@ -6564,6 +6652,7 @@ pattern, GGGG | Required`
             }
 
             showWindowMenu(list, x, y, width) {
+                if (this.wake) this.wake();
                 exec('flexigraph/show-mobile-menu.js', x, y, list, this.graph, this.genegraph_panel_layout, true)
             }
 
@@ -7510,6 +7599,7 @@ pattern, GGGG | Required`
             }
 
             setCenterParagraph(txt) {
+                if (this.wake) this.wake();
                 this.center_paragraph_text = txt;
             }
 

@@ -43,7 +43,7 @@ function (path, filebrowserplease) {
         let userFilesRef = createIonFunction((panel) => {
             userFiles_panel = panel;
         })
-        let commands = await exec('screen/controls/cmds')
+        let commands = await exec('manchester/controls/cmds')
         progressBar(80);
 
         let userfiles = {
@@ -146,12 +146,12 @@ function (path, filebrowserplease) {
                                 mode: 'editor'
                             }
                             exec('cpd/bajabio-project', element.path, config, `/app/baja/yak`)
-                        } else if (element.path.endsWith(".screen")) {
+                        } else if (element.path.endsWith(".baja")) {
 
                             const path = element.path;
                             clear();
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${path}`);
-                            exec('screen/editor', path, { mode: 'editor' })
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                            exec('manchester/editor', path, { mode: 'editor' })
                         } else {
                             if (element.path.endsWith('.share')) {
                                 let host_ = window['env']['apiUrl']
@@ -525,7 +525,7 @@ function (path, filebrowserplease) {
                     const loggedIn = await MSGraph.isLoggedIn();
 
                     if (loggedIn) {
-                        await exec('screen/fb.js');
+                        await exec('manchester/fb.js');
                         clearInterval(loginCheckInterval);
                         return;
                     }
@@ -614,9 +614,9 @@ function (path, filebrowserplease) {
                 if (rlist && rlist['values']) {
                     let v = rlist['values']
                     for (let i of v) {
-                        if (i.name.endsWith('.screen')) {
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/screen/editor?path=${__path}`);
-                            exec('screen/editor', i.path, { mode: 'viewer' })
+                        if (i.name.endsWith('.baja')) {
+                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${__path}`);
+                            exec('manchester/editor', i.path, { mode: 'viewer' })
                             return resolve()
                         } else if (i.name.endsWith('.bjb')) {
                             window.history.pushState({ 'rna-screen': path }, 'yak', `/app/cpd/baja-analytics?path=${__path}`);
@@ -626,7 +626,7 @@ function (path, filebrowserplease) {
                             exec('cpd/bajabio-project', i.path, { mode: 'viewer' })
                         }
                         else {
-                            exec('screen/fb')
+                            exec('manchester/fb')
                         }
                         break;
                     }
@@ -779,8 +779,8 @@ function (path, filebrowserplease) {
                                                                                         async () => {
                                                                                             setTimeout(() => {
                                                                                                 clear();
-                                                                                                window.history.pushState({ 'yak': __path }, 'editor', `/app/screen/editor`);
-                                                                                                exec('screen/editor')
+                                                                                                window.history.pushState({ 'yak': __path }, 'editor', `/app/manchester/editor`);
+                                                                                                exec('manchester/editor')
 
                                                                                             }, 400)
 

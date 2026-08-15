@@ -3,8 +3,8 @@ function () {
         'UserAnnotation': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
 
-            graph.drawVerticalLine(xs, y, 0.13, 'lightBlue', 0.5)
-            graph.drawVerticalLine(xf, y, 0.13, 'lightBlue', 0.7)
+            graph.drawVerticalLine(xs, y, 0.13, '#93b4d8', 0.5)
+            graph.drawVerticalLine(xf, y, 0.13, '#93b4d8', 0.7)
 
             graph.drawLine(xs, y, xf, y, color, 13, 'butt')
 
@@ -16,8 +16,8 @@ function () {
             let xs = xss - 1;
             let xf = xff - 1;
 
-            graph.drawVerticalLine(xs, __y, 0.63, 'lightBlue', 0.5)
-            graph.drawVerticalLine(xf, __y, 0.63, 'lightBlue', 0.7)
+            graph.drawVerticalLine(xs, __y, 0.63, '#93b4d8', 0.5)
+            graph.drawVerticalLine(xf, __y, 0.63, '#93b4d8', 0.7)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
 
@@ -28,7 +28,7 @@ function () {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
 
                     ctx.shadowBlur = 2;
-                    ctx.shadowColor = 'black';
+                    ctx.shadowColor = '#1f2937';
 
                     ctx.lineWidth = 1;
                     ctx.beginPath();
@@ -38,10 +38,10 @@ function () {
                     ctx.stroke();
                     ctx.closePath();
                     ctx.shadowBlur = 0;
-                    ctx.font = '13px Arial';
+                    ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black'
+                    ctx.fillStyle = '#1f2937'
 
                     ctx.fillText("A", x, graph.Y(__y) + 10);
                     ctx.textAlign = 'left'
@@ -53,17 +53,17 @@ function () {
             let xs = xss - 1;
             let xf = xff - 1;
 
-            graph.drawVerticalLine(xs, __y, 0.63, 'lightBlue', 0.5)
-            graph.drawVerticalLine(xf, __y, 0.63, 'lightBlue', 0.7)
+            graph.drawVerticalLine(xs, __y, 0.63, '#93b4d8', 0.5)
+            graph.drawVerticalLine(xf, __y, 0.63, '#93b4d8', 0.7)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
 
             if (ctx) {
                 ctx.shadowBlur = 7;
-                ctx.shadowColor = 'black';
+                ctx.shadowColor = '#1f2937';
                 ctx.lineWidth = 3;
 
-                ctx.color = 'navy'
+                ctx.color = '#274b86'
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
                 if (screencell > 4) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
@@ -77,10 +77,10 @@ function () {
                     ctx.shadowBlur = 0;
                     ctx.lineWidth = 1;
 
-                    ctx.font = '13px Arial';
+                    ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black'
+                    ctx.fillStyle = '#1f2937'
                     ctx.fillText("A", x, graph.Y(__y) + 10);
                     ctx.textAlign = 'left'
 
@@ -92,9 +92,9 @@ function () {
             let xs = xss;
             let xf = xff;
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.3)', 3, 'butt')
-            graph.drawLine(xs, y, xf, y, 'rgb(10,250,10,0.4)', 10, 'butt')
-            graph.drawVerticalLine(xs, y, 0.13, 'magenta', 0.7)
-            graph.drawVerticalLine(xf, y, 0.13, 'magenta', 0.4)
+            graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.5)', 10, 'butt')
+            graph.drawVerticalLine(xs, y, 0.13, '#7a6fa6', 0.7)
+            graph.drawVerticalLine(xf, y, 0.13, '#7a6fa6', 0.4)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
@@ -103,7 +103,7 @@ function () {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 1;
                     ctx.shadowBlur = 3;
-                    ctx.shadowColor = 'black';
+                    ctx.shadowColor = '#1f2937';
 
                     ctx.beginPath();
                     ctx.arc(x, graph.Y(y) + 10, radius, 0, 2 * Math.PI);
@@ -114,10 +114,10 @@ function () {
 
                     ctx.shadowBlur = 0;
 
-                    ctx.font = '13px Arial';
+                    ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black'
+                    ctx.fillStyle = '#1f2937'
 
                     ctx.fillText('D', x, graph.Y(y) + 10);
                 }
@@ -128,14 +128,14 @@ function () {
             let xs = xss;
             let xf = xff;
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.3)', 3, 'butt')
-            graph.drawLine(xs, y, xf, y, 'rgb(10,250,10,0.4)', 10, 'butt')
-            graph.drawVerticalLine(xs, y, 0.13, 'magenta', 0.7)
-            graph.drawVerticalLine(xf, y, 0.13, 'magenta', 0.4)
+            graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.5)', 10, 'butt')
+            graph.drawVerticalLine(xs, y, 0.13, '#7a6fa6', 0.7)
+            graph.drawVerticalLine(xf, y, 0.13, '#7a6fa6', 0.4)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
                 ctx.shadowBlur = 7;
-                ctx.shadowColor = 'black';
+                ctx.shadowColor = '#1f2937';
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
                 if (screencell > 4) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
@@ -149,10 +149,10 @@ function () {
 
                     ctx.shadowBlur = 0;
 
-                    ctx.font = '13px Arial';
+                    ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black'
+                    ctx.fillStyle = '#1f2937'
 
                     ctx.fillText('D', x, graph.Y(y) + 10);
                 }
@@ -167,10 +167,10 @@ function () {
             let xf = xff;
 
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.6)', 3, 'butt')
-            graph.drawLine(xs, y, xf, y, 'rgb(100,150,100,0.4)', 10, 'butt')
+            graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.45)', 10, 'butt')
 
-            graph.drawVerticalLine(xs, y, 0.63, 'maroon', 0.5)
-            graph.drawVerticalLine(xf, y, 0.63, 'maroon', 0.5)
+            graph.drawVerticalLine(xs, y, 0.63, '#a03b2e', 0.5)
+            graph.drawVerticalLine(xf, y, 0.63, '#a03b2e', 0.5)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
@@ -187,10 +187,10 @@ function () {
 
                     ctx.shadowBlur = 0;
 
-                    ctx.font = '10px Arial';
+                    ctx.font = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black'
+                    ctx.fillStyle = '#1f2937'
                     ctx.fillText("Donor", x, graph.Y(y)) + 10;
                 }
             }
@@ -198,7 +198,7 @@ function () {
 
         'Exon': createIon((graph, tgraph, xs, xf, yv, color, annotation, strand) => {
 
-            const exonColor = 'rgba(78, 103, 241, 0.5)';
+            const exonColor = 'rgba(44,90,160,0.82)';
             const exonWidth = 12;
 
             graph.drawLine(xs, yv, xf + 1, yv, exonColor, exonWidth, 'butt');
@@ -251,10 +251,10 @@ function () {
                     ctx.fill();
                     ctx.stroke();
                     ctx.closePath();
-                    ctx.font = `${fontSize}px Arial`;
+                    ctx.font = `${fontSize}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black';
+                    ctx.fillStyle = '#1f2937';
                     ctx.fillText(annotation.index, x, y);
                     ctx.restore();
                 }
@@ -272,19 +272,19 @@ function () {
 
             const lineStyle = inFrame
                 ? {
-                    stroke: 'rgba(170, 255, 0, 0.55)',
+                    stroke: 'rgba(78,157,105,0.6)',
                     width: 32,
                     dash: [],
                     cap: 'butt',
 
-                    glow: { color: 'rgba(170,255,0,0.22)', blur: 14 }
+                    glow: { color: 'rgba(78,157,105,0.22)', blur: 14 }
                 }
                 : {
-                    stroke: 'rgba(255, 170, 0, 0.55)',
+                    stroke: 'rgba(199,125,52,0.6)',
                     width: 26,
                     dash: [10, 8],
                     cap: 'butt',
-                    glow: { color: 'rgba(255,170,0,0.18)', blur: 10 }
+                    glow: { color: 'rgba(199,125,52,0.2)', blur: 10 }
                 };
 
             const badgeStyle = inFrame
@@ -306,7 +306,7 @@ function () {
 
             function measureBadge(ctx, text, fontPx, padX, padY) {
                 ctx.save();
-                ctx.font = `${fontPx}px Arial`;
+                ctx.font = `${fontPx}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
                 const m = ctx.measureText(text);
                 const textW = m.width;
                 const textH = Math.max(
@@ -352,7 +352,7 @@ function () {
                 ctx.strokeStyle = border;
                 ctx.stroke();
 
-                ctx.font = `${fontPx}px Arial`;
+                ctx.font = `${fontPx}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = fg;
@@ -499,7 +499,7 @@ function () {
             const visualDir = s;
 
             const y = yv;
-            const featureColor = color || 'rgba(120, 255, 120, 0.55)';
+            const featureColor = color || 'rgba(78,157,105,0.55)';
 
             const startX = (s === 1) ? xs : xf;
 
@@ -549,7 +549,7 @@ function () {
 
                 ctx.save();
                 ctx.lineWidth = 3;
-                ctx.strokeStyle = 'rgba(20,120,255,0.95)';
+                ctx.strokeStyle = 'rgba(46,110,164,0.95)';
                 ctx.beginPath();
                 ctx.moveTo(sx, yPix - tickH);
                 ctx.lineTo(sx, yPix + tickH);
@@ -598,7 +598,7 @@ function () {
                     graph.Y(y) - 12,
                     graph.X(startX),
                     graph.Y(y) + 12,
-                    'blue',
+                    '#3e7cb1',
                     4,
                     'butt'
                 );
@@ -627,9 +627,9 @@ function () {
         }),
 
         'TSS': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'lightGreen', 40, 'butt')
-            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), 'blue', 4, 'butt')
-            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), 'blue', 4, 'butt')
+            graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.55)', 40, 'butt')
+            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#3e7cb1', 4, 'butt')
+            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#3e7cb1', 4, 'butt')
         }),
         'STOP': createIon((graph, tgraph, xs, xf, y) => {
 
@@ -638,28 +638,28 @@ function () {
                 return;
             }
 
-            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), 'blue', 10, 'butt')
-            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), 'blue', 10, 'butt')
+            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#3e7cb1', 10, 'butt')
+            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#3e7cb1', 10, 'butt')
 
-            graph.drawString45('TC', xf - 0.5, y + 1, 'gray', '10px Arial')
+            graph.drawString45('TC', xf - 0.5, y + 1, '#8a94a6', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'oligo': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'green', 1, 'butt')
+            graph.drawLine(xs, y, xf, y, '#2e9e6b', 1, 'butt')
 
         }),
         'ProteinDomain': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, y + 1, xf, y + 1, 'lightBlue', 20, 'butt')
-            graph.drawLine(xs, y + 1, xf, y + 1, 'yellow', 5, 'butt')
-            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + 1, 'blue', 4, 'butt')
+            graph.drawLine(xs, y + 1, xf, y + 1, '#93b4d8', 20, 'butt')
+            graph.drawLine(xs, y + 1, xf, y + 1, '#c9a227', 5, 'butt')
+            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + 1, '#3e7cb1', 4, 'butt')
 
-            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + annotation.labelY - 2, 'yellow', 1, 'butt')
-            graph.drawString(annotation.name, (xs + xf) / 2, y + annotation.labelY - 2, 'black', '10px Arial')
+            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + annotation.labelY - 2, '#c9a227', 1, 'butt')
+            graph.drawString(annotation.name, (xs + xf) / 2, y + annotation.labelY - 2, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
             if (screencell < 1.5 && screencell > 0.1) {
                 if (annotation.description != null && annotation.description.length > 0) {
-                    graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y, 'black', 1, 'butt')
-                    graph.drawString(annotation.description, (xs + xf) / 2, y + annotation.labelY - 2, 'black', '10px Arial')
+                    graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y, '#1f2937', 1, 'butt')
+                    graph.drawString(annotation.description, (xs + xf) / 2, y + annotation.labelY - 2, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
                 }
 
             }
@@ -668,22 +668,22 @@ function () {
 
         }),
         'aso': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'green', 1, 'butt')
+            graph.drawLine(xs, y, xf, y, '#2e9e6b', 1, 'butt')
 
         }), 'AA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
 
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
 
-            graph.drawLine(xs, y, xf, y, 'rgba(200,0,0,0.5)', 65, 'butt')
-            graph.drawLine(xs, y, xs, y + annotation.labelY - 1, 'lightGray', 1, 'butt')
+            graph.drawLine(xs, y, xf, y, 'rgba(176,69,62,0.55)', 65, 'butt')
+            graph.drawLine(xs, y, xs, y + annotation.labelY - 1, 'rgba(120,130,145,0.45)', 1, 'butt')
             if (screencell > 0.5) {
-                graph.drawString(annotation.name, xs, y + annotation.labelY - 1, 'black', '10px Arial')
+                graph.drawString(annotation.name, xs, y + annotation.labelY - 1, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
             }
         }),
         'Intron': createIon((graph, tgraph, xs, xf, y) => {
 
-            graph.drawZigZag(xs, y, xf, y, 'orange', 2)
+            graph.drawZigZag(xs, y, xf, y, '#c77d34', 2)
 
         }),
         'Translation': createIon((graph, tgraph, xs, xf, y) => {
@@ -692,126 +692,126 @@ function () {
                 return;
             }
             let r = 0.1;
-            graph.drawString('START', xs, y + r, 'black', '9px Arial')
+            graph.drawString('START', xs, y + r, '#1f2937', '9px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
-            graph.drawVerticalLine(xs, y, 0.2, 'green', 4)
-            graph.drawString('STOP', xf - 1, y + r, 'black', '9px Arial')
+            graph.drawVerticalLine(xs, y, 0.2, '#2e9e6b', 4)
+            graph.drawString('STOP', xf - 1, y + r, '#1f2937', '9px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
-            graph.drawVerticalLine(xf, y, 0.2, 'red', 4)
+            graph.drawVerticalLine(xf, y, 0.2, '#c0504d', 4)
 
         }),
         'CODON': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'lightGray', 3, 'butt')
-            graph.drawVerticalLine(xs, y, 0.2, 'gray')
+            graph.drawLine(xs, y, xf, y, 'rgba(120,130,145,0.45)', 3, 'butt')
+            graph.drawVerticalLine(xs, y, 0.2, '#8a94a6')
 
         }),
         'CDS': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf + 1, y, 'rgba(0,0,250,0.4)', 20)
-            graph.drawVerticalLine(xs, y, 0.08, 'blue', 1)
-            graph.drawVerticalLine(xf + 1, y, 0.08, 'blue', 1)
+            graph.drawLine(xs, y, xf + 1, y, 'rgba(44,90,160,0.55)', 20)
+            graph.drawVerticalLine(xs, y, 0.08, '#3e7cb1', 1)
+            graph.drawVerticalLine(xf + 1, y, 0.08, '#3e7cb1', 1)
 
         }),
         'UTR': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'lightBlue', 7)
-            graph.drawVerticalLine(xs, y, 0.2, 'lightBlue')
-            graph.drawVerticalLine(xf, y, 0.2, 'lightBlue')
+            graph.drawLine(xs, y, xf, y, '#93b4d8', 7)
+            graph.drawVerticalLine(xs, y, 0.2, '#93b4d8')
+            graph.drawVerticalLine(xf, y, 0.2, '#93b4d8')
 
         }),
         'polypeptide': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'lightGray', 1)
-            graph.drawVerticalLine(xs, y, 0.2, 'lightGray')
-            graph.drawVerticalLine(xf, y, 0.2, 'lightGray')
+            graph.drawLine(xs, y, xf, y, 'rgba(120,130,145,0.45)', 1)
+            graph.drawVerticalLine(xs, y, 0.2, 'rgba(120,130,145,0.45)')
+            graph.drawVerticalLine(xf, y, 0.2, 'rgba(120,130,145,0.45)')
 
         }),
         'rna-binding': createIon((graph, tgraph, xs, xf, y) => {
             let d = xf - xs;
-            graph.drawZigZag(xs, y, xf, y, 'orange', 4, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, 'black')
-            graph.drawVerticalLine(xf, y, 0.2, 'black')
+            graph.drawZigZag(xs, y, xf, y, '#c77d34', 4, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, '#1f2937')
+            graph.drawVerticalLine(xf, y, 0.2, '#1f2937')
 
         }),
         'snp': createIon((graph, tgraph, xs, xf, y) => {
             let d = xf - xs;
-            graph.drawZigZag(xs, y, xf, y, 'purple', 20, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, 'black')
-            graph.drawVerticalLine(xf, y, 0.2, 'black')
+            graph.drawZigZag(xs, y, xf, y, '#6e5aa6', 20, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, '#1f2937')
+            graph.drawVerticalLine(xf, y, 0.2, '#1f2937')
 
         }), 'Query': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'purple', 12, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, 'black')
-            graph.drawVerticalLine(xf, y, 0.2, 'black')
+            graph.drawLine(xs, y, xf, y, '#6e5aa6', 12, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, '#1f2937')
+            graph.drawVerticalLine(xf, y, 0.2, '#1f2937')
 
         }), 'Query-Target': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'orange', 12, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, 'black')
-            graph.drawVerticalLine(xf, y, 0.2, 'black')
+            graph.drawLine(xs, y, xf, y, '#c77d34', 12, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, '#1f2937')
+            graph.drawVerticalLine(xf, y, 0.2, '#1f2937')
 
         }),
         'biological_region': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'magenta', 5)
-            graph.drawVerticalLine(xs, y, 0.2, 'magenta')
-            graph.drawVerticalLine(xf, y, 0.2, 'magenta')
+            graph.drawLine(xs, y, xf, y, '#7a6fa6', 5)
+            graph.drawVerticalLine(xs, y, 0.2, '#7a6fa6')
+            graph.drawVerticalLine(xf, y, 0.2, '#7a6fa6')
 
         }),
         'region': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'darkGray', 2, 'butt')
-            graph.drawVerticalLine(xs, y, 0.1, 'darkGray')
-            graph.drawVerticalLine(xf, y, 0.1, 'darkGray')
+            graph.drawLine(xs, y, xf, y, '#8a8f98', 2, 'butt')
+            graph.drawVerticalLine(xs, y, 0.1, '#8a8f98')
+            graph.drawVerticalLine(xf, y, 0.1, '#8a8f98')
 
         }),
         'polyA': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'darkCyan', 25, 'round')
-            graph.drawVerticalLine(xs, y, 1.1, 'lightGray')
-            graph.drawVerticalLine(xf, y, 1.1, 'lightGray')
+            graph.drawLine(xs, y, xf, y, '#3c8dbc', 25, 'round')
+            graph.drawVerticalLine(xs, y, 1.1, 'rgba(120,130,145,0.45)')
+            graph.drawVerticalLine(xf, y, 1.1, 'rgba(120,130,145,0.45)')
 
         }),
         'lncRNA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
 
             let screencell = graph.screenWidth((1))
 
-            graph.drawLine(xs, y + 0.3, xf, y + 0.3, 'darkCyan', 25, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, 'magenta')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, 'magenta')
+            graph.drawLine(xs, y + 0.3, xf, y + 0.3, '#3c8dbc', 25, 'round')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a6fa6')
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a6fa6')
             let name = 'lncRNA'
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
             }
             let r = 0.35;
-            graph.drawString(name, xs, y + 1 + r, 'black', '10px Arial')
+            graph.drawString(name, xs, y + 1 + r, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'miRNA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, 0.3, xf, 0.3, 'cyan', 20, 'round')
-            graph.drawVerticalLine(xs, 0.3, 1.1, 'lightBlue')
-            graph.drawVerticalLine(xf, 0.3, 1.1, 'maroon')
+            graph.drawLine(xs, 0.3, xf, 0.3, '#4c9aa6', 20, 'round')
+            graph.drawVerticalLine(xs, 0.3, 1.1, '#93b4d8')
+            graph.drawVerticalLine(xf, 0.3, 1.1, '#a03b2e')
             let name = 'miRNA'
             let screencell = graph.screenWidth((1))
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
-                graph.drawLine(xs, 0.3, xs, tgraph.Y(annotation.labelY), 'black', 1, 'round')
+                graph.drawLine(xs, 0.3, xs, tgraph.Y(annotation.labelY), '#1f2937', 1, 'round')
 
             }
-            graph.drawString(name, xs, tgraph.Y(annotation.labelY), 'black', '12px Arial')
+            graph.drawString(name, xs, tgraph.Y(annotation.labelY), '#1f2937', '12px system-ui, -apple-system, Roboto, Arial, sans-serif')
         }),
         'miRNA_primary_transcript': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, 0.3, xf, 0.3, 'yellow', 10, 'round')
-            graph.drawVerticalLine(xs, 0.3, 1.1, 'magenta')
-            graph.drawVerticalLine(xf, 0.3, 1.1, 'magenta')
+            graph.drawLine(xs, 0.3, xf, 0.3, '#c9a227', 10, 'round')
+            graph.drawVerticalLine(xs, 0.3, 1.1, '#7a6fa6')
+            graph.drawVerticalLine(xf, 0.3, 1.1, '#7a6fa6')
             let name = 'miRNA'
             let screencell = graph.screenWidth((1))
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
-                graph.drawLine(xs, 0.3, xs, y, 'black', 1, 'round')
+                graph.drawLine(xs, 0.3, xs, y, '#1f2937', 1, 'round')
 
             }
 
-            graph.drawString(name, xs, y, 'black', '10px Arial')
+            graph.drawString(name, xs, y, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'processed_pseudogene': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, y + 0.3, xf, y + 0.3, 'lightGreen', 155, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, 'magenta')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, 'magenta')
+            graph.drawLine(xs, y + 0.3, xf, y + 0.3, 'rgba(78,157,105,0.55)', 155, 'round')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a6fa6')
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a6fa6')
             let name = 'Pseudogene'
 
             let screencell = graph.screenWidth((1))
@@ -821,13 +821,13 @@ function () {
             }
 
             let r = 0.3;
-            graph.drawString(name, xs, y + 1 + r, 'black', '10px Arial')
+            graph.drawString(name, xs, y + 1 + r, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'snRNA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, y + 0.3, xf, y + 0.3, 'yellow', 155, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, 'magenta')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, 'magenta')
+            graph.drawLine(xs, y + 0.3, xf, y + 0.3, '#c9a227', 155, 'round')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a6fa6')
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a6fa6')
             let name = 'snRNA'
 
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
@@ -837,7 +837,7 @@ function () {
             }
 
             let r = 0.3;
-            graph.drawString(name, xs, y + 1 + r, 'black', '10px Arial')
+            graph.drawString(name, xs, y + 1 + r, '#1f2937', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
 

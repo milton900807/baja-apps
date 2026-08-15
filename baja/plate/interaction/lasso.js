@@ -2,8 +2,8 @@ function (pv, graph) {
 
     return new Promise(async (resolve, reject) => {
         let TrackLayer = await exec('baja/bio/track-layer.js');
-        let MenuFactory = await exec('baja/screens/menu/menu-factory.js')
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        let MenuFactory = await exec('baja/manchester/menu/menu-factory.js')
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let trackLayer = null;
         let md = false;
 
@@ -15,7 +15,7 @@ function (pv, graph) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -30,7 +30,7 @@ function (pv, graph) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []
@@ -76,7 +76,7 @@ function (pv, graph) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -91,7 +91,7 @@ function (pv, graph) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []

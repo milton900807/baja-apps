@@ -1,6 +1,6 @@
 function (datapath, server, graph, genegraph_panel_layout) {
     return new Promise(async (resolve, reject) => {
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         graph.setMouseMode ('select-track')
         graph.selectOff();
         graph.setMessage(" Select a track... ")
@@ -320,7 +320,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
         menuList.push({
             label: 'Edit Layer',
             click: async (xwc, ywc) => {
-                let track_layers_panel = await exec('baja/screens/menu/select-track-action-layers-edit-panel.js', selectedTrack, genegraph_panel_layout)
+                let track_layers_panel = await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js', selectedTrack, genegraph_panel_layout)
                 CurrentLayout.clearComponent('mainPanel')
                 CurrentLayout.setComponent('mainPanel', track_layers_panel);
 

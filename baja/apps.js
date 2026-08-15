@@ -15,7 +15,7 @@ function (__path) {
             userFiles_panel = panel;
         })
 
-        let commands = await exec('screen/controls/cmds')
+        let commands = await exec('manchester/controls/cmds')
 
         let userfiles = {
             wid: 'simple-file-browser',
@@ -99,13 +99,13 @@ function (__path) {
 
                     } else {
 
-                        if (element.path.endsWith('.screen')) {
+                        if (element.path.endsWith('.baja')) {
                             clear();
                             let config = {
                                 silent: true,
                                 user: getUser()
                             }
-                            exec('screen/editor', element.path, config)
+                            exec('manchester/editor', element.path, config)
                         } else {
 
                             if (element.path.endsWith('.share')) {
@@ -367,8 +367,8 @@ function (__path) {
                                                     async () => {
                                                         setTimeout(() => {
                                                             clear();
-                                                            window.history.pushState({ 'yak': __path }, 'editor', `/app/screen/editor`);
-                                                            exec('screen/editor')
+                                                            window.history.pushState({ 'yak': __path }, 'editor', `/app/manchester/editor`);
+                                                            exec('manchester/editor')
 
                                                         }, 400)
 

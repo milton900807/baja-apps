@@ -40,7 +40,7 @@ function (graph, genegraph_panel_layout) {
 
                                                     graph.setMouseMode('navigate')
                                                     graph.setMessage('Select location on track')
-                                                    await exec('baja/screens/menu/draw-oligos.js', graph)
+                                                    await exec('baja/manchester/menu/draw-oligos.js', graph)
                                                 })
                                             },
 
@@ -53,7 +53,7 @@ function (graph, genegraph_panel_layout) {
                                                     }
                                                     graph.clearMouseListeners();
                                                     graph.setMessage('Select a point on a track')
-                                                    exec('baja/screens/menu/paint-oligos.js', graph)
+                                                    exec('baja/manchester/menu/paint-oligos.js', graph)
                                                 }),
                                             }, {
 
@@ -64,7 +64,7 @@ function (graph, genegraph_panel_layout) {
                                                         return;
                                                     }
                                                     setTimeout(async () => {
-                                                        exec('baja/screens/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                        exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
                                                     }, 100)
                                                 })
 
@@ -176,8 +176,8 @@ function (graph, genegraph_panel_layout) {
                                                                         CurrentLayout.setComponent('buttonMenuPanel', w2);
 
                                                                         setTimeout(async () => {
-                                                                            await exec('baja/screens/menu/compound-editor.js', graph, genegraph_panel_layout)
-                                                                            exec('baja/screens/menu/simple-info-panel.js', graph, genegraph_panel_layout, 'Menus for creating compounds...')
+                                                                            await exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout)
+                                                                            exec('baja/manchester/menu/simple-info-panel.js', graph, genegraph_panel_layout, 'Menus for creating compounds...')
                                                                         }, 1000)
 
                                                                     }, 1000)
@@ -220,7 +220,7 @@ function (graph, genegraph_panel_layout) {
                                                         console.log('debubg');
 
                                                         graph.setMessage(" Select a sequence on a track first.")
-                                                        await exec('baja/screens/menu/sequence.js', graph, genegraph_panel_layout, false)
+                                                        await exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, false)
                                                         infoPrompt("Please select a sequence on a track first")
                                                         return;
                                                     }
@@ -296,8 +296,8 @@ function (graph, genegraph_panel_layout) {
                                                                 CurrentLayout.setComponent('buttonMenuPanel', w2);
                                                                 setTimeout(() => {
 
-                                                                    exec('baja/screens/menu/compound-editor.js', graph, genegraph_panel_layout)
-                                                                    exec('baja/screens/menu/simple-info-panel.js', graph, genegraph_panel_layout, 'Menus for creating compounds...')
+                                                                    exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout)
+                                                                    exec('baja/manchester/menu/simple-info-panel.js', graph, genegraph_panel_layout, 'Menus for creating compounds...')
 
                                                                 }, 1000)
 
@@ -358,7 +358,7 @@ function (graph, genegraph_panel_layout) {
                                         'label': 'Select', 'items': [
                                             {
                                                 'label': 'Sequence..', 'ionfunction': createIonFunction(async () => {
-                                                    await exec('baja/screens/menu/sequence.js', graph, genegraph_panel_layout, false)
+                                                    await exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, false)
                                                 })
                                             },
                                             {
@@ -436,7 +436,7 @@ function (graph, genegraph_panel_layout) {
                                         'label': 'Edit', 'items': [
                                             {
                                                 'label': 'Single', 'ionfunction': createIonFunction(async () => {
-                                                    await exec('baja/screens/menu/select-structure-simple.js', graph, genegraph_panel_layout)
+                                                    await exec('baja/manchester/menu/select-structure-simple.js', graph, genegraph_panel_layout)
                                                 })
 
                                             },
@@ -445,7 +445,7 @@ function (graph, genegraph_panel_layout) {
 
                                                 'label': 'Group', 'ionfunction': createIonFunction(async () => {
 
-                                                    await exec('baja/screens/select-compounds.js', graph, genegraph_panel_layout)
+                                                    await exec('baja/manchester/select-compounds.js', graph, genegraph_panel_layout)
 
                                                 })
                                             },
@@ -581,7 +581,7 @@ function (graph, genegraph_panel_layout) {
                                             {
                                                 'label': 'Remove by...', 'ionfunction': createIonFunction(async () => {
 
-                                                    await exec('baja/screens/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout)
+                                                    await exec('baja/manchester/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout)
 
                                                 })
                                             },
@@ -668,7 +668,7 @@ function (graph, genegraph_panel_layout) {
                                                         },{
 								label: "Re-number compounds", click: async ( xwc, ywc ) => {
 									                        graph.setMessage('Edit properties of all compounds')
-									                        let editPanel = await exec('baja/screens/menu/compound-editor-panel-all.js', graph, genegraph_panel_layout)
+									                        let editPanel = await exec('baja/manchester/menu/compound-editor-panel-all.js', graph, genegraph_panel_layout)
 									                        CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
 									                        CurrentLayout.setComponent('buttonMenuPanel', editPanel);
 

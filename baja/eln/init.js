@@ -84,7 +84,7 @@ function (lib, folder, experimentFile) {
                                     let id = f.id;
                                     let libid = lib.id;
 
-                                    window.open(`/app/baja/screens/open-screen?lib_id=${libid}&file_id=${id}`)
+                                    window.open(`/app/baja/manchester/open-screen?lib_id=${libid}&file_id=${id}`)
 
                                 })
                             }
@@ -96,7 +96,7 @@ function (lib, folder, experimentFile) {
                                     let id = f.id;
                                     let libid = lib.id;
                                     let rooturl = window.location.hostname;
-                                    window.open(`/app/baja/screens/open-screen?lib_id=${libid}&file_id=${id}`)
+                                    window.open(`/app/baja/manchester/open-screen?lib_id=${libid}&file_id=${id}`)
 
                                 })
                             }
@@ -160,7 +160,7 @@ function (lib, folder, experimentFile) {
                             'ionfunction': createIonFunction(() => {
 
                                 clear();
-                                exec('baja/screens/open-screen', lib.id, folder.id)
+                                exec('baja/manchester/open-screen', lib.id, folder.id)
                             })
                         },
 

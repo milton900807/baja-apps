@@ -87,7 +87,7 @@ function (graph) {
                             }),
                         },
                         ]
-                        if (!element.name.endsWith('.screen')) {
+                        if (!element.name.endsWith('.baja')) {
                         }
                     }),
                     "ionfunction.openfile": createIonFunction(async (file, text) => {
@@ -330,7 +330,7 @@ function (graph) {
                                     height: '100%',
                                     data: {
                                         width: '100%',
-                                        filetype: '.screen',
+                                        filetype: '.baja',
                                         drive: 'user',
                                         user: getUser(),
 

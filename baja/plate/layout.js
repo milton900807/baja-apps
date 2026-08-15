@@ -358,7 +358,7 @@ function (libid) {
                                 },
                                 {
                                     x: 23, y: 0, label: 'Delete object', ionFunction: createIonFunction(async () => {
-                                        exec('baja/screens/editor/remove-items.js', graph)
+                                        exec('baja/manchester/editor/remove-items.js', graph)
                                     })
 
                                 },

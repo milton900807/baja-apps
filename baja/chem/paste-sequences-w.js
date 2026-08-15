@@ -2,7 +2,7 @@
 
     return new Promise(async (resolve, reject) => {
 
-        let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+        let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
         let Biopolymer = await exec('baja/chem/biopolymer.js')
 
         let display = {

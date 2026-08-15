@@ -17,13 +17,45 @@ return new Promise(async (resolve, reject) => {
   let SIRNA = await exec("flexigraph/sirna.js");
   let Barchart = await exec("baja/bio/barchart-track.js");
 
+  // --- Genomics browser palette (IGV / Ensembl / UCSC aesthetic) ---
+  const GFONT_STACK = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+  const GFONT    = '13px ' + GFONT_STACK;
+  const GFONT_SM = '10px ' + GFONT_STACK;
+  const GX_INK       = '#1f2937'; // text
+  const GX_PAPER     = '#ffffff'; // background
+  const GX_GUIDE     = 'rgba(120,130,145,0.45)'; // faint guide/tick lines
+  const GX_RING      = '#33404f'; // outlines
+  const GX_EXON      = 'rgba(44,90,160,0.85)'; // exon / cds fill
+  const GX_EXON_EDGE = '#274b86'; // exon / cds edge
+  const GX_UTR       = 'rgba(147,180,216,0.85)';
+  const GX_INTRON    = '#9aa6b8';
+  const GX_GENE      = '#34506e'; // gene / transcript
+  const GX_TSS       = '#2e9e6b'; // tss / promoter
+  const GX_START     = '#4f9d69'; // start codon
+  const GX_STOP      = '#c0504d'; // stop codon
+  const GX_SNP       = '#c0392b'; // snp / substitution
+  const GX_INS       = '#2f6da4'; // insertion
+  const GX_DEL       = '#a03b2e'; // deletion
+  const GX_ASO       = '#1f9e89'; // aso / oligo
+  const GX_SIRNA     = '#2c7fb8'; // sirna
+  const GX_RNABIND   = '#c77d34'; // rna-binding
+  const GX_DOMAIN    = '#6b8e9e'; // protein domain
+  const GX_ACCENT    = '#c9a227'; // domain accent / highlight
+  const GX_LNCRNA    = '#4c9aa6';
+  const GX_MIRNA     = '#6e5aa6';
+  const GX_SNRNA     = '#b08a3e';
+  const GX_PSEUDO    = '#8a8f98';
+  const GX_REGION    = '#7a6fa6'; // region / biological_region
+  const GX_POLYA     = '#3c8dbc';
+  const GX_AA        = 'rgba(176,69,62,0.55)'; // amino-acid track
+
   function drawButton(ctx, x, y, w, h, label = "", opts = {}) {
     const r = Math.min(8, h * 0.3);
 
-    const fill = opts.fill || "#a7c7ff";
-    const fillTop = opts.fillTop || "#c7dcff";
-    const stroke = opts.stroke || "#4a6fb3";
-    const textColor = opts.textColor || "#1f3f73";
+    const fill = opts.fill || "#a7e3dd";
+    const fillTop = opts.fillTop || "#d4f0ec";
+    const stroke = opts.stroke || "#2f9c94";
+    const textColor = opts.textColor || "#0c3b3a";
     const shadow = opts.shadow || "rgba(0,0,0,0.12)";
 
     ctx.beginPath();
@@ -136,7 +168,7 @@ return new Promise(async (resolve, reject) => {
       const ctx = graph.ctx;
       ctx.save();
       ctx.font = opts.font ?? "10px monospace";
-      ctx.fillStyle = opts.textColor ?? "#222";
+      ctx.fillStyle = opts.textColor ?? GX_INK;
       ctx.textBaseline = "bottom";
       const labelY = tgraph.Y(opts.labelYFrac ?? yFrac - 0.01);
       for (const orf of orfs) {
@@ -167,12 +199,12 @@ return new Promise(async (resolve, reject) => {
     const screenX = graph.grid.X(xWorld);
     const screenLabelY = graph.grid.Y(yLabelWorld) + 30;
 
-    color = color || "black";
+    color = color || GX_INK;
 
     ctx.save();
 
     ctx.shadowColor = "transparent";
-    ctx.font = font || "15px Arial";
+    ctx.font = font || ('15px ' + GFONT_STACK);
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
 
@@ -656,13 +688,13 @@ return new Promise(async (resolve, reject) => {
 
   const getGlowForCharDiff = (charDiff) => {
     if (charDiff > 100) {
-      return { color: "#e31a1c", strength: 1.0 };
+      return { color: GX_SNP, strength: 1.0 };
     }
     if (charDiff > 20) {
-      return { color: "#ff7f00", strength: 0.75 };
+      return { color: GX_RNABIND, strength: 0.75 };
     }
     if (charDiff > 10) {
-      return { color: "#ffd92f", strength: 0.5 };
+      return { color: GX_ACCENT, strength: 0.5 };
     }
     return null;
   };
@@ -670,9 +702,9 @@ return new Promise(async (resolve, reject) => {
   function drawSnpLollipopsWide(graph, ctx, selectedTrack) {
     const STYLE = {
       lineWidth: 1.25,
-      stroke: "rgba(17, 24, 39, 0.55)",
-      fillFallback: "rgba(31, 120, 180, 0.95)",
-      highlightStroke: "rgba(236, 72, 153, 0.85)",
+      stroke: GX_RING,
+      fillFallback: GX_INS,
+      highlightStroke: GX_ACCENT,
       shadowColor: "rgba(0,0,0,0.25)",
       shadowBlur: 6,
       shadowOffsetX: 1,
@@ -684,7 +716,7 @@ return new Promise(async (resolve, reject) => {
       pad: 2,
       minStem: 10,
 
-      poorGlowColor: "rgba(255, 0, 0, 0.85)",
+      poorGlowColor: "rgba(192,57,43,0.85)",
       poorGlowBlurMin: 6,
       poorGlowBlurMax: 18,
       poorGlowPeriodMs: 900,
@@ -753,12 +785,12 @@ return new Promise(async (resolve, reject) => {
     const getTypeColor = (s) => {
       switch (s.type) {
         case "ins":
-          return "#1b9e77";
+          return GX_INS;
         case "del":
-          return "#d95f02";
+          return GX_DEL;
         case "snp":
         default:
-          return "#1f78b4";
+          return GX_SNP;
       }
     };
 
@@ -989,13 +1021,13 @@ return new Promise(async (resolve, reject) => {
 
     ctx.closePath();
 
-    ctx.fillStyle = "#a7c7ff";
-    ctx.strokeStyle = "#4a6fb3";
+    ctx.fillStyle = "#a7e3dd";
+    ctx.strokeStyle = "#2f9c94";
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#8fb6ff";
+    ctx.fillStyle = "#4ecdc4";
     ctx.fillRect(x + tabLeft + 2, y + 2, tabW - 4, tabH - 4);
   }
 
@@ -1022,13 +1054,13 @@ return new Promise(async (resolve, reject) => {
     ctx.quadraticCurveTo(x, y + tabH, x + r, y + tabH);
     ctx.closePath();
 
-    ctx.fillStyle = "#a7c7ff";
-    ctx.strokeStyle = "#4a6fb3";
+    ctx.fillStyle = "#a7e3dd";
+    ctx.strokeStyle = "#2f9c94";
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#8fb6ff";
+    ctx.fillStyle = "#4ecdc4";
     ctx.fillRect(x + tabLeft + 1, y + 1, tabW - 2, tabH - 2);
   }
 
@@ -1044,7 +1076,7 @@ return new Promise(async (resolve, reject) => {
     xi;
     xf;
     strand;
-    color = "rgb(153,159,198)";
+    color = GX_GENE;
     y = 1;
     annotations = [];
     oligos = [];
@@ -3379,6 +3411,8 @@ return new Promise(async (resolve, reject) => {
     }
 
     addOligo(oligo) {
+      // Wake the graph's redraw loop so newly added oligos paint even while idle.
+      if (this.__gg && this.__gg.wake) this.__gg.wake();
       if (oligo === undefined) {
         console.log(" oligo was null so rejecting.... ");
         return;
@@ -4696,6 +4730,9 @@ return new Promise(async (resolve, reject) => {
       this.markend = this.tgraph.xmax;
     }
     deselect() {
+
+
+
       this.showResizeBar = false;
       this.markend = null;
       this.markstart = null;
@@ -4812,15 +4849,15 @@ return new Promise(async (resolve, reject) => {
       }
     }
 
-    ffont = "11px Verdana";
+    ffont = "11px system-ui, -apple-system, Roboto, Arial, sans-serif";
     marktime = null;
-    detail_ffont = "16px Verdana";
-    detail_ffont_large = "26px Verdana";
-    detail_ffont4 = "18px Verdana";
-    detail_ffont2 = "15px Verdana";
-    detail_ffont3 = "13px Verdana";
-    detail_ffont6 = "11px Verdana";
-    detail_ffont7 = "9px Verdana";
+    detail_ffont = "16px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont_large = "26px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont4 = "18px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont2 = "15px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont3 = "13px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont6 = "11px system-ui, -apple-system, Roboto, Arial, sans-serif";
+    detail_ffont7 = "9px system-ui, -apple-system, Roboto, Arial, sans-serif";
     hitSegments = null;
 
     async draw(graph) {
@@ -4923,15 +4960,15 @@ return new Promise(async (resolve, reject) => {
         if (this.showSnpIndels) snpsv = this.getVisibleSNPs(twcxs, twcxf);
 
         if (this.trackRef && this.trackRef.track && this.trackRef.track.tgraph && this.trackRef.track.tgraph.X && this.trackRef.track.tgraph.Y) {
-          graph.drawDashedLine(this.tgraph.xi, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xi), this.trackRef.track.tgraph.Y(0), "lightYellow", 1, "round");
-          graph.drawDashedLine(this.tgraph.xi + this.tgraph.width, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xf), this.trackRef.track.tgraph.Y(0), "lightYellow", 1, "round");
+          graph.drawDashedLine(this.tgraph.xi, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xi), this.trackRef.track.tgraph.Y(0), GX_GUIDE, 1, "round");
+          graph.drawDashedLine(this.tgraph.xi + this.tgraph.width, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xf), this.trackRef.track.tgraph.Y(0), GX_GUIDE, 1, "round");
         }
         if (this.highlightstart != null && this.highlightstart >= 0 && this.highlightend != null && this.highlightend > this.highlightstart) {
           const xCenter = (graph.X(this.tgraph.X(this.highlightstart)) + graph.X(this.tgraph.X(this.highlightend))) / 2;
           const yCenter = graph.Y(this.tgraph.yi + this.tgraph.height);
           const radius = (graph.X(this.tgraph.X(this.highlightend)) - graph.X(this.tgraph.X(this.highlightstart))) / 2;
           ctx.beginPath();
-          ctx.strokeStyle = "cyan";
+          ctx.strokeStyle = GX_ASO;
           ctx.lineWidth = 15;
           ctx.arc(xCenter, yCenter, radius, 0, Math.PI, true);
           ctx.stroke();
@@ -4945,16 +4982,16 @@ return new Promise(async (resolve, reject) => {
           const i1 = Math.floor(visMax);
 
           for (let index = i0; index < i1; index++) {
-            let color = "lightGray";
+            let color = GX_INTRON;
             if (this.sequence && index < this.sequence.length) {
               let ch1 = this.sequence[index];
 
               if (this.trackRef) {
                 let ch2 = this.trackRef.track.sequence[index];
                 if (ch1 == "-" || ch2 === "-") {
-                  color = "lightYellow";
+                  color = GX_GUIDE;
                 } else if (ch1 != ch2) {
-                  color = "blue";
+                  color = GX_SNP;
                 }
               }
             }
@@ -4965,7 +5002,7 @@ return new Promise(async (resolve, reject) => {
 
             for (let index = i0; index < i1; index++) {
               let jindex = j[index];
-              graph.drawDashedLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(jindex + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), "lightYellow");
+              graph.drawDashedLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(jindex + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), GX_GUIDE);
             }
           }
 
@@ -4990,7 +5027,7 @@ return new Promise(async (resolve, reject) => {
           // }
 
           for (let index = Math.floor(twcxs); index < Math.floor(twcxf); index++) {
-            let color = "lightGray";
+            let color = GX_INTRON;
             if (this.sequence != null && index < this.sequence.length) {
               let ch1 = this.sequence[index];
 
@@ -4999,17 +5036,17 @@ return new Promise(async (resolve, reject) => {
                 let jindex = j[index];
                 let ch2 = this.trackRef.track.sequence[index];
                 if (ch1 == "-" || ch2 === "-") {
-                  color = "maroon";
+                  color = GX_DEL;
                   graph.drawLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(jindex), this.trackRef.track.tgraph.Y(0), color);
                 } else if (ch1 != ch2) {
                 }
               } else if (this.trackRef && this.trackRef.showMismatches) {
                 let ch2 = this.trackRef.track.sequence[index];
                 if (ch1 == "-" || ch2 === "-") {
-                  color = "darkGray";
+                  color = GX_RING;
                   graph.drawLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(index + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), color);
                 } else if (ch1 != ch2) {
-                  color = "red";
+                  color = GX_SNP;
                   let xstart = this.tgraph.X(this.tgraph.getxmin() + index);
                   let xend = this.trackRef.track.tgraph.X(index + this.trackRef.track.tgraph.getxmin());
                   graph.drawLine(xstart, this.tgraph.Y(0), xend, this.trackRef.track.tgraph.Y(0), color);
@@ -5019,7 +5056,7 @@ return new Promise(async (resolve, reject) => {
           }
         }
 
-        await graph.drawLine(this.tgraph.X(this.xi), this.tgraph.Y(0), this.tgraph.X(this.xf), this.tgraph.Y(0), "lightGray", 1, "round");
+        await graph.drawLine(this.tgraph.X(this.xi), this.tgraph.Y(0), this.tgraph.X(this.xf), this.tgraph.Y(0), GX_INTRON, 1, "round");
         if (trackScreenWidth > 10 && screencell > 0.0) {
           let deg = 0;
           if (this.strand) {
@@ -5028,7 +5065,7 @@ return new Promise(async (resolve, reject) => {
             }
             let increment = (this.xf - this.xi) / 15;
             for (let incr = this.xi; incr < this.xf - increment; incr += increment) {
-              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, "rgba(112, 112, 112, 0.3)");
+              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
             }
           }
           if (this.strand >= 0) {
@@ -5070,8 +5107,8 @@ return new Promise(async (resolve, reject) => {
               const inView = (x1 <= graph.grid.xmax && x2 >= graph.grid.xmin) || (graph.X(x1) <= graph.grid.width && graph.X(x2) >= 0);
               if (!inView) return;
 
-              graph.drawLine(x1, yBase, xm, yApex, "lightGray", 2, "round");
-              graph.drawLine(xm, yApex, x2, yBase, "lightGray", 2, "round");
+              graph.drawLine(x1, yBase, xm, yApex, GX_INTRON, 2, "round");
+              graph.drawLine(xm, yApex, x2, yBase, GX_INTRON, 2, "round");
             };
 
             const exons = this.annotations
@@ -5158,7 +5195,7 @@ return new Promise(async (resolve, reject) => {
                     }
 
                     for (let _i = hi; _i >= lo; _i--) {
-                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), "lightRed", this.detail_ffont6);
+                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_DEL, this.detail_ffont6);
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
                     }
@@ -5171,7 +5208,7 @@ return new Promise(async (resolve, reject) => {
                     }
 
                     for (let _i = lo; _i <= hi; _i++) {
-                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), "lightBlue", this.detail_ffont6);
+                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_INS, this.detail_ffont6);
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
                     }
@@ -5199,7 +5236,7 @@ return new Promise(async (resolve, reject) => {
                           this.tgraph,
                           _i,
                           exonIndex,
-                          "rgba(100,100,250,0.8)",
+                          GX_INK,
                           this.detail_ffont6,
                           lastMajorLabelX,
                           minimumLabelSpacing
@@ -5230,7 +5267,7 @@ return new Promise(async (resolve, reject) => {
                           this.tgraph,
                           _i,
                           exonIndex,
-                          "rgba(100,100,250,0.8)",
+                          GX_INK,
                           this.detail_ffont6,
                           lastMajorLabelX,
                           minimumLabelSpacing
@@ -5257,8 +5294,8 @@ return new Promise(async (resolve, reject) => {
                 if (screencell > 0.5) {
                   for (let i = 1; i < totalPoints - 1; i++) {
                     let xvalue = a.xi + offset + i * interval;
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, "rgba(100, 100, 200, 0.3)");
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, "rgba(100, 100, 200, 0.3)");
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
                   }
                 }
               } else {
@@ -5335,7 +5372,7 @@ return new Promise(async (resolve, reject) => {
                 graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xf)), graph.Y(this.tgraph.Y(o.y)), 2, o.highlight__, 1);
               }
               if (o.drawIcon) o.drawIcon(graph, this.tgraph);
-              else graph.drawLine(this.tgraph.X(o.xi), this.tgraph.Y(o.y), this.tgraph.X(o.xf), this.tgraph.Y(o.y), "gray", 1, "round");
+              else graph.drawLine(this.tgraph.X(o.xi), this.tgraph.Y(o.y), this.tgraph.X(o.xf), this.tgraph.Y(o.y), GX_INTRON, 1, "round");
             }
           }
         }
@@ -5357,8 +5394,8 @@ return new Promise(async (resolve, reject) => {
               let seq_index = Math.floor(index - Math.floor(this.xi));
               if (seq_index < this.sequence.length && this.sequence[seq_index]) {
                 if (screencell > 30 && screencell > 0.05) {
-                  graph.drawString(this.tgraph.xmin + seq_index, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), "lightGray", this.detail_ffont6);
-                  graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), "lightGreen", this.detail_ffont6);
+                  graph.drawString(this.tgraph.xmin + seq_index, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
+                  graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
                       let color = codon_colors(oor.aa);
@@ -5373,10 +5410,10 @@ return new Promise(async (resolve, reject) => {
                   }
                   if (this.highlightIndex > 0 && this.highlightIndex === index) {
                     seq_font = this.detail_ffont_large;
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), "black", seq_font);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
                   } else {
                     seq_font = this.detail_ffont;
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), "black", seq_font);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
                   }
 
                   let deg = 0;
@@ -5400,13 +5437,13 @@ return new Promise(async (resolve, reject) => {
                   if (this.strand === -1 || this.strand === "-1") {
                     deg = 3.14159;
                   }
-                  if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, "rgba(0,20,200,0.3)");
+                  if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
 
                   seq_font = this.ffont;
-                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), "navy", seq_font);
+                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
                 }
               } else {
-                graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), "gray");
+                graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
               }
               for (let o of visOligos) {
                 o.showOfftargets = this.showOfftargets;
@@ -5430,8 +5467,8 @@ return new Promise(async (resolve, reject) => {
           if (trackScreenWidth > 40 && screencell > 0.05) {
             let increment = (this.tgraph.xmax - this.tgraph.xmin) / 4;
             for (let idx = this.tgraph.xmin; idx < this.tgraph.xmax; idx += increment) {
-              graph.drawVerticalLine(Math.floor(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, "lightGray", 1);
-              graph.drawString(Math.floor(idx) + "", this.tgraph.X(idx), this.tgraph.Y(this.tgraph.ymin), "lightGray");
+              graph.drawVerticalLine(Math.floor(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, GX_GUIDE, 1);
+              graph.drawString(Math.floor(idx) + "", this.tgraph.X(idx), this.tgraph.Y(this.tgraph.ymin), GX_INTRON);
             }
 
             if (this.highlight_features) {
@@ -5497,7 +5534,7 @@ return new Promise(async (resolve, reject) => {
           const sx = Math.floor(graph.grid.X(this.tgraph.X(index)));
           const syTick = graph.grid.Y(this.tgraph.Y(y + this.tgraph.ymax)) + 15;
 
-          ctx.strokeStyle = "black";
+          ctx.strokeStyle = GX_RING;
           ctx.beginPath();
           ctx.moveTo(sx, syTick);
           ctx.lineTo(sx, syTick + 6);
@@ -5508,7 +5545,7 @@ return new Promise(async (resolve, reject) => {
           ctx.translate(sx + 2, syTick - 10);
           ctx.rotate((-45 * Math.PI) / 180);
 
-          ctx.fillStyle = "black";
+          ctx.fillStyle = GX_INK;
           ctx.textAlign = "left";
           ctx.textBaseline = "alphabetic";
           ctx.fillText("g." + genomicPos, 0, 0);
@@ -5685,7 +5722,7 @@ return new Promise(async (resolve, reject) => {
               const probe = (h.probe || "").toString();
 
               const scoreLabel = `Score: ${p.toFixed(3)}`;
-              graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, "black", "15px Arial");
+              graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
               if (screencell > 0.5) {
                 const label = `#${i + 1} p=${p.toFixed(3)} len=${a1 - a0}`;
               }
@@ -5693,17 +5730,17 @@ return new Promise(async (resolve, reject) => {
                 if (fwd && Number.isFinite(f0) && Number.isFinite(f1) && f1 > f0) {
                   const fx0 = Math.floor(this.tgraph.X(f0));
                   const fx1 = Math.floor(this.tgraph.X(f1));
-                  graph.drawString(`F: ${truncSeq(fwd)}`, fx0, yRow - yoffset, "black", "15px Arial");
+                  graph.drawString(`F: ${truncSeq(fwd)}`, fx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
                 if (rev && Number.isFinite(r0) && Number.isFinite(r1) && r1 > r0) {
                   const rx0 = Math.floor(this.tgraph.X(r0));
                   const rx1 = Math.floor(this.tgraph.X(r1));
-                  graph.drawString(`R: ${truncSeq(rev)}`, rx0, yRow - yoffset, "black", "15px Arial");
+                  graph.drawString(`R: ${truncSeq(rev)}`, rx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
                 if (probe) {
-                  graph.drawString(`P: ${truncSeq(probe)}`, (x0 + x1) / 2, yRow - yoffset, "bkack", "15px Arial");
+                  graph.drawString(`P: ${truncSeq(probe)}`, (x0 + x1) / 2, yRow - yoffset, "#1f2937", '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
               }
 
@@ -5762,14 +5799,14 @@ return new Promise(async (resolve, reject) => {
             ctx.textBaseline = "middle";
 
             if (!font) {
-              font = "15px Arial";
+              font = '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
             }
             ctx.shadowBlur = 0;
             ctx.shadowColor = "black";
             if (font) {
               ctx.font = font;
             } else {
-              ctx.font = "15px Arial";
+              ctx.font = '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
             }
             ctx.lineWidth = 10;
 
@@ -5782,7 +5819,7 @@ return new Promise(async (resolve, reject) => {
 
               ctx.textAlign = "left";
               ctx.textBaseline = "middle";
-              ctx.font = this.detail_ffont6 || "12px Arial";
+              ctx.font = this.detail_ffont6 || '12px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
 
               const angle = (0 * Math.PI) / 180;
 
@@ -5798,7 +5835,7 @@ return new Promise(async (resolve, reject) => {
                   ctx.save();
                   ctx.translate(sx, sy);
                   ctx.rotate(angle);
-                  ctx.fillStyle = "black";
+                  ctx.fillStyle = GX_INK;
                   ctx.fillText("g." + String(genomicPos), 0, 0);
                   ctx.restore();
                 }
@@ -5809,7 +5846,7 @@ return new Promise(async (resolve, reject) => {
                   ctx.save();
                   ctx.translate(sx, sy);
                   ctx.rotate(angle);
-                  ctx.fillStyle = "lightGreen";
+                  ctx.fillStyle = GX_START;
                   ctx.fillText(" " + (seq_index + 1) + " ", 0, 0);
                   ctx.restore();
                 }
@@ -5817,7 +5854,7 @@ return new Promise(async (resolve, reject) => {
 
               for (let seq_index = 0; seq_index < end_select_index - start_select_index; seq_index++) {
                 if (colorMap && seq_index < seqq.length && seqq[seq_index]) {
-                  const col = colorMap[seq_index] || "gray";
+                  const col = colorMap[seq_index] || GX_INTRON;
                   graph.drawString(seqq[seq_index], Math.floor(this.tgraph.X(seq_index + seq_index_start)) + 0.2, this.tgraph.Y(0.012), col, seq_font);
 
                   const sx = Math.floor(graph.grid.X(this.tgraph.X(seq_index + this.markstart)));
@@ -5896,12 +5933,12 @@ return new Promise(async (resolve, reject) => {
 
           const yPosition = graph.Y(this.tgraph.Y(yMin + (yMax - yMin) * 0.25));
 
-          const lineColor = "rgba(20, 40, 120, 0.85)";
-          const fillColor = "rgba(35, 65, 180, 0.95)";
-          const guideColor = "rgba(255, 255, 255, 0.35)";
-          const textColor = "#0b1b44";
-          const badgeFill = "rgba(255,255,255,0.92)";
-          const badgeStroke = "rgba(20, 40, 120, 0.25)";
+          const lineColor = GX_GENE;
+          const fillColor = GX_EXON;
+          const guideColor = GX_GUIDE;
+          const textColor = GX_INK;
+          const badgeFill = GX_PAPER;
+          const badgeStroke = GX_GUIDE;
 
           const pxDist = Math.abs(screenEndX - screenStartX);
           const minDist = 40;
@@ -5920,8 +5957,8 @@ return new Promise(async (resolve, reject) => {
 
             if (isFinite(left) && isFinite(width) && isFinite(screenTop) && isFinite(screenHeight) && width > 0 && screenHeight > 0) {
               ctx.save();
-              ctx.fillStyle = "rgba(0, 140, 255, 0.14)";
-              ctx.strokeStyle = "rgba(0, 140, 255, 0.30)";
+              ctx.fillStyle = "rgba(122,111,166,0.14)";
+              ctx.strokeStyle = "rgba(122,111,166,0.30)";
               ctx.lineWidth = 1;
 
               ctx.fillRect(left, screenTop, width, screenHeight);
@@ -5940,8 +5977,8 @@ return new Promise(async (resolve, reject) => {
 
           const guideTopY = this.tgraph.Y(yMax);
           const guideBottomY = this.tgraph.Y(yMin);
-          graph.drawVerticalLine(xStart, guideTopY, this.tgraph.screenHeight(yMax - yMin), "rgba(120,130,150,0.25)", 2);
-          graph.drawVerticalLine(xEnd, guideTopY, this.tgraph.screenHeight(yMax - yMin), "rgba(120,130,150,0.25)", 2);
+          graph.drawVerticalLine(xStart, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_GUIDE, 2);
+          graph.drawVerticalLine(xEnd, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_GUIDE, 2);
           ctx.restore();
 
           ctx.save();
@@ -6003,7 +6040,7 @@ return new Promise(async (resolve, reject) => {
 
           const drawBadge = (text, x, y, align = "center") => {
             ctx.save();
-            ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+            ctx.font = '12px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
             ctx.textBaseline = "middle";
             ctx.textAlign = align;
 
@@ -6066,16 +6103,16 @@ return new Promise(async (resolve, reject) => {
         if (this.targetPhase != null) {
           let fifthpoint = (this.tgraph.getymax() - this.tgraph.getymin()) / 5;
           if (this.targetPhase == -1) {
-            graph.drawString("Haplotype to target", this.tgraph.xi + this.tgraph.width + 10, this.tgraph.Y(-1 * fifthpoint), "blue");
+            graph.drawString("Haplotype to target", this.tgraph.xi + this.tgraph.width + 10, this.tgraph.Y(-1 * fifthpoint), GX_GENE);
           } else if (this.targetPhase == 1) {
-            graph.drawString("Haplotype to target", this.tgraph.xi + this.tgraph.width + 10, this.tgraph.Y(fifthpoint), "blue");
+            graph.drawString("Haplotype to target", this.tgraph.xi + this.tgraph.width + 10, this.tgraph.Y(fifthpoint), GX_GENE);
           }
         }
 
         const nameX = this.tgraph.xi + this.tgraph.width;
         const nameY = this.tgraph.Y(this.tgraph.ymax - (this.tgraph.ymax - this.tgraph.ymin) / 2);
 
-        graph.drawString(this.name, nameX, nameY, "maroon", this.detail_ffont7);
+        graph.drawString(this.name, nameX, nameY, GX_INK, this.detail_ffont7);
 
         let headerText;
 
@@ -6101,7 +6138,7 @@ return new Promise(async (resolve, reject) => {
 
           const bgH = textHeight + padY * 2;
 
-          graph.drawString(headerText, textX, textY, "#1e3a8a", this.detail_ffont6);
+          graph.drawString(headerText, textX, textY, GX_INK, this.detail_ffont6);
         }
 
         for (let icon of this.icons) {
@@ -6118,8 +6155,8 @@ return new Promise(async (resolve, reject) => {
         }
         if (this.showOligoMap) {
           for (let o of this.oligos) {
-            graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xi)), graph.Y(this.tgraph.Y(o.y)), 5, "red", 2);
-            graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xf)), graph.Y(this.tgraph.Y(o.y)), 5, "magenta", 2);
+            graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xi)), graph.Y(this.tgraph.Y(o.y)), 5, GX_START, 2);
+            graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xf)), graph.Y(this.tgraph.Y(o.y)), 5, GX_STOP, 2);
           }
         }
 

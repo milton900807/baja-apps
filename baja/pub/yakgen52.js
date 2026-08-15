@@ -585,7 +585,7 @@ function (path, config) {
                                             }, 2000)
                                         }
                                         else if (s != null && s.startsWith('c.')) {
-                                            let MutationParser = await exec('baja/screens/menu/annotation/mutation-parser.js');
+                                            let MutationParser = await exec('baja/manchester/menu/annotation/mutation-parser.js');
                                             let SnpIndel = await exec('flexigraph/snpindel.js')
                                             let MutationAnnotation = await exec('flexigraph/mutation-annotation.js')
 
@@ -815,7 +815,7 @@ function (path, config) {
                         };
                         img.src = src;
                     }
-                    graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                    graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                     graph.setMouseMode('navigate')
 
                     graph.selectOff();
@@ -1878,59 +1878,59 @@ function (path, config) {
             let track_items = []
             track_items.push({
                 'label': 'New...', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/add-track.js', graph)
+                    exec('baja/manchester/add-track.js', graph)
                 })
             })
             track_items.push({
                 'label': 'Track from sequence', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/new-track.js', graph, genegraph_panel_layout)
+                    exec('baja/manchester/new-track.js', graph, genegraph_panel_layout)
                 })
             })
             track_items.push({
                 'label': 'Navigate track', 'ionfunction': createIonFunction(async () => {
-                    let script_canvas = await exec('baja/screens/menu/annotation-navigation-tools.js', graph, genegraph_panel_layout)
+                    let script_canvas = await exec('baja/manchester/menu/annotation-navigation-tools.js', graph, genegraph_panel_layout)
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                     CurrentLayout.setComponent('buttonMenuPanel', script_canvas);
                 })
             })
             track_items.push({
                 'label': 'Paste...', 'ionfunction': createIonFunction(async () => {
-                    await exec('screen/controls/paste-panel.js', graph, genegraph_panel_layout, eeditor_state)
+                    await exec('manchester/controls/paste-panel.js', graph, genegraph_panel_layout, eeditor_state)
                 })
             })
             track_items.push({
                 'label': 'Measure...', 'ionfunction': createIonFunction(() => {
-                    exec('baja/screens/menu/measure-track.js', graph, genegraph_panel_layout)
+                    exec('baja/manchester/menu/measure-track.js', graph, genegraph_panel_layout)
                 })
             })
             track_items.push({
                 'label': 'Stats...', ionfunction: createIonFunction(async () => {
                     graph.setMessage("Click on a track to see stat menu for that track");
-                    await exec('baja/screens/menu/track-stats.js', graph)
+                    await exec('baja/manchester/menu/track-stats.js', graph)
                 })
             })
 
             track_items.push({
                 'label': 'Show...', 'ionfunction': createIonFunction(async () => {
-                    exec('baja/screens/menu/annotation/show-annotations-menu.js', graph)
+                    exec('baja/manchester/menu/annotation/show-annotations-menu.js', graph)
                 })
             })
             track_items.push({
                 'label': 'Edit', ionfunction: createIonFunction(async () => {
                     graph.setMessage("Click on a track to see available edit options. ")
-                    await exec('baja/screens/menu/edit-track.js', graph, genegraph_panel_layout)
+                    await exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout)
                 })
             })
             track_items.push({
                 'label': 'Sequence', ionfunction: createIonFunction(async () => {
-                    await exec('baja/screens/menu/edit-track-sequence.js', graph)
+                    await exec('baja/manchester/menu/edit-track-sequence.js', graph)
                 })
             })
 
             track_items.push({
                 'label': 'Export', ionfunction: createIonFunction(async () => {
                     graph.setMessage("Click on a track to see available edit options. ")
-                    await exec('baja/screens/menu/export-track.js', graph)
+                    await exec('baja/manchester/menu/export-track.js', graph)
                 })
             })
 
@@ -2052,13 +2052,13 @@ function (path, config) {
                 io = editor;
             })
             let submittedPanel = async (expid) => {
-                return await exec('baja/screens/my-submitted-screens-w.js', expid)
+                return await exec('baja/manchester/my-submitted-screens-w.js', expid)
             }
 
             let select_display = createIonFunction((ref) => {
                 select_display_html = ref;
             })
-            let molecule_type_html_render = await exec('baja/screens/render-moltype.js')
+            let molecule_type_html_render = await exec('baja/manchester/render-moltype.js')
             let display = {
                 wid: 'html',
                 refCallback: select_display,
@@ -2082,7 +2082,7 @@ function (path, config) {
             let refChem = createIonFunction((d) => {
                 htmlP = d
             })
-            let button_canvas = await exec('screen/controls/navigation-panel-plates.js', pm)
+            let button_canvas = await exec('manchester/controls/navigation-panel-plates.js', pm)
 
             let buttonMenuPanel = {
                 wid: 'card',
@@ -2113,11 +2113,11 @@ function (path, config) {
             }
             progressBar(60);
             let publishSaveScreen = async () => {
-                let savedScreens = await exec('screen/io/publish.js', graph, genegraph_panel_layout)
+                let savedScreens = await exec('manchester/io/publish.js', graph, genegraph_panel_layout)
                 showModal(savedScreens);
             }
             let saveSaveScreen = async () => {
-                await exec('screen/io/save-obj-tp.js', graph, genegraph_panel_layout, path)
+                await exec('manchester/io/save-obj-tp.js', graph, genegraph_panel_layout, path)
             }
             let openWF = async () => {
                 let v = await exec('baja/table/io/open-nautilus', pm)
@@ -2136,21 +2136,21 @@ function (path, config) {
             tools_menu = [
                 {
                     'label': 'Tables', 'ionfunction': createIonFunction(async () => {
-                        let button_canvas_ = await exec('screen/controls/navigation-panel-plates.js', pm)
+                        let button_canvas_ = await exec('manchester/controls/navigation-panel-plates.js', pm)
                         CurrentLayout.clearComponent('buttonMenuPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
                     })
                 },
                 {
                     'label': 'Gene', 'ionfunction': createIonFunction(async () => {
-                        let button_canvas_ = await exec('screen/controls/navigation-panel.js', graph)
+                        let button_canvas_ = await exec('manchester/controls/navigation-panel.js', graph)
                         CurrentLayout.clearComponent('buttonMenuPanel,labelPanel')
                         CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
                     })
                 },
                 {
                     'label': 'ASO', 'ionfunction': createIonFunction(async () => {
-                        graph.showWindowMenu(await exec('baja/screens/menu/load-chemistry-tools', graph, genegraph_panel_layout), 10, 10, 400)
+                        graph.showWindowMenu(await exec('baja/manchester/menu/load-chemistry-tools', graph, genegraph_panel_layout), 10, 10, 400)
                     })
                 },
                 {
@@ -2158,7 +2158,7 @@ function (path, config) {
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                         setTimeout(async () => {
                             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                            await exec('screen/choose-chemistry.js', graph, genegraph_panel_layout)
+                            await exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout)
                         }, 100)
                         CurrentLayout.clearComponent('mainPanel')
                         CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
@@ -2167,7 +2167,7 @@ function (path, config) {
                 {
                     'label': 'Assay design', 'ionfunction': createIonFunction(async () => {
                         CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        await exec('baja/screens/menu/assay-tools.js', graph, genegraph_panel_layout)
+                        await exec('baja/manchester/menu/assay-tools.js', graph, genegraph_panel_layout)
                     })
                 },
             ]
@@ -2234,7 +2234,7 @@ function (path, config) {
                 file_items.push({
                     'label': 'Folders...', 'ionfunction': createIonFunction(
                         async () => {
-                            await exec('screen/io/manage-files.js')
+                            await exec('manchester/io/manage-files.js')
                         }
                     )
                 })

@@ -2,9 +2,9 @@ function (plot, graph, genegraph_panel_layout) {
 
     return new Promise(async (resolve, reject) => {
         let TrackLayer = await exec('baja/bio/track-layer.js');
-        let MenuFactory = await exec('baja/screens/menu/menu-factory.js')
+        let MenuFactory = await exec('baja/manchester/menu/menu-factory.js')
         graph.setMouseMode("navigate")
-        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         let trackLayer = null;
         let md = false;
 
@@ -16,7 +16,7 @@ function (plot, graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -31,7 +31,7 @@ function (plot, graph, genegraph_panel_layout) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []
@@ -77,7 +77,7 @@ function (plot, graph, genegraph_panel_layout) {
             buttons = [
                 {
                     x: 0, y: 0, label: 'New', ionFunction: createIonFunction(() => {
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
                     })
                 },
@@ -92,7 +92,7 @@ function (plot, graph, genegraph_panel_layout) {
                     x: 2, y: 0, label: 'Continue', ionFunction: createIonFunction(() => {
                         console.log(" continue ")
 
-                        graph.clearMouseListeners('baja/screens/menu/mouse-over-highlight.js');
+                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                         addListeners();
 
                         let layers_with_lines = []
