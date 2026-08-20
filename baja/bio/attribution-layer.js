@@ -11,7 +11,7 @@ return new Promise(async (resolve, reject) => {
         window = null;
         notCalculated = true;
         compounds = []
-        showScore = true;
+        showScore = false;   // score label hidden by default
         attribution_type;
         _odds_ratio_transient_ = null;
         max_y_transient_ = Math.random() * 2.0;
@@ -443,7 +443,7 @@ return new Promise(async (resolve, reject) => {
                         ctx.font = 'bold 13px serif';
                         ctx.shadowColor = 'black'
                         ctx.shadowBlur = 0;
-                        if (this.max_y_transient_)
+                        if (this.showScore && this.max_y_transient_)
                             ctx.fillText('(' + prob.toFixed(5) + ') ' + this.name, this.tgraph.X((this.attribution_site)), this.tgraph.Y(this.max_y_transient_));
 
                         ctx.shadowColor = 'black'

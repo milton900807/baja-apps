@@ -19,43 +19,43 @@ return new Promise(async (resolve, reject) => {
 
   // --- Genomics browser palette (IGV / Ensembl / UCSC aesthetic) ---
   const GFONT_STACK = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-  const GFONT    = '13px ' + GFONT_STACK;
+  const GFONT = '13px ' + GFONT_STACK;
   const GFONT_SM = '10px ' + GFONT_STACK;
-  const GX_INK       = '#1f2937'; // text
-  const GX_PAPER     = '#ffffff'; // background
-  const GX_GUIDE     = 'rgba(120,130,145,0.45)'; // faint guide/tick lines
-  const GX_RING      = '#33404f'; // outlines
-  const GX_EXON      = 'rgba(44,90,160,0.85)'; // exon / cds fill
-  const GX_EXON_EDGE = '#274b86'; // exon / cds edge
-  const GX_UTR       = 'rgba(147,180,216,0.85)';
-  const GX_INTRON    = '#9aa6b8';
-  const GX_GENE      = '#34506e'; // gene / transcript
-  const GX_TSS       = '#2e9e6b'; // tss / promoter
-  const GX_START     = '#4f9d69'; // start codon
-  const GX_STOP      = '#c0504d'; // stop codon
-  const GX_SNP       = '#c0392b'; // snp / substitution
-  const GX_INS       = '#2f6da4'; // insertion
-  const GX_DEL       = '#a03b2e'; // deletion
-  const GX_ASO       = '#1f9e89'; // aso / oligo
-  const GX_SIRNA     = '#2c7fb8'; // sirna
-  const GX_RNABIND   = '#c77d34'; // rna-binding
-  const GX_DOMAIN    = '#6b8e9e'; // protein domain
-  const GX_ACCENT    = '#c9a227'; // domain accent / highlight
-  const GX_LNCRNA    = '#4c9aa6';
-  const GX_MIRNA     = '#6e5aa6';
-  const GX_SNRNA     = '#b08a3e';
-  const GX_PSEUDO    = '#8a8f98';
-  const GX_REGION    = '#7a6fa6'; // region / biological_region
-  const GX_POLYA     = '#3c8dbc';
-  const GX_AA        = 'rgba(176,69,62,0.55)'; // amino-acid track
+  const GX_INK = '#0a2540'; // text
+  const GX_PAPER = '#ffffff'; // background
+  const GX_GUIDE = 'rgba(120,130,145,0.45)'; // faint guide/tick lines
+  const GX_RING = '#123049'; // outlines
+  const GX_EXON = 'rgba(44,90,160,0.85)'; // exon / cds fill
+  const GX_EXON_EDGE = '#1b4a7a'; // exon / cds edge
+  const GX_UTR = 'rgba(147,180,216,0.85)';
+  const GX_INTRON = '#9fb4c6';
+  const GX_GENE = '#16456b'; // gene / transcript
+  const GX_TSS = '#17a39a'; // tss / promoter
+  const GX_START = '#17a39a'; // start codon
+  const GX_STOP = '#9c3350'; // stop codon
+  const GX_SNP = '#9c2f45'; // snp / substitution
+  const GX_INS = '#12768f'; // insertion
+  const GX_DEL = '#8c2f42'; // deletion
+  const GX_ASO = '#159a91'; // aso / oligo
+  const GX_SIRNA = '#1897b0'; // sirna
+  const GX_RNABIND = '#b0533f'; // rna-binding
+  const GX_DOMAIN = '#2bb0bf'; // protein domain
+  const GX_ACCENT = '#a86b3e'; // domain accent / highlight
+  const GX_LNCRNA = '#2bb0bf';
+  const GX_MIRNA = '#6e4560';
+  const GX_SNRNA = '#9a5f3e';
+  const GX_PSEUDO = '#7f96a8';
+  const GX_REGION = '#7a4f66'; // region / biological_region
+  const GX_POLYA = '#1aa3bd';
+  const GX_AA = 'rgba(176,69,62,0.55)'; // amino-acid track
 
   function drawButton(ctx, x, y, w, h, label = "", opts = {}) {
     const r = Math.min(8, h * 0.3);
 
-    const fill = opts.fill || "#a7e3dd";
-    const fillTop = opts.fillTop || "#d4f0ec";
-    const stroke = opts.stroke || "#2f9c94";
-    const textColor = opts.textColor || "#0c3b3a";
+    const fill = opts.fill || "#9fe0e8";
+    const fillTop = opts.fillTop || "#d6f4f7";
+    const stroke = opts.stroke || "#1aa3bd";
+    const textColor = opts.textColor || "#0a3540";
     const shadow = opts.shadow || "rgba(0,0,0,0.12)";
 
     ctx.beginPath();
@@ -1021,13 +1021,13 @@ return new Promise(async (resolve, reject) => {
 
     ctx.closePath();
 
-    ctx.fillStyle = "#a7e3dd";
-    ctx.strokeStyle = "#2f9c94";
+    ctx.fillStyle = "#9fe0e8";
+    ctx.strokeStyle = "#1aa3bd";
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#4ecdc4";
+    ctx.fillStyle = "#35c6d6";
     ctx.fillRect(x + tabLeft + 2, y + 2, tabW - 4, tabH - 4);
   }
 
@@ -1054,13 +1054,13 @@ return new Promise(async (resolve, reject) => {
     ctx.quadraticCurveTo(x, y + tabH, x + r, y + tabH);
     ctx.closePath();
 
-    ctx.fillStyle = "#a7e3dd";
-    ctx.strokeStyle = "#2f9c94";
+    ctx.fillStyle = "#9fe0e8";
+    ctx.strokeStyle = "#1aa3bd";
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#4ecdc4";
+    ctx.fillStyle = "#35c6d6";
     ctx.fillRect(x + tabLeft + 1, y + 1, tabW - 2, tabH - 2);
   }
 
@@ -5624,6 +5624,20 @@ return new Promise(async (resolve, reject) => {
 
               drawSegmentWithHalo(x0, x1, yRow, color, halo, 6, 14);
 
+              // Lasso-selection highlight outline. x0/x1/yRow are WORLD coords
+              // (drawLine applies grid.X/Y), so convert to screen for strokeRect.
+              if (h.__lassoHi) {
+                try {
+                  const _hc = graph.canvas.getCTX();
+                  const _sx0 = graph.grid.X(x0), _sx1 = graph.grid.X(x1), _sy = graph.grid.Y(yRow);
+                  _hc.save();
+                  _hc.strokeStyle = h.__lassoHi;
+                  _hc.lineWidth = 3;
+                  _hc.strokeRect(_sx0 - 3, _sy - 12, (_sx1 - _sx0) + 6, 24);
+                  _hc.restore();
+                } catch (e) { }
+              }
+
               const fwdSeq = (h.forward_primer || "").toString();
               const revSeq = (h.reverse_primer || "").toString();
               const probeSeq = (h.probe || "").toString();
@@ -5721,8 +5735,11 @@ return new Promise(async (resolve, reject) => {
               const rev = (h.reverse_primer || "").toString();
               const probe = (h.probe || "").toString();
 
-              const scoreLabel = `Score: ${p.toFixed(3)}`;
-              graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+              // Score label is hidden by default; enable per-track via showScore.
+              if (this.showScore) {
+                const scoreLabel = `Score: ${p.toFixed(3)}`;
+                graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+              }
               if (screencell > 0.5) {
                 const label = `#${i + 1} p=${p.toFixed(3)} len=${a1 - a0}`;
               }
@@ -5740,7 +5757,7 @@ return new Promise(async (resolve, reject) => {
                 }
 
                 if (probe) {
-                  graph.drawString(`P: ${truncSeq(probe)}`, (x0 + x1) / 2, yRow - yoffset, "#1f2937", '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+                  graph.drawString(`P: ${truncSeq(probe)}`, (x0 + x1) / 2, yRow - yoffset, "#0a2540", '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
               }
 
@@ -5798,16 +5815,10 @@ return new Promise(async (resolve, reject) => {
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
 
-            if (!font) {
-              font = '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-            }
+            let font = this.detail_ffont6 || '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
             ctx.shadowBlur = 0;
             ctx.shadowColor = "black";
-            if (font) {
-              ctx.font = font;
-            } else {
-              ctx.font = '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-            }
+            ctx.font = font;
             ctx.lineWidth = 10;
 
             if (screencell > 10) {

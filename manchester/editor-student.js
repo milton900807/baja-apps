@@ -1574,7 +1574,6 @@ function (path, config) {
                     }
                 })
 
-                graph.setMessageCenter('Use Track menu to add a transcript', 40)
 
             }, 5000)
 

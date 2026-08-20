@@ -569,7 +569,7 @@ function (graph, genegraph_panel_layout) {
                 }
             ]
 
-            graph.showMenu(menuList, x, y, 200)
+            graph.showSideMenu(menuList)
         });
 
     })

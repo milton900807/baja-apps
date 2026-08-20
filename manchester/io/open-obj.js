@@ -298,93 +298,150 @@ function (graph, genegraph_panel_layout, __path) {
                 comp = innerComponent;
             });
 
+            let init_path = '/' + getUser();
+            if (init_path.endsWith('/')) {
+                init_path = init_path.substring(0, init_path.length - 1);
+            }
+
+            // Same layout as save-obj (menu, divider, action row, then the file
+            // browser as the last/stretching cell) — but the action is to LOAD:
+            // clicking a file opens it in the editor.
             let w = {
                 wid: 'card',
                 data: {
                     cards: [
                         [
                             {
-                                'title': ' ', 'body': ``,
-                                'width': '90%',
-                                'component':
-                                {
-                                    wid: 'simple-file-browser',
-                                    width: '100%',
-                                    height: '100%',
+                                'width': '100%',
+                                'component': {
+                                    wid: 'menu',
                                     data: {
-                                        width: '100%',
-                                        drive: 'user',
-                                        user: getUser(),
-                                        filetype: 'baja',
-                                        root: '/' + getUser(),
-                                        "ionfunction.fileClick": createIonFunction(async (element) => {
-                                            clear();
-
-                                            window.history.replaceState('', 'editor', `/app/manchester/editor?path=${element.path}`);
-
-                                            exec('manchester/editor', replaceFirstNode(element.path))
-
-                                        }),
-                                        "ionfunction.openfile": createIonFunction(async (file, text) => {
-                                        }
-                                        ),
-                                        "ionfunction.path": createIonFunction(async (path, nodes) => {
-                                            let p = path.path;
-                                            p = p.substring(0, p.lastIndexOf('/'))
-                                        })
+                                        menus: [
+                                            {
+                                                label: 'Files',
+                                                items: [
+                                                    {
+                                                        label: 'New folder',
+                                                        ionfunction: createIonFunction(() => {
+                                                            showModal({
+                                                                wid: 'input-param-items',
+                                                                data: {
+                                                                    input_labels: ['Folder name'],
+                                                                    buttons: [{
+                                                                        'label': 'Create', 'function': createIonFunction(async (button_label, input_params) => {
+                                                                            let host_ = window['env']['apiUrl'];
+                                                                            let foldername = input_params['Folder name'];
+                                                                            if (foldername != undefined && foldername != null && foldername.length > 0) {
+                                                                                let directory = comp ? comp.currentPath : '/';
+                                                                                if (!directory) directory = '/';
+                                                                                let jsonobj = {
+                                                                                    "key": "user",
+                                                                                    "user": getUser(),
+                                                                                    "spath": directory + '/' + foldername
+                                                                                };
+                                                                                await POSTJSON(jsonobj, host_ + '/save-user-dir');
+                                                                                if (comp) {
+                                                                                    await comp.refresh();
+                                                                                    await comp.navigateToFolderNamed(foldername);
+                                                                                }
+                                                                            }
+                                                                            hideAllModal();
+                                                                        })
+                                                                    }]
+                                                                }
+                                                            });
+                                                        })
+                                                    },
+                                                    {
+                                                        label: 'Delete this folder',
+                                                        ionfunction: createIonFunction(async () => {
+                                                            let path_j = comp ? comp.currentPath : null;
+                                                            if (path_j === null || path_j === '' || path_j === '.') {
+                                                                infoPrompt(" Cannot remove root folder ");
+                                                            } else {
+                                                                let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to remove this folder and its contents?', async () => {
+                                                                    let host_ = window['env']['apiUrl'];
+                                                                    let j = { 'path': path_j, 'user': getUser(), 'key': 'user' };
+                                                                    await POSTJSON(j, host_ + '/rm');
+                                                                    await comp.navigateUp();
+                                                                    await comp.refresh();
+                                                                });
+                                                                showModal(confirm);
+                                                            }
+                                                        })
+                                                    },
+                                                ]
+                                            },
+                                        ]
                                     }
                                 }
                             },
 
-                        ]
-                    ]
-                }
-            }
-
-            let bwpanel = {
-                wid: 'card',
-                data: {
-                    cards: [
-                        [
-
                             {
                                 'title': ' ', 'body': ``,
-                                'width': '100%',
-                                'component': w
+                                'width': '90%',
+                                'component': {
+                                    wid: 'html',
+                                    width: '100%',
+                                    height: '100%',
+                                    data: ` <hr> `
+                                }
                             },
+
                             {
                                 'title': ' ', 'body': ``,
-                                'width': '100%',
-                                'component':
-                                {
+                                'width': '90%',
+                                'component': {
                                     wid: 'mt-button', data: {
                                         buttons: [
-
                                             {
                                                 label: 'Cancel', ionFunction: createIonFunction(async () => {
-                                                    CurrentLayout.clearComponent('mainPanel')
+                                                    CurrentLayout.clearComponent('mainPanel');
                                                     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
-                                                })
-                                            },
-                                            {
-                                                label: 'Open', ionFunction: createIonFunction(async () => {
-                                                    CurrentLayout.clearComponent('mainPanel')
-                                                    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
                                                 })
                                             },
                                         ]
                                     }
                                 }
                             },
+
+                            {
+                                'title': ' ', 'body': ``,
+                                'width': '90%',
+                                'component': {
+                                    wid: 'simple-file-browser',
+                                    width: '100%',
+                                    height: '100%',
+                                    refCallback: innerComponentCallback,
+                                    data: {
+                                        width: '100%',
+                                        columns: 3,
+                                        showSearch: true,
+                                        drive: 'user',
+                                        user: getUser(),
+                                        filetype: '.baja',
+                                        root: init_path,
+                                        "ionfunction.cmd": createIonFunction((element) => {
+                                        }),
+                                        "ionfunction.fileClick": createIonFunction(async (element) => {
+                                            clear();
+                                            window.history.replaceState('', 'editor', `/app/manchester/editor?path=${element.path}`);
+                                            exec('manchester/editor', replaceFirstNode(element.path));
+                                        }),
+                                        "ionfunction.openfile": createIonFunction(async (file, text) => {
+                                        }),
+                                        "ionfunction.path": createIonFunction(async (path, nodes) => {
+                                        })
+                                    }
+                                }
+                            }
                         ]
                     ]
                 }
             }
 
             CurrentLayout.clearComponent('mainPanel')
-            CurrentLayout.setComponent('mainPanel', bwpanel);
+            CurrentLayout.setComponent('mainPanel', w);
 
         }
 

@@ -757,6 +757,7 @@ function (path, config) {
                 let f = 10000;
                 for (let t of tracks) {
                     if (index === 0) {
+
                         s = t.xi;
                         f = t.xf;
                     }
@@ -952,19 +953,6 @@ function (path, config) {
 
             progressBar(55);
 
-            let htmlP;
-            let htmlT = ''
-
-            if (htmlT) {
-                htmlT = JSON.stringify(htmlT)
-            } else {
-                htmlT = ''
-            }
-
-            let refChem = createIonFunction((d) => {
-                htmlP = d
-            })
-
             let buttonMenuPanel = {
                 wid: 'card',
                 componentRef: 'staticPanel',
@@ -990,14 +978,6 @@ function (path, config) {
                                                 },
                                             ]]
                                     }
-                                }
-                            },
-                            {
-                                'component': {
-                                    wid: 'html',
-                                    componentRef: 'labelPanel',
-                                    refCallback: refChem,
-                                    data: htmlT
                                 }
                             }
                         ]]
@@ -1618,12 +1598,95 @@ function (path, config) {
                             {
                                 'width': '100%',
                                 'component': {
-                                    wid: 'menu',
+                                    wid: 'button-menu',
                                     data: {
-                                        // Navigation/zoom/bookmark controls (built in
-                                        // screen/controls/navigation-panel.js) surfaced as icon
-                                        // buttons in the menubar, grouped with separators.
-                                        buttons: menubarNavButtons,
+                                        // Circular labelled buttons — the only controls now.
+                                        buttons: [
+                                            {
+                                                label: 'File', ionFunction: createIonFunction(() => {
+                                                    graph.showSideMenu([
+                                                        { label: 'Open', click: () => { graph.showSideMenu(null); openSaveScreen(); }, move: () => { } },
+                                                        { label: 'Save', click: () => { graph.showSideMenu(null); saveSaveScreen(); }, move: () => { } },
+                                                    ]);
+                                                })
+                                            },
+                                            {
+                                                label: 'Track', ionFunction: createIonFunction(async () => {
+                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'track')
+                                                })
+                                            },
+                                            {
+                                                label: 'Annotate', ionFunction: createIonFunction(async () => {
+                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'annotate')
+                                                })
+                                            },
+                                            {
+                                                label: 'Design', ionFunction: createIonFunction(() => {
+                                                    graph.showSideMenu([
+                                                        {
+                                                            label: '1) Primer-probe', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                exec('baja/manchester/menu/primer-probe-action.js', graph, genegraph_panel_layout);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: '2) ASO/siRNA', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu([
+                                                                    {
+                                                                        label: 'Choose chemistry', move: () => { },
+                                                                        click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Drop on track location', move: () => { },
+                                                                        click: async () => {
+                                                                            graph.showSideMenu(null);
+                                                                            const hasChem = () => !!(graph.props && graph.props.selected_chemistry);
+                                                                            if (hasChem()) {
+                                                                                exec('baja/manchester/menu/draw-oligos.js', graph);
+                                                                                return;
+                                                                            }
+                                                                            // No chemistry chosen — prompt for one, then resume the drop flow.
+                                                                            graph.setMessage(' Select a chemistry, then click a track to drop the compound. ');
+                                                                            await exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout);
+                                                                            let waited = 0;
+                                                                            const resume = () => {
+                                                                                if (hasChem()) {
+                                                                                    // Let choose-chemistry's own follow-up settle, then take over the
+                                                                                    // mouse listeners for click-to-drop.
+                                                                                    setTimeout(() => exec('baja/manchester/menu/draw-oligos.js', graph), 1500);
+                                                                                } else if (waited < 120000) {
+                                                                                    waited += 500;
+                                                                                    setTimeout(resume, 500);
+                                                                                }
+                                                                            };
+                                                                            setTimeout(resume, 800);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Select sequence range', move: () => { },
+                                                                        click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true);
+                                                                        }
+                                                                    },
+                                                                ]);
+                                                            }
+                                                        },
+                                                    ]);
+                                                })
+                                            },
+                                            {
+                                                label: 'Navigate', ionFunction: createIonFunction(async () => {
+                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate')
+                                                })
+                                            }
+                                        ],
+                                        // The dropdown menus below are ignored by the button-menu widget.
                                         menus: [
 
                                             {
@@ -1999,6 +2062,7 @@ function (path, config) {
                             },
                             {
                                 'width': '50%',
+                                'height': 100,
                                 'component': buttonMenuPanel
                             }], [
                             {
@@ -2057,7 +2121,6 @@ function (path, config) {
                     }
                 })
 
-                graph.setMessageCenter('Use Track menu to add a transcript', 40)
 
             }, 5000)
 

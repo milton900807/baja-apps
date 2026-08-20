@@ -7,9 +7,9 @@ function () {
             font = "12px system-ui, -apple-system, Roboto, Arial, sans-serif";
         }
         ctx.shadowBlur = 0;
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
         if (!color) {
-            color = '#1f2937'
+            color = '#0a2540'
         }
         ctx.font = font;
         ctx.fillStyle = color;
@@ -38,9 +38,9 @@ function () {
             font = "15px system-ui, -apple-system, Roboto, Arial, sans-serif";
         }
         ctx.shadowBlur = 0;
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
         if (!color) {
-            color = '#1f2937'
+            color = '#0a2540'
         }
         if (font) {
             ctx.font = font;
@@ -58,7 +58,7 @@ function () {
 
     const drawLine = (ctx, xi, yi, xf, yf, color, lineSize, lineCap) => {
         ctx.shadowBlur = 0;
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
         ctx.lineWidth = 2;
 
         if (color != null) {
@@ -73,7 +73,7 @@ function () {
         else {
             ctx.lineCap = 'butt';
         }
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
         ctx.lineWidth = lineSize;
 
         ctx.beginPath();
@@ -84,18 +84,18 @@ function () {
 
     const drawVerticalLine = (ctx, x, y, vlength, color, lineWidth) => {
         ctx.shadowBlur = 0;
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
         if (color != null) {
             ctx.strokeStyle = color;
         } else {
-            ctx.strokeStyle = '#c77d34'
+            ctx.strokeStyle = '#b0533f'
         }
         if (!lineWidth) {
             ctx.lineWidth = 1;
         } else
             ctx.lineWidth = lineWidth;
         ctx.shadowBlur = 0;
-        ctx.shadowColor = '#1f2937';
+        ctx.shadowColor = '#0a2540';
 
         ctx.beginPath();
         ctx.moveTo((x), (y - vlength / 2));
@@ -106,8 +106,8 @@ function () {
     return {
         'UserAnnotation': createIon((ctx, grid, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
-            rawVerticalLine(ctx, grid.X(tgraph.X(xs)), grid.Y(tgraph.Y(y)), 0.13, '#93b4d8', 0.5);
-            drawVerticalLine(ctx, grid.X(tgraph.X(xf)), grid.Y(tgraph.Y(y)), 0.13, '#93b4d8', 0.7);
+            rawVerticalLine(ctx, grid.X(tgraph.X(xs)), grid.Y(tgraph.Y(y)), 0.13, '#9fe0e8', 0.5);
+            drawVerticalLine(ctx, grid.X(tgraph.X(xf)), grid.Y(tgraph.Y(y)), 0.13, '#9fe0e8', 0.7);
             drawLine(ctx, grid.X(tgraph.X(xs)), grid.Y(tgraph.Y(y)), grid.X(tgraph.X(xf)), grid.Y(tgraph.Y(y)), color, 13, 'butt');
 
         }),
@@ -116,9 +116,9 @@ function () {
             var radius = 10;
             let xs = xss - 1;
             let xf = xff - 1;
-            drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(__y)), 0.63, '#93b4d8', 0.5)
+            drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(__y)), 0.63, '#9fe0e8', 0.5)
 
-            drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(__y)), 0.63, '#93b4d8', 0.7)
+            drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(__y)), 0.63, '#9fe0e8', 0.7)
             let x = (grid.X(xs) + graph.X(xf)) / 2;
             let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
             if (screencell > 4) {
@@ -126,7 +126,7 @@ function () {
                 let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
 
                 ctx.shadowBlur = 2;
-                ctx.shadowColor = '#1f2937';
+                ctx.shadowColor = '#0a2540';
 
                 ctx.lineWidth = 1;
                 ctx.beginPath();
@@ -139,7 +139,7 @@ function () {
                 ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#1f2937'
+                ctx.fillStyle = '#0a2540'
 
                 ctx.fillText("A", x, graph.Y(tgraph.Y(__y)) + 10);
                 ctx.textAlign = 'left'
@@ -150,17 +150,17 @@ function () {
             let xs = xss - 1;
             let xf = xff - 1;
 
-            graph.drawVerticalLine(xs, __y, 0.63, '#93b4d8', 0.5)
-            graph.drawVerticalLine(xf, __y, 0.63, '#93b4d8', 0.7)
+            graph.drawVerticalLine(xs, __y, 0.63, '#9fe0e8', 0.5)
+            graph.drawVerticalLine(xf, __y, 0.63, '#9fe0e8', 0.7)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
 
             if (ctx) {
                 ctx.shadowBlur = 7;
-                ctx.shadowColor = '#1f2937';
+                ctx.shadowColor = '#0a2540';
                 ctx.lineWidth = 3;
 
-                ctx.color = '#274b86'
+                ctx.color = '#1b4a7a'
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
                 if (screencell > 4) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
@@ -177,7 +177,7 @@ function () {
                     ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#1f2937'
+                    ctx.fillStyle = '#0a2540'
                     ctx.fillText("A", x, graph.Y(__y) + 10);
                     ctx.textAlign = 'left'
 
@@ -188,14 +188,14 @@ function () {
             var radius = 10;
             let xs = xss - 1;
             let xf = xff - 1;
-            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(__y)), 0.63, '#93b4d8', 0.5);
-            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(__y)), 0.63, '#93b4d8', 0.7);
+            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(__y)), 0.63, '#9fe0e8', 0.5);
+            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(__y)), 0.63, '#9fe0e8', 0.7);
             let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
             ctx.shadowBlur = 7;
-            ctx.shadowColor = '#1f2937';
+            ctx.shadowColor = '#0a2540';
             ctx.lineWidth = 3;
 
-            ctx.color = '#274b86'
+            ctx.color = '#1b4a7a'
             let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
             if (screencell > 4) {
                 let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
@@ -212,7 +212,7 @@ function () {
                 ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#1f2937'
+                ctx.fillStyle = '#0a2540'
                 ctx.fillText("A", x, graph.Y(tgraph.Y(__y)) + 10);
                 ctx.textAlign = 'left'
             }
@@ -237,12 +237,12 @@ function () {
                 'rgb(10,250,10,0.4)', 10, 'butt'
             );
 
-            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)), 0.13, '#7a6fa6', 0.7);
-            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)), 0.13, '#7a6fa6', 0.4);
+            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)), 0.13, '#7a4f66', 0.7);
+            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)), 0.13, '#7a4f66', 0.4);
 
             let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
             ctx.shadowBlur = 7;
-            ctx.shadowColor = '#1f2937';
+            ctx.shadowColor = '#0a2540';
             let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
             if (screencell > 4) {
                 let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
@@ -259,7 +259,7 @@ function () {
                 ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#1f2937'
+                ctx.fillStyle = '#0a2540'
 
                 ctx.fillText('D', x, graph.Y(tgraph.Y(y)) + 10);
                 ctx.shadowBlur = 0;
@@ -286,8 +286,8 @@ function () {
                 'rgb(100,150,100,0.4)', 10, 'butt'
             );
 
-            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)), 0.63, '#a03b2e', 0.5);
-            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)), 0.63, '#a03b2e', 0.5);
+            graph.drawVerticalLine(graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)), 0.63, '#8c2f42', 0.5);
+            graph.drawVerticalLine(graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)), 0.63, '#8c2f42', 0.5);
 
             let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
 
@@ -307,7 +307,7 @@ function () {
                 ctx.font = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#1f2937'
+                ctx.fillStyle = '#0a2540'
                 ctx.fillText("Donor", x, graph.Y(tgraph.Y(y)) + 10);
             }
 
@@ -344,7 +344,7 @@ function () {
                         ctx.font = '8px system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillStyle = '#1f2937';
+                        ctx.fillStyle = '#0a2540';
                         ctx.fillText(number, x, y);
                         ctx.restore();
 
@@ -366,7 +366,7 @@ function () {
                     ctx.font = '15px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#1f2937';
+                    ctx.fillStyle = '#0a2540';
                     ctx.fillText(number, x, yr);
                     ctx.restore();
 
@@ -383,13 +383,13 @@ function () {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)) - 1, graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xs)) + 1, graph.Y(tgraph.Y(y)),
-                '#3e7cb1', 4, 'butt'
+                '#1aa3bd', 4, 'butt'
             );
 
             drawLine(ctx,
                 graph.X(tgraph.X(xf)) - 1, graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)) + 1, graph.Y(tgraph.Y(y)),
-                '#3e7cb1', 4, 'butt'
+                '#1aa3bd', 4, 'butt'
             );
         }),
         'STOP': createIon((ctx, graph, tgraph, xs, xf, y) => {
@@ -398,13 +398,13 @@ function () {
             if (screencell < 0.05) {
                 return;
             }
-            drawLine(ctx, graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#3e7cb1', 10, 'butt')
-            drawLine(ctx, graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#3e7cb1', 10, 'butt')
-            drawString45(ctx, 'TC', xf - 0.5, y + 1, '#8a94a6', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            drawLine(ctx, graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#1aa3bd', 10, 'butt')
+            drawLine(ctx, graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#1aa3bd', 10, 'butt')
+            drawString45(ctx, 'TC', xf - 0.5, y + 1, '#8399ac', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'oligo': createIon((ctx, graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, '#2e9e6b', 1, 'butt')
+            graph.drawLine(xs, y, xf, y, '#17a39a', 1, 'butt')
 
         }),
         'ProteinDomain': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
@@ -412,35 +412,35 @@ function () {
                 ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 1)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 1)),
-                '#93b4d8', 20, 'butt'
+                '#9fe0e8', 20, 'butt'
             );
 
             drawLine(
                 ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 1)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 1)),
-                '#c9a227', 5, 'butt'
+                '#a86b3e', 5, 'butt'
             );
 
             drawLine(
                 ctx,
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y + 1)),
-                '#3e7cb1', 4, 'butt'
+                '#1aa3bd', 4, 'butt'
             );
 
             drawLine(
                 ctx,
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y + annotation.labelY - 2)),
-                '#c9a227', 1, 'butt'
+                '#a86b3e', 1, 'butt'
             );
 
             drawString(ctx,
                 annotation.name,
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2,
                 graph.Y(tgraph.Y(y + annotation.labelY - 2)),
-                '#1f2937',
+                '#0a2540',
                 '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
             );
 
@@ -450,13 +450,13 @@ function () {
                     drawLine(ctx,
                         (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
                         (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
-                        '#1f2937', 1, 'butt'
+                        '#0a2540', 1, 'butt'
                     );
                     drawString(ctx,
                         annotation.description,
                         (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2,
                         graph.Y(tgraph.Y(y + annotation.labelY - 2)),
-                        '#1f2937',
+                        '#0a2540',
                         '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
                     );
                 }
@@ -472,7 +472,7 @@ function () {
                 ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#2e9e6b', 1, 'butt'
+                '#17a39a', 1, 'butt'
             );
 
         }), 'AA': createIon((ctx, graph, tgraph, xs, xf, y, color, annotation) => {
@@ -496,7 +496,7 @@ function () {
                     annotation.name,
                     graph.X(tgraph.X(xs)),
                     graph.Y(tgraph.Y(y + annotation.labelY - 1)),
-                    '#1f2937',
+                    '#0a2540',
                     '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
                 );
             }
@@ -514,7 +514,7 @@ function () {
                 'START',
                 graph.X(tgraph.X(xs)),
                 graph.Y(tgraph.Y(y + r)),
-                '#1f2937',
+                '#0a2540',
                 '9px system-ui, -apple-system, Roboto, Arial, sans-serif'
             );
 
@@ -522,7 +522,7 @@ function () {
                 graph.X(tgraph.X(xs)),
                 graph.Y(tgraph.Y(y)),
                 0.2,
-                '#2e9e6b',
+                '#17a39a',
                 4
             );
 
@@ -530,7 +530,7 @@ function () {
                 'STOP',
                 graph.X(tgraph.X(xf - 1)),
                 graph.Y(tgraph.Y(y + r)),
-                '#1f2937',
+                '#0a2540',
                 '9px system-ui, -apple-system, Roboto, Arial, sans-serif'
             );
 
@@ -538,7 +538,7 @@ function () {
                 graph.X(tgraph.X(xf)),
                 graph.Y(tgraph.Y(y)),
                 0.2,
-                '#c0504d',
+                '#9c3350',
                 4
             );
 
@@ -551,7 +551,7 @@ function () {
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#8a94a6'
+                0.2, '#8399ac'
             );
         }),
         'CDS': createIon((ctx, graph, tgraph, xs, xf, y) => {
@@ -562,26 +562,26 @@ function () {
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.08, '#3e7cb1', 1
+                0.08, '#1aa3bd', 1
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf + 1)), graph.Y(tgraph.Y(y)),
-                0.08, '#3e7cb1', 1
+                0.08, '#1aa3bd', 1
             );
         }),
         'UTR': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#93b4d8', 7
+                '#9fe0e8', 7
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#93b4d8'
+                0.2, '#9fe0e8'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#93b4d8'
+                0.2, '#9fe0e8'
             );
         }),
         'polypeptide': createIon((ctx, graph, tgraph, xs, xf, y) => {
@@ -603,97 +603,97 @@ function () {
             drawZigZag(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#c77d34', 4, 'round'
+                '#b0533f', 4, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
         }),
         'snp': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawZigZag(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#6e5aa6', 20, 'round'
+                '#6e4560', 20, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
         }),
         'Query': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#6e5aa6', 12, 'round'
+                '#6e4560', 12, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
         }),
         'Query-Target': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#c77d34', 12, 'round'
+                '#b0533f', 12, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#1f2937'
+                0.2, '#0a2540'
             );
         }),
         'biological_region': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#7a6fa6', 5
+                '#7a4f66', 5
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.2, '#7a6fa6'
+                0.2, '#7a4f66'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.2, '#7a6fa6'
+                0.2, '#7a4f66'
             );
         }),
         'region': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#8a8f98', 2, 'butt'
+                '#7f96a8', 2, 'butt'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.1, '#8a8f98'
+                0.1, '#7f96a8'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                0.1, '#8a8f98'
+                0.1, '#7f96a8'
             );
         }),
         'polyA': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y)),
-                '#3c8dbc', 25, 'round'
+                '#1aa3bd', 25, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
@@ -709,15 +709,15 @@ function () {
             drawLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 0.3)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 0.3)),
-                '#3c8dbc', 25, 'round'
+                '#1aa3bd', 25, 'round'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 0.3)),
-                1.1, '#7a6fa6'
+                1.1, '#7a4f66'
             );
             drawVerticalLine(ctx,
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 0.3)),
-                1.1, '#7a6fa6'
+                1.1, '#7a4f66'
             );
             let name = 'lncRNA'
             if (screencell > 0.01 && annotation.name) {
@@ -728,7 +728,7 @@ function () {
                 name,
                 graph.X(tgraph.X(xs)),
                 graph.Y(tgraph.Y(y + 1 + r)),
-                '#1f2937',
+                '#0a2540',
                 '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
             );
         }),

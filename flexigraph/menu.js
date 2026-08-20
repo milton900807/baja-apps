@@ -373,6 +373,22 @@ function () {
 
                 ctx.save();
 
+                // Center menus flag this: blur + dim the whole canvas behind the menu
+                // so it stands out. Drawing the canvas onto itself with a blur filter
+                // frosts the already-rendered background; the panel below draws sharp.
+                if (this.blurBackground) {
+                    try {
+                        const cnv = ctx.canvas;
+                        ctx.save();
+                        ctx.filter = 'blur(5px)';
+                        ctx.drawImage(cnv, 0, 0, cnv.width, cnv.height);
+                        ctx.filter = 'none';
+                        ctx.fillStyle = 'rgba(8,22,38,0.32)';
+                        ctx.fillRect(0, 0, cnv.width, cnv.height);
+                        ctx.restore();
+                    } catch (e) { }
+                }
+
                 const itemsPerColumn = this.getItemsPerColumn();
                 const borderPadding = 4;
                 const itemRadius = 6;
@@ -394,15 +410,40 @@ function () {
                 ctx.shadowBlur = 14;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 5;
-                ctx.fillStyle = 'rgba(255,255,255,0.98)';
+                ctx.fillStyle = this.panelBg || 'rgba(255,255,255,0.98)';
                 menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
                 ctx.fill();
                 ctx.restore();
 
                 ctx.lineWidth = 1;
-                ctx.strokeStyle = '#d4dae3';
+                ctx.strokeStyle = this.panelBorder || '#d4dae3';
                 menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
                 ctx.stroke();
+
+                // Short attention glow burst when the menu first appears: a cyan
+                // ring that pulses a couple of times and fades over ~0.8s.
+                try {
+                    if (this.__born == null) this.__born = Date.now();
+                    const gel = Date.now() - this.__born;
+                    const GDUR = 800;
+                    if (gel < GDUR) {
+                        const f = 1 - gel / GDUR;                                  // 1 -> 0
+                        const pulse = 0.5 + 0.5 * Math.abs(Math.sin((gel / GDUR) * Math.PI * 2));
+                        const a = f * pulse;
+                        ctx.save();
+                        ctx.shadowColor = 'rgba(26,163,189,' + (0.9 * a).toFixed(3) + ')';
+                        ctx.shadowBlur = 12 + 24 * a;
+                        ctx.lineWidth = 2 + 3 * a;
+                        ctx.strokeStyle = 'rgba(26,163,189,' + (0.85 * a).toFixed(3) + ')';
+                        menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
+                        ctx.stroke();
+                        ctx.restore();
+                        if (typeof window !== 'undefined') {
+                            const gg = CurrentLayout.getStashed('graph');
+                            if (gg && gg.wake) gg.wake();   // keep the loop painting the glow
+                        }
+                    }
+                } catch (e) { }
 
                 if (this.title) {
                     ctx.font = this.titleFont || '600 13px Arial';

@@ -885,7 +885,7 @@ function (progress) {
             mouse_message = null;
             highlightmethod = null;
             showNavigationControl = true;
-            showDisplay = true;
+            showDisplay = false;   // info panel (tracks/oligos) hidden until toggled on
             highlight_feature = false;
             genegraph_panel_layout;
             initView = null;
@@ -2074,6 +2074,11 @@ function (progress) {
             }
 
             addTrack(newTrack) {
+                if (!this.isValidTrack(newTrack)) {
+                    console.warn('[track] rejected invalid track (NaN/zero coordinates or dimensions):',
+                        newTrack && newTrack.name);
+                    return;
+                }
                 if (this.wake) this.wake();
 
                 setTimeout(() => {
@@ -3648,7 +3653,43 @@ function (progress) {
                 }
                 await this.zoomRect(xmin, xmax, ymin, ymax, 30)
             }
+            // A track is only valid if its coordinates are finite numbers and its
+            // dimensions are positive/non-zero and finite. Tracks created with NaN
+            // coordinates, or with <= 0 / NaN width (or zero/NaN height), are
+            // rejected on add and pruned automatically so they never enter or
+            // linger in the graph.
+            isValidTrack(t) {
+                const num = (v) => typeof v === 'number' && isFinite(v);
+                if (!t) return false;
+                if (!num(t.xi) || !num(t.xf)) return false;
+                const width = t.xf - t.xi;
+                if (!num(width) || width <= 0) return false;
+                const g = t.tgraph;
+                if (!g) return false;
+                if (!num(g.xi) || !num(g.width) || g.width <= 0) return false;
+                if (!num(g.height) || Math.abs(g.height) <= 0) return false;
+                return true;
+            }
+
+            // Prune any invalid tracks already in the graph (e.g. added via a
+            // direct push). Returns the number removed.
+            removeInvalidTracks() {
+                if (!this.track || !this.track.length) return 0;
+                let removed = 0;
+                for (let i = this.track.length - 1; i >= 0; i--) {
+                    if (!this.isValidTrack(this.track[i])) {
+                        console.warn('[track] removing invalid track (NaN/zero coordinates or dimensions):',
+                            this.track[i] && this.track[i].name);
+                        this.track.splice(i, 1);
+                        removed++;
+                    }
+                }
+                if (removed && this.notifyTrackListener) this.notifyTrackListener();
+                return removed;
+            }
+
             rescale() {
+                this.removeInvalidTracks();
                 this.graph.rescale();
             }
 
@@ -4379,6 +4420,11 @@ function (progress) {
                     this.graph.mousex = xwc
                     if (!isMobile()) {
                         if (this.side_menu && this.side_menu.isIn(this.graph, xwc, ywc)) {
+                            // A side-menu item was clicked on this press. Mark it so the
+                            // follow-up mouse-up doesn't ALSO open a context menu — the
+                            // item's action (e.g. "More information") may close the menu
+                            // async, leaving side_menu null by the time the up fires.
+                            this.__downMenuHandled = true;
                             await this.side_menu.mouseUp(this.graph, xwc, ywc)
                             return;
                         }
@@ -4386,119 +4432,24 @@ function (progress) {
                             this.side_menu = null;
                         }
 
-                        if (xs >= 10 && xs < 30 && ys >= 160 && ys < 180) {
-                            this.bclick = 'zoom_in';
-                            setTimeout(() => {
-                                this.bclick = '';
-                                this.setMouseMode('navigate');
-                            }, 400);
-                            this.graph.rescale();
-                            await this.slideZoomByFactor(0.5, 0.5, 200);
-                            return;
+                        {
+                            const hitBtn = this.hitControlButton(xs, ys);
+                            if (hitBtn) { await this.handleControlButton(hitBtn); return; }
                         }
-                        if (xs >= 10 && xs < 30 && ys >= 190 && ys < 225) {
-                            this.bclick = 'zoom_out';
-                            setTimeout(() => {
-                                this.___folder_calculation = false;
-                                this.___folder_calculation_status = null;
-                                this.bclick = '';
-                                this.setMouseMode('navigate');
-                            }, 400);
-                            await this.slideZoomByFactor(1.50, 1.20, 200);
+
+                        // Click on the selection list card -> open its actions menu.
+                        if (this.hitSelectionPanel(xs, ys)) {
+                            this.__downMenuHandled = true;   // don't let the up open a context menu
+                            this.__keepSideMenu = true;      // don't let the up dismiss the menu
+                            this.openSelectionMenu();
                             return;
                         }
 
-                        if (xs >= 10 && xs < 30 && ys >= 230 && ys < 250) {
-                            this.bclick = 'navigate';
-                            this.setMouseMode('navigate');
-                            setTimeout(() => { this.bclick = ''; }, 100);
-                            this.___folder_calculation = false;
-                            this.___folder_calculation_status = null;
-
-                            return;
-                        }
-
-                        if (xs >= 10 && xs < 30 && ys >= 265 && ys < 285) {
-                            this.clearMouseListeners();
-                            this.setMouseMode('bpx');
-                            this.bclick = 'bpx';
-                            setTimeout(() => { this.bclick = ''; }, 100);
-                            this.setMessage(" Drag a rectangle ");
-                            this.___folder_calculation = false;
-                            this.___folder_calculation_status = null;
-                            this.addMouseDownListener(async (x, y) => {
-                                this.md = true;
-                                this.currentShape = new Rectangle('test', x, y);
-                                this.currentShape.w = 0;
-                                this.currentShape.h = 0;
-                            });
-                            this.addMouseMoveListener((x, y) => {
-                                if (!this.md) { this.currentShape = null; return; }
-                                if (this.currentShape != null) this.currentShape.update(x, y);
-                            });
-                            this.addMouseUpListener(async (x, y) => {
-                                if (this.currentShape != null) {
-                                    let height = this.currentShape.y + this.currentShape.h - this.currentShape.y;
-                                    let width = this.currentShape.x + this.currentShape.w - this.currentShape.x;
-                                    let xs = this.graph.screenHeight(height);
-                                    let ys = this.graph.screenWidth(width);
-                                    if (xs < 10) { this.currentShape = null; this.md = false; return; }
-                                    if (xs > 10 && ys > 10) {
-                                        let xi = this.currentShape.x;
-                                        let xf = this.currentShape.x + this.currentShape.w;
-                                        let yi = this.currentShape.y;
-                                        let yf = this.currentShape.y - this.currentShape.h;
-                                        this.currentShape = null;
-                                        await this.zoomRect(xi, xf, yf, yi, 150);
-                                    }
-                                }
-                                this.currentShape = null;
-                                this.md = false;
-                            });
-                            return;
-                        }
-
-                        if (xs >= 10 && xs < 30 && ys >= 300 && ys < 320) {
-                            this.bclick = 'expand_vertical';
-                            setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                            let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
-                            await this.zoomXY(
-                                this.graph.getxmin(), this.graph.getxmax(),
-                                this.graph.getymin() - ly, this.graph.getymax() + ly
-                            );
-                            return;
-                        }
-
-                        if (xs >= 10 && xs < 30 && ys >= 335 && ys < 355) {
-                            this.bclick = 'contract_vertical';
-                            setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                            let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
-                            await this.zoomXY(
-                                this.graph.getxmin(), this.graph.getxmax(),
-                                this.graph.getymin() + ly, this.graph.getymax() - ly
-                            );
-                            return;
-                        }
-
-                        if (xs >= 10 && xs < 30 && ys >= 370 && ys < 390) {
-                            this.bclick = 'expand_horizontal';
-                            setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                            let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;
-                            await this.zoomXY(
-                                this.graph.getxmin() - lx, this.graph.getxmax() + lx,
-                                this.graph.getymin(), this.graph.getymax()
-                            );
-                            return;
-                        }
-
-                        if (xs >= 10 && xs < 30 && ys >= 405 && ys < 425) {
-                            this.bclick = 'contract_horizontal';
-                            setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                            let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;
-                            await this.zoomXY(
-                                this.graph.getxmin() + lx, this.graph.getxmax() - lx,
-                                this.graph.getymin(), this.graph.getymax()
-                            );
+                        // Click on the top stats card -> tracks / oligos / chemistry menu.
+                        if (this.hitInfoPanel(xs, ys)) {
+                            this.__downMenuHandled = true;
+                            this.__keepSideMenu = true;
+                            this.openInfoPanelMenu();
                             return;
                         }
 
@@ -4540,6 +4491,9 @@ function (progress) {
                         if (this.side_menu && this.side_menu.isIn(this.graph, xwc, ywc)) {
                             return;
                         }
+                        // A menu was just opened on THIS press (e.g. the selection
+                        // actions menu, shown async) — don't let this up dismiss it.
+                        if (this.__keepSideMenu) { this.__keepSideMenu = false; return; }
                         this.side_menu = null;
 
                         if (this.menuVisible()) {
@@ -4730,6 +4684,7 @@ function (progress) {
 
                 if (!this.showHelp) {
                     this.showHelp = true;
+                    this.__helpStart = Date.now();   // restart the staggered reveal
                     clearTimeout(helpTimeout);
                     helpTimeout = setTimeout(() => {
                         this.showHelp = false;
@@ -4806,6 +4761,32 @@ function (progress) {
                     // Idle pause: after idleTimeoutMs of no interaction, paint one
                     // final frame and then stop redrawing. wake() (fired by any
                     // interaction, or callable programmatically) resumes the loop.
+                    // Keep the redraw loop awake while a backend search is running so
+                    // the "working" spinner keeps animating even when the user is idle.
+                    if (typeof window !== 'undefined' && window.__backendWorkCount > 0) this.wake();
+
+                    // 1 Hz pulse for the selected-oligo glow. This loop ticks every
+                    // 100ms (10fps), so a full cycle is 10 frames. graph.__pulse is a
+                    // 0..1 sine the oligo draw reads.
+                    this.__frame = (this.__frame || 0) + 1;
+                    const __framesPerCycle = Math.max(1, Math.round(1000 / 100));   // 100ms tick
+                    this.graph.__pulse = 0.5 + 0.5 * Math.sin(2 * Math.PI * (this.__frame % __framesPerCycle) / __framesPerCycle);
+                    // Re-apply selection highlights so items in the selection window stay
+                    // visibly selected on the canvas (hover/deselect can clear them).
+                    try { this.reassertSelectionHighlights(); } catch (e) { }
+                    // Keep the loop awake while any oligo is selected so the glow pulses
+                    // even when the user is idle.
+                    try {
+                        let __selOligo = false;
+                        if (this.track) {
+                            for (const t of this.track) {
+                                if (t && t.oligos) { for (const o of t.oligos) { if (o && (o.selected || o.highlight__)) { __selOligo = true; break; } } }
+                                if (__selOligo) break;
+                            }
+                        }
+                        if (__selOligo) this.wake();
+                    } catch (e) { }
+
                     const idleFor = performance.now() - (this.__lastInteraction || 0);
                     const isIdle = idleFor > (this.idleTimeoutMs || 15000);
 
@@ -6450,7 +6431,7 @@ pattern, GGGG | Required`
                 return menu;
             }
 
-            showSideMenu(list) {
+            showSideMenu(list, anchor) {
                 if (this.wake) this.wake();
                 console.trace('showSideMenu() called', {
                     list,
@@ -6462,6 +6443,12 @@ pattern, GGGG | Required`
                     this.side_menu = null;
                     return;
                 }
+
+                // A menu is being opened (often from a mouse-DOWN). Neutralize the
+                // matching mouse-UP so it doesn't dismiss this menu or fire a
+                // context menu / other canvas action on the release.
+                this.__keepSideMenu = true;
+                this.__downMenuHandled = true;
 
                 if (this.chapter_menu && this.showChapters) {
                     this.showChapters = false;
@@ -6558,13 +6545,21 @@ pattern, GGGG | Required`
                         maxLabelWidth = 0;
                     }
 
+                    // PER-COLUMN width. menu.js multiplies this by the column count
+                    // (columnXOffset = column*(menu_width+20)), so this must be a
+                    // single column's width, NOT the whole menu's. It fits the longest
+                    // label, is capped at 500px, and is further shrunk so that all
+                    // columns + 20px gaps fit on screen (labels then ellipsize).
+                    const gap = 20;
+                    const maxTotal = Math.max(200, screenWidth - 24);
+                    const perColFit = Math.floor((maxTotal - gap * (cols - 1)) / cols);
                     const columnWidth = Math.max(
                         120,
-                        Math.ceil(maxLabelWidth) + 40
+                        Math.min(500, Math.ceil(maxLabelWidth) + 40, perColFit)
                     );
 
-                    const menuWidth =
-                        cols * columnWidth;
+                    // Whole-menu width (columns + gaps) — used only to center the menu.
+                    const menuWidth = columnWidth * cols + gap * (cols - 1);
 
                     const rows =
                         Math.min(itemCount, maxPerColumn);
@@ -6572,11 +6567,19 @@ pattern, GGGG | Required`
                     const menuHeight =
                         rows * itemHeight;
 
-                    const xpos =
-                        (screenWidth - menuWidth) / 2;
-
-                    const ypos =
-                        (screenHeight - menuHeight) / 2;
+                    let xpos = (screenWidth - menuWidth) / 2;
+                    let ypos = (screenHeight - menuHeight) / 2;
+                    // Optional anchor: place the menu ABOVE the given screen box,
+                    // or at an explicit top (anchor.y) e.g. BELOW a card.
+                    if (anchor && anchor.aboveY != null) {
+                        if (anchor.x != null) xpos = anchor.x;
+                        ypos = anchor.aboveY - menuHeight - 6;
+                        if (ypos < 6) ypos = 6;
+                    } else if (anchor && anchor.y != null) {
+                        if (anchor.x != null) xpos = anchor.x;
+                        ypos = anchor.y;
+                        if (ypos + menuHeight > screenHeight - 6) ypos = Math.max(6, screenHeight - menuHeight - 6);
+                    }
 
                     if (
                         typeof this?.graph?.Xwc !== 'function' ||
@@ -6598,11 +6601,17 @@ pattern, GGGG | Required`
                         cols
                     );
 
-                    this.side_menu.menu_width = menuWidth;
+                    this.side_menu.menu_width = columnWidth;   // PER-COLUMN width
                 }, 10);
             }
             showMenu(list, x, y, width) {
                 if (this.wake) this.wake();
+                // The center (context) menu takes over — dismiss any side menu.
+                this.side_menu = null;
+                this.__last_side_menu_ref = null;
+                // Opened often from a mouse-DOWN — don't let the release count on the
+                // canvas (open a context menu / fire other mouse-up actions).
+                if (list) this.__downMenuHandled = true;
                 if (this.chapter_menu && this.showChapters) {
                     this.showChapters = false;
                 }
@@ -6629,8 +6638,10 @@ pattern, GGGG | Required`
                         const maxPerColumn = 7;
                         const itemCount = list.length;
                         const cols = Math.ceil(itemCount / maxPerColumn);
-                        const bg = 'rgb(205, 255, 155)';
-                        const fg = 'black';
+                        // Center menu uses the INVERTED tropical scheme: navy surface,
+                        // light text, cyan highlight (opposite of the light side menu).
+                        const bg = 'rgba(10,37,64,0.97)';
+                        const fg = '#eaf6f9';
                         const screen_width = this.graph.grid.width;
                         const screen_height = this.graph.grid.height;
                         const menuWidth = cols * width;
@@ -6642,7 +6653,14 @@ pattern, GGGG | Required`
                         const ypos = (screen_height - menuHeight) / 2;
 
                         this.menu = new Menu(list, this.graph.Xwc(xpos), this.graph.Ywc(ypos), bg, fg, cols);
-                        this.menu.menu_width = width;
+                        this.menu.menu_width = Math.min(500, width);   // cap column width at 500px
+                        // Inverted tropical: navy panel, cyan border, cyan highlight.
+                        this.menu.blurBackground = true;             // frost the canvas behind it
+                        this.menu.panelBg = 'rgba(10,37,64,0.97)';   // navy panel fill
+                        this.menu.panelBorder = '#1aa3bd';           // cyan border
+                        this.menu.sg = '#1aa3bd';        // cyan hover/selection fill
+                        this.menu.sf = '#ffffff';        // white text on selection
+                        this.menu.titleColor = '#4fd0e6';
                         this.graph.menu = this.menu;
                         this.setMouseMode("menu")
 
@@ -6729,22 +6747,30 @@ pattern, GGGG | Required`
             // menubar icon buttons: soft grey border, subtle vertical gradient,
             // and a light drop shadow. Geometry is kept centered on (cx, cy)
             // so the existing circular hit-testing still lines up.
-            drawCircleButton(ctx, cx, cy, r = 11, { pressed = false } = {}) {
+            drawCircleButton(ctx, cx, cy, r = 11, { pressed = false, circle = false, invert = false } = {}) {
                 ctx.save();
 
                 const size = r * 2;
                 const x = cx - r, y = cy - r;
                 const radius = Math.max(3, r * 0.38);
+                // `circle` -> a true circle; otherwise the rounded-square chiclet.
+                const path = () => {
+                    if (circle) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); }
+                    else this.roundRectPath(ctx, x, y, size, size, radius);
+                };
 
                 // Soft drop shadow
-                ctx.shadowColor = pressed ? "rgba(16,24,40,0.10)" : "rgba(16,24,40,0.14)";
+                ctx.shadowColor = pressed ? "rgba(16,24,40,0.10)" : "rgba(16,24,40,0.16)";
                 ctx.shadowBlur = pressed ? 2 : 4;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = pressed ? 0.5 : 1.5;
 
-                // Vertical white -> light-grey gradient (pressed = slightly darker)
                 const grad = ctx.createLinearGradient(0, y, 0, y + size);
-                if (pressed) {
+                if (invert) {
+                    // Tropical INVERTED: navy -> cyan fill (glyph drawn light by caller).
+                    if (pressed) { grad.addColorStop(0, "#08304a"); grad.addColorStop(1, "#127c92"); }
+                    else { grad.addColorStop(0, "#0a2540"); grad.addColorStop(1, "#1aa3bd"); }
+                } else if (pressed) {
                     grad.addColorStop(0, "#eef2f8");
                     grad.addColorStop(1, "#e2e8f2");
                 } else {
@@ -6752,30 +6778,84 @@ pattern, GGGG | Required`
                     grad.addColorStop(1, "#f3f5f9");
                 }
                 ctx.fillStyle = grad;
-                this.roundRectPath(ctx, x, y, size, size, radius);
+                path();
                 ctx.fill();
 
-                // Crisp 1px neutral border, drawn without the shadow
+                // Crisp border, drawn without the shadow
                 ctx.shadowColor = "transparent";
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = pressed ? "#c7d0dd" : "#d4dae3";
-                this.roundRectPath(ctx, x, y, size, size, radius);
+                ctx.lineWidth = invert ? 1.2 : 1;
+                ctx.strokeStyle = invert ? "#1aa3bd" : (pressed ? "#c7d0dd" : "#d4dae3");
+                path();
                 ctx.stroke();
 
                 ctx.restore();
             }
 
             drawButtonLabel(ctx, text, x, y, { color, font = "11px Arial" } = {}) {
+                // Legacy per-button (right-side) help labels are disabled — the
+                // control-button help is now drawn centrally by drawControlHelp()
+                // as a staggered list below the button row with arrows.
+                return;
+            }
+
+            // Onboarding help: reveals a labelled chip BELOW each control button,
+            // one at a time (staggered), each with an arrow pointing up to its
+            // button. Time-based, so it plays through exactly once.
+            drawControlHelp(ctx) {
+                if (!this.showHelp) return;
+                if (this.__helpStart == null) this.__helpStart = Date.now();
+                const elapsed = Date.now() - this.__helpStart;
+                const STAGGER = 240;     // ms between each label turning on
+                const defs = this.controlButtonDefs();
+                const r = 11;
+                const rowH = 24;
+                const baseY = (defs[0] ? defs[0].cy : 22) + r + 22;
+
                 ctx.save();
                 this.resetCanvasEffects(ctx);
-                ctx.font = font;
-                ctx.fillStyle = color ?? ctx._buttonTextColor ?? "black";
-                ctx.textAlign = "left";
-                ctx.textBaseline = "middle";
-                ctx.fillText(text, x, y);
+                ctx.font = "600 11px Arial";
+
+                defs.forEach((b, i) => {
+                    if (elapsed < i * STAGGER) return;         // not revealed yet
+                    const alpha = Math.min(1, (elapsed - i * STAGGER) / 200);   // fade-in
+                    const text = b.info || b.id;
+                    const ly = baseY + i * rowH;               // this label's row
+                    const padX = 7, bh = 18;
+                    const tw = ctx.measureText(text).width;
+                    const bw = tw + padX * 2;
+                    const bx = b.cx - bw / 2;
+                    const by = ly - bh / 2;
+
+                    ctx.globalAlpha = alpha;
+
+                    // Arrow: straight up from the label to its button.
+                    ctx.strokeStyle = "rgba(1,28,60,0.75)";
+                    ctx.fillStyle = "rgba(1,28,60,0.75)";
+                    ctx.lineWidth = 1.3;
+                    ctx.beginPath();
+                    ctx.moveTo(b.cx, by);
+                    ctx.lineTo(b.cx, b.cy + r + 5);
+                    ctx.stroke();
+                    ctx.beginPath();                            // arrowhead at the button
+                    ctx.moveTo(b.cx, b.cy + r);
+                    ctx.lineTo(b.cx - 4, b.cy + r + 6);
+                    ctx.lineTo(b.cx + 4, b.cy + r + 6);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Label chip
+                    ctx.fillStyle = "rgba(33,43,54,0.96)";
+                    this.roundRectPath(ctx, bx, by, bw, bh, 5);
+                    ctx.fill();
+                    ctx.fillStyle = "#ffffff";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(text, b.cx, ly);
+                });
+
                 ctx.restore();
             }
 
@@ -6834,24 +6914,331 @@ pattern, GGGG | Required`
             // Metadata for the on-canvas navigation controls: center, screen-space
             // hit range (x is always 10..30), and the info text shown on hover.
             controlButtonDefs() {
-                return [
-                    { id: 'zoom_in', cx: 25, cy: 170, y0: 160, y1: 185, info: 'Zoom in' },
-                    { id: 'zoom_out', cx: 25, cy: 205, y0: 190, y1: 228, info: 'Zoom out' },
-                    { id: 'navigate', cx: 25, cy: 240, y0: 229, y1: 258, info: 'Move / pan the graph' },
-                    { id: 'bpx', cx: 25, cy: 275, y0: 264, y1: 292, info: 'Box zoom — drag a rectangle' },
-                    { id: 'expand_vertical', cx: 25, cy: 310, y0: 299, y1: 327, info: 'Expand vertically' },
-                    { id: 'contract_vertical', cx: 25, cy: 345, y0: 334, y1: 362, info: 'Contract vertically' },
-                    { id: 'expand_horizontal', cx: 25, cy: 380, y0: 369, y1: 397, info: 'Expand horizontally' },
-                    { id: 'contract_horizontal', cx: 25, cy: 415, y0: 404, y1: 432, info: 'Contract horizontally' },
+                // A single horizontal row, centered along the TOP of the canvas.
+                const list = [
+                    // Navigation / view controls (left)
+                    { id: 'zoom_in', info: 'Zoom in' },
+                    { id: 'zoom_out', info: 'Zoom out' },
+                    { id: 'navigate', info: 'Move / pan the graph' },
+                    { id: 'bpx', info: 'Box zoom — drag a rectangle' },
+                    { id: 'expand_vertical', info: 'Expand vertically' },
+                    { id: 'contract_vertical', info: 'Contract vertically' },
+                    { id: 'expand_horizontal', info: 'Expand horizontally' },
+                    { id: 'contract_horizontal', info: 'Contract horizontally' },
+                    // Selection tools (right)
+                    { id: 'lasso', info: 'Lasso select — draw a loop around items' },
+                    { id: 'select_seq', info: 'Select sequence — genomic range, track sequence, motifs…' },
+                    // Selection / info panel toggle (last, far right)
+                    { id: 'info', info: 'Show / hide the info panel (tracks, oligos)' },
                 ];
+                const spacing = 34, r = 11, cy = 22;
+                let cw = 800;
+                try { cw = (this.graph && this.graph.grid && this.graph.grid.width) || (this.graph && this.graph.canvas && this.graph.canvas.width) || 800; } catch (e) { }
+                const totalW = (list.length - 1) * spacing;
+                const startX = Math.max(24, Math.round((cw - totalW) / 2));
+                return list.map((b, i) => {
+                    const cx = startX + i * spacing;
+                    return { id: b.id, info: b.info, cx, cy, x0: cx - r - 3, x1: cx + r + 3, y0: cy - r - 3, y1: cy + r + 3 };
+                });
+            }
+
+            // Position {cx,cy} of a control button by id — used by the draw methods.
+            _ctrlPos(id) {
+                const b = this.controlButtonDefs().find(d => d.id === id);
+                return b ? { cx: b.cx, cy: b.cy } : { cx: 25, cy: 22 };
             }
 
             // Returns the id of the control button under the given screen point.
             hitControlButton(xs, ys) {
                 if (!this.showNavigationControl) return null;
-                if (xs < 10 || xs >= 30) return null;
-                const b = this.controlButtonDefs().find(d => ys >= d.y0 && ys < d.y1);
+                const b = this.controlButtonDefs().find(d => xs >= d.x0 && xs < d.x1 && ys >= d.y0 && ys < d.y1);
                 return b ? b.id : null;
+            }
+
+            // Dispatch a control-button click by id (called from the mouse-down handler).
+            async handleControlButton(id) {
+                switch (id) {
+                    case 'zoom_in':
+                        this.bclick = 'zoom_in';
+                        setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 400);
+                        this.graph.rescale();
+                        await this.slideZoomByFactor(0.5, 0.5, 200);
+                        return;
+                    case 'zoom_out':
+                        this.bclick = 'zoom_out';
+                        setTimeout(() => { this.___folder_calculation = false; this.___folder_calculation_status = null; this.bclick = ''; this.setMouseMode('navigate'); }, 400);
+                        await this.slideZoomByFactor(1.50, 1.20, 200);
+                        return;
+                    case 'navigate':
+                        this.bclick = 'navigate';
+                        this.setMouseMode('navigate');
+                        setTimeout(() => { this.bclick = ''; }, 100);
+                        this.___folder_calculation = false;
+                        this.___folder_calculation_status = null;
+                        return;
+                    case 'bpx':
+                        this.clearMouseListeners();
+                        this.setMouseMode('bpx');
+                        this.bclick = 'bpx';
+                        setTimeout(() => { this.bclick = ''; }, 100);
+                        this.setMessage(" Drag a rectangle ");
+                        this.___folder_calculation = false;
+                        this.___folder_calculation_status = null;
+                        this.addMouseDownListener(async (x, y) => {
+                            this.md = true;
+                            this.currentShape = new Rectangle('test', x, y);
+                            this.currentShape.w = 0;
+                            this.currentShape.h = 0;
+                        });
+                        this.addMouseMoveListener((x, y) => {
+                            if (!this.md) { this.currentShape = null; return; }
+                            if (this.currentShape != null) this.currentShape.update(x, y);
+                        });
+                        this.addMouseUpListener(async (x, y) => {
+                            if (this.currentShape != null) {
+                                let height = this.currentShape.h;
+                                let width = this.currentShape.w;
+                                let hs = this.graph.screenHeight(height);
+                                let ws = this.graph.screenWidth(width);
+                                if (hs < 10) { this.currentShape = null; this.md = false; return; }
+                                if (hs > 10 && ws > 10) {
+                                    let xi = this.currentShape.x;
+                                    let xf = this.currentShape.x + this.currentShape.w;
+                                    let yi = this.currentShape.y;
+                                    let yf = this.currentShape.y - this.currentShape.h;
+                                    this.currentShape = null;
+                                    await this.zoomRect(xi, xf, yf, yi, 150);
+                                }
+                            }
+                            this.currentShape = null;
+                            this.md = false;
+                        });
+                        return;
+                    case 'lasso':
+                        this._startLasso();
+                        return;
+                    case 'select_seq':
+                        // Open the sequence.js select features (Select genomic range,
+                        // Select track sequence, Edit selected sequence, motifs, …).
+                        this.bclick = 'select_seq';
+                        setTimeout(() => { this.bclick = ''; }, 100);
+                        try {
+                            Promise.resolve(exec('baja/manchester/menu/sequence.js',
+                                this, this.genegraph_panel_layout, true)).catch(() => { });
+                        } catch (e) { this.setMessage(' Could not open sequence tools: ' + e); }
+                        return;
+                    case 'info':
+                        this.showDisplay = !this.showDisplay;
+                        this.setMessage(this.showDisplay ? ' Info panel shown ' : ' Info panel hidden ');
+                        if (this.wake) this.wake();
+                        return;
+                    case 'expand_vertical': {
+                        this.bclick = 'expand_vertical';
+                        setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
+                        let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
+                        await this.zoomXY(this.graph.getxmin(), this.graph.getxmax(), this.graph.getymin() - ly, this.graph.getymax() + ly);
+                        return;
+                    }
+                    case 'contract_vertical': {
+                        this.bclick = 'contract_vertical';
+                        setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
+                        let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
+                        await this.zoomXY(this.graph.getxmin(), this.graph.getxmax(), this.graph.getymin() + ly, this.graph.getymax() - ly);
+                        return;
+                    }
+                    case 'expand_horizontal': {
+                        this.bclick = 'expand_horizontal';
+                        setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
+                        let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;
+                        await this.zoomXY(this.graph.getxmin() - lx, this.graph.getxmax() + lx, this.graph.getymin(), this.graph.getymax());
+                        return;
+                    }
+                    case 'contract_horizontal': {
+                        this.bclick = 'contract_horizontal';
+                        setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
+                        let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;
+                        await this.zoomXY(this.graph.getxmin() + lx, this.graph.getxmax() - lx, this.graph.getymin(), this.graph.getymax());
+                        return;
+                    }
+                }
+            }
+
+            // Freehand lasso select: draw a loop; annotations/SNPs whose position
+            // falls inside it get selected on release.
+            _startLasso() {
+                this.clearMouseListeners();
+                this.setMouseMode('lasso');
+                this.bclick = 'lasso';
+                setTimeout(() => { this.bclick = ''; }, 100);
+                this.setMessage(" Lasso select — draw a loop around items, release to select ");
+                const pts = [];   // world coords (xwc, ywc)
+                this.post_graphics_modifications = (c2) => {
+                    if (!pts.length) return;
+                    c2.save();
+                    try { this.resetCanvasEffects(c2); } catch (e) { }
+                    c2.beginPath();
+                    for (let i = 0; i < pts.length; i++) {
+                        const sx = this.graph.X(pts[i].x), sy = this.graph.Y(pts[i].y);
+                        if (i === 0) c2.moveTo(sx, sy); else c2.lineTo(sx, sy);
+                    }
+                    c2.closePath();
+                    c2.fillStyle = 'rgba(53,198,214,0.14)';
+                    c2.fill();
+                    c2.lineWidth = 2;
+                    c2.strokeStyle = 'rgba(1,28,60,0.9)';
+                    c2.setLineDash([5, 3]);
+                    c2.stroke();
+                    c2.setLineDash([]);
+                    c2.restore();
+                };
+                // Hit-testing is done in SCREEN space: everything ends up on the same
+                // canvas, so projecting each item through ITS OWN grid and the lasso
+                // through the main grid puts them in one comparable space. SP holds the
+                // lasso as screen points (filled in on mouse-up).
+                let SP = [];
+                const inside = (px, py) => {
+                    let c = false;
+                    for (let i = 0, j = SP.length - 1; i < SP.length; j = i++) {
+                        const xi = SP[i].x, yi = SP[i].y, xj = SP[j].x, yj = SP[j].y;
+                        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-9) + xi)) c = !c;
+                    }
+                    return c;
+                };
+                // Project a point through the given grid to screen, then test the loop.
+                // Layer items are drawn with layer.tgraph.X(x) directly (already
+                // screen), so this single projection matches them.
+                const screenHit = (grid, gx, vy) => {
+                    let sx, sy;
+                    try { sx = grid.X(gx); sy = grid.Y(vy != null ? vy : 0.5); } catch (e) { return false; }
+                    return inside(sx, sy);
+                };
+                // Track items (annotations/SNPs) are drawn as graph.X(tgraph.X(x)) —
+                // a DOUBLE projection — so hit-test them the same way.
+                const trackHit = (t, gx, vy) => {
+                    let sx, sy;
+                    try { sx = this.graph.X(t.tgraph.X(gx)); sy = this.graph.Y(t.tgraph.Y(vy != null ? vy : 0)); } catch (e) { return false; }
+                    return inside(sx, sy);
+                };
+                // `armed` becomes true only on a real canvas mouse-DOWN that starts a
+                // lasso — the mouse-UP that ends the button click itself happens before
+                // any such press, so it's ignored and lasso mode stays active.
+                let armed = false;
+                this.addMouseDownListener((x, y) => { this.md = true; armed = true; pts.length = 0; pts.push({ x, y }); });
+                this.addMouseMoveListener((x, y) => { if (this.md) pts.push({ x, y }); });
+                this.addMouseUpListener((x, y) => {
+                    if (!armed) return;   // ignore the lasso-button click's own release
+                    this.md = false;
+                    let n = 0;
+                    if (pts.length >= 3) {
+                        SP = pts.map((p) => ({ x: this.graph.X(p.x), y: this.graph.Y(p.y) }));
+                        this.clearSelectionVisuals();   // reset the previous selection first
+                        const HL = '#c0392b';
+                        const sel = [];   // labels of selected items, for the info panel
+                        for (const t of (this.track || [])) {
+                            if (!t.tgraph) continue;
+                            for (const a of (t.annotations || [])) {
+                                if (trackHit(t, (a.xi + a.xf) / 2, a.y != null ? a.y : 0)) {
+                                    if (a.select) a.select();
+                                    sel.push({ kind: 'ann', label: (a.name || a.type || 'annotation'), track: t, chr: t.chr, xi: a.xi, xf: a.xf, ref: a });
+                                    n++;
+                                }
+                            }
+                            for (const s of (t.snpindels || [])) {
+                                if (trackHit(t, s.xi, s.y != null ? s.y : 0)) {
+                                    s.highlight = true;
+                                    sel.push({ kind: 'snp', label: (s.id || s.name || ('snp@' + s.xi)) + (s.clinsig ? ' · ' + s.clinsig : ''), track: t, chr: t.chr, xi: s.xi, xf: (s.xf != null ? s.xf : s.xi), ref: s, clinsig: s.clinsig });
+                                    n++;
+                                }
+                            }
+                            for (const o of (t.oligos || [])) {
+                                // Amplicon objects live in t.oligos with type==='amplicon'.
+                                // Their true span is [left.xi, right.xf] — o.xf is NOT the
+                                // real right edge (Amplicon.xf = right.xi + right.xf, unused
+                                // by the draw), so hit-testing (o.xi+o.xf)/2 lands off to the
+                                // right and misses. Use the drawn span for amplicons.
+                                const isAmp = (o.type === 'amplicon' && o.left && o.right);
+                                const gxi = isAmp ? +o.left.xi : +o.xi;
+                                const gxf = isAmp ? +o.right.xf : +o.xf;
+                                if (!isFinite(gxi) || !isFinite(gxf)) continue;
+                                if (trackHit(t, (gxi + gxf) / 2, o.y != null ? o.y : 0)) {
+                                    const origHi = o.highlight__;
+                                    o.highlight__ = isAmp ? 'cyan' : HL;
+                                    sel.push({ kind: isAmp ? 'amplicon' : 'oligo', label: (o.name || o.id || (isAmp ? 'amplicon' : 'oligo')), track: t, chr: t.chr, xi: gxi, xf: gxf, ref: o, origHighlight: origHi, inOligos: true });
+                                    n++;
+                                }
+                            }
+                            // Amplicons — same source(s) and row layout as the draw:
+                            // rows are 0.1 + i*0.075, positioned via the double
+                            // projection (drawLine applies grid.X/Y).
+                            const ampRaw = t.ampliconResults || t.primerAmpliconResults || t.ctModelAmplicons || t.primer3Hits || t.amplicon_hits;
+                            let ampHits = [];
+                            if (Array.isArray(ampRaw)) ampHits = ampRaw;
+                            else if (ampRaw && Array.isArray(ampRaw.hits)) ampHits = ampRaw.hits;
+                            else if (ampRaw && Array.isArray(ampRaw.results)) ampHits = ampRaw.results;
+                            const ampMax = Math.min(12, ampHits.length);   // only the drawn rows
+                            for (let ai = 0; ai < ampMax; ai++) {
+                                const h = ampHits[ai];
+                                if (!h) continue;
+                                const a0 = +h.amp_start, a1 = +h.amp_end;
+                                if (!isFinite(a0) || !isFinite(a1) || a1 <= a0) continue;
+                                const cx = (a0 + a1) / 2;
+                                // The row y is used two ways in the codebase: the plain
+                                // draw (0.1 + i*0.075) and the hit-box geometry (with a
+                                // -2*yi offset). Test both so we match whichever renders.
+                                const vy1 = 0.1 + ai * 0.075;
+                                let vy2 = vy1;
+                                try { vy2 = t.tgraph.Ywc(t.tgraph.Y(vy1) - 2 * t.tgraph.yi); } catch (e) { }
+                                if (trackHit(t, cx, vy1) || trackHit(t, cx, vy2)) {
+                                    const origHi = h.__lassoHi;
+                                    h.__lassoHi = HL;
+                                    sel.push({ kind: 'amplicon', label: (h.name || h.id || ('amplicon ' + Math.round(a0) + '-' + Math.round(a1))), track: t, chr: t.chr, xi: a0, xf: a1, ref: h, ampArr: ampHits, origHighlight: origHi });
+                                    n++;
+                                }
+                            }
+                            // Only the INDIVIDUAL layer items inside the loop — projected
+                            // through the LAYER's own grid, not the track's.
+                            for (const layer of (t.track_layers || [])) {
+                                if (!layer || !layer.tgraph) continue;
+                                if (Array.isArray(layer.intervals)) {
+                                    for (const iv of layer.intervals) {
+                                        if (iv && screenHit(layer.tgraph, (iv.x1 + iv.x2) / 2, iv.y)) {
+                                            const origColor = iv.color;
+                                            iv.color = HL;
+                                            sel.push({ kind: 'layer', label: (iv.t || layer.name || 'interval'), track: t, chr: t.chr, xi: iv.x1, xf: iv.x2, ref: iv, layer: layer, origColor: origColor });
+                                            n++;
+                                        }
+                                    }
+                                }
+                                if (Array.isArray(layer.pts)) {
+                                    for (const p of layer.pts) {
+                                        if (p && screenHit(layer.tgraph, p.x, p.y)) {
+                                            const origColor = p.color, origHighlight = !!p.highlight;
+                                            p.color = HL; p.highlight = true;
+                                            sel.push({ kind: 'layer', label: (layer.name || 'point'), track: t, chr: t.chr, xi: p.x, xf: p.x, ref: p, layer: layer, origColor: origColor, origHighlight: origHighlight });
+                                            n++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        this.__lassoSelection = sel;   // rendered under the info panel
+                        // Auto-open the info/selection window so the new selection is
+                        // visible without having to toggle the info button first.
+                        if (sel.length) this.showDisplay = true;
+                    }
+                    this.setMessage(' Lasso selected ' + n + ' item(s).');
+                    pts.length = 0;
+                    this.post_graphics_modifications = null;
+                    // Leave lasso mode immediately so hover's mode-guard unblocks...
+                    this.graph.mode = 'navigate';
+                    // ...but defer re-installing the mouse-over hover handler until this
+                    // mouse-up has fully unwound. setMouseMode -> clearMouseListeners
+                    // wipes and re-execs mouse-over-highlight; doing that mid-dispatch
+                    // (we're inside a mouseUp listener) drops the freshly-added hover
+                    // listeners, so the hover never comes back until the next mode change.
+                    setTimeout(() => { try { this.setMouseMode('navigate'); } catch (e) { } }, 0);
+                    if (this.wake) this.wake();
+                });
             }
 
             // Draws a highlight ring around the hovered control button and a small
@@ -6914,7 +7301,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 170;
+                const { cx, cy } = this._ctrlPos('zoom_in');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "+", cx, cy, {
@@ -6932,7 +7319,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 205;
+                const { cx, cy } = this._ctrlPos('zoom_out');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "–", cx, cy, {
@@ -6953,20 +7340,20 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 240;
+                const { cx, cy } = this._ctrlPos('navigate');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 ctx.save();
                 this.resetCanvasEffects(ctx);
 
                 if (this.move_img) {
-                    ctx.drawImage(this.move_img, 17, 232);
+                    ctx.drawImage(this.move_img, cx - 8, cy - 8);
                 } else {
                     this.move_img = new Image();
                     this.move_img.src = this.move_icon;
                     this.move_img.onload = () => {
 
-                        ctx.drawImage(this.move_img, 17, 232);
+                        ctx.drawImage(this.move_img, cx - 8, cy - 8);
                     };
                 }
                 ctx.restore();
@@ -6984,7 +7371,8 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 275, r = 11;
+                const { cx, cy } = this._ctrlPos('bpx');
+                const r = 11;
                 this.drawCircleButton(ctx, cx, cy, r);
 
                 const scale = 0.62;
@@ -7012,7 +7400,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 310;
+                const { cx, cy } = this._ctrlPos('expand_vertical');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "⇕", cx, cy, { font: "700 14px Arial" });
@@ -7027,7 +7415,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 345;
+                const { cx, cy } = this._ctrlPos('contract_vertical');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "↕", cx, cy, { font: "700 14px Arial" });
@@ -7042,7 +7430,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 380;
+                const { cx, cy } = this._ctrlPos('expand_horizontal');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "⇔", cx, cy, { font: "700 14px Arial" });
@@ -7057,7 +7445,7 @@ pattern, GGGG | Required`
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
-                const cx = 25, cy = 415;
+                const { cx, cy } = this._ctrlPos('contract_horizontal');
                 this.drawCircleButton(ctx, cx, cy, 11);
 
                 this.drawButtonGlyph(ctx, "↔", cx, cy, { font: "700 14px Arial" });
@@ -7065,6 +7453,794 @@ pattern, GGGG | Required`
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Contract Horizontal", cx + 20, cy, { font: "11px Arial" });
                 }
+            }
+
+            drawLassoButton(ctx) {
+                if (this.bclick === "lasso") return;
+
+                this.setButtonStyle(ctx, { font: "600 12px Arial" });
+
+                const { cx, cy } = this._ctrlPos('lasso');
+                this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
+
+                // A little dashed loop with a tail — the "lasso" glyph (light on the
+                // inverted tropical fill).
+                ctx.save();
+                this.resetCanvasEffects(ctx);
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1.4;
+                ctx.setLineDash([2, 2]);
+                ctx.beginPath();
+                ctx.ellipse(cx, cy - 1, 5.5, 4, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(cx - 3, cy + 3);
+                ctx.lineTo(cx - 5.5, cy + 6.5);
+                ctx.stroke();
+                ctx.restore();
+
+                if (this.showHelp) {
+                    this.drawButtonLabel(ctx, "Lasso select", cx + 20, cy, { font: "11px Arial" });
+                }
+            }
+
+            drawSelectSeqButton(ctx) {
+                if (this.bclick === "select_seq") return;
+
+                this.setButtonStyle(ctx, { font: "600 12px Arial" });
+
+                const { cx, cy } = this._ctrlPos('select_seq');
+                this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
+
+                // An I-beam over a short baseline of "bases" — the select-sequence
+                // glyph (light on the inverted tropical fill).
+                ctx.save();
+                this.resetCanvasEffects(ctx);
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1.4;
+                // I-beam caret
+                ctx.beginPath();
+                ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 3);
+                ctx.moveTo(cx - 2.5, cy - 5); ctx.lineTo(cx + 2.5, cy - 5);
+                ctx.moveTo(cx - 2.5, cy + 3); ctx.lineTo(cx + 2.5, cy + 3);
+                ctx.stroke();
+                // sequence baseline ticks
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(cx - 5.5, cy + 6); ctx.lineTo(cx + 5.5, cy + 6);
+                ctx.stroke();
+                ctx.restore();
+
+                if (this.showHelp) {
+                    this.drawButtonLabel(ctx, "Select sequence", cx + 20, cy, { font: "11px Arial" });
+                }
+            }
+
+            drawInfoButton(ctx) {
+                this.setButtonStyle(ctx, { font: "600 12px Arial" });
+
+                const { cx, cy } = this._ctrlPos('info');
+                this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
+
+                // White inner ring when the info panel is currently showing.
+                if (this.showDisplay) {
+                    ctx.save();
+                    this.resetCanvasEffects(ctx);
+                    ctx.strokeStyle = "#ffffff";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // Light glyph on the inverted tropical fill.
+                this.drawButtonGlyph(ctx, "i", cx, cy, {
+                    font: "700 13px Georgia",
+                    color: "#ffffff",
+                });
+            }
+
+            // Info panel (tracks/oligos/chem) + lasso selection list. Called at the
+            // very END of redraw so both cards render ABOVE tracks, layers and buttons.
+            drawInfoPanel(ctx) {
+                if (!this.showDisplay || !this.track || !this.track.length) return;
+                let ocount = 0;
+                for (const t of this.track) { if (t.oligos) ocount += t.oligos.length; }
+
+                ctx.save();
+                this.resetCanvasEffects(ctx);
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+
+                // Inverted tropical scheme — matches the info button that toggles this
+                // panel (navy -> cyan fill, cyan border, light text).
+                const TXT_MUTED = '#9db8c9';   // labels
+                const TXT_MAIN = '#eef6f9';    // values / item labels
+                const TXT_ACCENT = '#4fd0e6';  // headers / highlights
+                const PANEL_BORDER = '#1aa3bd';
+                const paintCard = (x, y, w, h) => {
+                    ctx.shadowColor = 'rgba(16,24,40,0.28)';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowOffsetY = 2;
+                    const g = ctx.createLinearGradient(0, y, 0, y + h);
+                    g.addColorStop(0, 'rgba(10,37,64,0.97)');    // navy top
+                    g.addColorStop(1, 'rgba(18,90,110,0.97)');   // teal-cyan bottom
+                    ctx.fillStyle = g;
+                    this.roundRectPath(ctx, x, y, w, h, 7);
+                    ctx.fill();
+                    this.resetCanvasEffects(ctx);
+                    ctx.lineWidth = 1.2;
+                    ctx.strokeStyle = PANEL_BORDER;
+                    this.roundRectPath(ctx, x, y, w, h, 7);
+                    ctx.stroke();
+                };
+
+                const chemSelected = !!(this.props && this.props.selected_chemistry);
+                let chemName = (this.props && this.props.selected_chemistry && this.props.selected_chemistry.name) || '';
+                if (chemName.endsWith('.json')) chemName = chemName.substring(0, chemName.indexOf('.json'));
+                if (chemName.length > 22) chemName = chemName.slice(0, 21) + '…';
+
+                const rows = [
+                    { label: 'Tracks', value: String(this.track.length) },
+                    { label: 'Oligos', value: String(ocount) },
+                ];
+
+                const LABEL_FONT = '600 10px Arial';
+                const VALUE_FONT = '700 10px Arial';
+
+                ctx.font = VALUE_FONT;
+                let maxValW = 0;
+                for (const r of rows) maxValW = Math.max(maxValW, ctx.measureText(r.value).width);
+                const chemMeasure = chemSelected
+                    ? ctx.measureText(chemName || '—').width
+                    : ctx.measureText('None selected').width + 14;
+                maxValW = Math.max(maxValW, chemMeasure);
+
+                const panelX = 8, panelY = 8;
+                const padX = 10, padY = 8;
+                const rowH = 16;
+                const labelColW = 44;
+                const panelW = padX * 2 + labelColW + maxValW + 6;
+                const panelH = padY * 2 + rowH * (rows.length + 1);
+
+                paintCard(panelX, panelY, panelW, panelH);
+                // Remember the stats card so a click on it opens the info menu.
+                this.__infoPanelBounds = { x: panelX, y: panelY, w: panelW, h: panelH };
+
+                const lx = panelX + padX;
+                const vx = panelX + padX + labelColW;
+                let ry = panelY + padY + rowH / 2;
+
+                for (const r of rows) {
+                    ctx.font = LABEL_FONT; ctx.fillStyle = TXT_MUTED;
+                    ctx.fillText(r.label, lx, ry);
+                    ctx.font = VALUE_FONT; ctx.fillStyle = TXT_MAIN;
+                    ctx.fillText(r.value, vx, ry);
+                    ry += rowH;
+                }
+
+                ctx.font = LABEL_FONT; ctx.fillStyle = TXT_MUTED;
+                ctx.fillText('Chem', lx, ry);
+                if (chemSelected) {
+                    ctx.font = VALUE_FONT; ctx.fillStyle = TXT_ACCENT;
+                    ctx.fillText(chemName || '—', vx, ry);
+                } else {
+                    const t = 'None selected';
+                    ctx.font = '600 10px Arial';
+                    const tw = ctx.measureText(t).width;
+                    const pillPadX = 6, pillH = 14;
+                    const pillX = vx, pillY = ry - pillH / 2;
+                    ctx.fillStyle = 'rgba(255,225,77,0.16)';
+                    this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                    ctx.fill();
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(255,225,77,0.55)';
+                    this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffe600';   // bright yellow for contrast on navy
+                    ctx.fillText(t, pillX + pillPadX, ry);
+                }
+
+                // ---- Lasso selection list, below the panel ----
+                const selList = this.__lassoSelection;
+                this.__selPanelBounds = null;
+                if (selList && selList.length) {
+                    const maxItems = 12;
+                    const shown = selList.slice(0, maxItems);
+                    const extra = selList.length > maxItems ? 1 : 0;
+
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.font = '600 10px Arial';
+                    let lw = ctx.measureText('Selected (' + selList.length + ')  ⋯').width;
+                    for (const it of shown) lw = Math.max(lw, ctx.measureText('•  ' + it.label).width + 4);
+
+                    const lpadX = 10, lpadY = 8, lrowH = 14;
+                    const lX = panelX;
+                    const lY = panelY + panelH + 8;
+                    const lW = Math.min(240, lw + lpadX * 2);
+                    const lH = lpadY * 2 + lrowH * (shown.length + 1 + extra);
+                    // Remember the box so a click on it opens the actions menu.
+                    this.__selPanelBounds = { x: lX, y: lY, w: lW, h: lH };
+
+                    paintCard(lX, lY, lW, lH);
+
+                    let ry2 = lY + lpadY + lrowH / 2;
+                    ctx.font = '700 10px Arial';
+                    ctx.fillStyle = TXT_ACCENT;
+                    ctx.fillText('Selected (' + selList.length + ')', lX + lpadX, ry2);
+                    // Clickable hint on the right of the header.
+                    ctx.textAlign = 'right';
+                    ctx.fillText('⋯', lX + lW - lpadX, ry2);
+                    ctx.textAlign = 'left';
+                    ry2 += lrowH;
+
+                    const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#5b8c3a', amplicon: '#7c3aed', layer: '#a86b3e' };
+                    ctx.font = '600 10px Arial';
+                    for (const it of shown) {
+                        ctx.fillStyle = dotColor[it.kind] || TXT_MAIN;
+                        ctx.fillText('•', lX + lpadX, ry2);
+                        ctx.fillStyle = TXT_MAIN;
+                        let label = '' + (it.label || '');
+                        if (label.length > 30) label = label.slice(0, 29) + '…';
+                        ctx.fillText(label, lX + lpadX + 12, ry2);
+                        ry2 += lrowH;
+                    }
+                    if (extra) {
+                        ctx.fillStyle = TXT_MUTED;
+                        ctx.fillText('+' + (selList.length - maxItems) + ' more…', lX + lpadX, ry2);
+                    }
+                }
+
+                ctx.restore();
+            }
+
+            // Is the given SCREEN point on the selection list card?
+            hitSelectionPanel(xs, ys) {
+                const b = this.__selPanelBounds;
+                if (!b || !this.showDisplay || !this.__lassoSelection || !this.__lassoSelection.length) return false;
+                return xs >= b.x && xs <= b.x + b.w && ys >= b.y && ys <= b.y + b.h;
+            }
+
+            // Is the given SCREEN point on the top stats (Tracks/Oligos/Chem) card?
+            hitInfoPanel(xs, ys) {
+                const b = this.__infoPanelBounds;
+                if (!b || !this.showDisplay) return false;
+                return xs >= b.x && xs <= b.x + b.w && ys >= b.y && ys <= b.y + b.h;
+            }
+
+            // Menu opened by clicking the top stats card: view tracks, view/select
+            // all oligos, and choose a chemistry.
+            openInfoPanelMenu() {
+                const close = () => { try { this.showSideMenu(null); } catch (e) { } };
+                const show = (list) => { const b = this.__infoPanelBounds; if (b) this.showSideMenu(list, { x: b.x, y: b.y + b.h + 4 }); else this.showSideMenu(list); };
+                const tracks = this.track || [];
+                let oligoCount = 0;
+                for (const t of tracks) if (t.oligos) oligoCount += t.oligos.length;
+
+                const openMain = () => show(buildMain());
+
+                const centerTrack = (t) => {
+                    try {
+                        const tg = t.tgraph;
+                        const m = Math.max(100, tg.width * 0.05);   // small horizontal margin
+                        // Fit the ENTIRE track (full width) centered, framed vertically.
+                        this.animateTo(tg.xi - m, tg.xi + tg.width + m, tg.Y(-3), tg.Y(3));
+                    } catch (e) {
+                        try { this.goToTrack(t); } catch (e2) { }
+                    }
+                };
+                const openTracks = () => {
+                    const sub = tracks.map((t, i) => ({
+                        label: (t.name || ('track ' + (i + 1))),
+                        click: () => { close(); centerTrack(t); },
+                        move: () => { }
+                    }));
+                    sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                    show(sub);
+                };
+
+                // Zoom to (center on) a single oligo/amplicon on its track.
+                const zoomToOligo = (o, t) => {
+                    try {
+                        const tg = t.tgraph;
+                        const isAmp = (o.type === 'amplicon' && o.left && o.right);
+                        const gxi = +(isAmp ? o.left.xi : o.xi);
+                        const gxf = +(isAmp ? o.right.xf : o.xf);
+                        if (!isFinite(gxi) || !isFinite(gxf)) return;
+                        const oy = isAmp ? (o.left && o.left.y != null ? o.left.y : o.y) : o.y;
+                        const y = (oy != null ? oy : 0.1);
+                        const pad = Math.max(10, gxf - gxi);   // frame with context, oligo centered
+                        this.animateTo(tg.X(gxi - pad), tg.X(gxf + pad), tg.Y(y - 1), tg.Y(y + 1));
+                    } catch (e) { }
+                };
+
+                const selectAllOligos = () => {
+                    close();
+                    let n = 0;
+                    for (const t of tracks) {
+                        for (const o of (t.oligos || [])) {
+                            try { this.addOligoToSelection(o, t); n++; } catch (e) { }
+                        }
+                    }
+                    this.setMessage(' Selected ' + n + ' oligo(s). ');
+                    if (this.wake) this.wake();
+                };
+
+                const openOligos = () => {
+                    const sub = [{ label: 'Select all oligos (' + oligoCount + ')', click: () => { selectAllOligos(); }, move: () => { } }];
+                    for (const t of tracks) {
+                        for (const o of (t.oligos || [])) {
+                            sub.push({
+                                label: (o.name || o.id || 'oligo'),
+                                click: () => { close(); try { this.addOligoToSelection(o, t); } catch (e) { } zoomToOligo(o, t); },
+                                move: () => { }
+                            });
+                        }
+                    }
+                    sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                    show(sub);
+                };
+
+                const buildMain = () => ([
+                    { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
+                    { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
+                    { label: 'Choose chemistry…', click: () => { close(); try { Promise.resolve(exec('manchester/choose-chemistry.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                ]);
+
+                openMain();
+            }
+
+            // Keep the canvas in sync with the selection window: anything listed in
+            // __lassoSelection must stay visibly selected on the canvas, even if hover
+            // handlers / deselectAllTracks cleared its highlight. Re-applied each frame.
+            reassertSelectionHighlights() {
+                const sel = this.__lassoSelection;
+                if (!sel || !sel.length) return;
+                for (const s of sel) {
+                    try {
+                        if (!s.ref) continue;
+                        if (s.kind === 'oligo') {
+                            if (!s.ref.highlight__) s.ref.highlight__ = '#c0392b';
+                        } else if (s.kind === 'amplicon') {
+                            if (s.inOligos) { if (!s.ref.highlight__) s.ref.highlight__ = 'cyan'; }
+                            else if (!s.ref.__lassoHi) s.ref.__lassoHi = '#c0392b';
+                        } else if (s.kind === 'snp') {
+                            s.ref.highlight = true;
+                        } else if (s.kind === 'ann') {
+                            if (s.ref.select) s.ref.select();
+                        } else if (s.kind === 'layer' && s.ref) {
+                            if (s.ref.color !== '#c0392b') s.ref.color = '#c0392b';
+                            s.ref.highlight = true;
+                        }
+                    } catch (e) { }
+                }
+            }
+
+            // Undo the visual highlight of the current selection (restore original
+            // layer-item colors, deselect annotations, unhighlight SNPs).
+            clearSelectionVisuals() {
+                const sel = this.__lassoSelection || [];
+                for (const s of sel) {
+                    try {
+                        if (s.kind === 'track' && s.ref && s.ref.deselect) s.ref.deselect();
+                        else if (s.kind === 'ann' && s.ref && s.ref.deselect) s.ref.deselect();
+                        else if (s.kind === 'snp' && s.ref) s.ref.highlight = false;
+                        else if (s.kind === 'oligo' && s.ref) s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false;
+                        else if (s.kind === 'amplicon' && s.ref) {
+                            // Amplicon objects (in t.oligos) highlight via highlight__;
+                            // ampliconResults hits use __lassoHi.
+                            if (s.inOligos) s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false;
+                            else s.ref.__lassoHi = ('origHighlight' in s) ? s.origHighlight : false;
+                        }
+                        else if (s.kind === 'layer' && s.ref) {
+                            if ('origColor' in s) s.ref.color = s.origColor;
+                            if ('origHighlight' in s) s.ref.highlight = s.origHighlight;
+                        }
+                    } catch (e) { }
+                }
+            }
+
+            // Add a clicked oligo (or amplicon) to the selection box. Its menu is the
+            // per-oligo (ASO) menu, opened from the selection window. De-dupe by ref.
+            addOligoToSelection(oligo, track) {
+                if (!oligo) return;
+                if (!this.__lassoSelection) this.__lassoSelection = [];
+                if (!this.__lassoSelection.some((e) => e.ref === oligo)) {
+                    const isAmp = (oligo.type === 'amplicon' && oligo.left && oligo.right);
+                    const gxi = isAmp ? +oligo.left.xi : +oligo.xi;
+                    const gxf = isAmp ? +oligo.right.xf : +oligo.xf;
+                    const origHi = oligo.highlight__;
+                    oligo.highlight__ = isAmp ? 'cyan' : '#c0392b';
+                    this.__lassoSelection.push({ kind: isAmp ? 'amplicon' : 'oligo', label: (oligo.name || oligo.id || (isAmp ? 'amplicon' : 'oligo')), track: track, chr: track && track.chr, xi: gxi, xf: gxf, ref: oligo, origHighlight: origHi, inOligos: true });
+                }
+                this.showDisplay = true;
+                if (this.wake) this.wake();
+            }
+
+            // Add a clicked annotation (e.g. an exon) to the selection box, along with
+            // its type-specific menu that used to pop up on click. De-dupe by ref.
+            addAnnotationToSelection(ann, track, menuItems) {
+                if (!ann) return;
+                if (!this.__lassoSelection) this.__lassoSelection = [];
+                const existing = this.__lassoSelection.find((e) => e.kind === 'ann' && e.ref === ann);
+                if (existing) { if (Array.isArray(menuItems) && menuItems.length) existing.annMenu = menuItems; }
+                else {
+                    this.__lassoSelection.push({ kind: 'ann', label: (ann.name || ann.type || 'annotation'), track: track, chr: track && track.chr, xi: ann.xi, xf: ann.xf, ref: ann, annMenu: (menuItems || []) });
+                }
+                this.showDisplay = true;
+                if (this.wake) this.wake();
+            }
+
+            // Add a clicked track to the selection box as its own object type, along
+            // with the menu that used to pop up on click. De-dupe by track reference.
+            addTrackToSelection(track, menuItems) {
+                if (!track) return;
+                if (!this.__lassoSelection) this.__lassoSelection = [];
+                const existing = this.__lassoSelection.find((e) => e.kind === 'track' && e.ref === track);
+                if (existing) { existing.trackMenu = menuItems; }
+                else {
+                    let xi = 0, xf = 0;
+                    try { if (track.tgraph) { xi = track.tgraph.xi; xf = track.tgraph.xi + track.tgraph.width; } } catch (e) { }
+                    this.__lassoSelection.push({ kind: 'track', label: (track.name || 'track'), track: track, chr: track.chr, xi: xi, xf: xf, ref: track, trackMenu: menuItems });
+                }
+                this.showDisplay = true;
+                if (this.wake) this.wake();
+            }
+
+            // Actions menu for the current lasso selection. Options are grouped BY
+            // OBJECT TYPE — each type present in the selection gets its own button
+            // that opens that type's actions (this is where amplicon/oligo options
+            // now live, instead of a menu popping up from mouse-over hover).
+            openSelectionMenu() {
+                const sel = this.__lassoSelection || [];
+                if (!sel.length) return;
+                const close = () => { try { this.showSideMenu(null); } catch (e) { } };
+                const anchor = () => (this.__selPanelBounds ? { x: this.__selPanelBounds.x, aboveY: this.__selPanelBounds.y } : undefined);
+                const show = (list) => { const a = anchor(); if (a) this.showSideMenu(list, a); else this.showSideMenu(list); };
+
+                const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Amplicons', layer: 'Layer items' };
+                const kindsPresent = [];
+                for (const s of sel) if (kindsPresent.indexOf(s.kind) < 0) kindsPresent.push(s.kind);
+
+                const openMain = () => show(buildMain());
+
+                // Run off-target analysis on the selected oligos/amplicons against
+                // any available index. run-off-targets.js fetches the genome/index
+                // list (GET {env.offtarget}/genomes), lets the user pick an index and
+                // edit distance, runs the search, and attaches results to the oligos
+                // (o.offtarget / offtargetsymbols) using the existing rendering path.
+                const runOffTargets = (kind) => {
+                    const refs = sel
+                        .filter((s) => (s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && (!kind || s.kind === kind))
+                        .map((s) => s.ref);
+                    if (!refs.length) { this.setMessage(' No oligos selected to run off-targets. '); return; }
+                    close();
+                    try { window.current = refs[0]; } catch (e) { }   // report panel focus
+                    try {
+                        Promise.resolve(exec('baja/manchester/menu/run-off-targets.js',
+                            this, this.genegraph_panel_layout, refs)).catch(() => { });
+                    } catch (e) { this.setMessage(' Could not open off-target tool: ' + e); }
+                };
+
+                // Per-type submenu — the "options by object type". For types that
+                // have object-specific menu builders (amplicons, oligos — defined in
+                // mouse-over-highlight.js and exposed on the graph), use THOSE items;
+                // otherwise fall back to generic download/remove actions.
+                const objBuilder = (k) => (k === 'amplicon' ? this.__getAmpliconMenuItems : (k === 'oligo' ? this.__getOligoMenuItems : null));
+                const openTypeMenu = (k) => {
+                    const kl = kindLabels[k] || k;
+                    // Tracks: pick a SPECIFIC selected track, then show that track's
+                    // own menu (the one that used to pop up on click, built in
+                    // mouse-over-highlight.js and stashed on the selection entry).
+                    if (k === 'track') {
+                        const picks = sel.filter((s) => s.kind === 'track' && s.trackMenu);
+                        const openOne = (p) => { show((p.trackMenu || []).concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); };
+                        if (picks.length === 1) { openOne(picks[0]); return; }
+                        if (picks.length > 1) {
+                            const picker = picks.map((p) => ({ label: (p.label || 'track'), click: () => { openOne(p); }, move: () => { } }));
+                            picker.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                            show(picker);
+                            return;
+                        }
+                    }
+                    // Annotations (e.g. exon features): pick a specific selected
+                    // annotation, then show ITS type-specific menu (the exon menu that
+                    // used to pop up on click). Falls back to the annotation-type menu
+                    // for annotations selected via lasso (no stashed menu).
+                    if (k === 'ann') {
+                        const picks = sel.filter((s) => s.kind === 'ann' && s.ref);
+                        const openOne = (p) => {
+                            if (Array.isArray(p.annMenu) && p.annMenu.length) {
+                                show(p.annMenu.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                            } else if (p.track) {
+                                close();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/annotations-type-menu', this, this.genegraph_panel_layout, [p.ref], p.track))
+                                        .then((mml) => { if (Array.isArray(mml)) show(mml.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); })
+                                        .catch(() => { });
+                                } catch (e) { }
+                            }
+                        };
+                        if (picks.length === 1) { openOne(picks[0]); return; }
+                        if (picks.length > 1) {
+                            const picker = picks.map((p) => ({ label: (p.label || 'annotation'), click: () => { openOne(p); }, move: () => { } }));
+                            picker.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                            show(picker);
+                            return;
+                        }
+                    }
+                    // Oligos: pick a SPECIFIC selected oligo, then open its per-oligo
+                    // (ASO) menu — moved here out of the hover menu.
+                    if (k === 'oligo') {
+                        const picks = sel.filter((s) => s.kind === 'oligo' && s.ref);
+                        const openOne = (p) => {
+                            close();
+                            try { Promise.resolve(exec('baja/manchester/menu/menu-for-single-aso.js', this, p.ref, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
+                        };
+                        const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('oligo'); }, move: () => { } }];
+                        // Score labels are off by default; toggle them here. Covers the
+                        // amplicon score (track.showScore) and the attribution-layer
+                        // score (layer.showScore) in one action.
+                        const attrScoreLayers = [];
+                        for (const t of (this.track || [])) {
+                            for (const l of (t.track_layers || [])) {
+                                if (l && ('showScore' in l || l.attribution_site != null || l.attribution_type != null)) attrScoreLayers.push(l);
+                            }
+                        }
+                        const anyScore = (this.track || []).some((t) => t.showScore) || attrScoreLayers.some((l) => l.showScore);
+                        sub.push({
+                            label: (anyScore ? 'Hide score labels' : 'Show score labels'),
+                            click: () => {
+                                close();
+                                const on = !anyScore;
+                                for (const t of (this.track || [])) t.showScore = on;
+                                for (const l of attrScoreLayers) l.showScore = on;
+                                this.setMessage(on ? ' Showing score labels ' : ' Hiding score labels ');
+                                if (this.wake) this.wake();
+                            }, move: () => { }
+                        });
+                        // Oligo attribute labels (getDisplayLabelValue) are hidden by
+                        // default; toggle them globally via graph.showOligoLabels.
+                        const attrsOn = !!(this.graph && this.graph.showOligoLabels);
+                        sub.push({
+                            label: (attrsOn ? 'Hide attribute labels' : 'Show attribute labels'),
+                            click: () => {
+                                close();
+                                if (this.graph) this.graph.showOligoLabels = !attrsOn;
+                                this.setMessage(!attrsOn ? ' Showing oligo attribute labels ' : ' Hiding oligo attribute labels ');
+                                if (this.wake) this.wake();
+                            }, move: () => { }
+                        });
+                        if (picks.length === 1) {
+                            sub.push({ label: 'Oligo menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                        } else {
+                            for (const p of picks) sub.push({ label: (p.label || 'oligo'), click: () => { openOne(p); }, move: () => { } });
+                        }
+                        sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                        show(sub);
+                        return;
+                    }
+                    // Amplicons: pick a SPECIFIC selected amplicon, then show its own
+                    // object-specific menu (showOneAmpliconMenu). If only one is
+                    // selected, skip the picker and open its menu directly.
+                    if (k === 'amplicon' && typeof this.__showOneAmpliconMenu === 'function') {
+                        const picks = sel.filter((s) => s.kind === 'amplicon' && s.ref);
+                        const openOne = (p) => { close(); try { this.__showOneAmpliconMenu(this, p.track, p.ref, true); } catch (e) { } };
+                        const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } }];
+                        if (picks.length === 1) {
+                            sub.push({ label: 'Amplicon menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                        } else {
+                            for (const p of picks) sub.push({ label: (p.label || 'amplicon'), click: () => { openOne(p); }, move: () => { } });
+                        }
+                        sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                        show(sub);
+                        return;
+                    }
+                    const builder = objBuilder(k);
+                    const track = (sel.find((s) => s.kind === k && s.track) || {}).track;
+                    if (builder && track) {
+                        let items = [];
+                        try { items = builder(track, this) || []; } catch (e) { items = []; }
+                        // Builders return a single wrapper ('Amplicons'/'Oligos') whose
+                        // click opens the real object menu — invoke it directly so we
+                        // don't stack another nesting level on top.
+                        if (items.length === 1 && typeof items[0].click === 'function') {
+                            close();
+                            try { items[0].click(); } catch (e) { }
+                            return;
+                        }
+                        if (items.length) {
+                            show(items.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                            return;
+                        }
+                    }
+                    const sub = [
+                        { label: 'Download as BED', click: () => { close(); this.exportSelection('bed', k); }, move: () => { } },
+                        { label: 'Download as CSV', click: () => { close(); this.exportSelection('csv', k); }, move: () => { } },
+                        { label: 'Download as TXT', click: () => { close(); this.exportSelection('txt', k); }, move: () => { } },
+                        { label: 'Download as XLSX', click: () => { close(); this.exportSelection('xlsx', k); }, move: () => { } },
+                        { label: 'Remove ' + kl.toLowerCase(), click: () => { close(); this.removeSelectedByKind(k); }, move: () => { } },
+                    ];
+                    sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                    show(sub);
+                };
+
+                const buildMain = () => {
+                    const menu = [];
+                    for (const k of kindsPresent) {
+                        const count = sel.filter((s) => s.kind === k).length;
+                        const kl = kindLabels[k] || k;
+                        menu.push({ label: kl + ' (' + count + ') ▸', click: () => { openTypeMenu(k); }, move: () => { } });
+                    }
+                    // Off-target analysis for any selected oligos/amplicons.
+                    if (sel.some((s) => s.kind === 'oligo' || s.kind === 'amplicon')) {
+                        menu.push({ label: 'Run off-targets…', click: () => { runOffTargets(); }, move: () => { } });
+                    }
+                    // Whole-selection actions below the per-type groups.
+                    menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
+                    menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });
+                    menu.push({ label: 'Remove all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
+                    menu.push({ label: 'Keep only selected (delete others)', click: () => { close(); this.removeSelection(true); }, move: () => { } });
+                    menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; if (this.wake) this.wake(); }, move: () => { } });
+                    return menu;
+                };
+
+                this.setMessage(' ' + sel.length + ' selected — choose an action ');
+                openMain();
+            }
+
+            // Remove only the selected items of one object type; the rest of the
+            // selection stays selected.
+            removeSelectedByKind(kind) {
+                const all = this.__lassoSelection || [];
+                const sub = all.filter((s) => s.kind === kind);
+                if (!sub.length) return;
+                try { this.pushOntoHistory(); } catch (e) { }
+                const spliceOut = (arr, ref) => { if (Array.isArray(arr)) { const i = arr.indexOf(ref); if (i >= 0) { arr.splice(i, 1); return true; } } return false; };
+                let removed = 0;
+                for (const s of sub) {
+                    const t = s.track;
+                    if (!t) continue;
+                    if (s.kind === 'track') {
+                        if (this.removeTrack) { try { this.removeTrack(s.ref); removed++; continue; } catch (e) { } }
+                    } else if (s.kind === 'ann') {
+                        if (t.removeAnnotation) { try { t.removeAnnotation(s.ref); removed++; continue; } catch (e) { } }
+                        if (spliceOut(t.annotations, s.ref)) removed++;
+                    } else if (s.kind === 'snp') {
+                        if (t.removesnp) { try { t.removesnp(s.ref); removed++; continue; } catch (e) { } }
+                        if (spliceOut(t.snpindels, s.ref)) removed++;
+                    } else if (s.kind === 'oligo') {
+                        if (t.removeOligo) { try { t.removeOligo(s.ref); removed++; continue; } catch (e) { } }
+                        if (spliceOut(t.oligos, s.ref)) removed++;
+                    } else if (s.kind === 'amplicon') {
+                        if (s.inOligos) {
+                            if (t.removeOligo) { try { t.removeOligo(s.ref); removed++; continue; } catch (e) { } }
+                            if (spliceOut(t.oligos, s.ref)) removed++;
+                        }
+                        else if (spliceOut(s.ampArr, s.ref)) removed++;
+                        else if (spliceOut(t.ampliconResults, s.ref)) removed++;
+                        else if (t.ampliconResults && spliceOut(t.ampliconResults.hits, s.ref)) removed++;
+                    } else if (s.kind === 'layer' && s.layer) {
+                        if (spliceOut(s.layer.intervals, s.ref) || spliceOut(s.layer.pts, s.ref)) removed++;
+                    }
+                }
+                this.__lassoSelection = all.filter((s) => s.kind !== kind);
+                if (!this.__lassoSelection.length) this.__selPanelBounds = null;
+                const _kl = { ann: 'annotation(s)', snp: 'SNP/indel(s)', oligo: 'oligo(s)', amplicon: 'amplicon(s)', layer: 'layer item(s)' }[kind] || (kind + '(s)');
+                this.setMessage(' Removed ' + removed + ' ' + _kl + '. ');
+                try { this.rescale(); } catch (e) { }
+                try { this.graph.rescale(); } catch (e) { }
+                if (this.wake) this.wake();
+            }
+
+            // Rows [chr, start, end, name, type, track] for the current selection.
+            // Optional `kind` restricts the rows to one object type.
+            _selectionRows(kind) {
+                return (this.__lassoSelection || []).filter((s) => !kind || s.kind === kind).map((s) => ({
+                    chr: s.chr != null ? ('' + s.chr) : '',
+                    start: Math.floor(Math.min(s.xi, s.xf)),
+                    end: Math.floor(Math.max(s.xi, s.xf)),
+                    name: s.label || '',
+                    type: s.kind || '',
+                    track: (s.track && s.track.name) || '',
+                }));
+            }
+
+            _download(filename, content, mime) {
+                try {
+                    const blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
+                } catch (e) { this.setMessage(' Download failed: ' + e); }
+            }
+
+            exportSelection(fmt, kind) {
+                const rows = this._selectionRows(kind);
+                if (!rows.length) return;
+                const name = kind ? ('selection-' + kind) : 'selection';
+                if (fmt === 'bed') {
+                    const txt = rows.map((r) => [r.chr || '.', r.start, r.end, ('' + (r.name || '.')).replace(/\s+/g, '_')].join('\t')).join('\n') + '\n';
+                    this._download(name + '.bed', txt, 'text/plain');
+                } else if (fmt === 'csv') {
+                    const esc = (v) => { v = '' + (v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+                    const head = ['chr', 'start', 'end', 'name', 'type', 'track'];
+                    const txt = [head.join(',')].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track].map(esc).join(','))).join('\n') + '\n';
+                    this._download(name + '.csv', txt, 'text/csv');
+                } else if (fmt === 'txt') {
+                    const txt = rows.map((r) => (r.name || '') + '\t' + (r.chr ? r.chr + ':' : '') + r.start + '-' + r.end + '\t' + r.type + (r.track ? '\t' + r.track : '')).join('\n') + '\n';
+                    this._download(name + '.txt', txt, 'text/plain');
+                } else if (fmt === 'xlsx') {
+                    try {
+                        if (typeof XLSX === 'undefined') { this.setMessage(' XLSX library not available. '); return; }
+                        const aoa = [['chr', 'start', 'end', 'name', 'type', 'track']].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track]));
+                        const ws = XLSX.utils.aoa_to_sheet(aoa);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'Selection');
+                        XLSX.writeFile(wb, name + '.xlsx');
+                    } catch (e) { this.setMessage(' XLSX export failed: ' + e); return; }
+                }
+                this.setMessage(' Exported ' + rows.length + ' item(s) as ' + fmt.toUpperCase() + '. ');
+            }
+
+            // Remove the selected items, or (keepOnly) remove everything BUT them.
+            removeSelection(keepOnly) {
+                const sel = this.__lassoSelection || [];
+                if (!sel.length) return;
+                try { this.pushOntoHistory(); } catch (e) { }
+                this.clearSelectionVisuals();   // restore original colors before mutating
+                const spliceOut = (arr, ref) => { if (Array.isArray(arr)) { const i = arr.indexOf(ref); if (i >= 0) { arr.splice(i, 1); return true; } } return false; };
+                if (keepOnly) {
+                    const keep = new Set(sel.map((s) => s.ref));
+                    // Scope to ONLY the layers that contain a selected item — leave the
+                    // track's annotations/SNPs and any other layers untouched.
+                    const layers = new Set(sel.filter((s) => s.kind === 'layer' && s.layer).map((s) => s.layer));
+                    if (!layers.size) { this.setMessage(' No layer items selected — nothing to keep. '); return; }
+                    for (const layer of layers) {
+                        if (Array.isArray(layer.intervals)) layer.intervals = layer.intervals.filter((iv) => keep.has(iv));
+                        if (Array.isArray(layer.pts)) layer.pts = layer.pts.filter((p) => keep.has(p));
+                    }
+                    this.setMessage(' Kept only the selected items in ' + layers.size + ' layer(s). ');
+                } else {
+                    let removed = 0;
+                    for (const s of sel) {
+                        const t = s.track;
+                        if (!t) continue;
+                        if (s.kind === 'ann') {
+                            if (t.removeAnnotation) { try { t.removeAnnotation(s.ref); removed++; continue; } catch (e) { } }
+                            if (spliceOut(t.annotations, s.ref)) removed++;
+                        } else if (s.kind === 'snp') {
+                            if (t.removesnp) { try { t.removesnp(s.ref); removed++; continue; } catch (e) { } }
+                            if (spliceOut(t.snpindels, s.ref)) removed++;
+                        } else if (s.kind === 'oligo') {
+                            if (t.removeOligo) { try { t.removeOligo(s.ref); removed++; continue; } catch (e) { } }
+                            if (spliceOut(t.oligos, s.ref)) removed++;
+                        } else if (s.kind === 'amplicon') {
+                            if (s.inOligos) {
+                                if (t.removeOligo) { try { t.removeOligo(s.ref); removed++; continue; } catch (e) { } }
+                                if (spliceOut(t.oligos, s.ref)) removed++;
+                            }
+                            else if (spliceOut(s.ampArr, s.ref)) removed++;
+                            else if (spliceOut(t.ampliconResults, s.ref)) removed++;
+                            else if (t.ampliconResults && spliceOut(t.ampliconResults.hits, s.ref)) removed++;
+                        } else if (s.kind === 'layer' && s.layer) {
+                            if (spliceOut(s.layer.intervals, s.ref) || spliceOut(s.layer.pts, s.ref)) removed++;
+                        }
+                    }
+                    this.setMessage(' Removed ' + removed + ' selected item(s). ');
+                }
+                this.__lassoSelection = [];
+                this.__selPanelBounds = null;
+                try { this.rescale(); } catch (e) { }
+                try { this.graph.rescale(); } catch (e) { }
+                if (this.wake) this.wake();
             }
 
             alpha = 1
@@ -7204,7 +8380,7 @@ pattern, GGGG | Required`
                             this.fade = false;
                         }
                     }
-                    if (this.track && this.track.length > 0) {
+                    if (this.showDisplay && this.track && this.track.length > 0) {
                         ctx.textAlign = 'left';
                         ctx.shadowBlur = 0;
                         ctx.shadowColor = 'gray';
@@ -7228,95 +8404,8 @@ pattern, GGGG | Required`
                         } else {
 
                         }
-                        if (this.showDisplay) {
-                            // ---- Professional status HUD (top-left) ----
-                            ctx.save();
-                            this.resetCanvasEffects(ctx);
-                            ctx.textAlign = 'left';
-                            ctx.textBaseline = 'middle';
-
-                            const chemSelected = !!this.props.selected_chemistry;
-                            let chemName = this.props.selected_chemistry?.name ?? '';
-                            if (chemName.endsWith('.json')) chemName = chemName.substring(0, chemName.indexOf('.json'));
-                            if (chemName.length > 22) chemName = chemName.slice(0, 21) + '…';
-
-                            const rows = [
-                                { label: 'Tracks', value: String(this.track.length) },
-                                { label: 'Oligos', value: String(ocount) },
-                            ];
-
-                            const LABEL_FONT = '600 10px Arial';
-                            const VALUE_FONT = '700 10px Arial';
-
-                            // Measure to size the panel to its content
-                            ctx.font = VALUE_FONT;
-                            let maxValW = 0;
-                            for (const r of rows) maxValW = Math.max(maxValW, ctx.measureText(r.value).width);
-                            const chemMeasure = chemSelected
-                                ? ctx.measureText(chemName || '—').width
-                                : ctx.measureText('None selected').width + 14;
-                            maxValW = Math.max(maxValW, chemMeasure);
-
-                            const panelX = 8, panelY = 8;
-                            const padX = 10, padY = 8;
-                            const rowH = 16;
-                            const labelColW = 44;
-                            const panelW = padX * 2 + labelColW + maxValW + 6;
-                            const panelH = padY * 2 + rowH * (rows.length + 1);
-
-                            // Panel background: subtle translucent card with soft shadow + border
-                            ctx.shadowColor = 'rgba(16,24,40,0.12)';
-                            ctx.shadowBlur = 6;
-                            ctx.shadowOffsetY = 2;
-                            ctx.fillStyle = 'rgba(255,255,255,0.92)';
-                            this.roundRectPath(ctx, panelX, panelY, panelW, panelH, 7);
-                            ctx.fill();
-
-                            this.resetCanvasEffects(ctx);
-                            ctx.lineWidth = 1;
-                            ctx.strokeStyle = '#d4dae3';
-                            this.roundRectPath(ctx, panelX, panelY, panelW, panelH, 7);
-                            ctx.stroke();
-
-                            const lx = panelX + padX;
-                            const vx = panelX + padX + labelColW;
-                            let ry = panelY + padY + rowH / 2;
-
-                            for (const r of rows) {
-                                ctx.font = LABEL_FONT; ctx.fillStyle = '#667085';
-                                ctx.fillText(r.label, lx, ry);
-                                ctx.font = VALUE_FONT; ctx.fillStyle = '#344054';
-                                ctx.fillText(r.value, vx, ry);
-                                ry += rowH;
-                            }
-
-                            // Chemistry row
-                            ctx.font = LABEL_FONT; ctx.fillStyle = '#667085';
-                            ctx.fillText('Chem', lx, ry);
-
-                            if (chemSelected) {
-                                ctx.font = VALUE_FONT; ctx.fillStyle = '#1d4ed8';
-                                ctx.fillText(chemName || '—', vx, ry);
-                            } else {
-                                // Calm amber "None selected" badge (no pulsing alarm)
-                                const t = 'None selected';
-                                ctx.font = '600 10px Arial';
-                                const tw = ctx.measureText(t).width;
-                                const pillPadX = 6, pillH = 14;
-                                const pillX = vx, pillY = ry - pillH / 2;
-                                ctx.fillStyle = 'rgba(251,191,36,0.18)';
-                                this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                                ctx.fill();
-                                ctx.lineWidth = 1;
-                                ctx.strokeStyle = 'rgba(217,119,6,0.45)';
-                                this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                                ctx.stroke();
-                                ctx.fillStyle = '#b45309';
-                                ctx.fillText(t, pillX + pillPadX, ry);
-                            }
-
-                            ctx.restore();
-                        }
+                        // Info panel + lasso selection list are drawn at the END of
+                        // redraw (via drawInfoPanel) so they render ABOVE the tracks.
 
                         if (this.highlight_text) {
                             ctx.fillStyle = 'gray';
@@ -7388,43 +8477,122 @@ pattern, GGGG | Required`
                         await this.drawMoleculeFoldFrame(ctx);
                     }
                     if (this.message) {
+                        // Production-quality toast: a rounded navy card with a cyan
+                        // accent bar and white text that WRAPS to stay on screen.
+                        const msg = ('' + this.message).trim();
+                        if (msg) {
+                            ctx.save();
+                            this.resetCanvasEffects(ctx);
 
-                        if (!this.fontSize) {
-                            this.fontSize = 20
-                        }
-                        ctx.shadowBlur = 0;
-                        ctx.shadowColor = 'black';
-                        ctx.textBaseline = 'top';
-                        let font = `${this.fontSize}px Arial`;
-                        if (isMobile()) {
-                            this.fontSize = 10;
-                            font = `${this.fontSize}px Arial`;
-                        } else {
-                        }
-                        ctx.font = font;
-                        let mx = 250;
-                        let my = 25;
-                        if (this.messagex > 200 && this.messagex < this.graph.canvas.width) {
-                            mx = this.messagex;
-                        }
-                        if (this.messagey > 20 && this.messagey < this.graph.canvas.height) {
-                            my = this.messagey;
-                        }
-                        if (this.centerMessage) {
-                            ctx.fillStyle = 'rgba(100, 100, 230, 0.7)';
-                            var metrics = ctx.measureText(this.message);
-                            var textWidth = metrics.width;
-                            var x = (ctx.canvas.width - textWidth) / 2;
-                            var y = (ctx.canvas.height + this.fontSize) / 2;
+                            const cw = ctx.canvas.width, ch = ctx.canvas.height;
+                            const fontSize = isMobile() ? 12 : 14;
+                            ctx.font = '600 ' + fontSize + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'top';
 
-                            ctx.fillText(this.message, x, y);
-                        } else {
-                            let smallfontSize = 19;
-                            ctx.fillStyle = 'maroon';
-                            ctx.font = `${smallfontSize}px Arial`;
-                            ctx.fillText(this.message, mx, my);
+                            const padX = 14, padY = 10, lineH = fontSize + 6;
+                            const maxCardW = Math.min(560, Math.max(160, cw - 40));
+                            const maxTextW = maxCardW - padX * 2;
+
+                            // Word-wrap (hard-break tokens longer than a line).
+                            const words = msg.split(/\s+/);
+                            const lines = [];
+                            let cur = '';
+                            for (let w of words) {
+                                while (ctx.measureText(w).width > maxTextW && w.length > 1) {
+                                    let k = w.length;
+                                    while (k > 1 && ctx.measureText(w.slice(0, k)).width > maxTextW) k--;
+                                    if (cur) { lines.push(cur); cur = ''; }
+                                    lines.push(w.slice(0, k));
+                                    w = w.slice(k);
+                                }
+                                const test = cur ? cur + ' ' + w : w;
+                                if (cur && ctx.measureText(test).width > maxTextW) { lines.push(cur); cur = w; }
+                                else cur = test;
+                            }
+                            if (cur) lines.push(cur);
+
+                            const maxLines = 5;
+                            let shown = lines;
+                            if (lines.length > maxLines) {
+                                shown = lines.slice(0, maxLines);
+                                shown[maxLines - 1] = shown[maxLines - 1].replace(/.$/, '') + '…';
+                            }
+
+                            let textW = 0;
+                            for (const l of shown) textW = Math.max(textW, ctx.measureText(l).width);
+                            const cardW = Math.min(maxCardW, Math.ceil(textW) + padX * 2);
+                            const cardH = padY * 2 + lineH * shown.length;
+
+                            let cardX = Math.round((cw - cardW) / 2);
+                            // Sit just below the top control-button row (cy=22, r=11)
+                            // instead of vertically centered.
+                            let cardY = (22 + 11 + 3) + 12;
+                            cardX = Math.max(8, Math.min(cardX, cw - cardW - 8));
+                            cardY = Math.max(8, Math.min(cardY, ch - cardH - 8));
+
+                            // Cyan glow behind the card (replaces the old left accent bar).
+                            ctx.shadowColor = 'rgba(26,163,189,0.90)';
+                            ctx.shadowBlur = 20;
+                            ctx.shadowOffsetX = 0;
+                            ctx.shadowOffsetY = 0;
+                            ctx.fillStyle = 'rgba(10,37,64,0.96)';   // navy card
+                            this.roundRectPath(ctx, cardX, cardY, cardW, cardH, 9);
+                            ctx.fill();
+                            ctx.fill();                              // second pass to intensify the glow
+
+                            this.resetCanvasEffects(ctx);
+                            ctx.lineWidth = 1;
+                            ctx.strokeStyle = '#1aa3bd';             // thin cyan border
+                            this.roundRectPath(ctx, cardX, cardY, cardW, cardH, 9);
+                            ctx.stroke();
+
+                            ctx.fillStyle = '#ffffff';
+                            let ty = cardY + padY;
+                            for (const l of shown) { ctx.fillText(l, cardX + padX, ty); ty += lineH; }
+
+                            ctx.restore();
                         }
-                    } if (this.mouse_message) {
+                    }
+                    // Backend working signal — an animated spinner shown top-right
+                    // while any .py exec is still running on the server.
+                    try {
+                        if (typeof window !== 'undefined' && window.__backendWorkCount > 0) {
+                            const _t = Date.now() / 1000;
+                            // Center over the tracks: the middle of the graph grid in
+                            // screen space (fall back to the canvas center).
+                            let _cx = ctx.canvas.width / 2, _cy = ctx.canvas.height / 2;
+                            try {
+                                const _g = this.graph && this.graph.grid;
+                                if (_g) {
+                                    const _sx = this.graph.X((_g.xmin + _g.xmax) / 2);
+                                    const _sy = this.graph.Y((_g.ymin + _g.ymax) / 2);
+                                    if (isFinite(_sx)) _cx = _sx;
+                                    if (isFinite(_sy)) _cy = _sy;
+                                }
+                            } catch (e) { }
+                            const _R = 42;
+                            ctx.save();
+                            ctx.lineWidth = 8;
+                            ctx.lineCap = 'round';
+                            ctx.beginPath();
+                            ctx.arc(_cx, _cy, _R, 0, Math.PI * 2);
+                            ctx.strokeStyle = 'rgba(1,28,60,0.15)';
+                            ctx.stroke();
+                            const _spin = _t * 3.2;
+                            ctx.beginPath();
+                            ctx.arc(_cx, _cy, _R, _spin, _spin + Math.PI * 0.8);
+                            ctx.strokeStyle = 'rgba(1,28,60,0.85)';
+                            ctx.stroke();
+                            ctx.font = 'bold 18px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'top';
+                            ctx.fillStyle = 'rgba(1,28,60,0.85)';
+                            ctx.fillText('Searching…', _cx, _cy + _R + 12);
+                            ctx.restore();
+                        }
+                    } catch (e) { }
+                    if (this.mouse_message) {
 
                         ctx.textBaseline = 'top';
 
@@ -7439,27 +8607,40 @@ pattern, GGGG | Required`
                         let my = this.mousey - 50;
 
                         let smallfontSize = 19;
-                        ctx.font = `${smallfontSize}px Arial`;
-                        ctx.fillStyle = 'maroon';
+                        ctx.font = `600 ${smallfontSize}px "Segoe UI", Arial, sans-serif`;
 
                         const padding = 6;
                         const text = this.mouse_message || "";
                         const metrics = ctx.measureText(text);
                         const textWidth = metrics.width;
                         const textHeight = smallfontSize * 1.2;
+                        const bx = mx - padding, by = my - padding;
+                        const bw = textWidth + padding * 2, bh = textHeight + padding * 2;
 
+                        // Tropical card: navy fill, cyan border + left accent bar, white
+                        // text — matches the info panel and the control buttons.
                         ctx.save();
-                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                        ctx.shadowBlur = 8;
-                        ctx.shadowOffsetX = 3;
+                        ctx.shadowColor = 'rgba(16,24,40,0.35)';
+                        ctx.shadowBlur = 10;
+                        ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 3;
-
-                        ctx.fillStyle = 'white';
-                        roundRectPath(ctx, mx - padding, my - padding, textWidth + padding * 2, textHeight + padding * 2, 8);
+                        ctx.fillStyle = 'rgba(10,37,64,0.96)';
+                        roundRectPath(ctx, bx, by, bw, bh, 8);
+                        ctx.fill();
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                        ctx.lineWidth = 1.2;
+                        ctx.strokeStyle = '#1aa3bd';
+                        roundRectPath(ctx, bx, by, bw, bh, 8);
+                        ctx.stroke();
+                        ctx.fillStyle = '#1aa3bd';
+                        roundRectPath(ctx, bx, by, 3.5, bh, 8);
                         ctx.fill();
                         ctx.restore();
 
-                        ctx.fillStyle = 'maroon';
+                        ctx.fillStyle = '#ffffff';
                         ctx.fillText(text, mx, my);
 
                     }
@@ -7489,7 +8670,11 @@ pattern, GGGG | Required`
                         this.drawZoomOutButton(ctx);
                         this.drawMoveButton(ctx);
                         this.drawBoxButton(ctx);
+                        this.drawLassoButton(ctx);
+                        this.drawSelectSeqButton(ctx);
                         this.drawContractHorizontalButton(ctx);
+                        this.drawInfoButton(ctx);
+                        this.drawControlHelp(ctx);
                         this.drawContractVerticalButton(ctx);
                         this.drawExpandHorizontalButton(ctx);
                         this.drawExpandVerticalButton(ctx);
@@ -7509,6 +8694,10 @@ pattern, GGGG | Required`
                     if (this.currentShape) {
                         await this.currentShape.draw(this.graph)
                     }
+                    // Selection window is drawn here — above the tracks but BELOW the
+                    // menus, so the side menu / center menu render on top of it.
+                    try { this.drawInfoPanel(ctx); } catch (e) { }
+
                     ctx.textAlign = 'left';
                     if (this.menu) {
                         await this.graph.drawMenu(this.menu, ctx)
@@ -7527,7 +8716,8 @@ pattern, GGGG | Required`
 
                     const presentNow = !!this.side_menu;
                     const fadeState = _stepSideMenuFade(this, presentNow);
-                    if (menuToDraw) {
+                    // When the center (context) menu is up, don't also show the side menu.
+                    if (menuToDraw && !this.menu) {
                         menuToDraw.x = this.Xwc(100);
                         menuToDraw.y = this.Ywc(100);
                         _applySideMenuBgAlpha(this, fadeState.alpha);

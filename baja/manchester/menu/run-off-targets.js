@@ -4,14 +4,35 @@ function (graph, genegraph_panel_layout, oligos) {
     return new Promise(async (resolve, reject) => {
         let returnMode = 'editdistance'
 
-        graph.setMessage("Loading off-target genomes... ")
-        let oep = window["env"]["offtarget"];
-        if (!oep || oep.length <= 0) {
-            oep = '/levenshtein'
+        graph.setMessage("Loading indexed genomes from the server... ")
+        // The indexed genomes and the off-target search are served by the baja app
+        // server itself (apiUrl) — GET {apiUrl}/genomes and POST {apiUrl}/off-targets-file.
+        // Do NOT reach out to a separate off-target API.
+        const server = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
+
+        // Fetch the server's indexed genomes. Normalizes an object ({name:...}) or
+        // an array response into {name: info}.
+        const fetchGenomes = async (base) => {
+            if (!base) return {};
+            try {
+                const r = await GETJSON(`${base}/genomes`);
+                const out = {};
+                if (Array.isArray(r)) {
+                    for (const g of r) { if (g) out['' + g] = { name: '' + g }; }
+                } else if (r && typeof r === 'object') {
+                    for (const k of Object.keys(r)) out[k] = r[k];
+                }
+                return out;
+            } catch (e) {
+                console.warn('off-target: /genomes fetch failed for', base, e);
+                return {};
+            }
+        };
+
+        let available_genomes = await fetchGenomes(server);
+        if (Object.keys(available_genomes).length === 0) {
+            graph.setMessage(" No indexed genomes found on the server. ");
         }
-        let url = `${oep}/genomes`
-        let response = await GETJSON(url)
-        let available_genomes = response;
         let splitArray = (array) => {
             const result = [];
             const chunkSize = 5;
@@ -51,10 +72,8 @@ function (graph, genegraph_panel_layout, oligos) {
                     "runMode": returnMode
                 }
 
-                let oep = window["env"]["offtarget"];
-                if (!oep || oep.length <= 0) {
-                    oep = '/levenshtein'
-                }
+                // Same baja app server that served /genomes.
+                const oep = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
                 let uri = `${oep}/off-targets-file`;
                 let r = await POSTJSON(obj, uri)
                 rr.push(r)
@@ -71,27 +90,13 @@ function (graph, genegraph_panel_layout, oligos) {
                                     o.offtarget = off.offtarget;
                                     if (o.offtarget.length === 0) {
                                         o.offtarget = null;
-                                    } else if (o.offtarget.length < 30) {
-
-                                        let rs = await exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', JSON.stringify(o.offtarget));
-                                        if (rs && rs['tsv']) {
-                                            let tsvText = rs['tsv']
-                                            const lines = tsvText.split('\n');
-                                            const geneSymbols = [];
-                                            for (let line of lines) {
-                                                const columns = line.split('\t');
-                                                if (columns.length > 1 && columns[1]) {
-                                                    geneSymbols.push(columns[1]);
-                                                }
-                                            }
-                                            if (!o.offtargetsymbols)
-                                                o.offtargetsymbols = [geneSymbols.toString()];
-                                            else {
-                                                o.offtargetsymbols.push(geneSymbols.toString())
-                                            }
-                                        }
-
                                     }
+                                }
+                                // Gene symbols of the off-target hits come straight from
+                                // the search result (each index carries per-transcript
+                                // gene_symbol). Distinct list, capped for the on-canvas arc.
+                                if (Array.isArray(off.offtargetsymbols) && off.offtargetsymbols.length) {
+                                    o.offtargetsymbols = off.offtargetsymbols.slice(0, 30);
                                 }
                                 o.showOfftargets = true;
                             }
@@ -109,247 +114,105 @@ function (graph, genegraph_panel_layout, oligos) {
 
         }
 
-        let selected_genome = '';
-        let bg = []
-        for (let a of Object.keys(available_genomes)) {
-            if (bg.length === 0) {
-                selected_genome = a;
+        // Build the sequence list (handles amplicon left/right/mid) and flag repeats.
+        const buildSeqList = () => {
+            const pattern = /(\w)\1{3,}/g;
+            let warn = false;
+            const seqList = [];
+            for (let o of oligos) {
+                if (o.type === 'amplicon') {
+                    for (const part of [o.right, o.left, o.mid]) {
+                        if (part && part.synthesisSequence && part.synthesisSequence.length > 0) {
+                            part.offtarget = null;
+                            if (part.synthesisSequence.match(pattern)) { warn = true; graph.setMessage("Found potential high hit pattern."); }
+                            seqList.push({ "id": part.id, "synthesisSequence": part.synthesisSequence });
+                        }
+                    }
+                } else {
+                    if (!o.synthesisSequence || o.synthesisSequence.length <= 0) o.offtarget = null;
+                    if (o.sequence && o.sequence.length > 0) {
+                        if (o.sequence.match(pattern)) { warn = true; graph.setMessage("Found potential high hit pattern."); }
+                        seqList.push({ "id": o.id, "synthesisSequence": o.synthesisSequence });
+                    }
+                }
             }
-            bg.push({
-                'label': a, ionfunction: createIon((label) => {
-                    selected_genome = label
-                })
-            })
-        }
+            return { seqList, warn };
+        };
 
-        sleep = async (ms) => {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-        let ms = {
-            wid: 'radio-buttons',
-            height: '100px',
-            data: {
-                showButton: false,
-                buttons: bg
-
+        // Run off-targets for a chosen genome + edit distance (confirm on repeats).
+        const runWith = async (genome, editDistance) => {
+            graph.showSideMenu(null);
+            returnMode = 'editdistance';
+            graph.setMessage("Checking sequences...");
+            const genomes = [genome];
+            // Clear ALL off-target attributes on every oligo (and amplicon sub-oligos)
+            // before each run so stale results from a previous run are never shown.
+            const clearOff = (x) => {
+                if (!x) return;
+                x.offtarget = null;
+                x.offtargetsymbols = null;
+                x._offtarget = null;
+                x.showOfftargets = false;
+            };
+            for (const o of oligos) {
+                if (o && o.type === 'amplicon') { clearOff(o.left); clearOff(o.right); clearOff(o.mid); clearOff(o); }
+                else clearOff(o);
             }
-        }
+            const { seqList, warn } = buildSeqList();
+            const doRun = () => { graph.setMessage(" Edit distance : " + editDistance); runOffTargets(oligos, seqList, editDistance, genomes); };
+            if (warn) {
+                const confirm = await exec('baja/lib/confirm.js',
+                    'Repeat sequences were found.  This could cause a problem with the off-target analysis.  Continue?',
+                    async () => { doRun(); });
+                showModal(confirm);
+            } else {
+                doRun();
+            }
+        };
 
-        let ids = oligos.filter(obj => obj.hasOwnProperty('id') && obj.hasOwnProperty('synthesisSequence') && obj.synthesisSequence != null)
-            .map(obj => ({
-                id: obj.id,
-                synthesisSequence: obj.synthesisSequence
+        // Menu flow: pick a species, then a genome index, then an edit distance, then run.
+        const genomeNames = Object.keys(available_genomes);
+        const speciesOf = (name) => {
+            const s = ('' + name).toLowerCase();
+            if (s.includes('human') || s.includes('homo_sapiens') || s.includes('grch38') || /^hg\d/.test(s)) return 'Human';
+            if (s.includes('mouse') || s.includes('mus_musculus') || s.includes('grcm') || /^mm\d/.test(s)) return 'Mouse';
+            if (s.includes('rat') || s.includes('rattus')) return 'Rat';
+            if (s.includes('yeast') || s.includes('cerevisiae')) return 'Yeast';
+            if (s.includes('dog') || s.includes('canis')) return 'Dog';
+            const pre = ('' + name).split(/[_.]/)[0] || 'Other';
+            return pre.charAt(0).toUpperCase() + pre.slice(1);
+        };
+        const speciesMap = {};
+        for (const g of genomeNames) { const sp = speciesOf(g); (speciesMap[sp] = speciesMap[sp] || []).push(g); }
+        const speciesList = Object.keys(speciesMap).sort();
+
+        const showEditDistanceMenu = (genome, species) => {
+            const m = [0, 1, 2, 3].map((d) => ({
+                label: 'Edit distance ' + d, click: () => { runWith(genome, d); }, move: () => { }
             }));
-
-        let off_target_tool = {
-            wid: 'card',
-            data: {
-                cards: [
-                    [
-                        {
-                            'title': ' ', 'body': ``,
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'html',
-                                data: 'Off-target calculations will be run for the following compounds:'
-                            }
-                        },
-                        {
-                            'title': ' ', 'body': ` `,
-                            'width': '100%',
-                            'component': {
-                                wid: 'json',
-                                data: JSON.stringify(ids)
-                            }
-                        },
-                        {
-                            'title': ' ', 'body': ` `,
-                            'width': '100%',
-                            'component': ms
-                        },
-                        {
-                            'title': 'Edit distance ', 'body': ` `,
-                            'width': '50%',
-                            'component':
-                            {
-                                wid: 'radio-buttons',
-                                data: {
-                                    'unchecked': true,
-                                    'buttons': [
-                                        {
-                                            'label': '0', ionfunction: createIon(() => {
-                                                editDistance = 0;
-                                            }
-                                            )
-                                        }, {
-                                            'label': '1', ionfunction: createIon(() => {
-                                                editDistance = 1;
-                                            }
-                                            ),
-                                        },
-                                        {
-                                            'label': '2', ionfunction: createIon(() => {
-                                                editDistance = 2;
-                                            }
-                                            )
-                                        },
-
-                                        {
-                                            'label': '3', ionfunction: createIon(() => {
-                                                editDistance = 3;
-                                            }
-                                            )
-                                        }
-
-                                    ],
-                                }
-                            }
-                        },
-
-                        {
-                            'title': ' ',
-                            'width': '30%',
-                            'component':
-                            {
-                                wid: 'mt-button', data: {
-                                    buttons: [
-                                        {
-                                            label: 'Run off-targets...', ionFunction: createIonFunction(async () => {
-                                                let go = async () => {
-                                                    if (selected_genome.length == 0) {
-                                                        alert('Select a target dataset')
-                                                        return;
-                                                    }
-                                                    returnMode = 'editdistance'
-
-                                                    hideAllModal();
-                                                    graph.setMessage("Checking sequences...")
-                                                    const pattern = /(\w)\1{3,}/g;
-                                                    let warn = false;
-
-                                                    let genomes = [selected_genome]
-                                                    let seqList = []
-                                                    for (let o of oligos) {
-                                                        if (o.type === 'amplicon') {
-                                                            let rsynthesisSeq = o.right.synthesisSequence;
-                                                            let lsynthesisSeq = o.left.synthesisSequence;
-                                                            let msynthesisSeq = null;
-                                                            if (o.mid)
-                                                                msynthesisSeq = o.mid.synthesisSequence;
-                                                            if (rsynthesisSeq && rsynthesisSeq.length > 0) {
-                                                                o.right.offtarget = null;
-                                                                const matches = rsynthesisSeq.match(pattern);
-                                                                if (matches) {
-                                                                    warn = true;
-                                                                    graph.setMessage("Found potential high hit pattern.")
-                                                                }
-                                                                seqList.push(
-                                                                    {
-                                                                        "id": o.right.id,
-                                                                        "synthesisSequence": rsynthesisSeq
-                                                                    }
-                                                                )
-                                                            }
-                                                            if (lsynthesisSeq && lsynthesisSeq.length > 0) {
-                                                                o.left.offtarget = null;
-                                                                const matches = lsynthesisSeq.match(pattern);
-                                                                if (matches) {
-                                                                    warn = true;
-                                                                    graph.setMessage("Found potential high hit pattern.")
-                                                                }
-                                                                seqList.push(
-                                                                    {
-                                                                        "id": o.left.id,
-                                                                        "synthesisSequence": lsynthesisSeq
-                                                                    }
-                                                                )
-                                                            }
-                                                            if (o.mid && msynthesisSeq && msynthesisSeq.length > 0) {
-                                                                if (o.mid) {
-                                                                    o.mid.offtarget = null;
-                                                                    const matches = msynthesisSeq.match(pattern);
-                                                                    if (matches) {
-                                                                        warn = true;
-                                                                        graph.setMessage("Found potential high hit pattern.")
-                                                                    }
-                                                                    seqList.push(
-                                                                        {
-                                                                            "id": o.mid.id,
-                                                                            "synthesisSequence": msynthesisSeq
-                                                                        }
-                                                                    )
-                                                                }
-                                                            }
-                                                        } else {
-                                                            let synthesisSeq = o.synthesisSequence;
-                                                            if (!synthesisSeq || synthesisSeq.length <= 0) {
-                                                                o.offtarget = null;
-
-                                                            }
-                                                            if (o.sequence && o.sequence.length > 0) {
-                                                                const matches = o.sequence.match(pattern);
-                                                                if (matches) {
-                                                                    warn = true;
-                                                                    graph.setMessage("Found potential high hit pattern.")
-                                                                }
-                                                                seqList.push(
-                                                                    {
-                                                                        "id": o.id,
-                                                                        "synthesisSequence": o.synthesisSequence
-                                                                    }
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                    if (warn) {
-                                                        let confirm = await exec('baja/lib/confirm.js',
-                                                            'Repeat sequences were found.  This could cause a problem with the off-target analysis.  Continue?',
-                                                            async () => {
-
-                                                                graph.setMessage(" Edit distance : " + editDistance)
-                                                                runOffTargets(oligos, seqList, editDistance, genomes)
-                                                            })
-
-                                                        showModal(confirm)
-                                                    } else {
-
-                                                        graph.setMessage(" Edit distance : " + editDistance)
-                                                        runOffTargets(oligos, seqList, editDistance, genomes)
-                                                    }
-
-                                                }
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout)
-                                                graph.runfun(go)
-
-                                            })
-
-                                        },
-                                        {
-                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
-
-                                                CurrentLayout.clearComponent('mainPanel')
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout)
-
-                                            })
-
-                                        }
-
-                                    ]
-                                }
-                            }
-                        },
-
-                    ]
-                ]
-            }
-
-        }
-        editDistance = 0;
-        CurrentLayout.clearComponent('mainPanel')
-        CurrentLayout.setComponent('mainPanel', off_target_tool);
-
+            m.push({ label: '‹ Back to genomes', click: () => { showGenomeMenu(species); }, move: () => { } });
+            m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
+            graph.setMessage(' ' + genome + ' — choose edit distance ');
+            graph.showSideMenu(m);
+        };
+        const showGenomeMenu = (species) => {
+            const names = speciesMap[species] || [];
+            if (!names.length) { graph.setMessage(' No indexed genomes for ' + species + '. '); return; }
+            const m = names.map((g) => ({ label: g, click: () => { showEditDistanceMenu(g, species); }, move: () => { } }));
+            m.push({ label: '‹ Back to species', click: () => { showSpeciesMenu(); }, move: () => { } });
+            m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
+            graph.setMessage(' ' + species + ' — select a genome index ');
+            graph.showSideMenu(m);
+        };
+        const showSpeciesMenu = () => {
+            if (!speciesList.length) { graph.setMessage(' No indexed genomes found on the server. '); return; }
+            if (speciesList.length === 1) { showGenomeMenu(speciesList[0]); return; }   // skip if only one
+            const m = speciesList.map((sp) => ({ label: sp + ' (' + speciesMap[sp].length + ')', click: () => { showGenomeMenu(sp); }, move: () => { } }));
+            m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
+            graph.setMessage(' Select a species ');
+            graph.showSideMenu(m);
+        };
+        showSpeciesMenu();
         resolve();
 
     })

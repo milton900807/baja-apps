@@ -365,6 +365,7 @@ function (graph, genegraph_panel_layout) {
                                 label: 'Remove all',
                                 click: async () => {
                                     let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete this?', async () => {
+                                        try { graph.pushOntoHistory(); } catch (e) { }   // Ctrl+Z restores
                                         selectedTrack.ampliconResults = [];
                                     });
                                     showModal(confirm);
@@ -381,7 +382,7 @@ function (graph, genegraph_panel_layout) {
             return t;
         };
 
-        function showOneAmpliconMenu(graph, selectedTrack, amp) {
+        function showOneAmpliconMenu(graph, selectedTrack, amp, immediate) {
             const toNum = (v) => {
                 const n = Number(v);
                 return Number.isFinite(n) ? n : null;
@@ -389,6 +390,25 @@ function (graph, genegraph_panel_layout) {
 
             const getStore = () =>
                 Array.isArray(selectedTrack.ampliconResults) ? selectedTrack.ampliconResults : (hits || []);
+
+            // Amplicon objects created by the primer-probe design live in t.oligos
+            // (type==='amplicon'), NOT in ampliconResults — support both stores so
+            // "keep/remove this amplicon" works regardless of where it lives.
+            const inOligos = Array.isArray(selectedTrack.oligos) && selectedTrack.oligos.indexOf(amp) >= 0;
+            const removeThisAmp = () => {
+                try { graph.pushOntoHistory(); } catch (e) { }
+                if (inOligos) {
+                    const i = selectedTrack.oligos.indexOf(amp);
+                    if (i >= 0) selectedTrack.oligos.splice(i, 1);
+                } else { removeWhere((a) => a === amp); }
+            };
+            const keepOnlyThisAmp = () => {
+                try { graph.pushOntoHistory(); } catch (e) { }
+                if (inOligos) {
+                    // Drop the other amplicon-type oligos; leave true oligos alone.
+                    selectedTrack.oligos = selectedTrack.oligos.filter((o) => o.type !== 'amplicon' || o === amp);
+                } else { keepWhere((a) => a === amp); }
+            };
 
             const keepWhere = (pred) => {
                 const store = getStore();
@@ -410,15 +430,17 @@ function (graph, genegraph_panel_layout) {
                 {
                     label: "Keep only this amplicon",
                     click: () => {
-                        keepWhere((a) => a === amp);
+                        keepOnlyThisAmp();
                         graph.showSideMenu(null);
+                        if (graph.wake) graph.wake();
                     }
                 },
                 {
                     label: "Remove this amplicon",
                     click: () => {
-                        removeWhere((a) => a === amp);
+                        removeThisAmp();
                         graph.showSideMenu(null);
+                        if (graph.wake) graph.wake();
                     }
                 },
                 { type: "separator" },
@@ -460,14 +482,19 @@ function (graph, genegraph_panel_layout) {
                 {
                     label: "Copy amp coordinates",
                     click: async () => {
-                        const s = `${amp?.amp_start ?? ""}-${amp?.amp_end ?? ""}`;
+                        const a0 = amp?.amp_start ?? amp?.xi ?? "";
+                        const a1 = amp?.amp_end ?? amp?.xf ?? "";
+                        const s = `${a0}-${a1}`;
                         try { await navigator.clipboard.writeText(s); } catch { }
                         graph.showSideMenu(null);
                     }
                 }
             ];
 
-            showSideMenuDelayed(submenu);
+            // From the selection window we want the menu NOW; from hover we keep the
+            // small delay that avoids colliding with the in-progress mouse gesture.
+            if (immediate) graph.showSideMenu(submenu);
+            else showSideMenuDelayed(submenu);
         }
 
         const getOligoMenuItems = (selectedTrack, graph) => {
@@ -761,6 +788,7 @@ function (graph, genegraph_panel_layout) {
                                 label: 'Remove all',
                                 click: async () => {
                                     let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete this?', async () => {
+                                        try { graph.pushOntoHistory(); } catch (e) { }   // Ctrl+Z restores
                                         selectedTrack.oligos = [];
                                     });
                                     showModal(confirm);
@@ -776,6 +804,15 @@ function (graph, genegraph_panel_layout) {
             ];
             return t;
         };
+
+        // Expose the object-specific menu builders so the selection window (gene.js)
+        // can attach these exact items under each object-type section, instead of
+        // popping the menu up from hover.
+        try {
+            graph.__getAmpliconMenuItems = getAmpliconMenuItems;
+            graph.__getOligoMenuItems = getOligoMenuItems;
+            graph.__showOneAmpliconMenu = showOneAmpliconMenu;
+        } catch (e) { }
 
         const getSNPMenuItems = (selectedTrack, graph) => {
             let t = [
@@ -964,6 +1001,7 @@ function (graph, genegraph_panel_layout) {
                                     label: 'Remove all',
                                     click: async () => {
                                         let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete this?', async () => {
+                                            try { graph.pushOntoHistory(); } catch (e) { }   // Ctrl+Z restores
                                             selectedTrack.snpindels = []
                                         })
                                         showModal(confirm)
@@ -1161,6 +1199,13 @@ function (graph, genegraph_panel_layout) {
             let y = scy;
             graph.mousex = scx;
             graph.mousey = scy;
+            // While a menu is open, freeze hover behavior — don't let it select or
+            // deselect tracks / annotations under the cursor, so the user's current
+            // selection stays put while they interact with the menu.
+            if (graph.side_menu || (graph.menuVisible && graph.menuVisible())) return;
+            // While the lasso or box-zoom tool is active, suppress hover highlighting
+            // entirely — the drag is drawing a selection/zoom box, not hovering items.
+            if (graph.graph && (graph.graph.mode === 'lasso' || graph.graph.mode === 'bpx')) return;
             if (currentWorkbench && currentWorkbench.priority && currentWorkbench.mouseMoveListener) {
                 return currentWorkbench.mouseMoveListener(scx, scy)
             }
@@ -1305,6 +1350,9 @@ function (graph, genegraph_panel_layout) {
 
             move = null;
 
+            // Box-zoom owns the interaction — no context menu / deselect on its release.
+            if (graph.graph && graph.graph.mode === 'bpx') return;
+
             // Mouse-down already opened a menu (e.g. the SNP menu) for this
             // press — don't let mouse-up override it with a track/context menu.
             if (graph.__downMenuHandled) {
@@ -1326,22 +1374,26 @@ function (graph, genegraph_panel_layout) {
                         }
                         const HIT_Y_PX = 10;
                         const mergedMenu = { title: "Annotations", items: [] };
-                        const seenTypes = new Set();
                         for (let an of annotations) {
                             if (!an) continue;
                             const dy = Math.abs(graph.Y(track.tgraph.Y(an.y)) - graph.Y(y));
                             if (dy > HIT_Y_PX) continue;
                             an.select();
-                            const mfToken = MenuFactory?.[an.type];
-                            if (!mfToken) continue;
-                            if (seenTypes.has(an.type)) continue;
+                            // Build the annotation's type-specific menu (e.g. an exon
+                            // menu) and stash it in the selection box instead of popping
+                            // it up here — it's shown from selection box → Annotations.
+                            let annMenu = [];
                             try {
-                                const mf = getIon(mfToken);
-                                if (!mf) continue;
-                                const menu = mf(an, track, graph, genegraph_panel_layout, x);
-                                if (!menu) continue;
-                                mergedMenu.items.push(...menu);
+                                const mfToken = MenuFactory?.[an.type];
+                                if (mfToken) {
+                                    const mf = getIon(mfToken);
+                                    if (mf) {
+                                        const menu = mf(an, track, graph, genegraph_panel_layout, x);
+                                        if (Array.isArray(menu)) annMenu = menu;
+                                    }
+                                }
                             } catch (e) { }
+                            try { if (graph.addAnnotationToSelection) graph.addAnnotationToSelection(an, track, annMenu); } catch (e) { }
                         }
                         const xWorld = Math.round(
                             track.tgraph.Xwc(graph.mousex - track.tgraph.xi * 2)
@@ -1405,7 +1457,13 @@ function (graph, genegraph_panel_layout) {
                                 try {
                                     current = o;
                                     o.highlight(1000, 'magenta')
-                                    await exec('baja/manchester/menu/menu-for-single-aso.js', graph, current, graph.genegraph_panel_layout)
+                                    // Oligo menu moved to the selection window — add the
+                                    // oligo to the selection box instead of popping its
+                                    // per-oligo (ASO) menu here.
+                                    try {
+                                        const otrack = (graph.track || []).find(t => t.oligos && t.oligos.indexOf(o) >= 0);
+                                        if (graph.addOligoToSelection) graph.addOligoToSelection(o, otrack);
+                                    } catch (e) { }
                                     md = false;
                                     return;
 
@@ -1870,10 +1928,9 @@ function (graph, genegraph_panel_layout) {
 
                             ]
 
-                            if (selectedTrack.oligos && selectedTrack.oligos.length > 0)
-                                ml = ml.concat(getOligoMenuItems(selectedTrack, graph))
-                            if (selectedTrack.ampliconResults && selectedTrack.ampliconResults.length > 0)
-                                ml = ml.concat(getAmpliconMenuItems(selectedTrack, graph))
+                            // Oligo and amplicon options are no longer shown from hover —
+                            // they are attached, grouped by object type, in the selection
+                            // window (selection box → Oligos / Amplicons).
 
                             let annotations_menu = [{
                                 'label': 'Annotations', click: (async () => {
@@ -2103,8 +2160,8 @@ function (graph, genegraph_panel_layout) {
                                 })
                             }]
 
-                            ml.push(...annotations_menu)
-
+                            // Annotation options moved to the selection window as their
+                            // own object type (selection box → Annotations).
                             graph.showSideMenu(mergePendingSnp(ml), x, y)
                             return;
                         }
@@ -2487,6 +2544,68 @@ function (graph, genegraph_panel_layout) {
                 }]
 
                 let track_list = [
+                    {
+                        label: 'Move track',
+                        click: async () => {
+                            // Enter move mode: click-drag anywhere on the canvas to
+                            // reposition this track freely (both axes). The position
+                            // persists on tgraph and the render loop repaints it.
+                            const moveTrack = selectedTrack;
+                            if (!moveTrack || !moveTrack.tgraph) { graph.setMessage(' No track to move.'); return; }
+                            graph.showSideMenu(null);
+                            graph.clearMouseListeners();
+                            // NOTE: do NOT call graph.selectOff() here — that would
+                            // deselect the track/annotations the user picked. Keep the
+                            // current selection intact while moving.
+                            graph.setMessage(' Move mode — click and drag to reposition "'
+                                + (moveTrack.name || 'track') + '".');
+                            // Freeze canvas panning while in move mode. FlexiGraph only
+                            // pans when graph.graph.mode === 'navigate', so take it off
+                            // navigate; each drag repositions the track, not the view.
+                            if (graph.graph) graph.graph.mode = 'move';
+                            // `armed` becomes true only on a real canvas mouse-DOWN that
+                            // happens AFTER these listeners exist. The menu-item click's
+                            // own mouse-up fires before any such press, so it is ignored
+                            // and the user still gets to drag.
+                            let dragging = false, armed = false, pushed = false, downx = 0, downy = 0, startXi = 0, startYi = 0;
+                            graph.addMouseDownListener((xwc, ywc) => {
+                                // Re-assert non-navigate BEFORE FlexiGraph's own mousedown
+                                // pan-anchor check runs, so this drag never pans the canvas.
+                                if (graph.graph) graph.graph.mode = 'move';
+                                dragging = true;
+                                armed = true;
+                                pushed = false;   // snapshot for undo on the first real move
+                                downx = xwc; downy = ywc;
+                                startXi = moveTrack.tgraph.xi;
+                                startYi = moveTrack.tgraph.yi;
+                                moveTrack.showResizeBar = true;
+                            });
+                            graph.addMouseMoveListener((xwc, ywc) => {
+                                if (!dragging) return;
+                                // Push the pre-move state onto the graph history exactly
+                                // once per drag (before the position changes) so Ctrl+Z
+                                // restores where the track was.
+                                if (!pushed) {
+                                    try { graph.pushOntoHistory(); } catch (e) { }
+                                    pushed = true;
+                                }
+                                moveTrack.tgraph.xi = startXi + (xwc - downx);
+                                moveTrack.tgraph.yi = startYi + (ywc - downy);
+                                try { moveTrack.tgraph.rescale(); } catch (e) { }
+                            });
+                            graph.addMouseUpListener((xwc, ywc) => {
+                                // Ignore the mouse-up from the menu click itself.
+                                if (!armed) return;
+                                dragging = false;
+                                moveTrack.showResizeBar = false;
+                                // Drop complete: leave move mode and restore normal
+                                // navigate (panning) + the mouse-over hover menu.
+                                if (graph.graph) graph.graph.mode = 'navigate';
+                                graph.clearMouseListeners();
+                                exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                            });
+                        }
+                    },
                     {
                         label: 'Go to...',
                         click: async (scx, scy) => {
@@ -3729,9 +3848,10 @@ function (graph, genegraph_panel_layout) {
 
                         }
                     },
-                    annotations_menu,
+                    // annotations_menu removed — annotations are now their own type in
+                    // the selection window.
                     {
-                        label: 'Track',
+                        label: 'Edit track',
                         click: async (scx, scy) => {
 
                             const golist = [
@@ -3742,7 +3862,6 @@ function (graph, genegraph_panel_layout) {
                                         await exec('baja/manchester/menu/edit-current-track.js', graph, genegraph_panel_layout, selectedTrack)
                                     },
                                 },
-                                ...annotations_menu,
 
                                 {
                                     label: 'Highlight sequence motif',
@@ -4488,11 +4607,48 @@ function (graph, genegraph_panel_layout) {
                         }, 1000)
                     }
                 })
-                if (selectedTrack.oligos && selectedTrack.oligos.length > 0)
-                    track_list = track_list.concat(getOligoMenuItems(selectedTrack, graph))
-                if (selectedTrack?.ampliconResults && selectedTrack?.ampliconResults && selectedTrack?.ampliconResults?.hits?.length > 0)
-                    track_list = track_list.concat(getAmpliconMenuItems(selectedTrack, graph))
-                graph.showSideMenu(mergePendingSnp(track_list));
+                // Oligo and amplicon options are no longer shown from hover — they are
+                // attached, grouped by object type, in the selection window instead.
+                // Track-related items float to the top (stable within each group);
+                // compound/chemistry/drawing items follow below.
+                // If the track has introns, offer to build a spliced mRNA track — but
+                // not for a track that is already an mRNA (track_type === 'CDNA').
+                try {
+                    if (selectedTrack && selectedTrack.track_type !== 'CDNA' && selectedTrack.containsIntrons && selectedTrack.containsIntrons()) {
+                        track_list.push({
+                            label: 'Create mRNA',
+                            click: async () => {
+                                graph.showSideMenu(null);
+                                const st = selectedTrack;
+                                if (!st) return;
+                                if (!st.sequence) { graph.setMessage(' No sequence to splice into mRNA.'); return; }
+                                let track;
+                                try { track = st.createTrackFromAnnotation('CDNA'); } catch (e) { graph.setMessage(' Could not build mRNA: ' + e); return; }
+                                if (!track) { graph.setMessage(' Could not build mRNA track.'); return; }
+                                try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
+                                try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
+                                try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
+                                graph.track.push(track);
+                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                graph.deselectAllTracks();
+                                track.select();
+                                try { graph.animateTo(track.tgraph.xi - 100, track.tgraph.xi + track.tgraph.width + 100, track.tgraph.Y(-3), track.tgraph.Y(3)); } catch (e) { }
+                                graph.setMessage(' Created a spliced mRNA track from ' + (st.name || 'track') + '.');
+                            },
+                            move: () => { }
+                        });
+                    }
+                } catch (e) { }
+
+                const __trackItemLabels = ['Move track', 'Edit track', 'Create mRNA', 'Layers', 'Go to...', 'Delete track'];
+                const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
+                track_list = track_list.filter(__isTrackItem).concat(track_list.filter((m) => !__isTrackItem(m)));
+                const __trackMenu = mergePendingSnp(track_list);
+                // The track menu is no longer popped up on click. Instead the track is
+                // added to the selection box as its own object type; the menu is shown
+                // only when the user opens it there (selection box → Tracks → track).
+                if (graph.addTrackToSelection) graph.addTrackToSelection(selectedTrack, __trackMenu);
+                else graph.showSideMenu(__trackMenu);
             }
 
         };
@@ -4503,6 +4659,10 @@ function (graph, genegraph_panel_layout) {
             md = true;
             graph.__downMenuHandled = false;
             graph.__pendingSnp = null;
+
+            // Box-zoom owns the interaction — don't let hover select/deselect or
+            // clear the selection while the user is dragging a zoom rectangle.
+            if (graph.graph && graph.graph.mode === 'bpx') return;
 
             if (move) {
                 move.x = x + diffx;
@@ -4588,13 +4748,78 @@ function (graph, genegraph_panel_layout) {
                         }
                     }
 
+                    // Clicking an oligo/amplicon adds it to the selection list (same
+                    // shape the lasso builds) and opens the selection window. Oligos
+                    // and Amplicon objects live in t.oligos, so hit-test that directly
+                    // in screen space (getStructure only covers t.structures). Amplicon
+                    // span is [left.xi, right.xf] — o.xf is a garbage value for those.
+                    try {
+                        const cx = graph.X(x), cy = graph.Y(y);
+                        for (const o of (selectedTrack.oligos || [])) {
+                            const isAmp = (o.type === 'amplicon' && o.left && o.right);
+                            const gxi = isAmp ? +o.left.xi : +o.xi;
+                            const gxf = isAmp ? +o.right.xf : +o.xf;
+                            if (!isFinite(gxi) || !isFinite(gxf)) continue;
+                            const sx0 = graph.X(selectedTrack.tgraph.X(gxi));
+                            const sx1 = graph.X(selectedTrack.tgraph.X(gxf));
+                            const sy = graph.Y(selectedTrack.tgraph.Y(o.y != null ? o.y : 0.1));
+                            const lo = Math.min(sx0, sx1) - 4, hi = Math.max(sx0, sx1) + 4;
+                            if (cx < lo || cx > hi || Math.abs(cy - sy) > 12) continue;
+                            if (!graph.__lassoSelection) graph.__lassoSelection = [];
+                            if (graph.__lassoSelection.some((e) => e.ref === o)) continue;
+                            const origHi = o.highlight__;
+                            o.highlight__ = isAmp ? 'cyan' : '#c0392b';
+                            graph.__lassoSelection.push({
+                                kind: isAmp ? 'amplicon' : 'oligo',
+                                label: (o.name || o.id || (isAmp ? 'amplicon' : 'oligo')),
+                                track: selectedTrack, chr: selectedTrack.chr,
+                                xi: gxi, xf: gxf, ref: o,
+                                origHighlight: origHi, inOligos: true
+                            });
+                            graph.showDisplay = true;
+                        }
+                    } catch (e) { }
+
                     // Annotations in range under the cursor
                     if (selectedTrack.getAnnotationsInRange) {
                         let xw = selectedTrack.tgraph.Xwc(x - selectedTrack.tgraph.xi * 2);
                         let anns = selectedTrack.getAnnotationsInRange(xw - 1, xw + 1);
-                        if (anns) for (let a of anns) { if (a && a.select) a.select(); }
+                        if (anns) for (let a of anns) {
+                            if (a && a.select) a.select();
+                            // Add the clicked annotation to the selection box (same shape
+                            // the lasso builds), so its options appear under the
+                            // Annotations type in the selection window.
+                            try {
+                                if (a) {
+                                    if (!graph.__lassoSelection) graph.__lassoSelection = [];
+                                    if (!graph.__lassoSelection.some((e) => e.ref === a)) {
+                                        graph.__lassoSelection.push({
+                                            kind: 'ann',
+                                            label: (a.name || a.type || 'annotation'),
+                                            track: selectedTrack, chr: selectedTrack.chr,
+                                            xi: a.xi, xf: a.xf, ref: a
+                                        });
+                                        graph.showDisplay = true;
+                                    }
+                                }
+                            } catch (e) { }
+                        }
                     }
                 }
+            } else {
+                // Empty-canvas click — the press landed on no track/item. Clear the
+                // lasso selection so the items in the selection window are deselected.
+                // Deferred to the next tick so it runs AFTER every mousedown handler
+                // (incl. gene.js's control-button / selection-panel handling) has set
+                // its flags — otherwise we'd wipe a selection the user just clicked on.
+                setTimeout(() => {
+                    if (graph.graph && (graph.graph.mode === 'lasso' || graph.graph.mode === 'bpx')) return;   // lasso / box-zoom manage their own
+                    if (graph.side_menu || graph.__downMenuHandled || graph.__pendingSnp) return;
+                    if (!graph.__lassoSelection || !graph.__lassoSelection.length) return;
+                    try { if (graph.clearSelectionVisuals) graph.clearSelectionVisuals(); } catch (e) { }
+                    graph.__lassoSelection = [];
+                    if (graph.wake) graph.wake();
+                }, 0);
             }
         });
 

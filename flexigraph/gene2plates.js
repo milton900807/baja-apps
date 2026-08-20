@@ -4115,10 +4115,33 @@ function (plateManager, progress) {
 
                             ctx.fillText(this.message, x, y);
                         } else {
-                            let smallfontSize = 19;
-                            ctx.fillStyle = 'maroon';
-                            ctx.font = `${smallfontSize}px Arial`;
-                            ctx.fillText(this.message, mx, my);
+                            // Tropical card: navy fill, cyan border + left accent, white
+                            // text — matches the info panel and control buttons.
+                            const smallfontSize = 16;
+                            ctx.font = `600 ${smallfontSize}px "Segoe UI", Arial, sans-serif`;
+                            const text = this.message || "";
+                            const tw = ctx.measureText(text).width;
+                            const padX = 8, padY = 5, r = 8;
+                            const bx = mx - padX, by = my - padY;
+                            const bw = tw + padX * 2, bh = smallfontSize * 1.3 + padY * 2;
+                            ctx.save();
+                            ctx.shadowColor = 'rgba(16,24,40,0.35)';
+                            ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+                            ctx.fillStyle = 'rgba(10,37,64,0.96)';
+                            ctx.beginPath();
+                            ctx.moveTo(bx + r, by);
+                            ctx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+                            ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+                            ctx.arcTo(bx, by + bh, bx, by, r);
+                            ctx.arcTo(bx, by, bx + bw, by, r);
+                            ctx.closePath();
+                            ctx.fill();
+                            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                            ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 1.2; ctx.stroke();
+                            ctx.fillStyle = '#1aa3bd'; ctx.fillRect(bx, by, 3, bh);   // left accent
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillText(text, mx, my);
+                            ctx.restore();
                         }
                     }
                     if (this.highlightObject && this.highlightObject.draw) {

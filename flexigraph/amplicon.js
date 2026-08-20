@@ -175,6 +175,12 @@ function () {
                 }
 
                 let ampColor = this.ampColor;
+                // Lasso selection highlight — recolor the amplicon bar cyan (uses
+                // highlight__ so a stray canvas click / deselectAllTracks doesn't
+                // clear it, matching how oligos stay highlighted).
+                if (this.highlight__) {
+                    ampColor = (this.highlight__ === true) ? 'cyan' : this.highlight__;
+                }
                 let oligColor = this.oligColor;
 
                 let canvas = graph.canvas;

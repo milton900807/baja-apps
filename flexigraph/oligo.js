@@ -245,6 +245,46 @@ function () {
                 const screenY = graph.Y(tgraph.Y(y));
                 const screenMidX = (screenX1 + screenX2) / 2;
 
+                // Selected oligos get a pulsing background glow. The pulse (0..1) is
+                // computed by the genegraph redraw loop (graph.__pulse) at 1 cycle/sec
+                // for its 100ms/10fps refresh; the loop is kept awake while selected.
+                if ((this.selected || this.highlight__) && ctx) {
+                    const pulse = (typeof graph.__pulse === 'number') ? graph.__pulse : 0.6;
+                    const x0 = Math.min(screenX1, screenX2), x1 = Math.max(screenX1, screenX2);
+                    const cx = (x0 + x1) / 2;
+                    const rx = Math.max((x1 - x0) / 2 + 10, 16) + 6 * pulse;
+                    const ry = 14 + 6 * pulse;
+                    const alpha = 0.12 + 0.5 * pulse;   // pulse ~0.12 .. ~0.62
+                    // Match the glow to the oligo's highlight color (falls back to the
+                    // cyan "selected" color when there is no explicit highlight color).
+                    const toRGB = (c) => {
+                        if (typeof c !== 'string') return null;
+                        const s = c.trim().toLowerCase();
+                        const named = { magenta: [255, 0, 255], cyan: [0, 255, 255], red: [255, 0, 0], maroon: [128, 0, 0], navy: [10, 37, 64], yellow: [255, 230, 0], lime: [0, 255, 0], green: [0, 128, 0], orange: [255, 165, 0] };
+                        if (named[s]) return named[s];
+                        let m = s.match(/^#([0-9a-f]{3})$/);
+                        if (m) { const h = m[1]; return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)]; }
+                        m = s.match(/^#([0-9a-f]{6})$/);
+                        if (m) { const h = m[1]; return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+                        m = s.match(/^rgba?\(([^)]+)\)/);
+                        if (m) { const p = m[1].split(',').map((x) => parseFloat(x)); return [p[0] || 0, p[1] || 0, p[2] || 0]; }
+                        return null;
+                    };
+                    const hlColor = (typeof this.highlight__ === 'string' && this.highlight__) ? this.highlight__ : '#1aa3bd';
+                    const rgb = toRGB(hlColor) || [26, 163, 189];
+                    ctx.save();
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    const grad = ctx.createRadialGradient(cx, screenY, 2, cx, screenY, rx);
+                    grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`);   // highlight-colored core
+                    grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.ellipse(cx, screenY, rx, ry, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+
                 const screencell = graph.screenWidth(tgraph.screenWidth(1));
 
                 const drawCenteredOvalLabel = (text, offsetY = 0, opts = {}) => {
@@ -270,24 +310,25 @@ function () {
                     const textWidth = Math.max(minWidth, ctx.measureText(label).width);
                     const textHeight = parseInt(font, 10) || 10;
 
-                    const cx = screenMidX;
-                    const cy = screenY + offsetY;
+                    // Integer-align the center so the curve doesn't straddle sub-pixels.
+                    const cx = Math.round(screenMidX);
+                    const cy = Math.round(screenY + offsetY);
+                    const rx = textWidth / 2 + paddingX;
+                    const ry = textHeight / 2 + paddingY;
+
+                    // Draw the border as a FILLED ellipse (a slightly larger fill behind
+                    // the body) rather than a thin curved stroke — a 1px curved stroke on
+                    // a non-HiDPI canvas looks jagged/pixelated, whereas a filled edge
+                    // antialiases cleanly at any zoom.
+                    ctx.beginPath();
+                    ctx.fillStyle = strokeColor;
+                    ctx.ellipse(cx, cy, rx + 1, ry + 1, 0, 0, 2 * Math.PI);
+                    ctx.fill();
 
                     ctx.beginPath();
                     ctx.fillStyle = fillColor;
-                    ctx.strokeStyle = strokeColor;
-                    ctx.lineWidth = 1;
-                    ctx.ellipse(
-                        cx,
-                        cy,
-                        textWidth / 2 + paddingX,
-                        textHeight / 2 + paddingY,
-                        0,
-                        0,
-                        2 * Math.PI
-                    );
+                    ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
                     ctx.fill();
-                    ctx.stroke();
 
                     ctx.fillStyle = textColor;
                     ctx.textAlign = "center";
@@ -328,27 +369,35 @@ function () {
                         });
                     }
 
+                    // Migrate any accessor-era backing field, then ALWAYS show the
+                    // off-target markers whenever an off-target result is present —
+                    // assigning an off-target implies it should be displayed, even for
+                    // oligos loaded from a saved state with showOfftargets=false.
+                    if (this._offtarget != null && this.offtarget == null) this.offtarget = this._offtarget;
+                    if (this.offtarget != null) this.showOfftargets = true;
+
                     if (this.showOfftargets && this.offtarget != null) {
                         if (Array.isArray(this.offtarget)) {
-                            if (this.offtargetsymbols && this.offtargetsymbols.length > 0) {
-                                const radius = 30;
-                                const angleStep = Math.PI / (this.offtargetsymbols.length + 1);
-
-                                ctx.save();
-                                ctx.shadowBlur = 0;
-                                ctx.font = "10px Arial";
-                                ctx.fillStyle = "navy";
-                                ctx.textAlign = "center";
-                                ctx.textBaseline = "middle";
-
-                                this.offtargetsymbols.forEach((item, index) => {
-                                    const angle = (index + 1) * angleStep;
-                                    const itemX = screenMidX + radius * Math.cos(angle);
-                                    const itemY = screenY - 12 - radius * Math.sin(angle);
-                                    ctx.fillText(String(item), itemX, itemY);
-                                });
-
-                                ctx.restore();
+                            // Gene-name annotations only draw once the track is zoomed in
+                            // enough to render the sequence target (screencell > 5, the
+                            // same threshold the track uses to draw base letters).
+                            if (screencell > 5 && this.offtargetsymbols && this.offtargetsymbols.length > 0) {
+                                // Comma-delimited on a single line above the oligo — not
+                                // fanned in an arc (which overlaps when there are several).
+                                const symText = this.offtargetsymbols
+                                    .map((s) => String(s).trim())
+                                    .filter(Boolean)
+                                    .join(", ");
+                                if (symText) {
+                                    ctx.save();
+                                    ctx.shadowBlur = 0;
+                                    ctx.font = "10px Arial";
+                                    ctx.fillStyle = "navy";
+                                    ctx.textAlign = "center";
+                                    ctx.textBaseline = "middle";
+                                    ctx.fillText(symText, screenMidX, screenY - 30);
+                                    ctx.restore();
+                                }
                             }
 
                             drawCenteredOvalLabel(this.offtarget.length, -12, {
@@ -389,8 +438,10 @@ function () {
                     }
                 }
 
-                // General centered label: any attribute path on the oligo
-                const generalLabel = this.getDisplayLabelValue();
+                // General centered label: any attribute path on the oligo. Hidden by
+                // default; enabled globally via graph.showOligoLabels (toggle in the
+                // Oligos menu).
+                const generalLabel = graph.showOligoLabels ? this.getDisplayLabelValue() : null;
                 if (generalLabel != null) {
                     drawCenteredOvalLabel(generalLabel, this.labelOffsetY, {
                         font: this.labelFont,
@@ -400,10 +451,8 @@ function () {
                     });
                 }
 
-                if (this.highlight__) {
-                    graph.drawVerticalLineScreen(screenX1, screenY, 20, this.highlight__, 4);
-                    graph.drawVerticalLineScreen(screenX2, screenY, 20, this.highlight__, 4);
-                }
+                // Edge bars for a highlighted oligo are no longer drawn — the pulsing
+                // background glow (above) is the selection indicator.
 
                 if (this.selected) {
                     graph.drawVerticalLineScreen(screenX1, screenY, 5, "cyan", 4);

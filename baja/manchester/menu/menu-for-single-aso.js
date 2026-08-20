@@ -344,7 +344,7 @@ function (graph, oligo, genegraph_panel_layout) {
                 }
             ];
 
-            me.push(
+            models.push(
                 {
                     label: 'Export / Download sequences',
                     click: async (xwc, ywc) => {

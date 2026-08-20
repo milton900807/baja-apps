@@ -2,16 +2,16 @@ function () {
     // --- Professional genomics style (muted, IGV / Ensembl inspired) ---
     const font = '13px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
     const GX = {
-        ink:      '#1f2937',
+        ink:      '#0a2540',
         guide:    'rgba(120,130,145,0.45)',
-        acceptor: '#3e7cb1',
-        sirna:    '#2c7fb8',
-        rnaBind:  '#c77d34',
-        chem:     '#5b6b7b',
-        aso:      '#1f9e89',
-        snp:      '#c0392b',
-        ins:      '#2f6da4',
-        del:      '#a03b2e'
+        acceptor: '#1aa3bd',
+        sirna:    '#1897b0',
+        rnaBind:  '#b0533f',
+        chem:     '#46617a',
+        aso:      '#159a91',
+        snp:      '#9c2f45',
+        ins:      '#12768f',
+        del:      '#8c2f42'
     };
 
     return {

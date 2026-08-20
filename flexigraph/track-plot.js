@@ -7,7 +7,7 @@ function () {
             name = 'untitled';
             xi;
             yi;
-            color = 'lightBlue'
+            color = '#9fe0e8'
             y = 1;
             oligos = [];
             snpindels = [];
@@ -94,7 +94,7 @@ function () {
                 for (let o of this.oligos) {
                     if (o.percent_control) {
                         let v2 = this.mg.screenHeight(o.percent_control);
-                        graph.drawBar(o.xi, this.yi, v2, 'orange')
+                        graph.drawBar(o.xi, this.yi, v2, '#b0533f')
                     }
                 }
 
