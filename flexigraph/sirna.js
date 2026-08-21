@@ -266,7 +266,11 @@ function () {
             }
 
             getHeight() {
-                return 0.05;
+                // siRNA draws two stacked strand lanes plus a gene-symbol label row,
+                // so it needs a taller footprint than a single-strand oligo (0.05) —
+                // this gives it a couple of text-rows of vertical buffer in the
+                // anti-overlap spacing so stacked siRNAs don't crowd each other.
+                return 0.28;
             }
 
             setSelected(value) {
@@ -338,105 +342,190 @@ function () {
                     this.detailedShapeFunction = getIon(chem_draw[this.type + '.detailed'])
                 let screencell = graph.screenWidth(tgraph.screenWidth(1))
                 if (screencell > 0) {
-                    if (this.shapeFunctionObject) {
-                        this.shapeFunctionObject(graph, tgraph.X(this.xi + 1), tgraph.X(this.xf), tgraph.Y(y), this.color, this.structure, this);
-                    } else {
-                        if (this.strand < 0) {
-                            this.drawLine(graph, tgraph.X(this.xi), ysc - 2, tgraph.X(this.xf), "lightGray", 2, 'round')
-                            this.drawLine(graph, tgraph.X(this.xi), ysc - 13, tgraph.X(this.xf), "navy", 11, 'round')
-                        } else {
-                            this.drawLine(graph, tgraph.X(this.xi), ysc - 2, tgraph.X(this.xf), "lightYellow", 11, 'round')
-                            this.drawLine(graph, tgraph.X(this.xi), ysc - 13, tgraph.X(this.xf), "navy", 11, 'round')
-                        }
+                    const _ctx = graph.canvas ? graph.canvas.getCTX() : null;
+
+                    // Selected/highlighted siRNA get the same pulsing glow as oligos.
+                    if (_ctx && (this.selected || this.highlight__)) {
+                        const pulse = (typeof graph.__pulse === 'number') ? graph.__pulse : 0.6;
+                        const x0 = graph.X(tgraph.X(this.xi)), x1 = graph.X(tgraph.X(this.xf));
+                        const gcx = (x0 + x1) / 2;
+                        const gcy = ysc - 9;                     // between the two strand lanes
+                        const grx = Math.max(Math.abs(x1 - x0) / 2 + 10, 16) + 6 * pulse;
+                        const gry = 20 + 6 * pulse;              // tall enough to frame both strands
+                        const galpha = 0.12 + 0.5 * pulse;
+                        const toRGB = (c) => {
+                            if (typeof c !== 'string') return null;
+                            const s = c.trim().toLowerCase();
+                            const named = { magenta: [255, 0, 255], cyan: [0, 255, 255], red: [255, 0, 0], maroon: [128, 0, 0], navy: [10, 37, 64], yellow: [255, 230, 0], lime: [0, 255, 0], green: [0, 128, 0], orange: [255, 165, 0] };
+                            if (named[s]) return named[s];
+                            let m = s.match(/^#([0-9a-f]{6})$/);
+                            if (m) { const h = m[1]; return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+                            m = s.match(/^rgba?\(([^)]+)\)/);
+                            if (m) { const p = m[1].split(',').map((x) => parseFloat(x)); return [p[0] || 0, p[1] || 0, p[2] || 0]; }
+                            return null;
+                        };
+                        const hlColor = (typeof this.highlight__ === 'string' && this.highlight__) ? this.highlight__ : '#1aa3bd';
+                        const rgb = toRGB(hlColor) || [26, 163, 189];
+                        _ctx.save();
+                        _ctx.shadowColor = 'transparent';
+                        _ctx.shadowBlur = 0;
+                        const grad = _ctx.createRadialGradient(gcx, gcy, 2, gcx, gcy, grx);
+                        grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${galpha})`);
+                        grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+                        _ctx.fillStyle = grad;
+                        _ctx.beginPath();
+                        _ctx.ellipse(gcx, gcy, grx, gry, 0, 0, Math.PI * 2);
+                        _ctx.fill();
+                        _ctx.restore();
                     }
+
+                    // Draw the two strands stacked VERTICALLY so they don't block each
+                    // other: PASSENGER (sense) above, GUIDE (antisense) below.
+                    const _guide = ('' + (this.sequence || this.guide || '')).toUpperCase().replace(/T/g, 'U');
+                    const _n = _guide.length || Math.max(1, Math.round(this.xf - this.xi));
+                    // Passenger (sense) = reverse complement of the guide, 5'->3'.
+                    const _pass = _guide.split('').reverse().map((b) => (b === 'A' ? 'U' : b === 'U' ? 'A' : b === 'G' ? 'C' : b === 'C' ? 'G' : 'N')).join('');
+                    // guide is antiparallel to the target; passenger is parallel.
+                    const _li = (p) => (this.strand >= 0 ? (_n - 1 - p) : p);   // guide position -> local base index
+                    const _liP = (i) => (this.strand >= 0 ? i : (_n - 1 - i));  // passenger position -> local base index
+
+                    const passY = ysc - 16;   // upper lane: passenger
+                    const guideY = ysc - 2;    // lower lane: guide
+                    this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.95)', 9, 'round');
+                    this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'navy', 11, 'round');
+
+                    // Seed highlight (guide positions 2-8) on the GUIDE lane.
+                    if (_ctx && _n >= 8) {
+                        const a = graph.X(tgraph.X(this.xi + Math.min(_li(1), _li(7))));
+                        const b = graph.X(tgraph.X(this.xi + Math.max(_li(1), _li(7)) + 1));
+                        _ctx.save();
+                        _ctx.fillStyle = 'rgba(255,140,66,0.65)';   // tropical-orange seed highlight
+                        _ctx.fillRect(Math.min(a, b), guideY - 6, Math.abs(b - a), 12);
+                        _ctx.restore();
+                    }
+
+                    // Strand letters when zoomed in.
+                    if (_ctx && screencell > 5) {
+                        _ctx.save();
+                        _ctx.font = Math.max(8, Math.min(14, Math.floor(screencell))) + 'px monospace';
+                        _ctx.textAlign = 'center';
+                        _ctx.textBaseline = 'middle';
+                        for (let i = 0; i < _pass.length; i++) {   // passenger (sense)
+                            const cx = graph.X(tgraph.X(this.xi + _liP(i))) + Math.max(1, screencell) / 2;
+                            _ctx.fillStyle = '#e8eef4';
+                            _ctx.fillText(_pass[i], cx, passY);
+                        }
+                        for (let p = 0; p < _guide.length; p++) {   // guide (seed dark on orange, rest white)
+                            const cx = graph.X(tgraph.X(this.xi + _li(p))) + Math.max(1, screencell) / 2;
+                            const isSeed = (p >= 1 && p <= 7);
+                            _ctx.fillStyle = isSeed ? '#3a1500' : '#ffffff';
+                            _ctx.fillText(_guide[p], cx, guideY);
+                        }
+                        _ctx.restore();
+                    }
+
+                    // 3' overhangs (e.g. dTdT), each drawn hanging off its strand's 3' end.
+                    const _drawOverhang = (ohStr, edgeLocal, dir, laneY) => {
+                        if (!_ctx || !ohStr) return;
+                        const xa = graph.X(tgraph.X(this.xi + edgeLocal + dir * ohStr.length));
+                        const xb = graph.X(tgraph.X(this.xi + edgeLocal + (dir < 0 ? 0 : 1)));
+                        _ctx.save();
+                        _ctx.strokeStyle = 'rgba(120,140,160,0.9)';
+                        _ctx.lineWidth = 4;
+                        _ctx.setLineDash([3, 2]);
+                        _ctx.beginPath();
+                        _ctx.moveTo(Math.min(xa, xb), laneY);
+                        _ctx.lineTo(Math.max(xa, xb), laneY);
+                        _ctx.stroke();
+                        _ctx.restore();
+                        if (screencell > 5) {
+                            _ctx.save();
+                            _ctx.font = Math.max(8, Math.min(14, Math.floor(screencell))) + 'px monospace';
+                            _ctx.textAlign = 'center';
+                            _ctx.textBaseline = 'middle';
+                            _ctx.fillStyle = '#5a6b7a';
+                            for (let k = 0; k < ohStr.length; k++) {
+                                const cx = graph.X(tgraph.X(this.xi + edgeLocal + dir * (k + 1))) + Math.max(1, screencell) / 2;
+                                _ctx.fillText((ohStr[k] || '').toLowerCase(), cx, laneY);   // dTdT shown lowercase
+                            }
+                            _ctx.restore();
+                        }
+                    };
+                    const _gOh = ('' + (this.antisenseOverhang || '')).toUpperCase().replace(/[^ACGTU]/g, '');
+                    const _sOh = ('' + (this.senseOverhang || '')).toUpperCase().replace(/[^ACGTU]/g, '');
+                    // guide 3' end: +strand -> xi side (dir -1); -strand -> xf side (dir +1)
+                    _drawOverhang(_gOh, (this.strand >= 0 ? 0 : (_n - 1)), (this.strand >= 0 ? -1 : 1), guideY);
+                    // passenger 3' end: +strand -> xf side (dir +1); -strand -> xi side (dir -1)
+                    _drawOverhang(_sOh, (this.strand >= 0 ? (_n - 1) : 0), (this.strand >= 0 ? 1 : -1), passY);
 
                     if (graph.canvas) {
                         var ctx = graph.canvas.getCTX();
 
-                        let font = "10px Arial";
-                        if (this.offtarget != null) {
-                            ctx.shadowBlur = 0;
-                            ctx.font = font
-                            if (this.selected)
-                                ctx.shadowColor = 'red';
-                            else
-                                ctx.shadowColor = 'black';
-
-                            let textWidth = ctx.measureText('' + this.offtarget.length).width;
-                            let textHeight = parseInt(ctx.font, 10);
-                            let padding = 10;
-
-                            let sx = graph.X(tgraph.X(this.xi + this.name.length)) + 20;
-                            let sy = graph.Y(tgraph.Y(y)) - 4;
-
-                            ctx.fillStyle = "white";
-                            ctx.lineWidth = 1;
-                            ctx.beginPath();
-                            ctx.ellipse(sx + textWidth / 2, sy - textHeight / 2, textWidth / 2 + padding, textHeight / 2 + padding / 2, 0, 0, 2 * Math.PI);
-                            ctx.fill();
-                            ctx.shadowBlur = 0
-
-                            ctx.shadowColor = 'black'
-
-                        }
+                        // Off-target count badge + gene-symbol annotations. Works for BOTH
+                        // an array of hits and a large-count STRING (>1000 hits).
                         if (this.showOfftargets && this.offtarget != null) {
-                            if (typeof this.offtarget === "object" && Array.isArray(this.offtarget)) {
-                                let font = "10px Arial";
-                                if (ctx) {
-                                    ctx.shadowBlur = 0;
-                                    ctx.font = font
-                                    if (this.selected)
-                                        ctx.shadowColor = 'red';
-                                    else
-                                        ctx.shadowColor = 'black';
-
-                                    let textWidth = ctx.measureText('' + this.offtarget.length).width;
-                                    let textHeight = parseInt(ctx.font, 10);
-                                    let padding = 10;
-
-                                    let sx = graph.X(tgraph.X(this.xi + this.name.length)) + 20;
-                                    let sy = graph.Y(tgraph.Y(y)) - 4;
-
-                                    ctx.fillStyle = "white";
-                                    ctx.lineWidth = 1;
-                                    ctx.beginPath();
-                                    ctx.ellipse(sx + textWidth / 2, sy - textHeight / 2, textWidth / 2 + padding, textHeight / 2 + padding / 2, 0, 0, 2 * Math.PI);
-                                    ctx.fill();
-                                    ctx.shadowBlur = 0
-
-                                    ctx.shadowColor = 'black'
-
-                                    ctx.fillStyle = "navy";
-                                    ctx.fillText('' + this.offtarget.length, sx, sy - 4);
-                                    ctx.stroke();
-
-                                    if (this.offtargetsymbols && this.offtargetsymbols.length > 0) {
-                                        let radius = 30;
-                                        let angleStep = Math.PI / (this.offtarget.length + 1);
-                                        let sx = graph.X(tgraph.X(this.xi + this.name.length)) + 20;
-                                        let sy = graph.Y(tgraph.Y(y)) - 4;
-
-                                        this.offtargetsymbols.forEach((item, index) => {
-                                            let angle = (index + 1) * angleStep;
-                                            let itemSx = sx + radius * Math.cos(angle);
-                                            let itemSy = sy - radius * Math.sin(angle);
-                                            let textWidth = ctx.measureText('' + item).width;
-                                            let textHeight = parseInt(ctx.font, 10);
-                                            let padding = 10;
-
-                                            ctx.lineWidth = 1;
-
-                                            ctx.shadowBlur = 0;
-                                            ctx.shadowColor = 'black';
-
-                                            ctx.fillStyle = "navy";
-                                            ctx.fillText('' + item, itemSx, itemSy - 4);
-                                        });
-                                    }
-
-                                }
+                            const _off = this.offtarget;
+                            // Badge shows the number of distinct off-target GENES (same
+                            // gene across many transcript isoforms counts once).
+                            const _cnt = Array.isArray(_off)
+                                ? (new Set(_off.map((h) => h && h.symbol).filter(Boolean)).size
+                                    || (this.offtargetsymbols ? this.offtargetsymbols.length : 0)
+                                    || _off.length)
+                                : ((this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : (parseInt(_off, 10) || 0));
+                            ctx.save();
+                            ctx.font = '10px Arial';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'alphabetic';
+                            ctx.shadowBlur = 0;
+                            ctx.shadowColor = 'transparent';
+                            // Count badge, just to the right of the guide bar.
+                            const countStr = '' + _cnt;
+                            const tw = ctx.measureText(countStr).width;
+                            const bx = graph.X(tgraph.X(this.xf)) + 8;
+                            const by = ysc - 4;
+                            // Filled edge (a slightly larger ellipse in the border color,
+                            // then the white fill on top) instead of a curved stroke —
+                            // antialiases cleanly and stays thin at any zoom/DPI.
+                            ctx.beginPath();
+                            ctx.fillStyle = this.selected ? '#c0392b' : '#1aa3bd';
+                            ctx.ellipse(bx + tw / 2, by - 5, tw / 2 + 9, 10, 0, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.beginPath();
+                            ctx.fillStyle = 'white';
+                            ctx.ellipse(bx + tw / 2, by - 5, tw / 2 + 8, 9, 0, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.fillStyle = 'navy';
+                            ctx.fillText(countStr, bx, by);
+                            // Gene symbols as a single comma-delimited line above the oligo
+                            // (no overlap), when zoomed in enough.
+                            if (this.offtargetsymbols && this.offtargetsymbols.length > 0 && screencell > 5) {
+                                ctx.fillStyle = 'navy';
+                                ctx.fillText(this.offtargetsymbols.slice(0, 30).join(', '), graph.X(tgraph.X(this.xi)), ysc - 30);
                             }
-
+                            ctx.restore();
+                        } else if (this.showOfftargets && this.offtarget == null) {
+                            // Searched and found NO off-targets — show a clean "0".
+                            ctx.save();
+                            ctx.font = '10px Arial';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'alphabetic';
+                            ctx.shadowBlur = 0;
+                            ctx.shadowColor = 'transparent';
+                            const bx0 = graph.X(tgraph.X(this.xf)) + 8;
+                            const by0 = ysc - 4;
+                            const tw0 = ctx.measureText('0').width;
+                            // Filled edge instead of a curved stroke — stays thin/crisp.
+                            ctx.beginPath();
+                            ctx.fillStyle = '#1aa3bd';
+                            ctx.ellipse(bx0 + tw0 / 2, by0 - 5, tw0 / 2 + 9, 10, 0, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.beginPath();
+                            ctx.fillStyle = 'white';
+                            ctx.ellipse(bx0 + tw0 / 2, by0 - 5, tw0 / 2 + 8, 9, 0, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.fillStyle = '#1aa3bd';
+                            ctx.fillText('0', bx0, by0);
+                            ctx.restore();
                         }
                         if (this.show_seed_targets && this.mi_targets_transient_ != null) {
 
@@ -592,6 +681,10 @@ function () {
             // fix this so that the sequences are drawn appropriately 
 
             drawDetail(graph, tgraph, x, y) {
+                // siRNA is drawn guide-only with a seed highlight in draw(); do NOT
+                // render the full duplex chemistry (sense + antisense) when zoomed in.
+                return;
+                // eslint-disable-next-line no-unreachable
                 if (this.y != null) {
                     y = this.y;
                 }

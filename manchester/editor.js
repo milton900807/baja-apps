@@ -1604,10 +1604,10 @@ function (path, config) {
                                         buttons: [
                                             {
                                                 label: 'File', ionFunction: createIonFunction(() => {
-                                                    graph.showSideMenu([
-                                                        { label: 'Open', click: () => { graph.showSideMenu(null); openSaveScreen(); }, move: () => { } },
-                                                        { label: 'Save', click: () => { graph.showSideMenu(null); saveSaveScreen(); }, move: () => { } },
-                                                    ]);
+                                                    graph.showMenu([
+                                                        { label: 'Open', click: () => { graph.hideMenu(); openSaveScreen(); }, move: () => { } },
+                                                        { label: 'Save', click: () => { graph.hideMenu(); saveSaveScreen(); }, move: () => { } },
+                                                    ], 0, 0, 280);
                                                 })
                                             },
                                             {
@@ -1621,17 +1621,24 @@ function (path, config) {
                                                 })
                                             },
                                             {
+                                                label: 'Layers', ionFunction: createIonFunction(async () => {
+                                                    await exec('baja/manchester/menu/select-track-action-layers.js', graph, genegraph_panel_layout)
+                                                })
+                                            },
+                                            {
                                                 label: 'Design', ionFunction: createIonFunction(() => {
-                                                    graph.showSideMenu([
+                                                    // Also show the compound editor in the button/label panel.
+                                                    exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
+                                                    graph.showMenu([
                                                         {
-                                                            label: '1) Primer-probe', move: () => { },
+                                                            label: 'Primer-probe', move: () => { },
                                                             click: () => {
                                                                 graph.showSideMenu(null);
                                                                 exec('baja/manchester/menu/primer-probe-action.js', graph, genegraph_panel_layout);
                                                             }
                                                         },
                                                         {
-                                                            label: '2) ASO/siRNA', move: () => { },
+                                                            label: 'ASO/siRNA', move: () => { },
                                                             click: () => {
                                                                 graph.showSideMenu([
                                                                     {
@@ -1674,10 +1681,23 @@ function (path, config) {
                                                                             exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true);
                                                                         }
                                                                     },
+                                                                    {
+                                                                        label: 'Design by rules (tile & score)', move: () => { },
+                                                                        click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
                                                                 ]);
                                                             }
                                                         },
-                                                    ]);
+                                                        {
+                                                            // "edit" dismisses the center menu (same as Cancel), leaving
+                                                            // the compound editor in the button/label panel to work in.
+                                                            label: 'Edit...', move: () => { },
+                                                            click: () => { graph.hideMenu(); try { graph.setMouseMode('navigate'); } catch (e) { } }
+                                                        },
+                                                    ], 0, 0, 300);
                                                 })
                                             },
                                             {

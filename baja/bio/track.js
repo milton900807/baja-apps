@@ -3464,6 +3464,30 @@ return new Promise(async (resolve, reject) => {
         this.tgraph.rescale();
       }
     }
+
+    // Shrink the track's vertical (y) extent to the smallest range that still
+    // contains every item — so the track is as short as possible while showing
+    // all oligos/annotations/SNPs. Also repairs a ymax left inflated by a bad y.
+    fitYAxis() {
+      if (!this.tgraph) return;
+      let maxY = 0;
+      const scan = (arr) => {
+        if (!arr) return;
+        for (const o of arr) {
+          let yy = (o && typeof o.y === 'number') ? o.y
+            : (o && typeof o.getY === 'function' ? o.getY() : 0);
+          if (typeof yy === 'number' && isFinite(yy) && yy > maxY) maxY = yy;
+        }
+      };
+      scan(this.oligos);
+      scan(this.annotations);
+      scan(this.snpindels);
+      const newMax = Math.max(maxY + 0.2, 0.5);   // small padding above the top item
+      if (isFinite(newMax) && newMax > 0) {
+        this.tgraph.ymax = newMax;
+        this.tgraph.rescale();
+      }
+    }
     addsnpindel(snpindel) {
       this.snpindels.push(snpindel);
     }
@@ -5358,6 +5382,22 @@ return new Promise(async (resolve, reject) => {
           let y = 0;
 
           if (ctx) ctx.font = this.detail_ffont7;
+
+          // Flag oligos whose sequence is duplicated on this track so draw() can
+          // render them distinctively (a maroon stick with a yellow glow).
+          try {
+            const __seqCount = {};
+            for (const o of this.oligos) {
+              if (!o) continue;
+              const k = (o.sequence || o.synthesisSequence || '');
+              if (k) __seqCount[k] = (__seqCount[k] || 0) + 1;
+            }
+            for (const o of this.oligos) {
+              if (!o) continue;
+              const k = (o.sequence || o.synthesisSequence || '');
+              o.__dupSeq = !!(k && __seqCount[k] > 1);
+            }
+          } catch (e) { }
 
           if (screencell > 1) {
             for (let o of visOligos) {

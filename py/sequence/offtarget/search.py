@@ -87,7 +87,7 @@ def bounded_levenshtein(a, b, max_k):
 # Legacy / UI-default names -> on-disk index directory names. Mirror of the
 # alias map in baja-server so saved workflows keep resolving.
 _ALIASES = {
-    "Homo_sapiens.GRCh38.88.3utr": "human_cdna",
+    "Homo_sapiens.GRCh38.88.3utr": "human_all_transcripts",
     "3UTR_human": "human_3utr",
     "3UTR_mouse": "mouse_3utr",
 }

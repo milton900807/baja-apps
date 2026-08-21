@@ -339,7 +339,26 @@ function () {
                 };
 
                 if (screencell > 1) {
-                    if (this.shapeFunction) {
+                    if (this.__dupSeq) {
+                        // Duplicate-sequence oligo: draw a maroon stick with a yellow
+                        // glow instead of the normal body so repeats stand out.
+                        ctx.save();
+                        ctx.lineCap = 'round';
+                        ctx.shadowColor = 'rgba(255, 230, 0, 0.95)';   // yellow glow
+                        ctx.shadowBlur = 14;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                        ctx.strokeStyle = '#800000';                   // maroon
+                        ctx.lineWidth = 3;
+                        const h = 10;
+                        ctx.beginPath();
+                        ctx.moveTo(screenMidX, screenY - h);
+                        ctx.lineTo(screenMidX, screenY + h);
+                        ctx.stroke();
+                        ctx.shadowBlur = 5;                            // second pass sharpens the stick
+                        ctx.stroke();
+                        ctx.restore();
+                    } else if (this.shapeFunction) {
                         this.shapeFunction(
                             graph,
                             tgraph.X(this.xi),
@@ -400,20 +419,36 @@ function () {
                                 }
                             }
 
-                            drawCenteredOvalLabel(this.offtarget.length, -12, {
+                            // Badge shows the number of distinct off-target GENES (the
+                            // same gene across many transcript isoforms counts once),
+                            // not the raw per-transcript hit count.
+                            const geneN = new Set(this.offtarget.map((h) => h && h.symbol).filter(Boolean)).size
+                                || (this.offtargetsymbols ? this.offtargetsymbols.length : 0)
+                                || this.offtarget.length;
+                            drawCenteredOvalLabel(geneN, -12, {
                                 font: "10px Arial",
                                 textColor: "navy",
                                 fillColor: "white",
                                 strokeColor: "black",
                             });
                         } else if (typeof this.offtarget === "string") {
-                            drawCenteredOvalLabel(this.offtarget, -12, {
+                            const strN = (this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : this.offtarget;
+                            drawCenteredOvalLabel(strN, -12, {
                                 font: "10px Arial",
                                 textColor: "navy",
                                 fillColor: "white",
                                 strokeColor: "black",
                             });
                         }
+                    } else if (this.showOfftargets && this.offtarget == null) {
+                        // Searched and found NO off-targets — show a clean "0" so the
+                        // user can see it was checked and is clear.
+                        drawCenteredOvalLabel('0', -12, {
+                            font: "10px Arial",
+                            textColor: "#1aa3bd",
+                            fillColor: "white",
+                            strokeColor: "#1aa3bd",
+                        });
                     }
                 } else {
                     if (this.detailedShapeFunction) {

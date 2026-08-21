@@ -460,7 +460,15 @@ function (graph, oligo, genegraph_panel_layout) {
                 {
                     label: ' Oligo Editor',
                     click: async (xwc, ywc) => {
-                        let monomers = await exec('data/monomers.js');
+                        // Monomer library for the HELM editor. baja/chem/monomers.js
+                        // resolves a Monomers instance; dig out the plain array
+                        // (handles .monomers and the default .monomers.monomers shape)
+                        // since the editor's setMonomers expects an array.
+                        let __monlib = await exec('baja/chem/monomers.js');
+                        let monomers = Array.isArray(__monlib) ? __monlib
+                            : (__monlib && Array.isArray(__monlib.monomers)) ? __monlib.monomers
+                                : (__monlib && __monlib.monomers && Array.isArray(__monlib.monomers.monomers)) ? __monlib.monomers.monomers
+                                    : [];
                         let fixStructure = (struc) => {
                             if (struc.indexOf('{') > 0) {
                                 return struc;
@@ -541,8 +549,205 @@ function (graph, oligo, genegraph_panel_layout) {
                             return helmstring;
                         };
 
+                        // If the oligo has no stored structure yet, build a HELM
+                        // structure in real time from its sequence (using the selected
+                        // chemistry's template when available, otherwise a plain
+                        // r()/d() backbone), so the editor always opens with something.
+                        let __structure = oligo.structure;
+
+                        // Build a correct two-strand siRNA HELM: RNA1 = sense,
+                        // RNA2 = antisense, plus base-pair (hydrogen-bond) connections
+                        // in the form "RNA1,RNA2,<aaid>:pair-<aaid>:pair". JSDraw numbers
+                        // aaids over EVERY backbone atom (sugar, base, linker), so a
+                        // nucleotide's base aaid is found by walking the tokens rather
+                        // than assuming a fixed stride. Pairs are emitted only where the
+                        // two bases are Watson-Crick complementary at the best antiparallel
+                        // register, which automatically leaves 3' overhangs unpaired.
+                        const buildSiRNAHelm = (o, Biopolymer) => {
+                            const basesOf = (struc) => {
+                                const out = [];
+                                for (const tok of ('' + struc).split('.')) {
+                                    const m = tok.match(/\(([^)]+)\)/);
+                                    if (m) { let b = m[1].replace(/^\[|\]$/g, '').toUpperCase(); if (b && b !== '?') out.push(b); }
+                                }
+                                return out;
+                            };
+                            // Base aaid per nucleotide, mirroring JSDraw's counting.
+                            const baseAaids = (struc) => {
+                                const ids = []; let aaid = 0;
+                                for (let tok of ('' + struc).split('.')) {
+                                    tok = tok.trim(); if (!tok) continue;
+                                    const ip = tok.indexOf('('), ep = tok.indexOf(')');
+                                    if (ip >= 0 && ep > ip) {
+                                        aaid++;                 // sugar
+                                        aaid++; ids.push(aaid); // base
+                                        if (tok.substring(ep + 1).trim()) aaid++;  // trailing linker
+                                    } else {
+                                        aaid++;                 // standalone linker / atom
+                                    }
+                                }
+                                return ids;
+                            };
+                            const cleanSeq = (s) => ('' + (s || '')).toUpperCase().replace(/[^ACGTU]/g, '');
+                            const seqToStruct = (seq) => {
+                                seq = cleanSeq(seq); if (!seq) return '';
+                                const sugar = (seq.indexOf('U') >= 0) ? 'r' : 'd';
+                                let toks = [];
+                                for (let i = 0; i < seq.length; i++) toks.push(sugar + '(' + seq[i] + ')' + (i < seq.length - 1 ? 'p' : ''));
+                                return toks.join('.');
+                            };
+                            // A strand's structure: use the stored template if it already
+                            // carries bases, else synthesize a plain backbone from a sequence.
+                            const asStruct = (val, fallbackSeq) => {
+                                let v = ('' + (val || '')).trim();
+                                if (v.indexOf('(') >= 0) return v;
+                                return seqToStruct(v || fallbackSeq);
+                            };
+                            const wc = (x, y) => { const n = (c) => (c === 'U' ? 'T' : c); const p = { A: 'T', T: 'A', G: 'C', C: 'G' }; return p[n(x)] === n(y); };
+                            // Reverse a strand's nucleotide order, keeping the inter-
+                            // nucleotide linkers between the same neighbours and leaving
+                            // the (new) 3' terminal without a trailing linker.
+                            const reverseStrand = (struc) => {
+                                const nts = [], linkers = [];
+                                for (let t of ('' + struc).split('.')) {
+                                    t = t.trim(); if (!t) continue;
+                                    const ip = t.indexOf('('), ep = t.indexOf(')');
+                                    if (ip >= 0 && ep > ip) {
+                                        nts.push(t.substring(0, ep + 1));            // "sugar(base)"
+                                        linkers.push(t.substring(ep + 1).trim());   // trailing linker or ''
+                                    } else if (linkers.length) {
+                                        linkers[linkers.length - 1] = t;             // standalone linker token
+                                    }
+                                }
+                                const n = nts.length;
+                                if (!n) return struc;
+                                const out = [];
+                                for (let p = 0; p < n; p++) {
+                                    let tok = nts[n - 1 - p];
+                                    if (p < n - 1) tok += (linkers[n - 2 - p] || 'p');
+                                    out.push(tok);
+                                }
+                                return out.join('.');
+                            };
+
+                            // Append a 3' overhang (e.g. dTdT) to a strand's 3' end as
+                            // deoxy nucleotides, unless the strand already ends with it.
+                            const appendOverhang = (struct, overhang, linker) => {
+                                let oh = ('' + (overhang || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
+                                if (!oh) return struct;
+                                const cur = basesOf(struct).map((b) => (b === 'U' ? 'T' : b)).join('');
+                                if (cur.length >= oh.length && cur.slice(-oh.length) === oh) return struct;  // already present
+                                const toks = ('' + struct).split('.').map((t) => t.trim()).filter(Boolean);
+                                if (!toks.length) return struct;
+                                const link = linker || 'p';
+                                const last = toks[toks.length - 1];
+                                const ep = last.indexOf(')');
+                                if (ep >= 0 && !last.substring(ep + 1).trim()) toks[toks.length - 1] = last + link;  // link core→overhang
+                                for (let k = 0; k < oh.length; k++) {
+                                    toks.push('d(' + oh[k] + ')' + (k < oh.length - 1 ? link : ''));
+                                }
+                                return toks.join('.');
+                            };
+
+                            let senseStruct = asStruct(o.sense, o.sequence);
+                            let antiStruct = asStruct(o.antisense, o.synthesisSequence);
+                            // Derive a missing strand as the reverse complement of the other.
+                            if (!senseStruct && antiStruct) senseStruct = seqToStruct(Biopolymer.reverseComp(basesOf(antiStruct).join('')));
+                            if (!antiStruct && senseStruct) antiStruct = seqToStruct(Biopolymer.reverseComp(basesOf(senseStruct).join('')));
+                            if (!senseStruct || !antiStruct) return '';
+                            // siRNA is RNA: change every T base to U in the core strands.
+                            // Done BEFORE overhangs are appended, so a dTdT overhang
+                            // (added below as deoxy d(T)) stays as specified.
+                            const toRNA = (s) => ('' + s).replace(/\(([Tt])\)/g, '(U)');
+                            senseStruct = toRNA(senseStruct);
+                            antiStruct = toRNA(antiStruct);
+                            // Include 3' overhangs from the chemistry, if any.
+                            senseStruct = appendOverhang(senseStruct, o.senseOverhang);
+                            antiStruct = appendOverhang(antiStruct, o.antisenseOverhang);
+                            // The editor draws RNA1 (sense) on top; reverse it so the duplex
+                            // reads antiparallel against the antisense strand below.
+                            senseStruct = reverseStrand(senseStruct);
+
+                            const sB = basesOf(senseStruct), aB = basesOf(antiStruct);
+                            const sIds = baseAaids(senseStruct), aIds = baseAaids(antiStruct);
+                            const S = sB.length, A = aB.length;
+                            // Pick the register with the most Watson-Crick pairs, trying
+                            // BOTH orientations — antiparallel (RNA1[i]↔RNA2[A-1-i-off])
+                            // and parallel/index-aligned (RNA1[i]↔RNA2[i+off]) — because
+                            // stored antisense strands may already be reversed to align
+                            // index-to-index with the sense strand. Only complementary
+                            // bases are paired, so 3' overhangs stay unpaired either way.
+                            let best = { score: -1, pairs: [] };
+                            for (let off = -6; off <= 6; off++) {
+                                for (const anti of [true, false]) {
+                                    let pairs = [];
+                                    for (let i = 0; i < S; i++) {
+                                        let j = anti ? ((A - 1) - i - off) : (i + off);
+                                        if (j < 0 || j >= A) continue;
+                                        if (wc(sB[i], aB[j]) && sIds[i] != null && aIds[j] != null) pairs.push([i, j]);
+                                    }
+                                    if (pairs.length > best.score) best = { score: pairs.length, pairs };
+                                }
+                            }
+                            const conns = best.pairs.map(([i, j]) => `RNA1,RNA2,${sIds[i]}:pair-${aIds[j]}:pair`).join('|');
+                            const senseHelm = Biopolymer.normalizeStructure(senseStruct);
+                            const antiHelm = Biopolymer.normalizeStructure(antiStruct);
+                            return `RNA1{${senseHelm}}|RNA2{${antiHelm}}$${conns}$$$V2.0`;
+                        };
+
+                        const __isSiRNA = !!(oligo && (oligo.type === 'siRNA' || (oligo.sense && oligo.antisense)));
+                        // A correct siRNA structure must contain BOTH strands + pairs.
+                        const __duplexOK = typeof __structure === 'string' && /\|\s*RNA2\s*\{/.test(__structure) && /pair/.test(__structure);
+                        if (__isSiRNA && !__duplexOK) {
+                            try {
+                                const Biopolymer = await exec('baja/chem/biopolymer.js');
+                                const built = buildSiRNAHelm(oligo, Biopolymer);
+                                if (built) { __structure = built; oligo.structure = built; }   // fix in real time
+                            } catch (e) {
+                                console.log('Oligo Editor: siRNA duplex build failed', e);
+                            }
+                        } else if (!__isSiRNA && (typeof __structure !== 'string' || __structure.trim().length === 0)) {
+                            try {
+                                const Biopolymer = await exec('baja/chem/biopolymer.js');
+                                // Synthesized strand: use what's stored, else derive it
+                                // from the target sequence given the strand direction.
+                                let synth = oligo.synthesisSequence;
+                                if (!synth || !synth.length) {
+                                    const seq = oligo.sequence || '';
+                                    synth = (oligo.strand < 0) ? Biopolymer.comp(seq) : Biopolymer.reverseComp(seq);
+                                }
+                                synth = ('' + (synth || '')).toUpperCase().replace(/[^ACGTU]/g, '');
+                                if (synth) {
+                                    let built = '';
+                                    // Prefer the selected chemistry's template if present.
+                                    const chem = (graph && graph.props) ? graph.props.selected_chemistry : null;
+                                    const tmpl = chem && (chem.template || chem.antisense);
+                                    if (tmpl) {
+                                        try { built = Biopolymer.applySequenceToTemplate(tmpl, synth); } catch (e) { built = ''; }
+                                    }
+                                    if (!built) {
+                                        // Plain backbone: RNA (r) if it contains U, else DNA (d).
+                                        const sugar = (synth.indexOf('U') >= 0) ? 'r' : 'd';
+                                        let toks = [];
+                                        for (let i = 0; i < synth.length; i++) {
+                                            toks.push(sugar + '(' + synth[i] + ')' + (i < synth.length - 1 ? 'p' : ''));
+                                        }
+                                        built = 'RNA1{' + toks.join('.') + '}$$$$V2.0';
+                                    }
+                                    // Guarantee every monomer symbol is in the library.
+                                    try { built = Biopolymer.normalizeStructure(built); } catch (e) { }
+                                    if (built) {
+                                        __structure = built;
+                                        oligo.structure = built;   // persist so verify/edit reuse it
+                                    }
+                                }
+                            } catch (e) {
+                                console.log('Oligo Editor: real-time structure build failed', e);
+                            }
+                        }
+
                         let strs = '';
-                        strs += fixStructure(oligo.structure);
+                        strs += fixStructure(__structure || '');
                         strs = strs.trim();
 
                         let medchemEditor = null;

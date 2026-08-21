@@ -838,8 +838,8 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                 ctx.lineWidth = "1";
                 ctx.shadowBlur = 2;
                 ctx.shadowColor = 'black';
-                ctx.fillStyle = 'RGBA(25,25,255,0.05)'
-                ctx.strokeStyle = 'RGBA(25,25,255,0.05)'
+                ctx.fillStyle = 'RGBA(252,246,214,0.05)'
+                ctx.strokeStyle = 'RGBA(252,246,214,0.05)'
                 ctx.fillRect(x, y, w, h);
                 ctx.fill();
             }

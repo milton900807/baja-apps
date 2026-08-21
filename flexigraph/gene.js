@@ -1501,10 +1501,32 @@ function (progress) {
             }
 
             timeout;
-            setMessage(m, messagex, messagey) {
+            // Show an ERROR message: orange glow/border, held for at least 5 seconds.
+            setError(m, seconds) {
                 if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
+                this.messageIsError = true;
+                this.messagex = 150;
+                this.messagey = 25;
+                if (this.timeout) clearTimeout(this.timeout);
+                const ms = Math.max(5000, (seconds || 6) * 1000);
+                this.timeout = setTimeout(() => {
+                    this.message = null;
+                    this.messageIsError = false;
+                    this.messagex = 150;
+                    this.messagey = 25;
+                }, ms);
+            }
+
+            setMessage(m, messagex, messagey) {
+                // While an error message is showing, don't let ordinary messages
+                // overwrite it — it stays until its own timeout clears it.
+                if (this.messageIsError) return;
+                if (this.wake) this.wake();
+                this.centerMessage = false;
+                this.message = m;
+                this.messageIsError = false;   // normal (cyan) unless setError() is used
                 if (messagex != null && messagex > 0) {
                     this.messagex = messagex;
                 }
@@ -4540,7 +4562,12 @@ function (progress) {
                         this.bookmarkMouseMoveListener(xwc, ywc);
                     }
                     if (this.side_menu) {
-                        this.side_menu.mouseMove(this.graph, xwc, ywc)
+                        // A side menu is open: only the menu itself responds to hover.
+                        // Suppress canvas mouse-over-highlight (and every other registered
+                        // hover listener / shape context-menu) until the menu closes, so
+                        // the mouse-over highlight works only within the menu.
+                        this.side_menu.mouseMove(this.graph, xwc, ywc);
+                        return;
                     }
                     let inmenuShape = false;
                     for (let ct of this.shapes) {
@@ -6635,6 +6662,25 @@ pattern, GGGG | Required`
                             return;
                         }
 
+                        // Every center menu gets a Cancel option that dismisses the
+                        // menu and unblurs the canvas (nulling this.menu removes the
+                        // blur) and returns to mouse-over-highlight. Added centrally
+                        // so all showMenu() callers get it for free; not duplicated if
+                        // the caller already supplied its own Cancel/Close entry.
+                        const __hasCancel = list.some((it) => it && typeof it.label === 'string' &&
+                            /^(cancel|close)\b/i.test(it.label.trim()));
+                        if (!__hasCancel) {
+                            list = list.concat([{
+                                label: 'Cancel',
+                                click: () => {
+                                    this.menu = null;
+                                    this.graph.menu = null;
+                                    setTimeout(() => { try { this.setMouseMode('navigate'); } catch (e) { } }, 0);
+                                },
+                                move: () => { }
+                            }]);
+                        }
+
                         const maxPerColumn = 7;
                         const itemCount = list.length;
                         const cols = Math.ceil(itemCount / maxPerColumn);
@@ -6672,6 +6718,16 @@ pattern, GGGG | Required`
             showWindowMenu(list, x, y, width) {
                 if (this.wake) this.wake();
                 exec('flexigraph/show-mobile-menu.js', x, y, list, this.graph, this.genegraph_panel_layout, true)
+            }
+
+            // Shrink every track's y-axis to the smallest range that still shows all
+            // its items (repairs a ymax left inflated by a bad oligo y).
+            fitAllTrackYAxes() {
+                for (const t of (this.track || [])) {
+                    try { if (t && t.fitYAxis) t.fitYAxis(); } catch (e) { }
+                }
+                try { this.rescale(); } catch (e) { }
+                if (this.wake) this.wake();
             }
 
             menuVisible() {
@@ -6759,11 +6815,11 @@ pattern, GGGG | Required`
                     else this.roundRectPath(ctx, x, y, size, size, radius);
                 };
 
-                // Soft drop shadow
-                ctx.shadowColor = pressed ? "rgba(16,24,40,0.10)" : "rgba(16,24,40,0.16)";
-                ctx.shadowBlur = pressed ? 2 : 4;
+                // Drop shadow (prominent so every top button lifts off the canvas).
+                ctx.shadowColor = pressed ? "rgba(16,24,40,0.22)" : "rgba(16,24,40,0.38)";
+                ctx.shadowBlur = pressed ? 4 : 8;
                 ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = pressed ? 0.5 : 1.5;
+                ctx.shadowOffsetY = pressed ? 1 : 3;
 
                 const grad = ctx.createLinearGradient(0, y, 0, y + size);
                 if (invert) {
@@ -7008,6 +7064,12 @@ pattern, GGGG | Required`
                                     let yf = this.currentShape.y - this.currentShape.h;
                                     this.currentShape = null;
                                     await this.zoomRect(xi, xf, yf, yi, 150);
+                                    // Box-zoom is one-shot: return to navigate /
+                                    // mouse-over-highlight once the zoom is complete.
+                                    // Deferred so it re-installs listeners after this
+                                    // mouse-up has fully unwound.
+                                    this.graph.mode = 'navigate';
+                                    setTimeout(() => { try { this.setMouseMode('navigate'); } catch (e) { } }, 0);
                                 }
                             }
                             this.currentShape = null;
@@ -7162,7 +7224,7 @@ pattern, GGGG | Required`
                                 if (!isFinite(gxi) || !isFinite(gxf)) continue;
                                 if (trackHit(t, (gxi + gxf) / 2, o.y != null ? o.y : 0)) {
                                     const origHi = o.highlight__;
-                                    o.highlight__ = isAmp ? 'cyan' : HL;
+                                    o.highlight__ = isAmp ? 'cyan' : '#ff8c42';   // tropical orange
                                     sel.push({ kind: isAmp ? 'amplicon' : 'oligo', label: (o.name || o.id || (isAmp ? 'amplicon' : 'oligo')), track: t, chr: t.chr, xi: gxi, xf: gxf, ref: o, origHighlight: origHi, inOligos: true });
                                     n++;
                                 }
@@ -7677,7 +7739,7 @@ pattern, GGGG | Required`
                     ctx.textAlign = 'left';
                     ry2 += lrowH;
 
-                    const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#5b8c3a', amplicon: '#7c3aed', layer: '#a86b3e' };
+                    const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#ff8c42', amplicon: '#7c3aed', layer: '#a86b3e' };
                     ctx.font = '600 10px Arial';
                     for (const it of shown) {
                         ctx.fillStyle = dotColor[it.kind] || TXT_MAIN;
@@ -7719,6 +7781,16 @@ pattern, GGGG | Required`
                 const tracks = this.track || [];
                 let oligoCount = 0;
                 for (const t of tracks) if (t.oligos) oligoCount += t.oligos.length;
+
+                // Classify oligos so we can offer selection by type when a mix of
+                // siRNA (two-stranded) and ASO (single-stranded) is present.
+                const isSiRNA = (o) => !!(o && (o.type === 'siRNA' || o.sense || o.guide));
+                const isASO = (o) => !!(o && !isSiRNA(o) && o.type !== 'amplicon');
+                let siRNACount = 0, asoCount = 0;
+                for (const t of tracks) for (const o of (t.oligos || [])) {
+                    if (isSiRNA(o)) siRNACount++; else if (isASO(o)) asoCount++;
+                }
+                const hasBothTypes = siRNACount > 0 && asoCount > 0;
 
                 const openMain = () => show(buildMain());
 
@@ -7769,18 +7841,49 @@ pattern, GGGG | Required`
                     if (this.wake) this.wake();
                 };
 
-                const openOligos = () => {
+                const OLIGO_PAGE = 30;
+                const openOligos = (offset) => {
+                    offset = offset || 0;
+                    // Flatten all oligos (with their track) so we can page through them.
+                    const items = [];
+                    for (const t of tracks) for (const o of (t.oligos || [])) items.push({ o, t });
                     const sub = [{ label: 'Select all oligos (' + oligoCount + ')', click: () => { selectAllOligos(); }, move: () => { } }];
-                    for (const t of tracks) {
-                        for (const o of (t.oligos || [])) {
-                            sub.push({
-                                label: (o.name || o.id || 'oligo'),
-                                click: () => { close(); try { this.addOligoToSelection(o, t); } catch (e) { } zoomToOligo(o, t); },
-                                move: () => { }
-                            });
-                        }
+                    // Only offered when the tracks hold BOTH siRNA and ASO oligos.
+                    if (hasBothTypes) sub.push({ label: 'Select by type ▸', click: () => { openByType(); }, move: () => { } });
+                    for (const { o, t } of items.slice(offset, offset + OLIGO_PAGE)) {
+                        sub.push({
+                            label: (o.name || o.id || 'oligo'),
+                            click: () => { close(); try { this.addOligoToSelection(o, t); } catch (e) { } zoomToOligo(o, t); },
+                            move: () => { }
+                        });
                     }
+                    // Page controls when there are more than OLIGO_PAGE oligos.
+                    if (offset > 0) sub.push({ label: '‹ Previous ' + OLIGO_PAGE, click: () => { openOligos(Math.max(0, offset - OLIGO_PAGE)); }, move: () => { } });
+                    if (offset + OLIGO_PAGE < items.length) sub.push({ label: 'more… (' + (items.length - offset - OLIGO_PAGE) + ')', click: () => { openOligos(offset + OLIGO_PAGE); }, move: () => { } });
                     sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                    show(sub);
+                };
+
+                // Select oligos of a single type (siRNA / ASO). Shown only when both
+                // types are present on the tracks.
+                const openByType = () => {
+                    const items = [];
+                    for (const t of tracks) for (const o of (t.oligos || [])) items.push({ o, t });
+                    const selectList = (pred, typeLabel) => {
+                        close();
+                        let n = 0;
+                        for (const { o, t } of items) {
+                            if (!pred(o)) continue;
+                            try { this.addOligoToSelection(o, t); n++; } catch (e) { }
+                        }
+                        this.setMessage(' Selected ' + n + ' ' + typeLabel + '. ');
+                        if (this.wake) this.wake();
+                    };
+                    const sub = [
+                        { label: 'Select all siRNA (' + siRNACount + ')', click: () => { selectList(isSiRNA, 'siRNA'); }, move: () => { } },
+                        { label: 'Select all ASO (' + asoCount + ')', click: () => { selectList(isASO, 'ASO'); }, move: () => { } },
+                        { label: '‹ Back', click: () => { openOligos(); }, move: () => { } },
+                    ];
                     show(sub);
                 };
 
@@ -7803,7 +7906,7 @@ pattern, GGGG | Required`
                     try {
                         if (!s.ref) continue;
                         if (s.kind === 'oligo') {
-                            if (!s.ref.highlight__) s.ref.highlight__ = '#c0392b';
+                            if (!s.ref.highlight__) s.ref.highlight__ = '#ff8c42';   // tropical orange
                         } else if (s.kind === 'amplicon') {
                             if (s.inOligos) { if (!s.ref.highlight__) s.ref.highlight__ = 'cyan'; }
                             else if (!s.ref.__lassoHi) s.ref.__lassoHi = '#c0392b';
@@ -7828,12 +7931,13 @@ pattern, GGGG | Required`
                         if (s.kind === 'track' && s.ref && s.ref.deselect) s.ref.deselect();
                         else if (s.kind === 'ann' && s.ref && s.ref.deselect) s.ref.deselect();
                         else if (s.kind === 'snp' && s.ref) s.ref.highlight = false;
-                        else if (s.kind === 'oligo' && s.ref) s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false;
+                        else if (s.kind === 'oligo' && s.ref) { s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false; s.ref.selected = false; }
                         else if (s.kind === 'amplicon' && s.ref) {
                             // Amplicon objects (in t.oligos) highlight via highlight__;
                             // ampliconResults hits use __lassoHi.
                             if (s.inOligos) s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false;
                             else s.ref.__lassoHi = ('origHighlight' in s) ? s.origHighlight : false;
+                            s.ref.selected = false;
                         }
                         else if (s.kind === 'layer' && s.ref) {
                             if ('origColor' in s) s.ref.color = s.origColor;
@@ -7853,10 +7957,47 @@ pattern, GGGG | Required`
                     const gxi = isAmp ? +oligo.left.xi : +oligo.xi;
                     const gxf = isAmp ? +oligo.right.xf : +oligo.xf;
                     const origHi = oligo.highlight__;
-                    oligo.highlight__ = isAmp ? 'cyan' : '#c0392b';
+                    oligo.highlight__ = isAmp ? 'cyan' : '#ff8c42';   // tropical orange
                     this.__lassoSelection.push({ kind: isAmp ? 'amplicon' : 'oligo', label: (oligo.name || oligo.id || (isAmp ? 'amplicon' : 'oligo')), track: track, chr: track && track.chr, xi: gxi, xf: gxf, ref: oligo, origHighlight: origHi, inOligos: true });
                 }
+                try { oligo.selected = true; } catch (e) { }   // keep o.selected as the source of truth
                 this.showDisplay = true;
+                if (this.wake) this.wake();
+            }
+
+            // Keep the selection window in sync with the current selection: it becomes
+            // visible whenever anything is selected and disappears when nothing is.
+            // Reconciles the oligo/amplicon entries from each oligo's `selected` flag,
+            // so EVERY selection mechanism (click, lasso, the compound-editor Select
+            // menu) is reflected. Call this after any change to what is selected.
+            syncSelectionWindow() {
+                if (!this.__lassoSelection) this.__lassoSelection = [];
+                // 1) Drop oligo/amplicon entries whose object is no longer selected,
+                //    restoring the object's original highlight.
+                const kept = [];
+                for (const s of this.__lassoSelection) {
+                    if ((s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && !s.ref.selected) {
+                        try {
+                            if (s.kind === 'amplicon' && !s.inOligos) s.ref.__lassoHi = ('origHighlight' in s) ? s.origHighlight : false;
+                            else s.ref.highlight__ = ('origHighlight' in s) ? s.origHighlight : false;
+                        } catch (e) { }
+                        continue;   // remove this entry
+                    }
+                    kept.push(s);
+                }
+                this.__lassoSelection = kept;
+                // 2) Add every selected oligo/amplicon that isn't already in the window.
+                for (const t of (this.track || [])) {
+                    for (const o of (t.oligos || [])) {
+                        if (o && o.selected && !this.__lassoSelection.some((e) => e.ref === o)) {
+                            this.addOligoToSelection(o, t);
+                        }
+                    }
+                }
+                // 3) Visibility follows whether anything at all is selected.
+                const n = this.__lassoSelection.length;
+                this.showDisplay = n > 0;
+                if (!n) this.__selPanelBounds = null;
                 if (this.wake) this.wake();
             }
 
@@ -7912,7 +8053,7 @@ pattern, GGGG | Required`
                 // list (GET {env.offtarget}/genomes), lets the user pick an index and
                 // edit distance, runs the search, and attaches results to the oligos
                 // (o.offtarget / offtargetsymbols) using the existing rendering path.
-                const runOffTargets = (kind) => {
+                const runOffTargets = (kind, options) => {
                     const refs = sel
                         .filter((s) => (s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && (!kind || s.kind === kind))
                         .map((s) => s.ref);
@@ -7921,15 +8062,100 @@ pattern, GGGG | Required`
                     try { window.current = refs[0]; } catch (e) { }   // report panel focus
                     try {
                         Promise.resolve(exec('baja/manchester/menu/run-off-targets.js',
-                            this, this.genegraph_panel_layout, refs)).catch(() => { });
+                            this, this.genegraph_panel_layout, refs, options)).catch(() => { });
                     } catch (e) { this.setMessage(' Could not open off-target tool: ' + e); }
                 };
+                // siRNA present among the selection of the given kind? (enables the
+                // seed-sequence off-target option).
+                const __hasSiRNA = (kind) => sel.some((s) => (s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && (!kind || s.kind === kind) && (s.ref.type === 'siRNA' || s.ref.guide || s.ref.sense));
+                // Clicking "Run off-targets…" when siRNA are present opens this choice:
+                // seed-sequence first, then full-sequence.
+                const openOffTargetChoice = (kind) => {
+                    show([
+                        { label: 'Run seed sequences (siRNA)', click: () => { runOffTargets(kind, { seed: true }); }, move: () => { } },
+                        { label: 'Run full sequence', click: () => { runOffTargets(kind); }, move: () => { } },
+                        { label: '‹ Back', click: () => { openMain(); }, move: () => { } },
+                    ]);
+                };
+                // Run off-targets, offering the seed/full choice when siRNA are present.
+                const startOffTargets = (kind) => { if (__hasSiRNA(kind)) openOffTargetChoice(kind); else runOffTargets(kind); };
 
                 // Per-type submenu — the "options by object type". For types that
                 // have object-specific menu builders (amplicons, oligos — defined in
                 // mouse-over-highlight.js and exposed on the graph), use THOSE items;
                 // otherwise fall back to generic download/remove actions.
                 const objBuilder = (k) => (k === 'amplicon' ? this.__getAmpliconMenuItems : (k === 'oligo' ? this.__getOligoMenuItems : null));
+
+                // --- per-item actions (remove / remove all others / deselect) with
+                //     pagination when a type has many selected items. --------------
+                const PAGE = 25;
+                const spliceRef = (arr, ref) => { if (!Array.isArray(arr)) return false; const i = arr.indexOf(ref); if (i >= 0) { arr.splice(i, 1); return true; } return false; };
+                const dropFromWindow = (p) => {
+                    this.__lassoSelection = (this.__lassoSelection || []).filter((e) => e !== p && e.ref !== p.ref);
+                    if (!this.__lassoSelection.length) { this.__selPanelBounds = null; this.showDisplay = false; }
+                };
+                // Delete the underlying object (oligo/amplicon/annotation/snp) from its
+                // track and drop it from the selection window. Tracks are never deleted.
+                const removeObject = (p) => {
+                    const t = p.track, ref = p.ref;
+                    if (t && ref) {
+                        if (p.kind === 'oligo' || p.kind === 'amplicon') {
+                            spliceRef(t.oligos, ref);
+                            if (t.ampliconResults) { spliceRef(t.ampliconResults, ref); if (t.ampliconResults.hits) spliceRef(t.ampliconResults.hits, ref); }
+                        } else if (p.kind === 'ann') spliceRef(t.annotations, ref);
+                        else if (p.kind === 'snp') spliceRef(t.snpindels, ref);
+                    }
+                    dropFromWindow(p);
+                    try { this.rescale(); } catch (e) { }
+                    if (this.wake) this.wake();
+                };
+                // Remove from the selection only (restore highlight / clear selected),
+                // leaving the object on the track.
+                const deselectEntry = (p) => {
+                    try {
+                        if (p.kind === 'oligo' && p.ref) { p.ref.highlight__ = ('origHighlight' in p) ? p.origHighlight : false; p.ref.selected = false; }
+                        else if (p.kind === 'amplicon' && p.ref) { if (p.inOligos) p.ref.highlight__ = ('origHighlight' in p) ? p.origHighlight : false; else p.ref.__lassoHi = ('origHighlight' in p) ? p.origHighlight : false; p.ref.selected = false; }
+                        else if (p.kind === 'track' && p.ref && p.ref.deselect) p.ref.deselect();
+                        else if (p.kind === 'ann' && p.ref && p.ref.deselect) p.ref.deselect();
+                        else if (p.kind === 'snp' && p.ref) p.ref.highlight = false;
+                    } catch (e) { }
+                    dropFromWindow(p);
+                    if (this.wake) this.wake();
+                };
+                const removeAllOthers = (p, k) => {
+                    const others = sel.filter((s) => s.kind === k && s !== p);
+                    for (const o of others) removeObject(o);
+                    this.setMessage(' Removed ' + others.length + ' other ' + (kindLabels[k] || k) + '. ');
+                };
+                // Action menu for one picked item; backFn re-opens the picker page.
+                const itemMenu = (p, k, openOne, backFn) => {
+                    const single = (kindLabels[k] || k).replace(/s$/, '');
+                    const list = [];
+                    if (openOne) list.push({ label: 'Open ' + single + ' menu', click: () => { openOne(p); }, move: () => { } });
+                    if (k !== 'track') list.push({ label: 'Remove', click: () => { close(); removeObject(p); this.setMessage(' Removed 1 ' + single + '. '); }, move: () => { } });
+                    list.push({ label: 'Remove all others', click: () => { close(); removeAllOthers(p, k); }, move: () => { } });
+                    list.push({ label: 'Deselect', click: () => { deselectEntry(p); backFn(); }, move: () => { } });
+                    list.push({ label: '‹ Back', click: () => { backFn(); }, move: () => { } });
+                    return list;
+                };
+                // One page of pick entries (PAGE per page), with More…/Previous paging.
+                const renderPickPage = (topItems, pickEntries, offset, backItem) => {
+                    const list = topItems.slice();
+                    for (const e of pickEntries.slice(offset, offset + PAGE)) list.push(e);
+                    const next = offset + PAGE;
+                    if (offset > 0) list.push({ label: '‹ Previous ' + PAGE, click: () => { show(renderPickPage(topItems, pickEntries, Math.max(0, offset - PAGE), backItem)); }, move: () => { } });
+                    if (next < pickEntries.length) list.push({ label: 'More… (' + (pickEntries.length - next) + ')', click: () => { show(renderPickPage(topItems, pickEntries, next, backItem)); }, move: () => { } });
+                    list.push(backItem);
+                    return list;
+                };
+                // Paginated picker for a type: each pick opens its per-item action menu.
+                const showTypePicker = (picks, k, openOne, topItems) => {
+                    const backItem = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
+                    const reopen = () => showTypePicker(picks, k, openOne, topItems);
+                    const pickEntries = picks.map((p) => ({ label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen)); }, move: () => { } }));
+                    show(renderPickPage(topItems || [], pickEntries, 0, backItem));
+                };
+
                 const openTypeMenu = (k) => {
                     const kl = kindLabels[k] || k;
                     // Tracks: pick a SPECIFIC selected track, then show that track's
@@ -7939,12 +8165,7 @@ pattern, GGGG | Required`
                         const picks = sel.filter((s) => s.kind === 'track' && s.trackMenu);
                         const openOne = (p) => { show((p.trackMenu || []).concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); };
                         if (picks.length === 1) { openOne(picks[0]); return; }
-                        if (picks.length > 1) {
-                            const picker = picks.map((p) => ({ label: (p.label || 'track'), click: () => { openOne(p); }, move: () => { } }));
-                            picker.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                            show(picker);
-                            return;
-                        }
+                        if (picks.length > 1) { showTypePicker(picks, 'track', openOne, []); return; }
                     }
                     // Annotations (e.g. exon features): pick a specific selected
                     // annotation, then show ITS type-specific menu (the exon menu that
@@ -7965,12 +8186,7 @@ pattern, GGGG | Required`
                             }
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
-                        if (picks.length > 1) {
-                            const picker = picks.map((p) => ({ label: (p.label || 'annotation'), click: () => { openOne(p); }, move: () => { } }));
-                            picker.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                            show(picker);
-                            return;
-                        }
+                        if (picks.length > 1) { showTypePicker(picks, 'ann', openOne, []); return; }
                     }
                     // Oligos: pick a SPECIFIC selected oligo, then open its per-oligo
                     // (ASO) menu — moved here out of the hover menu.
@@ -7980,30 +8196,45 @@ pattern, GGGG | Required`
                             close();
                             try { Promise.resolve(exec('baja/manchester/menu/menu-for-single-aso.js', this, p.ref, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                         };
-                        const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('oligo'); }, move: () => { } }];
-                        // Score labels are off by default; toggle them here. Covers the
-                        // amplicon score (track.showScore) and the attribution-layer
-                        // score (layer.showScore) in one action.
-                        const attrScoreLayers = [];
-                        for (const t of (this.track || [])) {
-                            for (const l of (t.track_layers || [])) {
-                                if (l && ('showScore' in l || l.attribution_site != null || l.attribution_type != null)) attrScoreLayers.push(l);
-                            }
-                        }
-                        const anyScore = (this.track || []).some((t) => t.showScore) || attrScoreLayers.some((l) => l.showScore);
+                        // Type-level operations that act on ALL selected oligos, listed
+                        // first — before the per-oligo picks below.
+                        const sub = [];
                         sub.push({
-                            label: (anyScore ? 'Hide score labels' : 'Show score labels'),
-                            click: () => {
-                                close();
-                                const on = !anyScore;
-                                for (const t of (this.track || [])) t.showScore = on;
-                                for (const l of attrScoreLayers) l.showScore = on;
-                                this.setMessage(on ? ' Showing score labels ' : ' Hiding score labels ');
-                                if (this.wake) this.wake();
+                            label: 'Delete all selected…',
+                            click: async () => {
+                                const targets = picks.slice();
+                                if (!targets.length) return;
+                                const confirm = await exec('baja/lib/confirm.js',
+                                    'Delete ' + targets.length + ' selected oligo(s)? This removes them from the track.',
+                                    async () => {
+                                        close();
+                                        for (const p of targets) removeObject(p);
+                                        this.setMessage(' Deleted ' + targets.length + ' oligo(s). ');
+                                    });
+                                showModal(confirm);
                             }, move: () => { }
                         });
-                        // Oligo attribute labels (getDisplayLabelValue) are hidden by
-                        // default; toggle them globally via graph.showOligoLabels.
+                        sub.push({
+                            label: 'Deselect all',
+                            click: () => {
+                                const targets = picks.slice();
+                                close();
+                                for (const p of targets) deselectEntry(p);
+                                this.setMessage(' Deselected ' + targets.length + ' oligo(s). ');
+                            }, move: () => { }
+                        });
+                        // With siRNA present this opens a seed-vs-full choice; otherwise
+                        // it runs the full-sequence search directly.
+                        sub.push({ label: 'Run off-targets…', click: () => { startOffTargets('oligo'); }, move: () => { } });
+                        // Export the selected oligos + their genomic coords + off-target hits as CSV.
+                        sub.push({
+                            label: 'Download off-targets (CSV): ' + picks.length + ' selected',
+                            click: () => {
+                                const refs = picks.map((p) => p.ref).filter(Boolean);
+                                close();
+                                try { exec('baja/manchester/menu/download-off-targets.js', this, this.genegraph_panel_layout, refs); } catch (e) { this.setMessage(' Could not export CSV: ' + e); }
+                            }, move: () => { }
+                        });
                         const attrsOn = !!(this.graph && this.graph.showOligoLabels);
                         sub.push({
                             label: (attrsOn ? 'Hide attribute labels' : 'Show attribute labels'),
@@ -8016,11 +8247,12 @@ pattern, GGGG | Required`
                         });
                         if (picks.length === 1) {
                             sub.push({ label: 'Oligo menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                            sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                            show(sub);
                         } else {
-                            for (const p of picks) sub.push({ label: (p.label || 'oligo'), click: () => { openOne(p); }, move: () => { } });
+                            // Many oligos: paginated picker; each opens remove/others/deselect.
+                            showTypePicker(picks, 'oligo', openOne, sub);
                         }
-                        sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                        show(sub);
                         return;
                     }
                     // Amplicons: pick a SPECIFIC selected amplicon, then show its own
@@ -8032,11 +8264,11 @@ pattern, GGGG | Required`
                         const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } }];
                         if (picks.length === 1) {
                             sub.push({ label: 'Amplicon menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                            sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                            show(sub);
                         } else {
-                            for (const p of picks) sub.push({ label: (p.label || 'amplicon'), click: () => { openOne(p); }, move: () => { } });
+                            showTypePicker(picks, 'amplicon', openOne, sub);
                         }
-                        sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                        show(sub);
                         return;
                     }
                     const builder = objBuilder(k);
@@ -8075,16 +8307,12 @@ pattern, GGGG | Required`
                         const kl = kindLabels[k] || k;
                         menu.push({ label: kl + ' (' + count + ') ▸', click: () => { openTypeMenu(k); }, move: () => { } });
                     }
-                    // Off-target analysis for any selected oligos/amplicons.
-                    if (sel.some((s) => s.kind === 'oligo' || s.kind === 'amplicon')) {
-                        menu.push({ label: 'Run off-targets…', click: () => { runOffTargets(); }, move: () => { } });
-                    }
                     // Whole-selection actions below the per-type groups.
                     menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
                     menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });
                     menu.push({ label: 'Remove all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
                     menu.push({ label: 'Keep only selected (delete others)', click: () => { close(); this.removeSelection(true); }, move: () => { } });
-                    menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; if (this.wake) this.wake(); }, move: () => { } });
+                    menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; this.showDisplay = false; if (this.wake) this.wake(); }, move: () => { } });
                     return menu;
                 };
 
@@ -8128,7 +8356,7 @@ pattern, GGGG | Required`
                     }
                 }
                 this.__lassoSelection = all.filter((s) => s.kind !== kind);
-                if (!this.__lassoSelection.length) this.__selPanelBounds = null;
+                if (!this.__lassoSelection.length) { this.__selPanelBounds = null; this.showDisplay = false; }
                 const _kl = { ann: 'annotation(s)', snp: 'SNP/indel(s)', oligo: 'oligo(s)', amplicon: 'amplicon(s)', layer: 'layer item(s)' }[kind] || (kind + '(s)');
                 this.setMessage(' Removed ' + removed + ' ' + _kl + '. ');
                 try { this.rescale(); } catch (e) { }
@@ -8274,7 +8502,7 @@ pattern, GGGG | Required`
 
                 ctx.save();
 
-                ctx.font = `${fontSize}px "Courier New", monospace`;
+                ctx.font = `600 ${fontSize}px "Segoe UI", system-ui, -apple-system, Arial, sans-serif`;
                 ctx.textBaseline = 'top';
 
                 const metrics = ctx.measureText(text);
@@ -8307,13 +8535,13 @@ pattern, GGGG | Required`
                     ctx.closePath();
                 };
 
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+                ctx.shadowColor = 'rgba(8, 22, 38, 0.45)';
                 ctx.shadowBlur = 14;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 6;
 
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.fillStyle = 'rgba(14, 18, 14, 0.92)';
+                ctx.fillStyle = 'rgba(10, 37, 64, 0.96)';   // tropical navy card
                 ctx.fill();
 
                 ctx.shadowColor = 'transparent';
@@ -8322,7 +8550,7 @@ pattern, GGGG | Required`
                 ctx.shadowOffsetY = 0;
 
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.strokeStyle = 'rgba(90, 255, 120, 0.35)';
+                ctx.strokeStyle = 'rgba(26, 163, 189, 0.90)';   // cyan border
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
@@ -8331,26 +8559,13 @@ pattern, GGGG | Required`
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                ctx.shadowColor = 'rgba(60, 255, 120, 0.55)';
+                ctx.shadowColor = 'rgba(26, 163, 189, 0.55)';   // cyan glow
                 ctx.shadowBlur = 10;
-                ctx.fillStyle = '#6CFF9A';
+                ctx.fillStyle = '#eaf6f9';                       // light text
                 ctx.fillText(text, textX, liftedBoxY + paddingY);
 
                 ctx.shadowColor = 'transparent';
                 ctx.shadowBlur = 0;
-                ctx.save();
-                roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.clip();
-                ctx.globalAlpha = 0.07;
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 1;
-                for (let y = liftedBoxY; y < liftedBoxY + boxH; y += 3) {
-                    ctx.beginPath();
-                    ctx.moveTo(boxX, y);
-                    ctx.lineTo(boxX + boxW, y);
-                    ctx.stroke();
-                }
-                ctx.restore();
 
                 ctx.restore();
             }
@@ -8531,8 +8746,9 @@ pattern, GGGG | Required`
                             cardX = Math.max(8, Math.min(cardX, cw - cardW - 8));
                             cardY = Math.max(8, Math.min(cardY, ch - cardH - 8));
 
-                            // Cyan glow behind the card (replaces the old left accent bar).
-                            ctx.shadowColor = 'rgba(26,163,189,0.90)';
+                            // Glow behind the card — ORANGE for error messages, cyan otherwise.
+                            const __msgErr = !!this.messageIsError;
+                            ctx.shadowColor = __msgErr ? 'rgba(255,140,66,0.95)' : 'rgba(26,163,189,0.90)';
                             ctx.shadowBlur = 20;
                             ctx.shadowOffsetX = 0;
                             ctx.shadowOffsetY = 0;
@@ -8543,7 +8759,7 @@ pattern, GGGG | Required`
 
                             this.resetCanvasEffects(ctx);
                             ctx.lineWidth = 1;
-                            ctx.strokeStyle = '#1aa3bd';             // thin cyan border
+                            ctx.strokeStyle = __msgErr ? '#ff8c42' : '#1aa3bd';   // orange (error) / cyan border
                             this.roundRectPath(ctx, cardX, cardY, cardW, cardH, 9);
                             ctx.stroke();
 

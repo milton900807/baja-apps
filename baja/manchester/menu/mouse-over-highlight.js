@@ -4768,7 +4768,7 @@ function (graph, genegraph_panel_layout) {
                             if (!graph.__lassoSelection) graph.__lassoSelection = [];
                             if (graph.__lassoSelection.some((e) => e.ref === o)) continue;
                             const origHi = o.highlight__;
-                            o.highlight__ = isAmp ? 'cyan' : '#c0392b';
+                            o.highlight__ = isAmp ? 'cyan' : '#ff8c42';   // tropical orange
                             graph.__lassoSelection.push({
                                 kind: isAmp ? 'amplicon' : 'oligo',
                                 label: (o.name || o.id || (isAmp ? 'amplicon' : 'oligo')),
