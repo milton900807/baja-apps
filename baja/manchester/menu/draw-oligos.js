@@ -95,8 +95,10 @@ function (graph) {
                             'y': (selectedTrack.tgraph.ymax - currentY)
                         }
                         let compound = await Biopolymer.generateCompound(chemistryObject, bioObject)
-                        let ycoord = selectedTrack.tgraph.ymax - ((selectedTrack.tgraph.Ywc(selectedTrack.tgraph.height - y)));
-                        compound.y = ycoord
+                        // compound.y is already set from bioObject.y — the Y captured at
+                        // the track PRESS (currentY). Do NOT recompute it from the menu
+                        // item's click coordinate, which is where the menu opened, not
+                        // where the user pressed on the track.
                         if (compound)
                             selectedTrack.addOligo(compound)
 

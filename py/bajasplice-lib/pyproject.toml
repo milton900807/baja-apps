@@ -1,0 +1,32 @@
+[project]
+name = "bajasplice"
+version = "0.1.0"
+description = "Sequence models for splice sites, exon inclusion, competing splice sites and TDP-43 cryptic exons"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "torch",
+    "pyfaidx",
+    "requests",
+]
+
+[project.optional-dependencies]
+plots = ["matplotlib"]
+dev = ["pytest"]
+
+[project.scripts]
+bajasplice = "bajasplice.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bajasplice*"]
+
+[tool.setuptools.package-data]
+"bajasplice.weights" = ["*.pt"]
+"bajasplice.data" = ["*.sqlite"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

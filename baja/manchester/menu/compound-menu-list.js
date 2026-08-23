@@ -163,6 +163,21 @@ function (track, graph, genegraph_panel_layout) {
     let menuList = [
 
         {
+            label: 'Use Design Rules',
+            click: () => {
+                graph.hideMenu();
+                if (!graph.props || !graph.props.selected_chemistry) {
+                    infoPrompt(" Choose a chemistry first: (Tools=>Chemistry) ");
+                    graph.setMessage("Choose a chemistry first. (Tools->Chemistry)");
+                    return;
+                }
+                // Apply the chemistry's design rules across the selected sequence,
+                // designing directly on this track (no interactive track pick).
+                exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout, null, track);
+            },
+            move: () => { }
+        },
+        {
             label: 'Tile compounds end-to-end',
             click: () => {
                 let editor_;

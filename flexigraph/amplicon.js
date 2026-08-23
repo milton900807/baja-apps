@@ -21,6 +21,36 @@ function () {
             let uniqueId = timestamp * 1000 + randomPart;
             return uniqueId;
         }
+
+        // Normalize a primer/probe to plain A/C/G/T (upper, U->T, strip anything else).
+        function cleanBases(seq) {
+            return ('' + (seq || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
+        }
+
+        // GC content as a percentage of the A/C/G/T bases.
+        function gcContent(seq) {
+            let s = cleanBases(seq);
+            if (!s.length) return null;
+            let gc = 0;
+            for (let c of s) if (c === 'G' || c === 'C') gc++;
+            return (gc / s.length) * 100;
+        }
+
+        // Melting temperature (deg C). Wallace rule for short oligos (< 14 nt),
+        // the basic GC formula (Marmur/Doty, salt-adjusted 64.9/41) for longer ones.
+        function meltingTemp(seq) {
+            let s = cleanBases(seq);
+            let n = s.length;
+            if (!n) return null;
+            let gc = 0, at = 0;
+            for (let c of s) {
+                if (c === 'G' || c === 'C') gc++;
+                else at++;
+            }
+            if (n < 14) return 2 * at + 4 * gc;
+            return 64.9 + 41 * (gc - 16.4) / n;
+        }
+
         class Amplicon {
             left;
             right;
@@ -161,6 +191,16 @@ function () {
             }
 
             async draw(graph, tgraph, y) {
+                // Recompute GC% and Tm for each primer/probe on every redraw so they
+                // always reflect the current sequence (e.g. after edits or trimming).
+                for (let part of [this.left, this.right, this.mid]) {
+                    if (!part) continue;
+                    let seq = part.sequence || part.synthesisSequence;
+                    let gc = gcContent(seq);
+                    let tm = meltingTemp(seq);
+                    if (gc != null) part.gc = gc;
+                    if (tm != null) part.tm = tm;
+                }
                 if (graph && graph.canvas) {
                     let ctx = graph.canvas.getCTX();
                     ctx.shadowColor = "#000000";

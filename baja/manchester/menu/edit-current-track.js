@@ -63,20 +63,10 @@ function (graph, genegraph_panel_layout, selectedTrack) {
                         prompt(" No sequence found ")
                     } else {
                         let track = selectedTrack.createTrackFromAnnotation('CDNA')
-
-                        if (selectedTrack.snpindels.length > 0) {
-
-                            track.liftSnpindels();
-                            track.targetPhase = selectedTrack.targetPhase;
-                        }
-                        if (selectedTrack.oligos && selectedTrack.oligos.length > 0) {
-                            track.liftCompounds();
-                        }
-                        if (selectedTrack.plots && selectedTrack.plots.length > 0) {
-                            track.liftPlots();
-                        }
-
+                        track.targetPhase = selectedTrack.targetPhase;
                         graph.track.push(track);
+                        // Data is mirrored from the parent by the per-draw diff sync.
+                        try { track.syncFromParent(); } catch (e) { }
                     }
                 },
                 move: () => {
@@ -121,20 +111,10 @@ function (graph, genegraph_panel_layout, selectedTrack) {
                                 prompt(" No sequence found ")
                             } else {
                                 let track = selectedTrack.createTrackFromAnnotation('CDNA')
-                                if (selectedTrack.snpindels.length > 0) {
-
-                                    track.liftSnpindels();
-                                    track.targetPhase = selectedTrack.targetPhase;
-                                }
-
-                                if (selectedTrack.oligos && selectedTrack.oligos.length > 0) {
-                                    track.liftCompounds();
-                                }
-                                if (selectedTrack.plots && selectedTrack.plots.length > 0) {
-                                    track.liftPlots();
-                                }
-
+                                track.targetPhase = selectedTrack.targetPhase;
                                 graph.track.push(track);
+                                // Data is mirrored from the parent by the per-draw diff sync.
+                                try { track.syncFromParent(); } catch (e) { }
                                 graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                 graph.deselectAllTracks()
                                 track.select();

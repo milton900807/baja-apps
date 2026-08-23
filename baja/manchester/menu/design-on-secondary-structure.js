@@ -11,6 +11,11 @@ function (graph) {
     let complete = false;
     graph.clearMouseListeners();
     graph.selectOff();
+    // Hand the mouse back to the normal hover behavior once the design is applied.
+    const __restoreHover = () => {
+        try { graph.clearMouseListeners(); } catch (e) { }
+        try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { }
+    };
     let selected = null;
     exec('baja/chem/biopolymer.js').then(Biopolymer => {
         graph.addMouseDownListener(async (x, y) => {
@@ -185,6 +190,7 @@ function (graph) {
 
                                                                     graph.hideMenu();
                                                                     await hideAllModal();
+                                                                    __restoreHover();
                                                                 })
                                                             },
                                                             {

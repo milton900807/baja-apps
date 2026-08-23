@@ -104,14 +104,22 @@ function (graph, genegraph_panel_layout) {
                                             {
                                                 'label': 'Draw compound on track', 'ionfunction': createIonFunction(async () => {
 
+                                                    // Enter draw mode: let the user click a track to draw the compound.
+                                                    const startDraw = () => {
+                                                        graph.setMouseMode('navigate')
+                                                        graph.setMessage('Select location on track')
+                                                        exec('baja/manchester/menu/draw-oligos.js', graph)
+                                                    };
+
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
+                                                        // No chemistry yet: open the chemistry selection list first,
+                                                        // then drop straight into draw mode once one is chosen.
+                                                        graph.setMessage('Select a chemistry to draw...')
+                                                        await exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { startDraw(); })
                                                         return;
                                                     }
 
-                                                    graph.setMouseMode('navigate')
-                                                    graph.setMessage('Select location on track')
-                                                    await exec('baja/manchester/menu/draw-oligos.js', graph)
+                                                    startDraw();
                                                 })
                                             },
 
@@ -119,14 +127,15 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile on track location..', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
-                                                        return;
+                                                        // No chemistry yet: show the chemistry list, then continue.
+                                                        await new Promise((res) => { exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { res(); }); });
+                                                        if (!graph.props.selected_chemistry) return;
                                                     }
 
                                                     graph.pushOntoHistory()
 
                                                     graph.clearMouseListeners();
-                                                    graph.setMessage('Select a point on a track')
+                                                    graph.setMouseMode('msg: Select a point on a track')
                                                     exec('baja/manchester/menu/paint-oligos.js', graph)
                                                 }),
                                             }, {
@@ -134,13 +143,21 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile across selected sequence...', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt(" Please select a chemistry.")
-                                                        return;
+                                                        // No chemistry yet: show the chemistry list, then continue.
+                                                        graph.setMessage(' Select a chemistry first... ');
+                                                        await new Promise((res) => { exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { res(); }); });
+                                                        if (!graph.props.selected_chemistry) return;
                                                     }
                                                     graph.pushOntoHistory()
                                                     setTimeout(async () => {
 
-                                                        exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                        // If no sequence is selected yet, enter sequence-selection mode.
+                                                        if (!graph.track.some((t) => t.markend > t.markstart)) {
+                                                            exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                            return;
+                                                        }
+                                                        // A sequence is already selected: prompt with the compound menu
+                                                        // options for each selected sequence.
                                                         for (let track of graph.track) {
                                                             if (track.markend > track.markstart) {
                                                                 let currentSequence = track.getHighlightedSequence();
@@ -155,6 +172,8 @@ function (graph, genegraph_panel_layout) {
                                                                 }
                                                             }
                                                         }
+                                                        // Reset the mouse to normal hover behavior.
+                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
                                                     }, 100)
                                                 })
@@ -187,8 +206,10 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile on secondary structure', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
-                                                        return;
+                                                        // No chemistry yet: show the chemistry list, then continue.
+                                                        graph.setMessage(' Select a chemistry first... ');
+                                                        await new Promise((res) => { exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { res(); }); });
+                                                        if (!graph.props.selected_chemistry) return;
                                                     }
                                                     graph.pushOntoHistory()
 
@@ -323,8 +344,10 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Selected sequence secondary structure', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
-                                                        return;
+                                                        // No chemistry yet: show the chemistry list, then continue.
+                                                        graph.setMessage(' Select a chemistry first... ');
+                                                        await new Promise((res) => { exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { res(); }); });
+                                                        if (!graph.props.selected_chemistry) return;
                                                     }
                                                     let Biopolymer = await exec('baja/chem/biopolymer.js')
                                                     let progressBar;
@@ -440,17 +463,28 @@ function (graph, genegraph_panel_layout) {
                                             },
                                             {
                                                 'label': 'Design by rules (tile & score)', 'ionfunction': createIonFunction(() => {
-                                                    // Prompt (center menu) for the scope of the rule-based design.
-                                                    graph.showMenu([
-                                                        {
-                                                            label: 'Design on all tracks', move: () => { },
-                                                            click: () => { graph.hideMenu(); exec('baja/manchester/menu/design-all-transcripts.js', graph, genegraph_panel_layout); }
-                                                        },
-                                                        {
-                                                            label: 'Let me select the track', move: () => { },
-                                                            click: () => { graph.hideMenu(); exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout); }
-                                                        },
-                                                    ], 0, 0, 320);
+                                                    // Center menu for the scope of the rule-based design. The design
+                                                    // scripts derive their rules from the selected chemistry.
+                                                    const showDesignScopeMenu = () => {
+                                                        graph.showMenu([
+                                                            {
+                                                                label: 'Design on all tracks', move: () => { },
+                                                                click: () => { graph.hideMenu(); exec('baja/manchester/menu/design-all-transcripts.js', graph, genegraph_panel_layout); }
+                                                            },
+                                                            {
+                                                                label: 'Let me select the track', move: () => { },
+                                                                click: () => { graph.hideMenu(); exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout); }
+                                                            },
+                                                        ], 0, 0, 320);
+                                                    };
+                                                    if (!graph.props.selected_chemistry) {
+                                                        // No chemistry yet: show the chemistry selection list first, then
+                                                        // design using the rules of whichever chemistry is chosen.
+                                                        graph.setMessage('Select a chemistry to design with...');
+                                                        exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { showDesignScopeMenu(); });
+                                                        return;
+                                                    }
+                                                    showDesignScopeMenu();
                                                 })
                                             }
 

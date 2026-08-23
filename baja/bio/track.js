@@ -16,6 +16,7 @@ return new Promise(async (resolve, reject) => {
   let Oligo = await exec("flexigraph/oligo.js");
   let SIRNA = await exec("flexigraph/sirna.js");
   let Barchart = await exec("baja/bio/barchart-track.js");
+  let Amplicon = await exec("flexigraph/amplicon.js");
 
   // --- Genomics browser palette (IGV / Ensembl / UCSC aesthetic) ---
   const GFONT_STACK = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
@@ -24,6 +25,7 @@ return new Promise(async (resolve, reject) => {
   const GX_INK = '#0a2540'; // text
   const GX_PAPER = '#ffffff'; // background
   const GX_GUIDE = 'rgba(120,130,145,0.45)'; // faint guide/tick lines
+  const GX_ARROW = 'rgba(120,130,145,0.22)'; // lighter still — track direction arrows
   const GX_RING = '#123049'; // outlines
   const GX_EXON = 'rgba(44,90,160,0.85)'; // exon / cds fill
   const GX_EXON_EDGE = '#1b4a7a'; // exon / cds edge
@@ -208,11 +210,16 @@ return new Promise(async (resolve, reject) => {
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
 
+    ctx.lineWidth = 1;
+
+
     ctx.beginPath();
     ctx.moveTo(
       screenX,
       graph.grid.Y(yTickWorld0)
     );
+
+
     ctx.lineTo(
       screenX,
       graph.grid.Y(yTickWorld1)
@@ -3002,6 +3009,25 @@ return new Promise(async (resolve, reject) => {
       }
     }
 
+    // Genomic coordinate for a local (cDNA) index, computed EXON-ROOTED from the exon
+    // annotations (each carries local xi/xf and genomic gxi/gxf). Used by child tracks to
+    // label genomic positions. Falls back to trackRef.genomeMap, then a linear estimate.
+    genomicAt(localIndex) {
+      const anns = this.annotations || [];
+      for (const a of anns) {
+        if (!a || String(a.type).toLowerCase() !== 'exon') continue;
+        if (a.gxi == null || a.xi == null || a.xf == null) continue;
+        const lLo = Math.min(+a.xi, +a.xf), lHi = Math.max(+a.xi, +a.xf);
+        if (localIndex >= lLo && localIndex <= lHi) {
+          const gLo = (a.gxf != null) ? Math.min(+a.gxi, +a.gxf) : +a.gxi;
+          return gLo + (localIndex - lLo);
+        }
+      }
+      const gm = this.trackRef && this.trackRef.genomeMap;
+      if (gm && gm.length && gm[localIndex] != null) return gm[localIndex];
+      return (this.tgraph ? this.tgraph.xmin : this.xi) + localIndex;
+    }
+
     getGenomicIndexForCDNAIndex(cdnaIndex) {
       let mut = this.parseMutationSyntax(cdnaIndex);
 
@@ -3168,29 +3194,38 @@ return new Promise(async (resolve, reject) => {
       let genomeIndex = [];
       let sindex = 0;
 
-      for (let a of sorted_annotations) {
-        if (a.type === _annotation_tag) {
-          const start = Math.floor(a.xi - this.xi);
-          const end = Math.floor(a.xf - this.xi) + 1; // inclusive -> exclusive
+      const exons = sorted_annotations.filter((a) => a.type === _annotation_tag);
 
-          let tt = this.sequence.substring(start, end);
+      // this.sequence is either the full (intron-containing) sequence or the
+      // exon-collapsed cDNA. If it's the cDNA, exon offsets (a.xi - this.xi) include
+      // introns and overshoot after the first exon (only one exon comes through) —
+      // detect that and index the cDNA by cumulative exon length instead.
+      const totalExonLen = exons.reduce((s, a) => s + Math.max(0, Math.floor(a.xf - a.xi) + 1), 0);
+      const spanLen = Math.abs(Math.floor(this.xf - this.xi));
+      const isCdna = Math.abs(this.sequence.length - totalExonLen) <= Math.abs(this.sequence.length - spanLen);
 
-          if (tt && tt.length > 0) {
-            let tr = new Annotation(a.type, a.name, seq.length, seq.length + tt.length - 1);
+      let cum = 0;
+      for (let a of exons) {
+        const len = Math.max(0, Math.floor(a.xf - a.xi) + 1);   // inclusive -> exclusive
+        const start = isCdna ? cum : Math.max(0, Math.floor(a.xi - this.xi));
+        let tt = this.sequence.substring(start, start + len);
+        cum += len;
 
-            tr.gxi = a.gxi;
-            tr.gxf = a.gxf;
+        if (tt && tt.length > 0) {
+          let tr = new Annotation(a.type, a.name, seq.length, seq.length + tt.length - 1);
+          // Carry genomic coords onto the child annotation. On a genomic parent the
+          // annotation's own xi/xf are genomic, so fall back to them when gxi/gxf are unset.
+          tr.gxi = (a.gxi != null ? a.gxi : a.xi);
+          tr.gxf = (a.gxf != null ? a.gxf : a.xf);
+          seq += tt;
 
-            seq += tt;
-
-            for (let aindex = start; aindex < end; aindex++) {
-              seqindex[sindex] = aindex;
-              genomeIndex[sindex] = this.xi + aindex;
-              sindex++;
-            }
-
-            _annotations.push(tr);
+          const base = Math.floor(a.xi - this.xi);
+          for (let i = 0; i < tt.length; i++) {
+            seqindex[sindex] = base + i;
+            genomeIndex[sindex] = this.xi + base + i;
+            sindex++;
           }
+          _annotations.push(tr);
         }
       }
 
@@ -3216,15 +3251,16 @@ return new Promise(async (resolve, reject) => {
         return tr;
       };
 
+      // Carry over EVERY non-exon annotation, lifted to cDNA coords, and make sure each
+      // one keeps its genomic coordinates (gxi/gxf) so the mRNA annotations can always
+      // be related back to the genome (drives child<->parent sync and reporting).
       for (let a of sorted_annotations) {
-        const type = a.type.toLowerCase();
-
-        if (type === "translation" || type === "tss" || type === "stop") {
-          let liftover = getx(a, _annotations);
-
-          if (liftover) {
-            _annotations.push(liftover);
-          }
+        if (a.type === _annotation_tag) continue;   // exons already added above
+        let liftover = getx(a, _annotations);
+        if (liftover && liftover.xi != null && liftover.xf != null) {
+          if (liftover.gxi == null) liftover.gxi = (a.gxi != null ? a.gxi : a.xi);
+          if (liftover.gxf == null) liftover.gxf = (a.gxf != null ? a.gxf : a.xf);
+          _annotations.push(liftover);
         }
       }
 
@@ -3234,8 +3270,19 @@ return new Promise(async (resolve, reject) => {
       track.chr = this.chr;
       track.annotations = _annotations;
 
+      // Carry over the genomic span for the mRNA/cDNA track itself. Local xi/xf stay
+      // 0..len (cDNA rendering depends on that); gxi/gxf hold the genomic coordinates,
+      // taken from the transcript's exon span.
+      let gmin = null, gmax = null;
+      for (let tr of _annotations) {
+        if (tr.gxi != null) gmin = (gmin == null) ? tr.gxi : Math.min(gmin, tr.gxi);
+        if (tr.gxf != null) gmax = (gmax == null) ? tr.gxf : Math.max(gmax, tr.gxf);
+      }
+      track.gxi = (gmin != null ? gmin : (this.gxi != null ? this.gxi : this.xi));
+      track.gxf = (gmax != null ? gmax : (this.gxf != null ? this.gxf : this.xf));
+
       track.tgraph.xi = this.tgraph.xi;
-      track.tgraph.yi = this.tgraph.yi + Math.abs(this.tgraph.height) + 1;
+      track.tgraph.yi = this.tgraph.yi + Math.abs(this.tgraph.height) + 2;
       track.track_type = "CDNA";
       track.tgraph.width = seq.length;
       track.tgraph.rescale();
@@ -4044,24 +4091,47 @@ return new Promise(async (resolve, reject) => {
     }
 
     liftLayers() {
-      let mapConverter = {};
-      if (this.trackRef.genomeMap && this.trackRef.genomeMap.length > 0) {
-        this.trackRef.genomeMap.forEach((element, index) => {
-          mapConverter[element] = index;
-        });
-        if (this.trackRef.track.track_layers && this.trackRef.track.track_layers.length > 0) {
-          for (let tl of this.trackRef.track.track_layers) {
-            let ttl = Object.assign(new TrackLayer(), tl);
-            let interval = [];
-            for (let sid of tl.intervals) {
-              if (this.trackRef.genomeMap.includes(sid.x1) && this.trackRef.genomeMap.includes(sid.x2)) {
-                interval.push({ x1: mapConverter[sid.x1], x2: mapConverter[sid.x2], t: sid.t });
-              }
-            }
-            ttl.intervals = interval;
-            this.addLayer(ttl);
+      let mc = {};
+      if (!(this.trackRef.genomeMap && this.trackRef.genomeMap.length > 0)) return;
+      this.trackRef.genomeMap.forEach((element, index) => { mc[element] = index; });
+      const inMap = (g) => mc[g] !== undefined;
+      const rm = (g) => mc[g];
+      const layers = this.trackRef.track.track_layers;
+      if (!layers || !layers.length) return;
+      const childLen = (this.sequence && this.sequence.length) ? this.sequence.length : Math.abs(this.xf - this.xi);
+      for (let tl of layers) {
+        try {
+          let ttl = Object.assign(new TrackLayer(), JSON.parse(JSON.stringify(tl)));
+          // intervals (RBP / IP / patents): remap endpoints, accept inclusive or exclusive x2
+          let ivs = [];
+          for (let iv of (tl.intervals || [])) {
+            if (!inMap(iv.x1)) continue;
+            let x2m;
+            if (inMap(iv.x2)) x2m = rm(iv.x2);
+            else if (inMap(iv.x2 - 1)) x2m = rm(iv.x2 - 1) + 1;
+            else continue;
+            ivs.push(Object.assign({}, iv, { x1: rm(iv.x1), x2: x2m }));
           }
-        }
+          ttl.intervals = ivs;
+          // polygon points (RNASeq / wiggle): remap x to child-local (exon bases only)
+          let pts = [];
+          for (let pt of (tl.polygonpts || [])) {
+            const gx = Math.floor(pt.x);
+            if (inMap(gx)) pts.push({ x: rm(gx), y: pt.y });
+          }
+          ttl.polygonpts = pts;
+          // rebuild a real MGrid tgraph for the child coordinate range (JSON clone strips it)
+          const src = tl.tgraph || {};
+          ttl.tgraph = new MGrid(0, 0, 100, 100);
+          ttl.tgraph.xi = 0; ttl.tgraph.yi = 0;
+          ttl.tgraph.setxmax(childLen);
+          ttl.tgraph.setymax(src.ymax != null ? src.ymax : 1);
+          ttl.tgraph.setxmin(0);
+          ttl.tgraph.setymin(src.ymin != null ? src.ymin : 0);
+          if (ttl.tgraph.setInset) ttl.tgraph.setInset(0, 0);
+          ttl.tgraph.rescale();
+          if (ivs.length || pts.length) this.addLayer(ttl);
+        } catch (e) { }
       }
     }
 
@@ -4114,6 +4184,297 @@ return new Promise(async (resolve, reject) => {
           }
         }
       }
+    }
+
+    // Compact signature of the parent's mirrorable items — changes whenever a parent
+    // item is added, removed, or moved, so the child only re-mirrors when the parent
+    // actually changed (leaving the child's own items and edits alone in between).
+    _parentMirrorSignature(p) {
+      let s = '';
+      const add = (arr, f) => {
+        if (!Array.isArray(arr)) { s += '|0'; return; }
+        s += '|' + arr.length;
+        for (let o of arr) { if (o) s += ';' + f(o); }
+      };
+      add(p.oligos, (o) => (o.type || '') + ',' + o.xi + ',' + o.xf + (o.left && o.right ? ',' + o.left.xi + ',' + o.right.xf : ''));
+      add(p.snpindels, (o) => o.xi + ',' + o.xf);
+      add(p.track_layers, (o) => (o.name || '') + ',' + (o.intervals ? o.intervals.length : 0) + ',' + (o.polygonpts ? o.polygonpts.length : 0));
+      add(p.plots, (o) => o.x);
+      add(p.structures, (o) => o.xi + ',' + o.xf);
+      return s;
+    }
+
+    // Mirror in-range items from the parent track (this.trackRef.track) onto this
+    // child, remapping genomic coordinates to child-local (genomeMap for a cDNA child,
+    // identity-in-range for a genomic child). Mirrored copies are tagged __mirror so a
+    // parent change can replace them wholesale; the child's native items are untouched.
+    // Child edits to a mirrored item survive until the next parent change (editable,
+    // but re-synced). Driven each redraw tick by the engine's syncChildTracks().
+    // Hash of a parent object's synced representation — changes when it moves or its
+    // content changes, so the per-draw diff can add/remove exactly what differs.
+    _syncHash(o, kind) {
+      if (kind === 'oligo') return 'O|' + (o.type || '') + '|' + o.xi + '|' + o.xf
+        + '|' + (o.left ? o.left.xi + ':' + o.left.xf : '') + '|' + (o.right ? o.right.xi + ':' + o.right.xf : '')
+        + '|' + (o.sequence || o.name || '');
+      if (kind === 'layer') return 'L|' + (o.name || '') + '|' + (o.data_type || '') + '|' + (o.intervals ? o.intervals.length : 0) + '|' + (o.polygonpts ? o.polygonpts.length : 0);
+      if (kind === 'snp') return 'S|' + o.xi + '|' + o.xf + '|' + (o.reference || '') + '|' + (o.alternate || '');
+      if (kind === 'plot') return 'P|' + o.x;
+      if (kind === 'struct') return 'X|' + o.xi + '|' + o.xf;
+      return '';
+    }
+
+    // Per-draw diff sync: hash every syncable parent object, remove child mirrors whose
+    // source hash is gone, and push a fresh read-only copy for any parent hash not yet
+    // present on the child. Driven each redraw tick by the engine's syncChildTracks().
+    syncFromParent() {
+      if (!this.trackRef || !this.trackRef.track) return;
+      const p = this.trackRef.track;
+      if (p === this) return;
+
+      // EXON-ROOTED mapping. Match parent exons to child exons (genomic order). Parent
+      // oligos/amplicons live in the PARENT's coordinate space, so the map keys on the
+      // parent exon's xi/xf (pLo/pHi) -> child-local xi (lLo). This is equivalent to the
+      // genomeMap but exon-based, so it handles any position inside an exon. Also refresh
+      // (diff-based) the child exon genomic coords + track genomic span for labeling.
+      const exonMap = [];
+      try {
+        const isExon = (a) => a && String(a.type).toLowerCase() === 'exon';
+        const pExons = (p.annotations || []).filter(isExon).slice().sort((x, y) => (+x.xi) - (+y.xi));
+        const cExons = (this.annotations || []).filter(isExon).slice().sort((x, y) => (+x.xi) - (+y.xi));
+        const exonHash = pExons.map(e => (+e.xi) + ':' + (+e.xf)).join('|');
+        const refresh = (exonHash !== this.__exonSyncHash);
+        if (refresh) this.__exonSyncHash = exonHash;
+        for (let i = 0; i < cExons.length && i < pExons.length; i++) {
+          const pe = pExons[i], ce = cExons[i];
+          if (refresh) {
+            ce.gxi = (pe.gxi != null ? pe.gxi : pe.xi);
+            ce.gxf = (pe.gxf != null ? pe.gxf : pe.xf);
+          }
+          if (pe.xi != null && pe.xf != null && ce.xi != null && ce.xf != null) {
+            exonMap.push({ pLo: Math.min(+pe.xi, +pe.xf), pHi: Math.max(+pe.xi, +pe.xf), lLo: Math.min(+ce.xi, +ce.xf) });
+          }
+        }
+        if (refresh) {
+          let gmin = null, gmax = null;
+          for (const ce of cExons) {
+            if (ce.gxi != null) gmin = (gmin == null) ? +ce.gxi : Math.min(gmin, +ce.gxi);
+            if (ce.gxf != null) gmax = (gmax == null) ? +ce.gxf : Math.max(gmax, +ce.gxf);
+          }
+          if (gmin != null) this.gxi = gmin;
+          if (gmax != null) this.gxf = gmax;
+        }
+      } catch (e) { }
+      const gm = (this.trackRef.genomeMap && this.trackRef.genomeMap.length > 0) ? this.trackRef.genomeMap : null;
+      const mc = {};
+      if (gm) gm.forEach((e, i) => { mc[e] = i; });
+      const hasMap = exonMap.length > 0 || !!gm;
+      const rm = (g) => {
+        g = Math.round(g);
+        for (const e of exonMap) if (g >= e.pLo && g <= e.pHi) return e.lLo + (g - e.pLo);   // exon-rooted (parent space)
+        if (gm && mc[g] !== undefined) return mc[g];            // fallback: exact genomeMap key
+        if (!exonMap.length && !gm) return (g >= this.xi && g <= this.xf) ? g : undefined;   // genomic-only child
+        return undefined;
+      };
+      const inMap = (g) => rm(g) !== undefined;
+      const childLen = (this.sequence && this.sequence.length) ? this.sequence.length : Math.abs(this.xf - this.xi);
+
+      // Lenient mapper for amplicons/primer-probes: map exon-rooted; if a coordinate falls
+      // outside every exon (e.g. a primer overlapping an intron), snap it to the nearest
+      // exon-local position so the amplicon still lifts over. Never returns undefined when
+      // there is any exon / genomeMap to key on.
+      const mapOrSnap = (g) => {
+        g = Math.round(g);
+        if (exonMap.length) {
+          let nearest = null, nd = Infinity;
+          for (const e of exonMap) {
+            if (g >= e.pLo && g <= e.pHi) return e.lLo + (g - e.pLo);
+            const d = (g < e.pLo) ? (e.pLo - g) : (g - e.pHi);
+            if (d < nd) { nd = d; nearest = (g < e.pLo) ? e.lLo : (e.lLo + (e.pHi - e.pLo)); }
+          }
+          return nearest;
+        }
+        if (gm) {
+          if (mc[g] !== undefined) return mc[g];
+          // snap to nearest genomeMap key
+          let nearest = null, nd = Infinity;
+          for (let i = 0; i < gm.length; i++) { const d = Math.abs(gm[i] - g); if (d < nd) { nd = d; nearest = i; } }
+          return nearest;
+        }
+        return (g >= this.xi && g <= this.xf) ? (g - this.xi) : Math.max(0, Math.min(childLen, g - this.xi));
+      };
+
+      // Mirrored child data start deselected/dehighlighted but are EDITABLE — a child edit
+      // persists (the diff keys on the stored __syncHash) until the parent's item changes.
+      const clearSel = (o) => {
+        if (!o || typeof o !== 'object') return o;
+        o.selected = false;
+        o.highlight__ = false;
+        o.highlight = false;
+        o.readonly = false;
+        for (const part of [o.left, o.right, o.mid]) {
+          if (part && typeof part === 'object') { part.selected = false; part.highlight__ = false; part.highlight = false; part.readonly = false; }
+        }
+        return o;
+      };
+
+      // All parent object hashes that currently exist.
+      const parentHashes = new Set();
+      for (const o of (p.oligos || [])) if (o) parentHashes.add(this._syncHash(o, 'oligo'));
+      for (const o of (p.track_layers || [])) if (o) parentHashes.add(this._syncHash(o, 'layer'));
+      for (const o of (p.snpindels || [])) if (o) parentHashes.add(this._syncHash(o, 'snp'));
+      for (const o of (p.plots || [])) if (o) parentHashes.add(this._syncHash(o, 'plot'));
+      for (const o of (p.structures || [])) if (o) parentHashes.add(this._syncHash(o, 'struct'));
+
+      // Remove child mirrors whose source object is gone from the parent (moved/deleted).
+      const prune = (arr) => Array.isArray(arr) ? arr.filter((o) => !o || !o.__syncHash || parentHashes.has(o.__syncHash)) : arr;
+      this.oligos = prune(this.oligos);
+      this.snpindels = prune(this.snpindels);
+      this.track_layers = prune(this.track_layers);
+      this.plots = prune(this.plots);
+      if (this.structures) this.structures = prune(this.structures);
+
+      // Hashes already mirrored on the child (unchanged — skipped in the push below).
+      const present = new Set();
+      const collect = (arr) => { if (Array.isArray(arr)) for (const o of arr) if (o && o.__syncHash) present.add(o.__syncHash); };
+      collect(this.oligos); collect(this.snpindels); collect(this.track_layers); collect(this.plots); collect(this.structures);
+
+      // --- oligos, amplicons, siRNAs ---
+      if (Array.isArray(p.oligos)) for (let o of p.oligos) {
+        try {
+          const __h = this._syncHash(o, 'oligo');
+          if (present.has(__h)) continue;   // already mirrored, unchanged
+          if (o.type === 'amplicon') {
+            if (!o.left || !o.right) continue;
+            // Build the child amplicon WITHOUT JSON-cloning the whole object (which can hit
+            // circular refs and silently fail). Clone each primer/probe as a real Oligo and
+            // map every coordinate leniently (snapping out-of-exon coords to the nearest
+            // exon-local position) so amplicons/primer-probe sets always lift over.
+            const mkPart = (part) => {
+              if (!part) return null;
+              const ol = Object.assign(new Oligo(), part);
+              ol.offtarget = null; ol.showOfftargets = false;
+              return ol;
+            };
+            const a = new Amplicon();
+            a.left = mkPart(o.left);
+            a.right = mkPart(o.right);
+            a.mid = o.mid ? mkPart(o.mid) : null;
+            const mapEnd = (xf) => { const v = mapOrSnap(xf - 1); return (v == null ? mapOrSnap(xf) : v + 1); };
+            a.left.xi = mapOrSnap(o.left.xi); a.left.xf = mapEnd(o.left.xf);
+            a.right.xi = mapOrSnap(o.right.xi); a.right.xf = mapEnd(o.right.xf);
+            if (a.mid) { a.mid.xi = mapOrSnap(o.mid.xi); a.mid.xf = mapEnd(o.mid.xf); }
+            if (a.left.xi == null || a.left.xf == null || a.right.xi == null || a.right.xf == null) continue;
+            a.xi = Math.min(a.left.xi, a.right.xi);
+            a.xf = Math.max(a.left.xf, a.right.xf);
+            // carry over the amplicon's vertical position (a track-relative fraction) so it
+            // sits at the same relative height on the child; setY syncs the primers too.
+            const ay = (o.y != null) ? o.y : ((o.left && o.left.y != null) ? o.left.y : 0.15);
+            if (a.setY) a.setY(ay); else { a.y = ay; a.left.y = ay; a.right.y = ay; if (a.mid) a.mid.y = ay; }
+            // carry over the amplicon's display fields
+            a.type = 'amplicon';
+            a.name = o.name; a.size = o.size; a.strand = o.strand; a.info = o.info;
+            a.color = o.color; a.ampColor = o.ampColor; a.oligColor = o.oligColor;
+            a.synthesisSequence = o.synthesisSequence;
+            a.__mirror = true; a.__syncHash = __h;
+            this.oligos.push(clearSel(a));
+          } else {
+            // xf is exclusive (start+length); check/remap the last base (xf-1).
+            if (!(inMap(o.xi) && inMap(o.xf - 1))) continue;
+            const proto = (o.type === 'siRNA' || o.type === 'sirna') ? new SIRNA() : new Oligo();
+            let ob = Object.assign(proto, JSON.parse(JSON.stringify(o)));
+            ob.xi = rm(o.xi); ob.xf = rm(o.xf - 1) + 1;
+            ob.__mirror = true; ob.__syncHash = __h;
+            this.oligos.push(clearSel(ob));
+          }
+        } catch (e) { }
+      }
+
+      // --- snpindels ---
+      if (Array.isArray(p.snpindels)) for (let sid of p.snpindels) {
+        try {
+          const __h = this._syncHash(sid, 'snp');
+          if (present.has(__h)) continue;
+          if (inMap(sid.xi)) {
+            let _sid = new SnpIndel(sid.type, rm(sid.xi), sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id + '*');
+            _sid.name = sid.name; _sid.__mirror = true; _sid.__syncHash = __h;
+            this.snpindels.push(clearSel(_sid));
+          } else if (inMap(sid.xf)) {
+            let _sid = new SnpIndel(sid.type, rm(sid.xf - (sid.reference ? sid.reference.length : 0)), sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id + '*');
+            _sid.name = sid.name; _sid.__mirror = true; _sid.__syncHash = __h;
+            this.snpindels.push(clearSel(_sid));
+          }
+        } catch (e) { }
+      }
+
+      // --- track layers: interval endpoints AND polygon points (RNASeq/wiggle) remapped ---
+      if (Array.isArray(p.track_layers)) for (let tl of p.track_layers) {
+        try {
+          const __h = this._syncHash(tl, 'layer');
+          if (present.has(__h)) continue;
+          let ttl = Object.assign(new TrackLayer(), JSON.parse(JSON.stringify(tl)));
+          let ivs = [];
+          for (let iv of (tl.intervals || [])) {
+            if (!inMap(iv.x1)) continue;
+            // x2 may be inclusive or exclusive depending on the source — accept either.
+            let x2m;
+            if (inMap(iv.x2)) x2m = rm(iv.x2);
+            else if (inMap(iv.x2 - 1)) x2m = rm(iv.x2 - 1) + 1;
+            else continue;
+            ivs.push(Object.assign({}, iv, { x1: rm(iv.x1), x2: x2m }));
+          }
+          ttl.intervals = ivs;
+          // RNASeq / wiggle layers store their signal as polygonpts {x,y} at genomic x —
+          // remap each point's x to child-local (exon bases only; introns are collapsed).
+          let pts = [];
+          for (let pt of (tl.polygonpts || [])) {
+            const gx = Math.floor(pt.x);
+            if (inMap(gx)) pts.push({ x: rm(gx), y: pt.y });
+          }
+          ttl.polygonpts = pts;
+          // The JSON clone strips the layer's tgraph prototype (a plain object with no
+          // rescale()), which crashes TrackLayer.draw. Rebuild a real MGrid for the
+          // child's coordinate space (local 0..len), preserving the y bounds.
+          const src = tl.tgraph || {};
+          ttl.tgraph = new MGrid(0, 0, 100, 100);
+          ttl.tgraph.xi = 0; ttl.tgraph.yi = 0;
+          ttl.tgraph.setxmax(childLen);
+          ttl.tgraph.setymax(src.ymax != null ? src.ymax : 1);
+          ttl.tgraph.setxmin(0);
+          ttl.tgraph.setymin(src.ymin != null ? src.ymin : 0);
+          if (ttl.tgraph.setInset) ttl.tgraph.setInset(0, 0);
+          ttl.tgraph.rescale();
+          ttl.__mirror = true; ttl.__syncHash = __h;
+          if (ivs.length || pts.length) this.track_layers.push(clearSel(ttl));
+        } catch (e) { }
+      }
+
+      // --- plots ---
+      if (Array.isArray(p.plots)) for (let sid of p.plots) {
+        try {
+          const __h = this._syncHash(sid, 'plot');
+          if (present.has(__h)) continue;
+          if (!inMap(sid.x)) continue;
+          let tp;
+          if (sid.mg != null) { tp = Object.assign(new TrackPlot(), sid); tp.mg = Object.assign(new MGrid(), sid.mg); }
+          else { tp = Object.assign(new Barchart(), sid); }
+          tp.x = rm(sid.x); tp.__mirror = true; tp.__syncHash = __h;
+          this.plots.push(clearSel(tp));
+        } catch (e) { }
+      }
+
+      // --- RNA secondary structures ---
+      if (Array.isArray(p.structures) && Array.isArray(this.structures)) for (let st of p.structures) {
+        try {
+          const __h = this._syncHash(st, 'struct');
+          if (present.has(__h)) continue;
+          if (!(inMap(st.xi) && inMap(st.xf))) continue;
+          let s2 = Object.assign(new RNASecondaryStructure(), JSON.parse(JSON.stringify(st)));
+          s2.xi = rm(st.xi); s2.xf = rm(st.xf); s2.__mirror = true; s2.__syncHash = __h;
+          this.structures.push(clearSel(s2));
+        } catch (e) { }
+      }
+
+      if (this.__gg && this.__gg.wake) this.__gg.wake();
     }
 
     addGFF(gff) {
@@ -4933,14 +5294,17 @@ return new Promise(async (resolve, reject) => {
             let yi = l.getYi();
             let h = l.getHeight();
             if ((xi > 0 && xi < graph.grid.width) || (xi + w > 0 && xi + w < graph.grid.width) || (xi < 0 && xi + w > graph.grid.width) || (xi > 0 && xi + w < graph.grid.width) || (yi > 0 && yi < graph.grid.height) || (yi + h > 0 && yi + h < graph.grid.height) || (yi < 0 && yi + h > graph.grid.height) || (yi > 0 && yi + h < graph.grid.height)) {
-              if (!l.highlight) await l.draw(this.tgraph, graph, this);
-              else {
-                highlighted = l;
-              }
+              // Guard each layer's draw so one bad layer can't abort the rest of the loop.
+              try {
+                if (!l.highlight) await l.draw(this.tgraph, graph, this);
+                else {
+                  highlighted = l;
+                }
+              } catch (e) { }
             }
           }
           if (highlighted != null) {
-            await highlighted.draw(this.tgraph, graph, this);
+            try { await highlighted.draw(this.tgraph, graph, this); } catch (e) { }
           }
         }
 
@@ -5089,7 +5453,7 @@ return new Promise(async (resolve, reject) => {
             }
             let increment = (this.xf - this.xi) / 15;
             for (let incr = this.xi; incr < this.xf - increment; incr += increment) {
-              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
+              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
             }
           }
           if (this.strand >= 0) {
@@ -5232,7 +5596,7 @@ return new Promise(async (resolve, reject) => {
                     }
 
                     for (let _i = lo; _i <= hi; _i++) {
-                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_INS, this.detail_ffont6);
+                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.1), GX_INS, this.detail_ffont6);
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
                     }
@@ -5318,8 +5682,8 @@ return new Promise(async (resolve, reject) => {
                 if (screencell > 0.5) {
                   for (let i = 1; i < totalPoints - 1; i++) {
                     let xvalue = a.xi + offset + i * interval;
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
                   }
                 }
               } else {
@@ -5401,9 +5765,11 @@ return new Promise(async (resolve, reject) => {
 
           if (screencell > 1) {
             for (let o of visOligos) {
-              o.showOfftargets = this.showOfftargets;
+              try {
+                o.showOfftargets = this.showOfftargets;
 
-              o.draw(graph, this.tgraph, y);
+                o.draw(graph, this.tgraph, y);
+              } catch (e) { }
             }
           } else {
             for (let o of visOligos) {
@@ -5430,11 +5796,12 @@ return new Promise(async (resolve, reject) => {
 
           if (this.sequence) {
             let pseq = -1;
+            // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
               let seq_index = Math.floor(index - Math.floor(this.xi));
               if (seq_index < this.sequence.length && this.sequence[seq_index]) {
                 if (screencell > 30 && screencell > 0.05) {
-                  graph.drawString(this.tgraph.xmin + seq_index, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
+                  graph.drawString(this.genomicAt(seq_index), Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
                   graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
@@ -5477,7 +5844,7 @@ return new Promise(async (resolve, reject) => {
                   if (this.strand === -1 || this.strand === "-1") {
                     deg = 3.14159;
                   }
-                  if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_GUIDE);
+                  if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
 
                   seq_font = this.ffont;
                   graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
@@ -5532,8 +5899,10 @@ return new Promise(async (resolve, reject) => {
             if (screencell > 0.3) {
               for (let o of visOligos) {
                 if (o) {
-                  o.showOfftargets = this.showOfftargets;
-                  o.draw(graph, this.tgraph, y);
+                  try {
+                    o.showOfftargets = this.showOfftargets;
+                    o.draw(graph, this.tgraph, y);
+                  } catch (e) { }
                 }
               }
             }
@@ -5567,9 +5936,11 @@ return new Promise(async (resolve, reject) => {
 
         let first = Math.ceil(tx_world_start / step) * step;
 
+        // Non-linear genomic mapping for cDNA/derived children (introns removed / region
+        // cut out) via trackRef.genomeMap; linear fallback for a plain genomic track.
         for (let index = first; index <= tx_world_end; index += step) {
           const seq_index = Math.floor(index - xiInt);
-          const genomicPos = this.tgraph.xmin + seq_index;
+          const genomicPos = this.genomicAt(seq_index);
 
           const sx = Math.floor(graph.grid.X(this.tgraph.X(index)));
           const syTick = graph.grid.Y(this.tgraph.Y(y + this.tgraph.ymax)) + 15;
@@ -5579,6 +5950,24 @@ return new Promise(async (resolve, reject) => {
           ctx.moveTo(sx, syTick);
           ctx.lineTo(sx, syTick + 6);
           ctx.stroke();
+
+          // Small triangle at each tick showing the transcript's direction (strand):
+          // points right for + strand, left for - strand.
+          {
+            const dir = (this.strand === -1 || this.strand === "-1" || this.strand === '-') ? -1 : 1;
+            const ah = 5;             // arrow length (px)
+            const av = 3;             // arrow half-height (px)
+            const ay = syTick + 3;    // vertically centered on the tick
+            ctx.save();
+            ctx.fillStyle = GX_INK;
+            ctx.beginPath();
+            ctx.moveTo(sx + dir * ah, ay);   // tip in strand direction
+            ctx.lineTo(sx, ay - av);         // base at the tick line
+            ctx.lineTo(sx, ay + av);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
 
           ctx.save();
 
@@ -5874,9 +6263,12 @@ return new Promise(async (resolve, reject) => {
 
               const angle = (0 * Math.PI) / 180;
 
+              // True genomic coordinate per local index. For a cDNA/derived child the
+              // mapping is non-linear (introns removed / a region cut out), so read it
+              // from trackRef.genomeMap; fall back to the linear map for a genomic track.
               for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
                 const seq_index = Math.floor(index - Math.floor(this.xi));
-                const genomicPos = this.tgraph.xmin + seq_index;
+                const genomicPos = this.genomicAt(seq_index);
 
                 if (genomicPos % 100 !== 0) continue;
 
@@ -5997,27 +6389,8 @@ return new Promise(async (resolve, reject) => {
           const headWid = clamp(pxDist * 0.03, 5, 10);
           const barInset = headLen + 2;
 
-          {
-            const left = Math.min(screenStartX, screenEndX);
-            const right = Math.max(screenStartX, screenEndX);
-            const width = right - left;
-
-            const screenTop = Math.min(graph.Y(this.tgraph.Y(yMax)), graph.Y(this.tgraph.Y(yMin)));
-            const screenBottom = Math.max(graph.Y(this.tgraph.Y(yMax)), graph.Y(this.tgraph.Y(yMin)));
-            const screenHeight = screenBottom - screenTop;
-
-            if (isFinite(left) && isFinite(width) && isFinite(screenTop) && isFinite(screenHeight) && width > 0 && screenHeight > 0) {
-              ctx.save();
-              ctx.fillStyle = "rgba(122,111,166,0.14)";
-              ctx.strokeStyle = "rgba(122,111,166,0.30)";
-              ctx.lineWidth = 1;
-
-              ctx.fillRect(left, screenTop, width, screenHeight);
-              ctx.strokeRect(left, screenTop, width, screenHeight);
-
-              ctx.restore();
-            }
-          }
+          // (Removed the translucent marked-region box that covered the coding region;
+          // the boundary guide lines + size labels below still show the marked extent.)
 
           ctx.save();
           ctx.lineWidth = 2;
@@ -6202,7 +6575,17 @@ return new Promise(async (resolve, reject) => {
           if (!this.description) {
             this.description = "";
           }
-          graph.fillTranslucentRect(graph.X(this.tgraph.xi), graph.Y(this.tgraph.yi), graph.screenWidth(this.tgraph.width), graph.screenHeight(-1 * this.tgraph.height));
+          // Selected track: lighten the background a bit more (no border).
+          const _sx = graph.X(this.tgraph.xi);
+          const _sy = graph.Y(this.tgraph.yi);
+          const _sw = graph.screenWidth(this.tgraph.width);
+          const _sh = graph.screenHeight(-1 * this.tgraph.height);
+          ctx.save();
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(224,242,254,0.28)';   // light blue-white wash
+          ctx.fillRect(_sx, _sy, _sw, _sh);
+          ctx.restore();
         }
         if (this.showOligoMap) {
           for (let o of this.oligos) {

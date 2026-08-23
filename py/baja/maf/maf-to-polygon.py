@@ -1,5 +1,6 @@
 from shapely.geometry import Polygon
 from ion import works
+import os
 
 
 def parse_maf(maf_file):
@@ -49,6 +50,11 @@ maf_file = works.param (1)
 start = works.param (2)
 end = works.param(3)
 chrom = works.param(4)
+
+# Big-data root now comes from BIG_DATA (env BIGDATA); resolve any legacy /bd/ path.
+_BD = os.environ.get("BIGDATA")
+if _BD and str(maf_file).startswith("/bd/"):
+    maf_file = _BD.rstrip("/") + str(maf_file)[3:]
 chrom = str(chrom)
 print ( str(start) )
 print ( chrom )

@@ -1337,7 +1337,7 @@ function (path, config) {
                                                             label: 'OK', ionFunction: createIonFunction(async () => {
                                                                 hideAllModal();
 
-                                                                let idt = await exec('baja/chem/structure/idt/stjude-mermade-format.js');
+                                                                let idt = await exec('baja/chem/structure/idt/mermade-format.js');
                                                                 let explist = [];
 
                                                                 for (let t of graph.track) {

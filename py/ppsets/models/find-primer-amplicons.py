@@ -842,13 +842,49 @@ def enforce_spacing(df: pd.DataFrame, min_sep: int) -> pd.DataFrame:
 
 def topn_as_payload(df: pd.DataFrame, topn: int) -> Dict[str, Any]:
     hits = df.head(topn).to_dict(orient="records")
+    have = len(df) > 0
+
+    def _first(col):
+        # Ct-only columns are absent on the djPrimer path.
+        return float(df[col].iloc[0]) if (have and col in df.columns) else None
+
     return {
         "n_candidates": int(len(df)),
         "n_returned": int(len(hits)),
-        "ct_threshold_used": float(df["ct_threshold_used"].iloc[0]) if len(df) else None,
-        "decision_threshold_star": float(df["decision_threshold_star"].iloc[0]) if len(df) else None,
+        "ct_threshold_used": _first("ct_threshold_used"),
+        "decision_threshold_star": _first("decision_threshold_star"),
         "hits": hits,
     }
+
+
+# -----------------------------------------------------------------------------
+# Optional scorer: djPrimer (assay-success model) — an alternative to the Ct
+# model for ranking the primer3-designed candidates.
+# -----------------------------------------------------------------------------
+def djprimer_score_df(df: pd.DataFrame, gene: str) -> pd.DataFrame:
+    """Add a 'djprimer_probability' column: djPrimer's assay-success score for
+    each candidate's primer pair. primer3 still designs; djPrimer only ranks."""
+    lib = os.path.expanduser("~/baja-apps/py/djprimer-lib")
+    if os.path.isdir(lib) and lib not in sys.path:
+        sys.path.insert(0, lib)
+    from djprimer import load_model
+    m = load_model()
+    probs: List[float] = []
+    known: List[bool] = []
+    for _, row in df.iterrows():
+        try:
+            r = m.score(gene or "",
+                        str(row.get("forward_primer", "")),
+                        str(row.get("reverse_primer", "")))
+            probs.append(float(r["probability"]))
+            known.append(bool(r["expression_known"]))
+        except Exception:
+            probs.append(float("nan"))
+            known.append(False)
+    df = df.copy()
+    df["djprimer_probability"] = probs
+    df["djprimer_expression_known"] = known
+    return df
 
 
 # -----------------------------------------------------------------------------
@@ -886,6 +922,11 @@ def ion_main() -> None:
     dedupe = bool(options.get("dedupe", True))
     min_sep = int(options.get("min_sep", 150))  # set 0 to disable
 
+    # Ranking model: 'ct' (default, the built-in Ct model) or 'djprimer' (the
+    # assay-success model). 'gene' feeds djPrimer's expression lookup.
+    scorer = str(options.get("scorer", "ct")).lower()
+    gene = str(options.get("gene", "") or "")
+
     _progress(1, "Parsing input sequence...")
     name, raw_seq = _extract_first_sequence(inp)
     template = norm_rna_to_dna(raw_seq)
@@ -903,9 +944,6 @@ def ion_main() -> None:
         else:
             print(json.dumps(payload, indent=2))
         return
-
-    _progress(5, f"Loading model bundle from: {model_path}")
-    bundle = load_modelbundle(model_path)
 
     allow_probe = not no_probe
 
@@ -941,14 +979,33 @@ def ion_main() -> None:
             print(json.dumps(payload, indent=2))
         return
 
-    _progress(55, f"Scoring {len(cands)} candidates with Ct model...")
-    df = score_candidates(bundle, cands)
+    # Score + rank. djPrimer designs with primer3 but ranks by assay success and
+    # does NOT need the Ct model bundle (which can fail to unpickle across sklearn
+    # versions) — so only load that bundle for the Ct path.
+    scorer_used = "ct"
+    if scorer == "djprimer":
+        _progress(55, f"Scoring {len(cands)} candidates with djPrimer (assay success)...")
+        try:
+            df = djprimer_score_df(pd.DataFrame(cands), gene or name)
+            scorer_used = "djprimer"
+            sort_by = ["djprimer_probability", "p3_pair_penalty", "amp_len"]
+            sort_asc = [False, True, True]
+        except Exception as e:
+            _msg("djPrimer scoring unavailable, using Ct model: " + str(e))
+            bundle = load_modelbundle(model_path)
+            df = score_candidates(bundle, cands)
+            sort_by = ["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"]
+            sort_asc = [False, True, True]
+    else:
+        _progress(50, f"Loading model bundle from: {model_path}")
+        bundle = load_modelbundle(model_path)
+        _progress(55, f"Scoring {len(cands)} candidates with Ct model...")
+        df = score_candidates(bundle, cands)
+        sort_by = ["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"]
+        sort_asc = [False, True, True]
 
     _progress(75, "Ranking candidates...")
-    df = df.sort_values(
-        by=["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"],
-        ascending=[False, True, True],
-    ).reset_index(drop=True)
+    df = df.sort_values(by=sort_by, ascending=sort_asc).reset_index(drop=True)
 
     # remove duplicates + spacing
     if dedupe:
@@ -990,6 +1047,8 @@ def ion_main() -> None:
         "dedupe": dedupe,
         "min_sep": min_sep,
         "model_path": model_path,
+        "scorer": scorer_used,
+        "gene": gene or name,
     }
 
     # NEW: add uid to EVERY dict at EVERY nesting level in the payload

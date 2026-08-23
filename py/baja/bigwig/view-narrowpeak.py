@@ -13,6 +13,11 @@ bwfile = works.param (1)
 start = works.param (2)
 end = works.param(3)
 chrom = works.param(4)
+
+# Big-data root now comes from BIG_DATA (env BIGDATA); resolve any legacy /bd/ path.
+_BD = os.environ.get("BIGDATA")
+if _BD and str(bwfile).startswith("/bd/"):
+    bwfile = _BD.rstrip("/") + str(bwfile)[3:]
 chrom = str(chrom)
 print ( str(start) )
 print ( chrom )

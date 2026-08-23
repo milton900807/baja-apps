@@ -1,0 +1,13 @@
+numpy
+pandas
+scipy
+scikit-learn
+torch
+pyfaidx
+requests
+
+[dev]
+pytest
+
+[plots]
+matplotlib

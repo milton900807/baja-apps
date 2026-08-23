@@ -1,5 +1,16 @@
 function (path, config) {
 
+    // Async IIFE wrapper so top-level `await` compiles on BOTH engine paths: exec()/
+    // getFunction (AsyncFunction) and run() (plain Function). An early `return` inside
+    // resolves the returned promise cleanly, so `await exec('manchester/editor')` callers
+    // never hang.
+    return (async () => {
+
+    // Subscription gate: block the editor unless an active subscription is confirmed.
+    // strict=true → if a subscription is not found (or can't be verified) show the paywall.
+    let __sub = await exec('lib/subscription.js');
+    if ((await __sub.enforce(true)) === false) return;
+
     const EditorState = class EditorState {
         paste_to_graph = true;
     }
@@ -1339,7 +1350,7 @@ function (path, config) {
                                                             label: 'OK', ionFunction: createIonFunction(async () => {
                                                                 hideAllModal();
 
-                                                                let idt = await exec('baja/chem/structure/idt/stjude-mermade-format.js');
+                                                                let idt = await exec('baja/chem/structure/idt/mermade-format.js');
                                                                 let explist = [];
 
                                                                 for (let t of graph.track) {
@@ -1611,8 +1622,28 @@ function (path, config) {
                                                 })
                                             },
                                             {
-                                                label: 'Track', ionFunction: createIonFunction(async () => {
-                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'track')
+                                                label: 'Track', ionFunction: createIonFunction(() => {
+                                                    // Show the track-tools toolbar in the button/label panel.
+                                                    exec('baja/manchester/menu/track-tools-toolbar.js', graph, genegraph_panel_layout);
+                                                    // Centered menu: New track | Edit track.
+                                                    graph.showMenu([
+                                                        {
+                                                            label: 'New track', move: () => { },
+                                                            click: () => {
+                                                                // Open the new-track window directly.
+                                                                graph.showSideMenu(null);
+                                                                exec('baja/data/prompt-load-transcript.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Edit track', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                graph.setMessage('Click on a track to see available edit options. ');
+                                                                exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout);
+                                                            }
+                                                        }
+                                                    ]);
                                                 })
                                             },
                                             {
@@ -1621,8 +1652,47 @@ function (path, config) {
                                                 })
                                             },
                                             {
-                                                label: 'Layers', ionFunction: createIonFunction(async () => {
-                                                    await exec('baja/manchester/menu/select-track-action-layers.js', graph, genegraph_panel_layout)
+                                                label: 'Layers', ionFunction: createIonFunction(() => {
+                                                    // Show the layers-tools toolbar in the button/label panel.
+                                                    exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
+                                                    // Centered menu of layer actions.
+                                                    graph.showMenu([
+                                                        {
+                                                            label: 'Models', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                // Show the predictive-models toolbar (Models | Layers).
+                                                                exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Data', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                // Show the data-loading toolbar.
+                                                                exec('baja/data/data-loading-toolbar.js', graph, genegraph_panel_layout);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Edit', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                // Prompt to click a track, then open its layer editor.
+                                                                graph.clearMouseListeners();
+                                                                graph.setMouseMode("msg: Click on a track to edit its layers.");
+                                                                graph.addMouseDownListener(async (x, y) => {
+                                                                    const ti = graph.getTrack(x, y);
+                                                                    if (ti < 0) return;
+                                                                    const track = graph.track[ti];
+                                                                    graph.clearMouseListeners();
+                                                                    graph.setMouseMode('navigate');
+                                                                    try {
+                                                                        await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js', track, genegraph_panel_layout, graph);
+                                                                    } catch (e) { graph.setMessage(' Could not open the layer editor: ' + e); }
+                                                                });
+                                                            }
+                                                        }
+                                                    ]);
                                                 })
                                             },
                                             {
@@ -1634,7 +1704,163 @@ function (path, config) {
                                                             label: 'Primer-probe', move: () => { },
                                                             click: () => {
                                                                 graph.showSideMenu(null);
-                                                                exec('baja/manchester/menu/primer-probe-action.js', graph, genegraph_panel_layout);
+
+                                                                // Design primers on a sequence, letting the user pick the method:
+                                                                //  - primer3: the primer3 python package (generate-ppsets.py) with the
+                                                                //    designed primers placed on the track (apply-primer3.js).
+                                                                //  - djPrimer: primer3 design ranked by the assay-success model (JSON).
+                                                                // xoffset is where seq starts in the track (for placing primers).
+                                                                const chooseMethodAndRun = (track, seq, xoffset) => {
+                                                                    if (!seq || !seq.length) { graph.setMessage(' No sequence to design on. '); return; }
+                                                                    const runPrimer3 = async () => {
+                                                                        graph.pushOntoHistory();
+                                                                        graph.setMessage(' Generating primers (primer3)... ');
+                                                                        let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
+                                                                        let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + seq, '', 1);
+                                                                        await exec('baja/manchester/ppsets/apply-primer3.js', r, xoffset || 0, track, graph);
+                                                                        if (graph.wake) graph.wake();
+                                                                        graph.setMessage(' Primers designed and placed on ' + (track.name || 'track') + '. ');
+                                                                        try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                    };
+                                                                    const runDjprimer = async () => {
+                                                                        graph.pushOntoHistory();
+                                                                        graph.setMessage(' Designing primers (djPrimer)... ');
+                                                                        const gene = track.geneID || track.name || '';
+                                                                        let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + seq, '', '', JSON.stringify({ scorer: 'djprimer', gene: '' + gene }));
+                                                                        // track.ampliconResults = r;
+                                                                        await exec('baja/manchester/ppsets/apply-djprimer.js', r, xoffset || 0, track, graph);
+                                                                        if (graph.wake) graph.wake();
+                                                                        try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                    };
+                                                                    graph.showMenu([
+                                                                        { label: 'primer3', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); runPrimer3(); } },
+                                                                        { label: 'djPrimer ', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); runDjprimer(); } }
+                                                                    ]);
+                                                                };
+
+                                                                // Step 1: click a track. Step 2: whole track or a drag-selected range.
+                                                                const startDesignNew = () => {
+                                                                    graph.clearMouseListeners();
+                                                                    graph.setMouseMode('msg: Click on a track to design primers.');
+                                                                    graph.addMouseDownListener(async (x, y) => {
+                                                                        const ti = graph.getTrack(x, y);
+                                                                        if (ti < 0) return;
+                                                                        const track = graph.track[ti];
+                                                                        graph.clearMouseListeners();
+                                                                        graph.setMouseMode('navigate');
+                                                                        graph.showMenu([
+                                                                            {
+                                                                                label: 'Design on entire track', move: () => { },
+                                                                                click: () => {
+                                                                                    if (graph.hideMenu) graph.hideMenu();
+                                                                                    // xoffset is the 0-based offset into the track sequence where the
+                                                                                    // designed region starts. createPrimerProbe already adds track.xi, so
+                                                                                    // the whole track starts at offset 0 (not track.xi).
+                                                                                    chooseMethodAndRun(track, track.getSequenceRange(track.xi, track.xf), 0);
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                label: 'Select sequence range', move: () => { },
+                                                                                click: () => {
+                                                                                    if (graph.hideMenu) graph.hideMenu();
+                                                                                    // Drag on the track to mark a range, then design on it.
+                                                                                    try { graph.showSideMenu(null); } catch (e) { }
+                                                                                    graph.side_menu = null;   // else the engine skips move listeners
+                                                                                    graph.clearMouseListeners();
+                                                                                    graph.deselectAllTracks();
+                                                                                    graph.setMouseMode('msg: Click and drag to select the sequence range.');
+                                                                                    let md = false, s = 0, e = 0;
+                                                                                    graph.addMouseDownListener((mx, my) => {
+                                                                                        md = true;
+                                                                                        s = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
+                                                                                        e = s;
+                                                                                        track.select();
+                                                                                    });
+                                                                                    graph.addMouseMoveListener((mx, my) => {
+                                                                                        if (md && track.tgraph) {
+                                                                                            e = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
+                                                                                            track.highlight(Math.min(s, e), Math.max(s, e));
+                                                                                            if (graph.wake) graph.wake();
+                                                                                        }
+                                                                                    });
+                                                                                    graph.addMouseUpListener((mx, my) => {
+                                                                                        md = false;
+                                                                                        e = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
+                                                                                        graph.clearMouseListeners();
+                                                                                        graph.setMouseMode('navigate');
+                                                                                        const a = Math.min(s, e), b = Math.max(s, e);
+                                                                                        if (b - a < 40) { graph.setMessage(' Selection too small — drag a wider range. '); return; }
+                                                                                        // xoffset = 0-based offset into the track sequence (a is track.xi-based).
+                                                                                        chooseMethodAndRun(track, track.getSequenceRange(a, b), a - track.xi);
+                                                                                    });
+                                                                                }
+                                                                            }
+                                                                        ]);
+                                                                    });
+                                                                };
+
+                                                                // Edit mode: click any existing amplicon's primer/probe and drag it in X.
+                                                                // Re-reads the sequence under the primer so Tm/GC update as it moves.
+                                                                const startEditExisting = () => {
+                                                                    graph.clearMouseListeners();
+                                                                    try { graph.showSideMenu(null); } catch (e) { }
+                                                                    graph.side_menu = null;   // else the engine skips move listeners
+                                                                    graph.setMouseMode('msg: Edit primer-probes — click a primer and drag left/right. Click empty space to finish.');
+                                                                    let grab = null;
+                                                                    const findHit = (mx) => {
+                                                                        for (let t of (graph.track || [])) {
+                                                                            if (!t || !t.tgraph || !Array.isArray(t.oligos)) continue;
+                                                                            const tg = t.tgraph;
+                                                                            const wx = (mx - tg.xinset - tg.xi) / (tg.xscale || 1) - tg.xshift;
+                                                                            for (let o of t.oligos) {
+                                                                                if (!o || o.type !== 'amplicon') continue;
+                                                                                for (let p of [o.left, o.right, o.mid]) {
+                                                                                    if (!p) continue;
+                                                                                    const lo = Math.min(+p.xi, +p.xf), hi = Math.max(+p.xi, +p.xf);
+                                                                                    const tol = Math.max(1, (hi - lo) * 0.15);
+                                                                                    if (wx >= lo - tol && wx <= hi + tol) return { track: t, amp: o, part: p, wx };
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        return null;
+                                                                    };
+                                                                    graph.addMouseDownListener((mx, my) => {
+                                                                        const h = findHit(mx);
+                                                                        if (!h) { graph.clearMouseListeners(); graph.setMouseMode('navigate'); if (graph.wake) graph.wake(); return; }
+                                                                        try { graph.pushOntoHistory(); } catch (e) { }
+                                                                        grab = { track: h.track, amp: h.amp, part: h.part, startXi: +h.part.xi, startXf: +h.part.xf, down: h.wx };
+                                                                    });
+                                                                    graph.addMouseMoveListener((mx, my) => {
+                                                                        if (!grab) return;
+                                                                        const tg = grab.track.tgraph;
+                                                                        const wx = (mx - tg.xinset - tg.xi) / (tg.xscale || 1) - tg.xshift;
+                                                                        const d = Math.round(wx - grab.down);
+                                                                        grab.part.xi = grab.startXi + d;
+                                                                        grab.part.xf = grab.startXf + d;
+                                                                        try {
+                                                                            const lo = Math.min(grab.part.xi, grab.part.xf), hi = Math.max(grab.part.xi, grab.part.xf);
+                                                                            const seq = grab.track.getSequenceRange(lo, hi);
+                                                                            if (seq && seq.length) grab.part.sequence = seq;
+                                                                        } catch (e) { }
+                                                                        if (grab.amp.left && grab.amp.right) {
+                                                                            grab.amp.xi = Math.min(+grab.amp.left.xi, +grab.amp.right.xi);
+                                                                            grab.amp.xf = Math.max(+grab.amp.left.xf, +grab.amp.right.xf);
+                                                                        }
+                                                                        if (graph.wake) graph.wake();
+                                                                    });
+                                                                    graph.addMouseUpListener(() => { grab = null; if (graph.wake) graph.wake(); });
+                                                                };
+
+                                                                // If amplicons already exist on any track, offer design-new vs edit-existing.
+                                                                const hasAmplicons = () => (graph.track || []).some(t => Array.isArray(t?.oligos) && t.oligos.some(o => o && o.type === 'amplicon'));
+                                                                if (hasAmplicons()) {
+                                                                    graph.showMenu([
+                                                                        { label: 'Design new...', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); startDesignNew(); } },
+                                                                        { label: 'Edit existing...', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); startEditExisting(); } }
+                                                                    ]);
+                                                                } else {
+                                                                    startDesignNew();
+                                                                }
                                                             }
                                                         },
                                                         {
@@ -1702,7 +1928,54 @@ function (path, config) {
                                             },
                                             {
                                                 label: 'Navigate', ionFunction: createIonFunction(async () => {
-                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate')
+                                                    graph.showMenu([
+                                                        {
+                                                            label: 'View all', move: () => { },
+                                                            click: async () => {
+                                                                if (graph.hideMenu) graph.hideMenu();
+                                                                try { await graph.viewAllTracks(); } catch (e) { }
+                                                                try {
+                                                                    graph.clearMouseListeners();
+                                                                    graph.setMouseMode('navigate');
+                                                                    exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                                                                } catch (e) { }
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'View track...', move: () => { },
+                                                            click: () => {
+                                                                // Second center menu: one item per track (name + annotation);
+                                                                // clicking zooms to that track.
+                                                                const items = (graph.track || []).filter(t => t && t.tgraph).map(t => {
+                                                                    const annot = t.description || t.geneID
+                                                                        || (Array.isArray(t.annotations) && t.annotations[0] && t.annotations[0].name)
+                                                                        || t.track_type || '';
+                                                                    return {
+                                                                        label: (t.name || 'track') + (annot ? '  —  ' + annot : ''),
+                                                                        move: () => { },
+                                                                        click: async () => {
+                                                                            if (graph.hideMenu) graph.hideMenu();
+                                                                            try { await graph.zoomToTrack(t); } catch (e) { }
+                                                                            try {
+                                                                                graph.clearMouseListeners();
+                                                                                graph.setMouseMode('navigate');
+                                                                                exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                                                                            } catch (e) { }
+                                                                        }
+                                                                    };
+                                                                });
+                                                                if (!items.length) { graph.setMessage(' No tracks to view. '); return; }
+                                                                graph.showMenu(items);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Where do you want to go?', move: () => { },
+                                                            click: async () => {
+                                                                if (graph.hideMenu) graph.hideMenu();
+                                                                await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate');
+                                                            }
+                                                        }
+                                                    ]);
                                                 })
                                             }
                                         ],
@@ -2152,5 +2425,7 @@ function (path, config) {
         })
 
     })
+
+    })();
 
 }

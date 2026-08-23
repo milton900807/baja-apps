@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, selectedOnly) {
 
     editDistance = 0;
 
@@ -45,6 +45,8 @@ function (graph, genegraph_panel_layout) {
                 t.showOfftargets = true;
                 let range = t.gitVisibleTrackRange(graph);
                 let oligos = t.getOligosInRange(range.start, range.end);
+                // When invoked with selectedOnly, restrict to the selected oligos.
+                if (selectedOnly) oligos = oligos.filter((o) => o && (o.selected || o.highlight__));
 
                 for (let o of oligos) {
                     o.mi_targets_transient_ = null;

@@ -382,6 +382,65 @@ function (graph, genegraph_panel_layout) {
             return t;
         };
 
+        // Edit-amplicon mode: click a primer/probe of THIS amplicon and drag it left/
+        // right along the track. Exact inverse of tgraph.X() maps screen->world so the
+        // grabbed part follows the cursor; click empty space (miss all parts) to finish.
+        function editAmpliconX(graph, track, amp) {
+            if (!track || !track.tgraph || !amp) return;
+            const tg = track.tgraph;
+            const worldX = (mx) => (mx - tg.xinset - tg.xi) / (tg.xscale || 1) - tg.xshift;
+            const parts = () => [amp.left, amp.right, amp.mid].filter(Boolean);
+
+            graph.clearMouseListeners();
+            try { graph.deselectAllTracks && graph.deselectAllTracks(); } catch (e) { }
+            graph.setMouseMode('msg: Edit amplicon — click a primer and drag left/right. Click empty space to finish.');
+
+            let grab = null;
+            graph.addMouseDownListener((mx, my) => {
+                const wx = worldX(mx);
+                let hit = null;
+                for (const p of parts()) {
+                    const lo = Math.min(+p.xi, +p.xf), hi = Math.max(+p.xi, +p.xf);
+                    const tol = Math.max(1, (hi - lo) * 0.15);
+                    if (wx >= lo - tol && wx <= hi + tol) { hit = p; break; }
+                }
+                if (!hit) {                       // missed every part → leave edit mode
+                    graph.clearMouseListeners();
+                    graph.setMouseMode('navigate');
+                    if (graph.wake) graph.wake();
+                    return;
+                }
+                try { graph.pushOntoHistory(); } catch (e) { }
+                grab = { part: hit, startXi: +hit.xi, startXf: +hit.xf, down: wx };
+            });
+            graph.addMouseMoveListener((mx, my) => {
+                if (!grab) return;
+                const d = Math.round(worldX(mx) - grab.down);
+                grab.part.xi = grab.startXi + d;
+                grab.part.xf = grab.startXf + d;
+                // Re-read the track sequence under the primer at its new position so
+                // Tm/GC (recomputed in Amplicon.draw from part.sequence) update as it
+                // moves. GC% and Tm are invariant under reverse-complement, so the
+                // sense-strand range is correct for both forward and reverse primers.
+                try {
+                    const lo = Math.min(grab.part.xi, grab.part.xf);
+                    const hi = Math.max(grab.part.xi, grab.part.xf);
+                    const seq = track.getSequenceRange(lo, hi);
+                    if (seq && seq.length) grab.part.sequence = seq;
+                } catch (e) { }
+                // keep the amplicon span in sync for rendering / hit-tests
+                if (amp.left && amp.right) {
+                    amp.xi = Math.min(+amp.left.xi, +amp.right.xi);
+                    amp.xf = Math.max(+amp.left.xf, +amp.right.xf);
+                }
+                if (graph.wake) graph.wake();
+            });
+            graph.addMouseUpListener((mx, my) => {
+                grab = null;
+                if (graph.wake) graph.wake();
+            });
+        }
+
         function showOneAmpliconMenu(graph, selectedTrack, amp, immediate) {
             const toNum = (v) => {
                 const n = Number(v);
@@ -441,6 +500,14 @@ function (graph, genegraph_panel_layout) {
                         removeThisAmp();
                         graph.showSideMenu(null);
                         if (graph.wake) graph.wake();
+                    }
+                },
+                {
+                    label: "Edit amplicon (drag primers)",
+                    click: () => {
+                        graph.showSideMenu(null);
+                        try { graph.side_menu = null; } catch (e) { }   // else the engine skips move listeners
+                        editAmpliconX(graph, selectedTrack, amp);
                     }
                 },
                 { type: "separator" },
@@ -1199,6 +1266,27 @@ function (graph, genegraph_panel_layout) {
             let y = scy;
             graph.mousex = scx;
             graph.mousey = scy;
+            // Vertical oligo drag: while an oligo is being dragged (started on a
+            // mouse-down over it), move it in Y only, keep the pan suppressed, and
+            // skip hover handling. X is never changed, so it only moves vertically.
+            if (graph.__oligoDrag) {
+                const d = graph.__oligoDrag;
+                try {
+                    const tg = d.track.tgraph;
+                    if (!d.pushed) { try { graph.pushOntoHistory(); } catch (e) { } d.pushed = true; }
+                    let ny = d.startY + (tg.Ywc(scy) - tg.Ywc(d.downY));
+                    // Clamp within the track's vertical extent so the oligo never
+                    // leaves the top of the track or drops past its bottom.
+                    const lo = (typeof tg.ymin === 'number') ? tg.ymin : 0;
+                    const hi = (typeof tg.ymax === 'number') ? tg.ymax : 1;
+                    const m = Math.min(0.02, (hi - lo) * 0.05);   // small edge margin
+                    d.o.y = Math.max(lo + m, Math.min(hi - m, ny));
+                    d.moved = true;
+                    if (graph.graph) graph.graph.mode = 'move';   // keep the canvas from panning
+                    if (graph.wake) graph.wake();
+                } catch (e) { }
+                return;
+            }
             // While a menu is open, freeze hover behavior — don't let it select or
             // deselect tracks / annotations under the cursor, so the user's current
             // selection stays put while they interact with the menu.
@@ -1347,8 +1435,25 @@ function (graph, genegraph_panel_layout) {
 
         graph.addMouseUpListener(async (x, y) => {
 
+            // Finish a vertical oligo drag: restore navigate (panning). If the oligo
+            // actually moved, consume this release so no context menu opens; a plain
+            // click (no movement) falls through to the normal select/menu behavior.
+            if (graph.__oligoDrag) {
+                const moved = graph.__oligoDrag.moved;
+                graph.__oligoDrag = null;
+                if (graph.graph) graph.graph.mode = 'navigate';
+                if (graph.wake) graph.wake();
+                if (moved) { move = null; return; }
+            }
 
             move = null;
+
+            // The press landed in a menu (flag set on mouse-down), or a menu is
+            // still open now — don't deselect anything or open a menu over it.
+            if (graph.__downInMenu || graph.side_menu || (graph.menuVisible && graph.menuVisible())) {
+                graph.__downInMenu = false;
+                return;
+            }
 
             // Box-zoom owns the interaction — no context menu / deselect on its release.
             if (graph.graph && graph.graph.mode === 'bpx') return;
@@ -1713,24 +1818,56 @@ function (graph, genegraph_panel_layout) {
                                         const lll = [
                                             {
                                                 'label': 'Primer-probes', click: (async () => {
-                                                    graph.pushOntoHistory();
-                                                    graph.clearMouseListeners();
-
-                                                    for (let selectedTrack of graph.track) {
-                                                        if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
-                                                            let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend)
-                                                            const p = 'py/ppsets/models/find-primer-amplicons.py'
-                                                            let r = await exec(p, sequence)
-                                                            selectedTrack.ampliconResults = r;
-                                                            showModal({
-                                                                wid: 'json',
-                                                                data: JSON.stringify(r)
-                                                            })
-
+                                                    // After choosing "Primer-probes", pick the method:
+                                                    //  - primer3: the primer3 python package (generate-ppsets.py),
+                                                    //    designed primers placed on the track (apply-primer3.js).
+                                                    //  - djPrimer: primer3 design ranked by the assay-success model.
+                                                    const runPrimer3 = async () => {
+                                                        graph.pushOntoHistory();
+                                                        graph.clearMouseListeners();
+                                                        for (let selectedTrack of graph.track) {
+                                                            if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                                                let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                                                graph.setMessage(' Generating primers (primer3)... ');
+                                                                let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
+                                                                let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
+                                                                await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                                                if (graph.wake) graph.wake();
+                                                            }
                                                         }
-                                                    }
-                                                    showSideMenuDelayed(lll)
-
+                                                        // Primers placed — return to mouse-over-highlight + navigate mode.
+                                                        graph.setMouseMode('navigate');
+                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                    };
+                                                    const runDjprimer = async () => {
+                                                        graph.pushOntoHistory();
+                                                        graph.clearMouseListeners();
+                                                        for (let selectedTrack of graph.track) {
+                                                            if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                                                let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                                                const gene = selectedTrack.geneID || selectedTrack.name || '';
+                                                                const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
+                                                                graph.setMessage(' Designing primers (djPrimer)... ');
+                                                                let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                                                                selectedTrack.ampliconResults = r;
+                                                                await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                                                if (graph.wake) graph.wake();
+                                                            }
+                                                        }
+                                                        // Primers placed — return to mouse-over-highlight + navigate mode.
+                                                        graph.setMouseMode('navigate');
+                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                    };
+                                                    graph.showSideMenu([
+                                                        {
+                                                            label: 'primer3', move: () => { },
+                                                            click: () => { graph.showSideMenu(null); runPrimer3(); }
+                                                        },
+                                                        {
+                                                            label: 'djPrimer (assay success)', move: () => { },
+                                                            click: () => { graph.showSideMenu(null); runDjprimer(); }
+                                                        }
+                                                    ]);
                                                 })
                                             }, {
                                                 'label': 'Exon-exon Primer-probes', click: (async () => {
@@ -1766,7 +1903,13 @@ function (graph, genegraph_panel_layout) {
                                                     graph.pushOntoHistory()
                                                     setTimeout(async () => {
 
-                                                        exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                        // If no sequence is selected yet, enter sequence-selection mode.
+                                                        if (!graph.track.some((t) => t.markend > t.markstart)) {
+                                                            exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true)
+                                                            return;
+                                                        }
+                                                        // A sequence is already selected: prompt with the compound menu
+                                                        // options for each selected sequence.
                                                         for (let track of graph.track) {
                                                             if (track.markend > track.markstart) {
                                                                 let currentSequence = track.getHighlightedSequence();
@@ -1781,6 +1924,8 @@ function (graph, genegraph_panel_layout) {
                                                                 }
                                                             }
                                                         }
+                                                        // Reset the mouse to normal hover behavior.
+                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
                                                     }, 100)
                                                 })
@@ -4660,6 +4805,12 @@ function (graph, genegraph_panel_layout) {
             graph.__downMenuHandled = false;
             graph.__pendingSnp = null;
 
+            // A menu is open — the click is landing on the menu. Record it so the
+            // matching mouse-up also skips (the engine may clear side_menu before
+            // the up fires), and don't deselect anything here.
+            graph.__downInMenu = !!(graph.side_menu || (graph.menuVisible && graph.menuVisible()));
+            if (graph.__downInMenu) return;
+
             // Box-zoom owns the interaction — don't let hover select/deselect or
             // clear the selection while the user is dragging a zoom rectangle.
             if (graph.graph && graph.graph.mode === 'bpx') return;
@@ -4765,6 +4916,15 @@ function (graph, genegraph_panel_layout) {
                             const sy = graph.Y(selectedTrack.tgraph.Y(o.y != null ? o.y : 0.1));
                             const lo = Math.min(sx0, sx1) - 4, hi = Math.max(sx0, sx1) + 4;
                             if (cx < lo || cx > hi || Math.abs(cy - sy) > 12) continue;
+                            // Pressing on an oligo OR amplicon starts a VERTICAL drag:
+                            // select it, stop the pan, and let the move-listener drag it
+                            // in Y. A press without movement just selects (below).
+                            // (Amplicons draw at this.y and sync left/right.y, so setting
+                            // o.y in the move-listener moves the whole amplicon.)
+                            if (!graph.__oligoDrag) {
+                                graph.__oligoDrag = { o, track: selectedTrack, startY: (o.y != null ? o.y : 0.1), downY: y, moved: false, pushed: false };
+                                if (graph.graph) graph.graph.mode = 'move';
+                            }
                             if (!graph.__lassoSelection) graph.__lassoSelection = [];
                             if (graph.__lassoSelection.some((e) => e.ref === o)) continue;
                             const origHi = o.highlight__;

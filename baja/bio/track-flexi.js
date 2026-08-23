@@ -2716,7 +2716,6 @@ return new Promise(async (resolve, reject) => {
         createTrackFromAnnotation(annotation) {
             let seq = ''
             let _annotations = [];
-            console.log('debubg');
             let _annotation_tag = annotation;
             if (annotation == 'CDNA') {
                 _annotation_tag = 'Exon'
@@ -2726,21 +2725,38 @@ return new Promise(async (resolve, reject) => {
             let seqindex = [];
             let sindex = 0;
             let genomeIndex = [];
-            for (let a of sorted_annotations) {
-                if (a.type === _annotation_tag) {
-                    let tt = this.sequence.substring(Math.floor(a.xi - this.xi), Math.floor(a.xf - this.xi));
-                    if (tt && tt.length > 0) {
-                        let tr = new Annotation(a.type, a.name, seq.length, seq.length + tt.length);
-                        tr.gxi = a.gxi;
-                        tr.gxf = a.gxf;
-                        seq += tt;
-                        for (let aindex = a.xi - this.xi; aindex < Math.floor(a.xf - this.xi); aindex++) {
-                            seqindex[sindex] = aindex;
-                            genomeIndex[sindex] = this.xi + aindex;
-                            sindex++;
-                        }
-                        _annotations.push(tr);
+
+            // Exons in transcript order.
+            let exons = sorted_annotations.filter(a => a.type === _annotation_tag);
+
+            // this.sequence is either the full (intron-containing) sequence or the
+            // exon-collapsed cDNA. If it's the cDNA, the exon offsets (a.xi - this.xi)
+            // include introns and overshoot after the first exon — so only one exon
+            // comes through. Detect that case and index the cDNA by cumulative exon
+            // length instead.
+            let totalExonLen = exons.reduce((s, a) => s + Math.max(0, Math.floor(a.xf - a.xi)), 0);
+            let spanLen = Math.abs(Math.floor(this.xf - this.xi));
+            let isCdna = Math.abs(this.sequence.length - totalExonLen) <= Math.abs(this.sequence.length - spanLen);
+
+            let cum = 0;
+            for (let a of exons) {
+                let len = Math.max(0, Math.floor(a.xf - a.xi));
+                let start = isCdna ? cum : Math.max(0, Math.floor(a.xi - this.xi));
+                let tt = this.sequence.substring(start, start + len);
+                cum += len;
+                if (tt && tt.length > 0) {
+                    let tr = new Annotation(a.type, a.name, seq.length, seq.length + tt.length);
+                    tr.gxi = a.gxi;
+                    tr.gxf = a.gxf;
+                    seq += tt;
+                    // Map each mRNA base back to its source position via the exon's xi.
+                    let base = Math.floor(a.xi - this.xi);
+                    for (let i = 0; i < tt.length; i++) {
+                        seqindex[sindex] = base + i;
+                        genomeIndex[sindex] = this.xi + base + i;
+                        sindex++;
                     }
+                    _annotations.push(tr);
                 }
             }
 
@@ -4672,11 +4688,18 @@ return new Promise(async (resolve, reject) => {
                 let screenStartX = graph.X(this.grid.X(Math.floor(this.markstart)));
                 let screenEndX = graph.X(this.grid.X(this.markend));
                 let yPosition = graph.Y(this.grid.Y(-20));
-                ctx.strokeStyle = 'lightBlue';
-                ctx.fillStyle = 'navy';
-                ctx.shadowBur = 2;
-                ctx.shadowColor = 'black';
+                // Selected-sequence arrow — tropical orange with a soft drop shadow
+                // so it pops off the canvas. save/restore keeps the shadow from
+                // bleeding onto everything drawn after it.
+                ctx.save();
+                ctx.strokeStyle = '#e0703b';   // darker tropical-orange edge
+                ctx.fillStyle = '#ff8c42';     // tropical orange
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = 'rgba(0,0,0,0.45)';
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 2;
                 ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
                 let arrowheadLength = 15;
                 let arrowheadWidth = 7;
 
@@ -4697,8 +4720,8 @@ return new Promise(async (resolve, reject) => {
                 ctx.beginPath();
                 ctx.moveTo(screenStartX + arrowheadLength, yPosition);
                 ctx.lineTo(screenEndX - arrowheadLength, yPosition);
-                ctx.closePath();
                 ctx.stroke();
+                ctx.restore();
 
                 drawString(
                     ctx,

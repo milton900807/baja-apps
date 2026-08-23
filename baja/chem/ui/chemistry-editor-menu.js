@@ -34,7 +34,7 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Draw compound on track', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt ( " Please select a chemistry... [Tools][Chemistry]")
+                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
                                                         return;
                                                     }
 
@@ -48,11 +48,11 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile on track location..', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt ( " Please select a chemistry... [Tools][Chemistry]")
+                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
                                                         return;
                                                     }
                                                     graph.clearMouseListeners();
-                                                    graph.setMessage('Select a point on a track')
+                                                    graph.setMessage('msg: Select a point on a track')
                                                     exec('baja/manchester/menu/paint-oligos.js', graph)
                                                 }),
                                             }, {
@@ -60,7 +60,7 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile across selected sequence...', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt ( " Please select a chemistry... [Tools][Chemistry]")
+                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
                                                         return;
                                                     }
                                                     setTimeout(async () => {
@@ -74,7 +74,7 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Tile on secondary structure', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt ( " Please select a chemistry... [Tools][Chemistry]")
+                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
                                                         return;
                                                     }
                                                     graph.clearMouseListeners();
@@ -194,7 +194,7 @@ function (graph, genegraph_panel_layout) {
                                                 'label': 'Selected sequence secondary structure', 'ionfunction': createIonFunction(async () => {
 
                                                     if (!graph.props.selected_chemistry) {
-                                                        infoPrompt ( " Please select a chemistry... [Tools][Chemistry]")
+                                                        infoPrompt(" Please select a chemistry... [Tools][Chemistry]")
                                                         return;
                                                     }
                                                     let Biopolymer = await exec('baja/chem/biopolymer.js')
@@ -246,9 +246,9 @@ function (graph, genegraph_panel_layout) {
                                                         let tgraph = selectedTrack.tgraph;
                                                         if (sequence != null && sequence.length > 0) {
 
-                                                            let em = new EngineMonitor ( ( msg ) => {
+                                                            let em = new EngineMonitor((msg) => {
 
-                                                            } )
+                                                            })
                                                             let t = await selectedTrack.createSecondaryStructure(xi, sequence, selectedTrack.name, em)
                                                             t.anchorX = selectedTrack.markstart;
                                                             t.xindex_start = selectedTrack.markstart;
@@ -665,14 +665,15 @@ function (graph, genegraph_panel_layout) {
                                                             move: () => {
                                                             }
 
-                                                        },{
-								label: "Re-number compounds", click: async ( xwc, ywc ) => {
-									                        graph.setMessage('Edit properties of all compounds')
-									                        let editPanel = await exec('baja/manchester/menu/compound-editor-panel-all.js', graph, genegraph_panel_layout)
-									                        CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-									                        CurrentLayout.setComponent('buttonMenuPanel', editPanel);
+                                                        }, {
+                                                            label: "Re-number compounds", click: async (xwc, ywc) => {
+                                                                graph.setMessage('Edit properties of all compounds')
+                                                                let editPanel = await exec('baja/manchester/menu/compound-editor-panel-all.js', graph, genegraph_panel_layout)
+                                                                CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
+                                                                CurrentLayout.setComponent('buttonMenuPanel', editPanel);
 
-							}},
+                                                            }
+                                                        },
                                                         {
                                                             label: 'Modify chemistry',
                                                             click: async (xwc, ywc) => {

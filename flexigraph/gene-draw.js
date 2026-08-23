@@ -198,36 +198,57 @@ function () {
 
         'Exon': createIon((graph, tgraph, xs, xf, yv, color, annotation, strand) => {
 
-            const exonColor = 'rgba(44,90,160,0.82)';
+            const exonColor = 'rgba(26,163,189,0.85)';   // tropical teal
             const exonWidth = 12;
 
-            graph.drawLine(xs, yv, xf + 1, yv, exonColor, exonWidth, 'butt');
+            // Rounded, cylinder-like exon: a capsule with a vertical tropical-teal
+            // gradient (light aqua top -> deep teal bottom) and a specular highlight.
+            const drawExonCylinder = (ctx, x1, x2, yc, h) => {
+                if (x2 < x1) { const t = x1; x1 = x2; x2 = t; }
+                const left = x1, right = Math.max(x2, x1 + 2);
+                const r = h / 2;
+                const top = yc - r;
+                const rr = Math.min(r, (right - left) / 2);
+                const path = () => {
+                    ctx.beginPath();
+                    ctx.moveTo(left + rr, top);
+                    ctx.lineTo(right - rr, top);
+                    ctx.arc(right - rr, yc, rr, -Math.PI / 2, Math.PI / 2);
+                    ctx.lineTo(left + rr, yc + r);
+                    ctx.arc(left + rr, yc, rr, Math.PI / 2, -Math.PI / 2);
+                    ctx.closePath();
+                };
+                ctx.save();
+                ctx.setLineDash([]);
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                path();
+                ctx.clip();
+                const g = ctx.createLinearGradient(0, top, 0, yc + r);
+                g.addColorStop(0.0, 'rgba(125,226,233,0.95)');   // light aqua top
+                g.addColorStop(0.35, 'rgba(38,180,200,0.95)');   // tropical teal
+                g.addColorStop(1.0, 'rgba(15,108,130,0.96)');    // deep teal bottom
+                ctx.fillStyle = g;
+                ctx.fillRect(left, top, right - left, h);
+                ctx.fillStyle = 'rgba(255,255,255,0.32)';        // specular highlight band
+                ctx.fillRect(left, top + h * 0.13, right - left, h * 0.18);
+                ctx.restore();
+                ctx.save();
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                path();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(12,92,112,0.55)';
+                ctx.stroke();
+                ctx.restore();
+            };
 
             {
                 const ctx = graph.canvas.getCTX();
                 if (ctx) {
-                    const x1 = graph.X(xs);
-                    const x2 = graph.X(xf + 1);
-                    const y = graph.Y(yv);
-
-                    const capH = exonWidth * 2.0;
-
-                    ctx.save();
-                    ctx.setLineDash([]);
-                    ctx.strokeStyle = exonColor;
-                    ctx.lineWidth = exonWidth;
-                    ctx.lineCap = 'butt';
-
-                    const cap = (x) => {
-                        ctx.beginPath();
-                        ctx.moveTo(x, y - capH / 2);
-                        ctx.lineTo(x, y + capH / 2);
-                        ctx.stroke();
-                    };
-
-                    cap(x1);
-                    cap(x2);
-                    ctx.restore();
+                    drawExonCylinder(ctx, graph.X(xs), graph.X(xf + 1), graph.Y(yv), exonWidth + 2);
+                } else {
+                    graph.drawLine(xs, yv, xf + 1, yv, exonColor, exonWidth, 'butt');
                 }
             }
 
@@ -240,22 +261,30 @@ function () {
                     const small = (annotation.index >= 0 && screencell < 0.52);
                     const radius = small ? 10 : 20;
                     const fontSize = small ? 8 : 15;
+                    // Center the badge x on the exon (midpoint of its span). When
+                    // zoomed out (small), lift it above the exon so the exon block
+                    // doesn't obscure the number; centered on the lane when zoomed in.
                     const x = (graph.X(xs) + graph.X(xf)) / 2;
-                    const y = small ? (graph.Y(yv - 1) + 10) : graph.Y(yv);
+                    const y = small ? (graph.Y(yv) + (radius + 28)) : graph.Y(yv);
                     ctx.save();
                     ctx.setLineDash([]);
+                    ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
+                    ctx.shadowColor = 'transparent';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'white';
+                    ctx.fillStyle = 'white';     // white background
+                    ctx.strokeStyle = '#0a2540'; // oval border
+                    ctx.lineWidth = 1;
                     ctx.fill();
-                    ctx.stroke();
                     ctx.closePath();
+                    ctx.stroke();
+
                     ctx.font = `${fontSize}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540';
-                    ctx.fillText(annotation.index, x, y);
+                    ctx.fillStyle = 'black';     // black number
+                    ctx.fillText('' + annotation.index, x, y);
                     ctx.restore();
                 }
             }
@@ -706,7 +735,7 @@ function () {
 
         }),
         'CDS': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf + 1, y, 'rgba(44,90,160,0.55)', 20)
+            graph.drawLine(xs, y, xf + 1, y, 'rgb(255, 187, 0)', 3)
             graph.drawVerticalLine(xs, y, 0.08, '#1aa3bd', 1)
             graph.drawVerticalLine(xf + 1, y, 0.08, '#1aa3bd', 1)
 

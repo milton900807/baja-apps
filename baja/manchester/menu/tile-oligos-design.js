@@ -1,5 +1,5 @@
 
-function (graph, genegraph_panel_layout, presetRuleset) {
+function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
     return new Promise(async (resolve, reject) => {
         // Optional preset design ruleset ('sirna' | 'gapmer' | 'steric'). When a
@@ -52,38 +52,51 @@ function (graph, genegraph_panel_layout, presetRuleset) {
             return 'steric';
         };
 
-        // Pick the target track by clicking it (mirrors primer-probe-action.js).
-        graph.setMessage(preset
-            ? (' Click a track to design ' + preset + ' oligos against its sequence. ')
-            : ' Click a track to design oligos against its sequence. ');
-        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-        graph.selectOff();
-
         let selectedTrack = null;
-        graph.addMouseMoveListener((x, y) => {
-            const ti = graph.getTrack(x, y);
-            if (ti >= 0) {
-                const t = graph.track[ti];
-                if (t && selectedTrack !== t && selectedTrack) selectedTrack.showResizeBar = false;
-                selectedTrack = t;
-                if (selectedTrack) selectedTrack.showResizeBar = true;
-            }
-        });
+        // Sequence-index offset when designing only across a marked selection.
+        let __designOffset = 0;
 
-        graph.addMouseDownListener((x, y) => {
-            const ti = graph.getTrack(x, y);
-            if (ti < 0) { graph.selectOff(); return; }
-            selectedTrack = graph.track[ti];
-            if (!selectedTrack || !selectedTrack.sequence || selectedTrack.sequence.length < 8) {
-                graph.setMessage(' That track has no usable sequence. '); return;
-            }
-            // A chemistry is always chosen by this point, so derive the design
-            // ruleset from it and skip the ruleset picker. (An explicit preset,
-            // if supplied, still wins.)
-            const chemObj = graph.props.selected_chemistry;
-            const ruleset = preset || chemTypeToRuleset(chemObj);
-            runDesign(ruleset, x, y);
-        });
+        // Design DIRECTLY (no interactive track pick) when a track was supplied OR a
+        // sequence is already selected on a track. Captured BEFORE selectOff() below
+        // so the selection isn't wiped.
+        let __target = (presetTrack && presetTrack.sequence && presetTrack.sequence.length >= 8) ? presetTrack : null;
+        if (!__target) {
+            __target = (graph.track || []).find((t) => t && t.markend > t.markstart && t.sequence && t.sequence.length >= 8) || null;
+        }
+
+        if (!__target) {
+            // Pick the target track by clicking it (mirrors primer-probe-action.js).
+            graph.setMessage(preset
+                ? (' Click a track to design ' + preset + ' oligos against its sequence. ')
+                : ' Click a track to design oligos against its sequence. ');
+            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+            graph.selectOff();
+
+            graph.addMouseMoveListener((x, y) => {
+                const ti = graph.getTrack(x, y);
+                if (ti >= 0) {
+                    const t = graph.track[ti];
+                    if (t && selectedTrack !== t && selectedTrack) selectedTrack.showResizeBar = false;
+                    selectedTrack = t;
+                    if (selectedTrack) selectedTrack.showResizeBar = true;
+                }
+            });
+
+            graph.addMouseDownListener((x, y) => {
+                const ti = graph.getTrack(x, y);
+                if (ti < 0) { graph.selectOff(); return; }
+                selectedTrack = graph.track[ti];
+                if (!selectedTrack || !selectedTrack.sequence || selectedTrack.sequence.length < 8) {
+                    graph.setMessage(' That track has no usable sequence. '); return;
+                }
+                // A chemistry is always chosen by this point, so derive the design
+                // ruleset from it and skip the ruleset picker. (An explicit preset,
+                // if supplied, still wins.)
+                const chemObj = graph.props.selected_chemistry;
+                const ruleset = preset || chemTypeToRuleset(chemObj);
+                runDesign(ruleset, x, y);
+            });
+        }
 
         // ---- step 1: choose the ruleset (molecule type) ----------------------
         function showRulesetMenu(x, y) {
@@ -116,7 +129,15 @@ function (graph, genegraph_panel_layout, presetRuleset) {
             try { L = Biopolymer.countBases(chemObj); } catch (e) { L = 0; }
             if (!L || L < 8) L = Rules.DEFAULT_LEN[ruleset] || 20;
 
-            const seq = String(selectedTrack.sequence);
+            let seq = String(selectedTrack.sequence);
+            // Design ACROSS the selected sequence (the marked region) when one is set;
+            // otherwise design across the whole track.
+            __designOffset = 0;
+            if (selectedTrack.markend > selectedTrack.markstart) {
+                const ms = Math.max(0, Math.floor(selectedTrack.markstart));
+                const me = Math.min(seq.length, Math.floor(selectedTrack.markend));
+                if (me - ms >= L) { seq = seq.substring(ms, me); __designOffset = ms; }
+            }
             // Keep the candidate count bounded for very long (e.g. pre-mRNA) tracks.
             const span = Math.max(0, seq.length - L);
             const step = Math.max(1, Math.floor(span / 4000));
@@ -154,12 +175,14 @@ function (graph, genegraph_panel_layout, presetRuleset) {
                 graph.setMessage(' Added ' + placed + ' ' + ruleset + ' oligo(s) to ' + selectedTrack.name + '. ');
             }
             try { graph.setMouseMode('navigate'); } catch (e) { }
+            // After the design completes, hand the mouse back to hover behavior.
+            try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         }
 
         // ---- step 3: build the compound with the selected chemistry + drop ----
         async function dropCandidate(cand, ruleset, chemObj, quiet) {
             try {
-                const startIndex = selectedTrack.xi + cand.start;   // world coord
+                const startIndex = selectedTrack.xi + __designOffset + cand.start;   // world coord
                 const endIndex = startIndex + cand.length;
                 const targetWindow = Rules.clean(cand.targetWindow); // DNA sense of the window
                 // Spread designed oligos randomly in Y so they don't all land on the
@@ -209,6 +232,14 @@ function (graph, genegraph_panel_layout, presetRuleset) {
                 if (!quiet) graph.setMessage(' Drop failed: ' + (e && e.message ? e.message : e));
                 return false;
             }
+        }
+
+        // A direct target (supplied track, or an already-selected sequence) — design
+        // across it now (respecting its marked region) instead of an interactive pick.
+        if (__target) {
+            selectedTrack = __target;
+            const ruleset = preset || chemTypeToRuleset(graph.props.selected_chemistry);
+            await runDesign(ruleset, 0, 0);
         }
 
         resolve();

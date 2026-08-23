@@ -1,10 +1,18 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, onSelected) {
 
     return new Promise(async (resolve, reject) => {
         let selectMethod = async (v) => {
             graph.props.selected_chemistry = v;
             CurrentLayout.clearComponent('mainPanel')
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+
+            // If the caller supplied a continuation (e.g. "then let the user draw"),
+            // run it instead of reloading the compound toolbar.
+            if (typeof onSelected === 'function') {
+                try { hideAllModal(); } catch (e) { }
+                try { onSelected(v); } catch (e) { }
+                return;
+            }
 
             graph.setMessage(" Loading the compound toolbar. ")
             setTimeout(async () => {

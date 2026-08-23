@@ -8,6 +8,12 @@ startIndex = works.param(3)
 endIndex = works.param(4)
 strand = works.param(5)
 
+# Big-data root now comes from BIG_DATA (env BIGDATA); resolve any legacy /bd/ path.
+import os
+_BD = os.environ.get("BIGDATA")
+if _BD and str(file).startswith("/bd/"):
+    file = _BD.rstrip("/") + str(file)[3:]
+
 print(f'file {file}')
 print(f'chrom {chrom}')
 print(f'start {startIndex}')

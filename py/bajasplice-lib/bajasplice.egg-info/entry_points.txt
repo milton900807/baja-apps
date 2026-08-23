@@ -1,0 +1,2 @@
+[console_scripts]
+bajasplice = bajasplice.cli:main

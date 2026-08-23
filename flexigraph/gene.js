@@ -1676,7 +1676,7 @@ function (progress) {
                     for (let o of l.oligos) {
                         if (annotation === 'amplicon' && o.type === annotation) {
                             m.push({
-                                label: o.left.xi + '...' + o.right.xi,
+                                label: 'ppset ' + o.left.xi + '...' + o.right.xf,
                                 click: async (xwc, ywc) => {
                                     this.animateTo(l.tgraph.X(o.left.xi - 5), l.tgraph.X(o.right.xf + 5), l.tgraph.Y(o.left.y - 1), l.tgraph.Y(o.left.y + 1))
 
@@ -2120,7 +2120,7 @@ function (progress) {
                         return false;
                     }
                     while (this.track.some(existingTrack => overlap(existingTrack, newTrack))) {
-                        newTrack.y += 3;
+                        newTrack.y += 4.5;
                         newTrack.tgraph.yi = newTrack.y;
                     }
 
@@ -4532,6 +4532,12 @@ function (progress) {
 
                         this.mouseDown = false;
 
+                        // The press landed on a side-menu item / panel — its action may
+                        // have already closed the menu. Don't let this up reach the canvas
+                        // mouse-up listeners (which would deselect). Runs AFTER the center
+                        // menu handling above, so center-menu item clicks still fire.
+                        if (this.__downMenuHandled) { this.__downMenuHandled = false; return; }
+
                         if (!this.menu) {
                             for (let mul of this.mouseUpListeners) {
                                 mul(xwc, ywc);
@@ -4818,6 +4824,8 @@ function (progress) {
                     const isIdle = idleFor > (this.idleTimeoutMs || 15000);
 
                     if (!this.pauseDraw && (!isIdle || !this.__idleRendered)) {
+                        // Diff parent->child syncable objects every draw and push what differs.
+                        try { this.syncChildTracks(); } catch (e) { }
                         await this.redraw();
                         if (isIdle) this.__idleRendered = true;
                         if (this.post_graphics_modifications) {
@@ -4948,6 +4956,28 @@ function (progress) {
                 }
                 return false;
 
+            }
+
+            // Near-real-time mirror: for every child track (one holding a trackRef to a
+            // parent), replicate the parent's in-range items onto the child, remapped to
+            // the child's coordinates. Runs each redraw tick but each child re-mirrors
+            // only when its parent's item signature changes, so it's cheap while idle.
+            syncChildTracks() {
+                if (!this.track) return;
+                for (let t of this.track) {
+                    if (!t) continue;
+                    const isChild = t.trackRef && t.trackRef.track;
+                    if (isChild) {
+                        if (typeof t.syncFromParent === 'function') {
+                            try { t.syncFromParent(); } catch (e) { console.warn('[syncFromParent] threw for child', t && t.name, e); }
+                        }
+                    } else if (t.gxi == null || t.gxi === 0) {
+                        // Root track (not derived from a parent): its local x IS genomic, so
+                        // fit its genomic span to its own coordinates when unset.
+                        t.gxi = t.xi;
+                        t.gxf = t.xf;
+                    }
+                }
             }
 
             getTrackFromIndex(trackIndex) {
@@ -6460,11 +6490,11 @@ pattern, GGGG | Required`
 
             showSideMenu(list, anchor) {
                 if (this.wake) this.wake();
-                console.trace('showSideMenu() called', {
-                    list,
-                    side_menu: this.side_menu,
-                    showChapters: this.showChapters
-                });
+                // console.trace('showSideMenu() called', {
+                //     list,
+                //     side_menu: this.side_menu,
+                //     showChapters: this.showChapters
+                // });
 
                 if (!list) {
                     this.side_menu = null;
@@ -6730,6 +6760,39 @@ pattern, GGGG | Required`
                 if (this.wake) this.wake();
             }
 
+            // Zoom the viewport out to encompass every track (x span + vertical stack).
+            async viewAllTracks() {
+                const ts = (this.track || []).filter(t => t && t.tgraph && isFinite(t.tgraph.xi) && isFinite(t.tgraph.width));
+                if (!ts.length) return;
+                let minXi = Infinity, maxXf = -Infinity, minYi = Infinity, maxYi = -Infinity;
+                for (const t of ts) {
+                    const g = t.tgraph;
+                    minXi = Math.min(minXi, g.xi);
+                    maxXf = Math.max(maxXf, g.xi + g.width);
+                    minYi = Math.min(minYi, g.yi);
+                    maxYi = Math.max(maxYi, g.yi);
+                }
+                const xpad = Math.max(50, (maxXf - minXi) * 0.03);
+                try { await this.zoomRect(minXi - xpad, maxXf + xpad, maxYi + 2, minYi - 2, 150); } catch (e) { }
+                if (this.wake) this.wake();
+            }
+
+            // Zoom the viewport to a single track so its box sits centered in the canvas.
+            // The zoom rect is symmetric about the track's center in x (xi + width/2) and
+            // y (its two edges yi and yi+height), so the track lands in the middle.
+            async zoomToTrack(t) {
+                if (!t || !t.tgraph) return;
+                const g = t.tgraph;
+                const xpad = Math.max(50, g.width * 0.05);
+                const yA = g.yi;
+                const yB = g.yi + (g.height || 0);
+                const cy = (yA + yB) / 2;                  // vertical center of the track box
+                const span = Math.abs(yB - yA) || 1;
+                const yhalf = span * 1.5;                  // track box + margin, kept symmetric
+                try { await this.zoomRect(g.xi - xpad, g.xi + g.width + xpad, cy + yhalf, cy - yhalf, 150); } catch (e) { }
+                if (this.wake) this.wake();
+            }
+
             menuVisible() {
                 if (this.menu != null) {
                     return true;
@@ -6978,8 +7041,8 @@ pattern, GGGG | Required`
                     { id: 'navigate', info: 'Move / pan the graph' },
                     { id: 'bpx', info: 'Box zoom — drag a rectangle' },
                     { id: 'expand_vertical', info: 'Expand vertically' },
-                    { id: 'contract_vertical', info: 'Contract vertically' },
-                    { id: 'expand_horizontal', info: 'Expand horizontally' },
+                    { id: 'contract_vertical', info: 'Expand vertically' },
+                    { id: 'expand_horizontal', info: 'Contract horizontally' },
                     { id: 'contract_horizontal', info: 'Contract horizontally' },
                     // Selection tools (right)
                     { id: 'lasso', info: 'Lasso select — draw a loop around items' },
@@ -7085,9 +7148,16 @@ pattern, GGGG | Required`
                         this.bclick = 'select_seq';
                         setTimeout(() => { this.bclick = ''; }, 100);
                         try {
-                            Promise.resolve(exec('baja/manchester/menu/sequence.js',
+
+                            this.clearMouseListeners();
+                            // this.setMouseMode('sequence');
+
+
+                            Promise.resolve(exec('baja/manchester/menu/select-sequence.js',
                                 this, this.genegraph_panel_layout, true)).catch(() => { });
-                        } catch (e) { this.setMessage(' Could not open sequence tools: ' + e); }
+                        } catch (e) {
+                            this.setMessage(' Could not open sequence tools: ' + e);
+                        }
                         return;
                     case 'info':
                         this.showDisplay = !this.showDisplay;
@@ -7841,6 +7911,18 @@ pattern, GGGG | Required`
                     if (this.wake) this.wake();
                 };
 
+                // Run off-targets on every oligo across all tracks.
+                const runOffTargetsAll = () => {
+                    const all = [];
+                    for (const t of tracks) for (const o of (t.oligos || [])) all.push(o);
+                    if (!all.length) { this.setMessage(' No oligos to run off-targets on. '); return; }
+                    close();
+                    try { window.current = all[0]; } catch (e) { }
+                    try {
+                        Promise.resolve(exec('baja/manchester/menu/run-off-targets.js', this, this.genegraph_panel_layout, all)).catch(() => { });
+                    } catch (e) { this.setMessage(' Could not open off-target tool: ' + e); }
+                };
+
                 const OLIGO_PAGE = 30;
                 const openOligos = (offset) => {
                     offset = offset || 0;
@@ -7848,6 +7930,8 @@ pattern, GGGG | Required`
                     const items = [];
                     for (const t of tracks) for (const o of (t.oligos || [])) items.push({ o, t });
                     const sub = [{ label: 'Select all oligos (' + oligoCount + ')', click: () => { selectAllOligos(); }, move: () => { } }];
+                    // Alongside "Select all oligos", offer running off-targets on all.
+                    sub.push({ label: 'Run off-targets: all', click: () => { runOffTargetsAll(); }, move: () => { } });
                     // Only offered when the tracks hold BOTH siRNA and ASO oligos.
                     if (hasBothTypes) sub.push({ label: 'Select by type ▸', click: () => { openByType(); }, move: () => { } });
                     for (const { o, t } of items.slice(offset, offset + OLIGO_PAGE)) {
@@ -8200,7 +8284,7 @@ pattern, GGGG | Required`
                         // first — before the per-oligo picks below.
                         const sub = [];
                         sub.push({
-                            label: 'Delete all selected…',
+                            label: 'Delete selected…',
                             click: async () => {
                                 const targets = picks.slice();
                                 if (!targets.length) return;
@@ -8246,7 +8330,7 @@ pattern, GGGG | Required`
                             }, move: () => { }
                         });
                         if (picks.length === 1) {
-                            sub.push({ label: 'Oligo menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                            sub.push({ label: 'more...', click: () => { openOne(picks[0]); }, move: () => { } });
                             sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
                             show(sub);
                         } else {
@@ -8263,7 +8347,7 @@ pattern, GGGG | Required`
                         const openOne = (p) => { close(); try { this.__showOneAmpliconMenu(this, p.track, p.ref, true); } catch (e) { } };
                         const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } }];
                         if (picks.length === 1) {
-                            sub.push({ label: 'Amplicon menu', click: () => { openOne(picks[0]); }, move: () => { } });
+                            sub.push({ label: 'more...', click: () => { openOne(picks[0]); }, move: () => { } });
                             sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
                             show(sub);
                         } else {
@@ -8540,8 +8624,14 @@ pattern, GGGG | Required`
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 6;
 
+                // Parrot-tropical card: vivid orange gradient fill so mouse hints pop off
+                // the canvas, with a bright cyan border and dark text.
+                const grad = ctx.createLinearGradient(boxX, liftedBoxY, boxX + boxW, liftedBoxY + boxH);
+                grad.addColorStop(0.0, '#ff8c1a');   // tropical orange
+                grad.addColorStop(0.5, '#ff6f3c');   // coral orange
+                grad.addColorStop(1.0, '#ffa733');   // amber
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.fillStyle = 'rgba(10, 37, 64, 0.96)';   // tropical navy card
+                ctx.fillStyle = grad;
                 ctx.fill();
 
                 ctx.shadowColor = 'transparent';
@@ -8550,18 +8640,18 @@ pattern, GGGG | Required`
                 ctx.shadowOffsetY = 0;
 
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.strokeStyle = 'rgba(26, 163, 189, 0.90)';   // cyan border
+                ctx.strokeStyle = '#12c2e0';   // bright cyan border
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                roundRect(boxX + 2, liftedBoxY + 2, boxW - 4, boxH - 4, Math.max(1, radius - 2));
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';   // bright inner ring
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                roundRect(boxX + 1, liftedBoxY + 1, boxW - 2, boxH - 2, radius - 1);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                ctx.shadowColor = 'rgba(26, 163, 189, 0.55)';   // cyan glow
-                ctx.shadowBlur = 10;
-                ctx.fillStyle = '#eaf6f9';                       // light text
+                ctx.shadowColor = 'rgba(18, 194, 224, 0.55)';    // cyan glow
+                ctx.shadowBlur = 12;
+                ctx.fillStyle = '#08243a';                       // dark navy text for contrast
                 ctx.fillText(text, textX, liftedBoxY + paddingY);
 
                 ctx.shadowColor = 'transparent';
@@ -9044,7 +9134,8 @@ pattern, GGGG | Required`
 
                 this.addTrack(t)
                 this.notifyTrackListener();
-                t.tgraph.yi = this.track.length + 1;
+                // Vertical spacing between stacked tracks (bump up for more breathing room).
+                t.tgraph.yi = (this.track.length + 1) * (this.trackVerticalSpacing || 1.6);
                 return t;
             }
             createTrackFromGFF(name, gff_text) {

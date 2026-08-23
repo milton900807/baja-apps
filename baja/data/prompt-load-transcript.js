@@ -129,6 +129,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         // Otherwise prompt the user with a modal card.
         let v = null;      // description / id textarea
         let build = null;  // gene-symbol typeahead
+        let geneBox = null;         // human gene-symbol field
 
         let describe_transcript = {
             wid: 'card',
@@ -159,31 +160,33 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                 data: `e.g. "load human, mouse and rat KRAS", "canonical FGFR3 in human", "all PTEN isoforms in mouse", or ENST00000440486`
                             }
                         },
-                        // {
-                        //     'title': '',
-                        //     'width': '100%',
-                        //     'component': {
-                        //         wid: 'input-textfield',
-                        //         data: {
-                        //             'show-button': false,
-                        //             'title': 'Find transcript by gene symbol',
-                        //             'text': '',
-                        //             'typeahead_url': `${host_}/gene-lookup`,
-                        //             'typeahead_fields': ['Ensembl Canonical', 'Gene name', 'Gene Synonym', 'Gene description', 'Transcript stable ID'],
-                        //             'optionSelected': createIonFunction((value) => {
-                        //                 try {
-                        //                     let transcript = extractFirstEnsemblId(value.toString());
-                        //                     if (transcript && v && v.updateValue) {
-                        //                         v.updateValue(transcript);
-                        //                     }
-                        //                 } catch (e) { }
-                        //             }),
-                        //             'ionHookFunction': createIonFunction((input_box) => {
-                        //                 build = input_box;
-                        //             })
-                        //         }
-                        //     }
-                        // },
+                        {
+                            'title': 'Human Gene Symbol',
+                            'width': '100%',
+                            'component': {
+                                wid: 'input-textfield',
+                                data: {
+                                    'show-button': false,
+                                    'title': 'Human gene symbol (e.g. KRAS, PTEN, FGFR3)',
+                                    'text': '',
+                                    'typeahead_url': `${host_}/gene-lookup`,
+                                    'typeahead_fields': ['Ensembl Canonical', 'Gene name', 'Gene Synonym', 'Gene description', 'Transcript stable ID'],
+                                    'optionSelected': createIonFunction((value) => {
+                                        // If the picked option resolves to a transcript id, drop it
+                                        // straight into the description/ID box for a direct load.
+                                        try {
+                                            let transcript = extractFirstEnsemblId(value.toString());
+                                            if (transcript && v && v.updateValue) {
+                                                v.updateValue(transcript);
+                                            }
+                                        } catch (e) { }
+                                    }),
+                                    'ionHookFunction': createIonFunction((input_box) => {
+                                        geneBox = input_box;
+                                    })
+                                }
+                            }
+                        },
                         {
                             'title': '',
                             'width': '100%',
@@ -192,14 +195,34 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                     buttons: [
                                         {
                                             label: 'Load', ionFunction: createIonFunction(async () => {
-                                                let query = '';
+                                                let desc = '';
                                                 try {
-                                                    query = (v && v.getWidgetValue) ? v.getWidgetValue()
+                                                    desc = (v && v.getWidgetValue) ? v.getWidgetValue()
                                                         : (v && v.value ? v.value : '');
                                                 } catch (e) { }
+                                                let gene = '';
+                                                try {
+                                                    gene = (geneBox && geneBox.getWidgetValue) ? geneBox.getWidgetValue()
+                                                        : (geneBox && geneBox.value ? geneBox.value : '');
+                                                } catch (e) { }
+
+                                                // Compose the human gene symbol with the free-text
+                                                // description into a single query for the resolver. A
+                                                // pasted ENSEMBL/NCBI id in the description loads directly.
+                                                let query = '';
+                                                desc = ('' + (desc || '')).trim();
+                                                gene = ('' + (gene || '')).trim();
+                                                if (desc && extractFirstEnsemblId(desc) && desc.split(/\s+/).length === 1) {
+                                                    query = desc;   // direct id load
+                                                } else {
+                                                    let terms = [];
+                                                    if (gene) terms.push(gene);
+                                                    if (desc) terms.push(desc);
+                                                    query = terms.join(' ').trim();
+                                                }
                                                 hideAllModal();
                                                 setTimeout(() => {
-                                                    resolveAndLoad(query, (build && build.value) ? build.value : null);
+                                                    resolveAndLoad(query, null);
                                                 }, 200);
                                             })
                                         },

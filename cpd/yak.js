@@ -23,7 +23,7 @@ function (path, filebrowserplease) {
             }
 
         }
-        if (!MSGraph.isLoggedIn() && (!path || !path.endsWith('.ljl'))) {
+        if (!MSGraph.isLoggedIn() && (!path || !path.endsWith('.baja'))) {
 
 
 
@@ -177,11 +177,18 @@ function (path, filebrowserplease) {
                                                         wid: 'carousel',
                                                         data: {
                                                             images: [
-                                                                await exec('icons/svg/demo-set', 'AI'),
-                                                                await exec('icons/svg/demo-set', 'startup'),
-                                                                await exec('icons/svg/demo-set', "timeline"),
-                                                                await exec('icons/svg/demo-set', 'financial'),
-                                                                await exec('icons/svg/demo-set', 'free')
+                                                                await exec('icons/svg/editor-features', 'genomics-mutations'),
+                                                                await exec('icons/svg/editor-features', 'sirna'),
+                                                                await exec('icons/svg/editor-features', 'offtargets'),
+                                                                await exec('icons/svg/editor-features', 'primers'),
+                                                                await exec('icons/svg/editor-features', 'splicing'),
+                                                                await exec('icons/svg/editor-features', 'rbp'),
+                                                                await exec('icons/svg/editor-features', 'rnaseq'),
+                                                                await exec('icons/svg/editor-features', 'mrna'),
+                                                                await exec('icons/svg/editor-features', 'structure'),
+                                                                await exec('icons/svg/editor-features', 'aso'),
+                                                                await exec('icons/svg/editor-features', 'patents'),
+                                                                await exec('icons/svg/editor-features', 'tracks')
                                                             ], links: [
                                                                 () => {
 
@@ -258,11 +265,18 @@ function (path, filebrowserplease) {
                 wid: 'carousel',
                 data: {
                     images: [
-                        await exec('icons/svg/demo-set', 'AI'),
-                        await exec('icons/svg/demo-set', 'data-driven'),
-                        await exec('icons/svg/demo-set', "timeline"),
-                        await exec('icons/svg/demo-set', 'financial'),
-                        await exec('icons/svg/demo-set', 'free')
+                        await exec('icons/svg/editor-features', 'genomics-mutations'),
+                        await exec('icons/svg/editor-features', 'sirna'),
+                        await exec('icons/svg/editor-features', 'offtargets'),
+                        await exec('icons/svg/editor-features', 'primers'),
+                        await exec('icons/svg/editor-features', 'splicing'),
+                        await exec('icons/svg/editor-features', 'rbp'),
+                        await exec('icons/svg/editor-features', 'rnaseq'),
+                        await exec('icons/svg/editor-features', 'mrna'),
+                        await exec('icons/svg/editor-features', 'structure'),
+                        await exec('icons/svg/editor-features', 'aso'),
+                        await exec('icons/svg/editor-features', 'patents'),
+                        await exec('icons/svg/editor-features', 'tracks')
                     ], links: [
                         () => {
                             window.open(`https://www.youtube.com/watch?v=t8vHuw33R1Q`, "_blank");
@@ -346,7 +360,7 @@ function (path, filebrowserplease) {
             let ch = rf.children;
             if (!ch || ch.length === 0) {
 
-                await exec('cpd/editor', path, { mode: 'editor' })
+                await exec('manchester/editor', path, { mode: 'editor' })
                 return;
             }
 
@@ -361,8 +375,8 @@ function (path, filebrowserplease) {
                     user: getUser(),
                     mode: 'editor'
                 }
-                window.history.pushState({ 'yak': __path }, 'editor', `/app/cpd/editor?path=${__path}`);
-                exec('cpd/main', __path, config, `/app/cpd/editor`)
+                window.history.pushState({ 'yak': __path }, 'editor', `/app/manchester/editor?path=${__path}`);
+                exec('cpd/main', __path, config, `/app/manchester/editor`)
                 return
             }
 
@@ -478,7 +492,7 @@ function (path, filebrowserplease) {
                                         user: getUser(),
                                         mode: 'editor'
                                     }
-                                    exec('cpd/editor', element.path, config, `/app/cpd/editor`)
+                                    exec('manchester/editor', element.path, config, `/app/manchester/editor`)
                                 }
                                 else if (element.path.endsWith(".baja")) {
 

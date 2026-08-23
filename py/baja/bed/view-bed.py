@@ -18,6 +18,10 @@ chrom = str(works.param(4))
 strand = str(works.param(5))
 
 bedfile =  re.sub(r'/+', '/', bedfile)
+# Big-data root now comes from BIG_DATA (env BIGDATA); resolve any legacy /bd/ path.
+_BD = os.environ.get("BIGDATA")
+if _BD and bedfile.startswith("/bd/"):
+    bedfile = _BD.rstrip("/") + bedfile[3:]
 works.progress(50)
 # bw = pyBigWig.open('%s' % bwfile)
 bed = pybedtools.BedTool(bedfile)

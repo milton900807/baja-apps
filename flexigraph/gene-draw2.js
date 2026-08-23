@@ -316,11 +316,51 @@ function () {
             ctx.setLineDash([]);
             ctx.lineCap = 'butt';
 
-            drawLine(ctx,
-                graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(yv)),
-                graph.X(tgraph.X(xf + 1)), graph.Y(tgraph.Y(yv)),
-                'rgba(130, 30, 158, 0.6)', 12, 'butt'
-            );
+            // Rounded, cylinder-like exon: a capsule with a vertical tropical-teal
+            // gradient (light aqua top -> deep teal bottom) and a specular highlight.
+            const drawExonCylinder = (c, x1, x2, yc, h) => {
+                if (x2 < x1) { const t = x1; x1 = x2; x2 = t; }
+                const left = x1, right = Math.max(x2, x1 + 2);
+                const r = h / 2;
+                const top = yc - r;
+                const rr = Math.min(r, (right - left) / 2);
+                const path = () => {
+                    c.beginPath();
+                    c.moveTo(left + rr, top);
+                    c.lineTo(right - rr, top);
+                    c.arc(right - rr, yc, rr, -Math.PI / 2, Math.PI / 2);
+                    c.lineTo(left + rr, yc + r);
+                    c.arc(left + rr, yc, rr, Math.PI / 2, -Math.PI / 2);
+                    c.closePath();
+                };
+                c.save();
+                c.setLineDash([]);
+                c.shadowColor = 'transparent';
+                c.shadowBlur = 0;
+                path();
+                c.clip();
+                const g = c.createLinearGradient(0, top, 0, yc + r);
+                g.addColorStop(0.0, 'rgba(125,226,233,0.95)');   // light aqua top
+                g.addColorStop(0.35, 'rgba(38,180,200,0.95)');   // tropical teal
+                g.addColorStop(1.0, 'rgba(15,108,130,0.96)');    // deep teal bottom
+                c.fillStyle = g;
+                c.fillRect(left, top, right - left, h);
+                c.fillStyle = 'rgba(255,255,255,0.32)';          // specular highlight band
+                c.fillRect(left, top + h * 0.13, right - left, h * 0.18);
+                c.restore();
+                c.save();
+                c.shadowColor = 'transparent';
+                c.shadowBlur = 0;
+                path();
+                c.lineWidth = 1;
+                c.strokeStyle = 'rgba(12,92,112,0.55)';
+                c.stroke();
+                c.restore();
+            };
+
+            drawExonCylinder(ctx,
+                graph.X(tgraph.X(xs)), graph.X(tgraph.X(xf + 1)),
+                graph.Y(tgraph.Y(yv)), 14);
 
             let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
 
@@ -330,12 +370,22 @@ function () {
                     var radius = 10;
                     var ctx = graph.canvas.getCTX();
                     if (ctx) {
+                        // Center x on the exon; when zoomed out (small) lift the badge
+                        // above the exon so the exon block doesn't obscure the number.
                         let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
-                        let y = graph.Y(tgraph.Y(yv - 1)) + 10;
+                        let y = graph.Y(tgraph.Y(yv)) + (radius + 10);
+                        ctx.save();              // matches the ctx.restore() below
+                        ctx.setLineDash([]);
+                        ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
+                        ctx.shadowColor = 'transparent';
                         ctx.lineWidth = 1;
+                        ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
+
                         ctx.beginPath();
                         ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                        ctx.fillStyle = 'white';
+                        ctx.fillStyle = 'white';     // white background
+                        ctx.strokeStyle = '#0a2540'; // oval border
+                        ctx.lineWidth = 1;
                         ctx.fill();
                         ctx.stroke();
                         ctx.closePath();
@@ -344,7 +394,7 @@ function () {
                         ctx.font = '8px system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillStyle = '#0a2540';
+                        ctx.fillStyle = 'black';     // black number
                         ctx.fillText(number, x, y);
                         ctx.restore();
 
@@ -355,9 +405,15 @@ function () {
                     let x = (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2;
                     let yr = graph.Y(tgraph.Y(yv));
 
+                    ctx.save();                  // isolate line width / stroke state
+                    ctx.setLineDash([]);
+                    ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
+                    ctx.shadowColor = 'transparent';
+                    ctx.lineWidth = 1;           // thin oval border (avoids a leaked-width donut)
                     ctx.beginPath();
                     ctx.arc(x, yr, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'white';
+                    ctx.fillStyle = 'white';     // white background
+                    ctx.strokeStyle = '#0a2540'; // oval border
                     ctx.fill();
                     ctx.stroke();
                     ctx.closePath();
@@ -366,7 +422,7 @@ function () {
                     ctx.font = '15px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540';
+                    ctx.fillStyle = 'black';     // black number
                     ctx.fillText(number, x, yr);
                     ctx.restore();
 
@@ -555,19 +611,9 @@ function () {
             );
         }),
         'CDS': createIon((ctx, graph, tgraph, xs, xf, y) => {
-            drawLine(ctx,
-                graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                graph.X(tgraph.X(xf + 1)), graph.Y(tgraph.Y(y)),
-                'rgba(0,0,250,0.4)', 20
-            );
-            drawVerticalLine(ctx,
-                graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y)),
-                0.08, '#1aa3bd', 1
-            );
-            drawVerticalLine(ctx,
-                graph.X(tgraph.X(xf + 1)), graph.Y(tgraph.Y(y)),
-                0.08, '#1aa3bd', 1
-            );
+            graph.drawLine(xs, y, xf + 1, y, 'rgb(255, 187, 0)', 3)
+            graph.drawVerticalLine(xs, y, 0.08, '#1aa3bd', 1)
+            graph.drawVerticalLine(xf + 1, y, 0.08, '#1aa3bd', 1)
         }),
         'UTR': createIon((ctx, graph, tgraph, xs, xf, y) => {
             drawLine(ctx,

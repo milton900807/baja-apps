@@ -1,0 +1,332 @@
+Metadata-Version: 2.4
+Name: bajasplice
+Version: 0.1.0
+Summary: Sequence models for splice sites, exon inclusion, competing splice sites and TDP-43 cryptic exons
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: scikit-learn
+Requires-Dist: torch
+Requires-Dist: pyfaidx
+Requires-Dist: requests
+Provides-Extra: plots
+Requires-Dist: matplotlib; extra == "plots"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+
+# BajaSplice
+
+Sequence models for splicing, with the controls that decide whether the numbers
+mean anything.
+
+Four supervised tasks plus de novo cryptic exon detection. Every task ships with
+a baseline a model has to beat before its score is worth quoting, because on
+this kind of data most impressive-looking metrics come from exon length, GC
+content, or class imbalance rather than from regulatory sequence.
+
+## Results
+
+All on chromosome-disjoint held-out data (test = chr1, 3, 5, 7, 9).
+
+**Splice sites** — 397,770,000 test positions
+
+| model | acceptor PR-AUC | donor PR-AUC |
+|---|---|---|
+| PWM baseline (motif only) | 0.066 | 0.103 |
+| SpliceNet ctx-2000 | **0.935** | **0.931** |
+
+**Preferred exons / PSI** — 196,967 test events, 54 GTEx tissues
+
+| model | Pearson | preferred AUC | alt-subset r |
+|---|---|---|---|
+| geometry only (length/GC/frame) | 0.211 | 0.670 | 0.201 |
+| splice-site PWM only | 0.192 | 0.684 | 0.155 |
+| geometry + PWM | 0.304 | 0.749 | 0.253 |
+| PSINet | **0.764** | **0.965** | **0.697** |
+
+87.9% of annotated internal exons are constitutive, so the alt-subset column —
+computed only on the 25,792 exons that are actually skipped somewhere — is the
+number that matters. Labels validate against VastDB (independent samples and
+quantification method) at **r = 0.935** on those exons.
+
+**Competing splice sites** — 26,345 groups
+
+| model | top-1 accuracy | usage r |
+|---|---|---|
+| random / distal / proximal | 0.450 / 0.425 / 0.471 | — |
+| strongest PWM site | 0.512 | 0.226 |
+| AltSSNet | **0.766** | **0.709** |
+
+**Cryptic exons** — 691 TDP-43-induced sites discovered de novo from recount3
+
+AUC **0.866** against 13,816 AG/GT dinucleotide-matched decoys from the same
+introns. These sites were labelled *negative* in training, so the model was
+taught to suppress them and still ranks them above matched decoys. Absolute
+scores stay low: only 26% exceed 0.5, so **use rank, not probability**.
+
+## Negative results, kept on purpose
+
+**RBP knockdown response is not predictable from local sequence.** Mean per-RBP
+AUC 0.573 for the sequence CNN vs 0.512 for geometry alone, against a
+leave-one-out exon-responsiveness reference of 0.851. The CNN beat that
+reference on 0 of 475 RBPs. Adding predicted eCLIP binding moved it to 0.577.
+
+**Predicted RBP binding does not identify which exons respond to that RBP's
+knockdown.** Matched RBP binding scores AUC 0.549; *mismatched* RBP binding
+scores 0.549 too. Remove the shared per-exon component and the matched signal
+is chance. This is not a defect of the binding predictor — on held-out eCLIP
+data the same model distinguishes RBPs genuinely (0.698 vs 0.516 mismatched).
+Binding simply does not predict regulation, and knockdown effects are largely
+indirect.
+
+## Bundled models
+
+All five trained checkpoints ship inside the package (13 MB total), so every
+model works from a bare install with no data root. They are small because the
+architectures are small — dilated CNNs of 0.36–0.82M parameters.
+
+| checkpoint | params | what it does |
+|---|---|---|
+| `ss_ctx2000` | 0.36M | splice sites, per-nucleotide |
+| `psi_ctx2000` | 0.71M | cassette-exon PSI across 54 tissues |
+| `altss` | 0.39M | which competing splice site wins |
+| `rbp` / `rbp_bind` | 0.82M | RBP knockdown response |
+
+`rbp` and `rbp_bind` are shipped to make a **negative** result reproducible
+(per-RBP AUC 0.573 / 0.577 against a 0.851 reference), not because they predict
+well.
+
+### Bundled gene index
+
+A slim gene index ships too (`bajasplice/data/genes.slim.sqlite`, 10 MB): one
+canonical transcript per gene for all 77,081 genes, with exon coordinates packed
+as an int32 blob rather than a row each. That is 1/32 the size of the full
+index and enough for gene-name lookup, scanning, ranking and plotting.
+
+So a bare install needs **only a genome FASTA**. Everything else is in the
+package.
+
+Index resolution: `<root>/data/processed/genes.sqlite` if it exists, else the
+bundled slim index. Build the full one with `bajasplice prepare geneindex`.
+
+**The two are not equivalent, and the difference is not cosmetic.** The full
+index knows every annotated transcript; the slim one knows only the canonical
+one. Since `rank_candidates` excludes annotated splice sites, they exclude
+different sets:
+
+| | full index | slim index |
+|---|---|---|
+| UNC13A donor candidates | 4,115 | 4,186 |
+| known UNC13A cryptic donor | rank 44 | rank 50 |
+| STMN2 cryptic acceptor | **excluded** | **rank 2** |
+
+STMN2 is the instructive case. GENCODE v50 annotates that cryptic exon in a
+minor isoform, so the full index treats it as a known site and drops it from
+the candidate list entirely. The slim index only knows the canonical
+transcript, so it surfaces — which for cryptic exon discovery is usually what
+you want. `rank_candidates` records which index it used in
+`df.attrs["index"]`, and the CLI prints it, so results are never silently
+scoped.
+
+A genome FASTA is required either way — the models score sequence, so sequence
+has to come from somewhere.
+
+Checkpoint resolution, in order:
+
+1. explicit `--ckpt` / `ckpt=` argument
+2. `BAJASPLICE_CKPT`
+3. `<root>/models/ss_ctx2000.pt`
+4. the bundled copy
+
+A retrained model in the data root therefore wins over the bundled one, so
+shipping weights never silently overrides your own work.
+
+The PSI, competing-site and RBP checkpoints are **not** bundled. They live in
+`<root>/models/` because they are only used by the evaluation pipeline, which
+needs the datasets anyway.
+
+## Install
+
+```bash
+pip install -e .
+bajasplice config \
+  --root ~/ml/splicing \
+  --genome-fasta /path/GRCh38.primary_assembly.genome.fa \
+  --gencode-gtf /path/gencode.v50.annotation.gtf \
+  --save
+```
+
+Optional, only needed for the ENCODE and eCLIP steps:
+`--gencode-v29-gtf` (matches ENCODE kallisto quantifications),
+`--bajaclip-bundle`, `--eclip-dataset`.
+
+Paths resolve in the order: explicit argument, environment variable
+(`BAJASPLICE_ROOT`, `BAJASPLICE_GENOME`, ...), `~/.config/bajasplice/config.json`,
+then defaults. Nothing in the package hardcodes a path.
+
+## Use
+
+```bash
+bajasplice prepare gencode            # GTF -> flat exon table
+bajasplice prepare gtex               # 17,382 samples -> per-tissue junction counts
+bajasplice prepare events             # introns, cassette events + PSI, competing sites
+
+bajasplice train splicesite --context 2000 --epochs 8
+bajasplice train psi --context 2000 --init-from models/ss_ctx2000.pt
+bajasplice train altss --init-from models/ss_ctx2000.pt
+
+bajasplice evaluate baseline-splicesite
+bajasplice evaluate baseline-psi
+bajasplice evaluate vastdb
+bajasplice evaluate report            # one comparison table for everything
+
+bajasplice scan --gene TARDBP --top 10
+bajasplice scan --gene UNC13A --rank acceptor --top 20
+```
+
+### Plotting across a transcript
+
+Emits a JSON payload shaped for a client `TrackLayer` / `AttributionLayer`, or
+a static PNG.
+
+```bash
+# whole-transcript acceptor and donor score tracks
+bajasplice plot --gene TARDBP --out tardbp.json --png tardbp.png
+
+# add per-base attribution for the two top predicted acceptors
+bajasplice plot --gene TARDBP --top-sites 2 --which acceptor --window 60 --out t.json
+
+# attribute one specific site, gradient instead of in-silico mutagenesis
+bajasplice plot --gene UNC13A --site 17642413 --which donor --method gradient --out u.json
+```
+
+`--transcript` selects what the track draws: `canonical` (default, MANE Select
+where annotated), `all` (union of every annotated exon, which for a
+well-annotated gene is dozens of overlapping blocks), or a transcript id.
+
+The payload:
+
+```jsonc
+{
+  "schema": "bajasplice.track/1",
+  "gene": "TARDBP",
+  "track": {
+    "name": "TARDBP", "chrom": "chr1", "strand": "+",
+    "transcript_id": "ENST00000240185.8",
+    "xmin": 11012344, "xmax": 11037991,
+    "exons":   [{"xi": 11012654, "xf": 11012743}, ...],   // xi/xf: getExons()
+    "introns": [{"xi": ..., "xf": ...}, ...]
+  },
+  "layers": [{
+    "name": "TARDBP acceptor@11020262 (ism)",
+    "type": "AttributionLayer",
+    "attribution_type": "acceptor_attribution",  // or acceptor_score / donor_score
+    "attribution_site": 11020262,                // null for whole-gene score tracks
+    "window": 60,                                // null for score tracks
+    "xmin": ..., "xmax": ..., "ymin": ..., "ymax": ...,
+    "site_score": 0.88839,
+    "points": {"A": [{"x": ..., "y": ...}], "T": [...], "C": [...], "G": [...]}
+  }]
+}
+```
+
+Points are already split by the **reference base** at each position, matching
+what the client's `addAttributionPoint(x, y, base)` does, so they load straight
+into `apts` / `tpts` / `cpts` / `gpts`:
+
+```js
+const p = await (await fetch('tardbp.json')).json();
+for (const L of p.layers) {
+  const layer = new AttributionLayer(
+      L.name, L.xmin, L.ymin, L.xmax, L.ymax,
+      L.attribution_type, L.attribution_site, L.window, track);
+  layer.apts = L.points.A;   // already {x, y}
+  layer.tpts = L.points.T;
+  layer.cpts = L.points.C;
+  layer.gpts = L.points.G;
+  track.addLayer(layer);
+}
+```
+
+Two things worth knowing. `attribution_type` containing `acceptor_attribution`
+switches the client to its purple/blue palette, so score tracks are named
+`*_score` to stay on the other one. And base colouring is only informative on
+attribution layers: on a score track nearly every point is a `G`, because an
+acceptor is the G of `AG` and a donor the G of `GT`.
+
+`--min-score` (default 1e-3) drops the noise floor from score tracks. A 25 kb
+gene goes from ~25,000 points to ~50 without losing anything visible.
+
+### Attribution
+
+`ism` (default) mutates every position in the window to each of the three
+alternatives and measures how far the site's score falls, so a positive value
+means the reference base holds the site up. It costs `3 x 2 x window` forward
+passes. `gradient` is one backward pass and scales to whole genes, but is a
+local linearisation rather than a real perturbation.
+
+On a strong TARDBP acceptor the top ISM attributions land on the `AG`
+dinucleotide itself, which is the sanity check to run on a new model.
+
+```python
+import bajasplice
+from bajasplice.scan import scan_gene, rank_candidates
+from bajasplice.tracks import build_payload, render_png
+
+acc, don, (chrom, start, end, strand) = scan_gene("STMN2")
+cands = rank_candidates("UNC13A", "acceptor")   # annotated sites excluded
+
+payload = build_payload("STMN2", sites=[79616821], which="acceptor", window=80)
+render_png(payload, "stmn2.png")
+```
+
+## Coordinate conventions
+
+Getting these wrong is silent, so they are pinned in `tests/test_coordinates.py`.
+
+- Introns are 1-based inclusive: `exon_end + 1 .. next_exon_start - 1`.
+- GTEx junction ids are `chr_intronStart_intronEnd` in those coordinates.
+- A donor is the **first** intronic base, an acceptor the **last**, both in
+  transcript orientation.
+- `GenomeReader.codes(..., strand="-")` returns reverse-complemented sequence,
+  so callers pick coordinates and never handle strand themselves.
+
+## Layout
+
+```
+bajasplice/
+  config.py        paths and chromosome splits; the only place paths live
+  genome.py        FASTA access, one-hot encoding
+  models.py        SpliceNet, PSINet, AltSSNet, RBPBindingNet
+  datasets.py      the four torch Datasets
+  bajaclip.py      adapter for an external eCLIP binding predictor
+  scan.py          gene/interval scanning and cryptic candidate ranking
+  attribution.py   in-silico mutagenesis and gradient x input
+  tracks.py        client plot payloads and static PNG rendering
+  prepare/         gencode, gtex, events, encode, binding, cryptic
+  train/           splicesite, psi, altss, rbp
+  evaluate/        baselines, metrics, vastdb, eclip, cryptic, report
+```
+
+## Pitfalls this package encodes
+
+Each of these cost real debugging time and is now either tested or documented
+in the module that hit it.
+
+- **Minus-strand chunked scanning.** Reversing a scan track once at the end
+  scrambles chunk order. Reverse within each chunk (`scan.chunk_offsets`,
+  pinned in `tests/test_scan.py`).
+- **Leaky responsiveness control.** Exon marginal responsiveness must be
+  leave-one-RBP-out or it contains the label it is a control for.
+- **Cross-batch nulls.** ENCODE reuses one control across ~8.6 knockdowns, so
+  random control-vs-control pairs measure batch, not noise, and produce a null
+  *larger* than the real effect.
+- **Ranking cryptic candidates.** Annotated splice sites of alternative
+  transcripts sit outside exon bodies, survive an exon mask, score ~1.0, and
+  fill the whole top of the ranking. Exclude them explicitly.
+- **Constitutive imbalance.** 88% of internal exons never skip; report the
+  alternative subset separately.
+- **Positive controls.** Of three TDP-43 knockdown studies, one showed no STMN2
+  induction. Check a known event fires before trusting a dataset.

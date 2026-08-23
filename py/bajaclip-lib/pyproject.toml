@@ -1,0 +1,19 @@
+[project]
+name = "bajaclip"
+version = "0.1.0"
+description = "Sequence model for RNA-binding-protein footprints (170 RBPs), for track-layer / sashimi visualisation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "torch",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["bajaclip*"]
+
+[tool.setuptools.package-data]
+"bajaclip.weights" = ["*.pt", "*.tsv"]

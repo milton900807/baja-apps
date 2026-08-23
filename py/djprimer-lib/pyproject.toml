@@ -1,0 +1,29 @@
+[project]
+name = "djprimer"
+version = "0.1.0"
+description = "qPCR assay-success prediction: primer3 design floor plus target expression (djPrimer)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "joblib",
+    "primer3-py",
+]
+
+[project.optional-dependencies]
+service = ["fastapi", "uvicorn"]
+dev = ["pytest"]
+
+[project.scripts]
+djprimer = "djprimer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["djprimer*"]
+
+[tool.setuptools.package-data]
+"djprimer.weights" = ["*.pkl", "*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

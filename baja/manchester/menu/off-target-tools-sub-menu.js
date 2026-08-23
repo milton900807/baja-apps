@@ -17,6 +17,20 @@ function (graph, genegraph_panel_layout) {
 
         }
         graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+
+        // Off-target "Run" options. A "selected" variant is offered whenever any
+        // oligos are selected on the canvas (via o.selected or the highlight path).
+        const __anySelected = (graph.track || []).some((t) => (t.oligos || []).some((o) => o && (o.selected || o.highlight__)));
+        const __runItems = [
+            { 'label': 'Full antisense sequence', 'ionfunction': createIonFunction(async () => { await exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout); }) },
+            { 'label': 'Seed antisense sequence (siRNA)', 'ionfunction': createIonFunction(async () => { await exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout); }) },
+            { 'label': 'Levenshtein off-target (fuzzy match)', 'ionfunction': createIonFunction(async () => { await exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'], graph, genegraph_panel_layout); }) },
+        ];
+        if (__anySelected) {
+            __runItems.push({ 'label': 'Full antisense sequence (selected)', 'ionfunction': createIonFunction(async () => { await exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout, true); }) });
+            __runItems.push({ 'label': 'Seed antisense sequence (selected, siRNA)', 'ionfunction': createIonFunction(async () => { await exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout, true); }) });
+        }
+
         let panel = null;
         let __nameHook = createIonFunction((name) => {
             panel = name;
@@ -35,24 +49,7 @@ function (graph, genegraph_panel_layout) {
                                     style: 'sub-container',
                                     menus: [
                                         {
-                                            'label': 'Run', 'items': [
-                                                {
-                                                    'label': 'Full antisense sequence', 'ionfunction': createIonFunction(async () => {
-                                                        await exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout)
-                                                    })
-                                                },
-                                                {
-                                                    'label': 'Seed antisense sequence (siRNA)', 'ionfunction': createIonFunction(async () => {
-                                                        await exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout)
-
-                                                    })
-                                                },
-                                                {
-                                                    'label': 'Levenshtein off-target (fuzzy match)', 'ionfunction': createIonFunction(async () => {
-                                                        await exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'], graph, genegraph_panel_layout)
-                                                    })
-                                                },
-                                            ]
+                                            'label': 'Run', 'items': __runItems
                                         },
                                         {
 

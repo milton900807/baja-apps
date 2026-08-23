@@ -1,12 +1,18 @@
 from ion import works
 from subprocess import Popen, PIPE
 import json
+import os
 
 file = works.param(1)
 chrom = works.param(2)
 startIndex = works.param(3)
 endIndex = works.param(4)
 strand = works.param(5)
+
+# Big-data root now comes from BIG_DATA (env BIGDATA); resolve any legacy /bd/ path.
+_BD = os.environ.get("BIGDATA")
+if _BD and str(file).startswith("/bd/"):
+    file = _BD.rstrip("/") + str(file)[3:]
 
 print('file', file)
 print('chrom', chrom)

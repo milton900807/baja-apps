@@ -1,6 +1,15 @@
-function (track, genegraph_panel_layout) {
+function (track, genegraph_panel_layout, graph) {
 
     return new Promise(async (resolve, reject) => {
+
+        // Close the editor and, when we have the graph, re-dock the Track Layers
+        // editing toolbar so the user lands back on it.
+        const closePanel = () => {
+            CurrentLayout.reset('mainPanel');
+            if (graph) {
+                try { exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout); } catch (e) { }
+            }
+        };
 
         let track_list = []
         let content = {}
@@ -138,7 +147,7 @@ function (track, genegraph_panel_layout) {
                                     buttons: [
                                         {
                                             label: 'Close', ionFunction: createIonFunction(() => {
-                                                CurrentLayout.reset('mainPanel')
+                                                closePanel();
                                             })
                                         }
                                     ]
@@ -217,9 +226,15 @@ function (track, genegraph_panel_layout) {
                                             })
                                         },
                                         {
+                                            label: 'Remove All Layers', ionFunction: createIonFunction(() => {
+                                                track.track_layers = [];
+                                                CurrentLayout.clearComponent('mainPanel')
+                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                                            })
+                                        },
+                                        {
                                             label: 'Close', ionFunction: createIonFunction(() => {
-
-                                                CurrentLayout.reset("mainPanel")
+                                                closePanel();
                                             })
                                         }
                                     ]

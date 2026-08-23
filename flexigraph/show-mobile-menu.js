@@ -17,8 +17,8 @@ function (x, y, list, graph, genegraph_panel_layout, reset) {
                 for (let l of list) {
                     if (l.label === name) {
                         l.click(x, y)
-                        if ( reset ){
-                            CurrentLayout.reset (reset)
+                        if (reset) {
+                            CurrentLayout.reset('mainPanel')
                         }
 
                     }

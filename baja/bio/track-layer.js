@@ -624,11 +624,128 @@ return new Promise(async (resolve, reject) => {
             return lines;
         }
 
+        // ---- Sashimi (splice-junction arc) rendering ------------------------
+        // Driven entirely by serializable fields: arc_type === 'SpliceSashimi'
+        // and junctions = [{ d, a, dp, ap, mag, kind }] in track-local coords.
+        // Directionality: donor->acceptor color gradient + arrowhead at acceptor.
+        // Magnitude: arc thickness/crest + per-side strength bars. kind === 'skip'
+        // draws dashed (exon-skipping junctions).
+        _sashimiArrowHead(ctx, tx, ty, dx, dy, size, color) {
+            let len = Math.hypot(dx, dy) || 1;
+            let ux = dx / len, uy = dy / len, px = -uy, py = ux;
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(tx - ux * size + px * size * 0.6, ty - uy * size + py * size * 0.6);
+            ctx.lineTo(tx - ux * size - px * size * 0.6, ty - uy * size - py * size * 0.6);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        _sashimiBar(ctx, x, baselineY, prob, color, maxBarPx) {
+            let h = maxBarPx * Math.max(0, Math.min(1, prob || 0));
+            if (h < 1) return;
+            ctx.fillStyle = color;
+            ctx.fillRect(x - 1.5, baselineY - h, 3, h);
+        }
+
+        drawSashimi(tgraph, graph, track) {
+            if (!this.visible || !Array.isArray(this.junctions) || !this.junctions.length) return;
+            let ctx = graph.canvas.getCTX();
+            let donorColor = this.donorColor || 'rgba(26,163,189,0.95)';
+            let acceptorColor = this.acceptorColor || 'rgba(224,112,59,0.95)';
+            let labelColor = this.labelColor || 'rgba(70,70,70,0.95)';
+            let maxBarPx = this.maxBarPx || 20;
+            // Top of the magnitude scale (e.g. 2 for site strength, 1 for PSI);
+            // arc weight / crest are normalized by this while the label shows the
+            // real magnitude.
+            let magMax = this.magMax || 1;
+
+            let baselineY = graph.Y(tgraph.Y(0));
+            let w = graph.width;
+
+            for (let j of this.junctions) {
+                if (!j) continue;
+                let x1 = graph.X(tgraph.X(j.d));   // donor
+                let x2 = graph.X(tgraph.X(j.a));   // acceptor
+                if (Math.max(x1, x2) < 0 || Math.min(x1, x2) > w) continue;
+                let chord = Math.abs(x2 - x1);
+                if (chord < 1) continue;
+
+                let dp = (typeof j.dp === 'number') ? j.dp : (j.s || 0);
+                let ap = (typeof j.ap === 'number') ? j.ap : (j.s || 0);
+                let s = (typeof j.mag === 'number') ? j.mag
+                    : (typeof j.s === 'number') ? j.s : Math.min(dp, ap);
+                let sn = Math.max(0, Math.min(1, s / magMax));   // normalized 0..1 for drawing
+                let isSkip = (j.kind === 'skip');
+
+                let sagitta = Math.max(12, chord / 5) * (0.6 + 0.8 * sn) * (isSkip ? 1.6 : 1.0);
+                let radius = (sagitta / 2) + (chord * chord) / (8 * sagitta);
+                let offset = Math.sqrt(Math.max(0, radius * radius - (chord / 2) * (chord / 2)));
+                let midX = (x1 + x2) / 2;
+                let centerX = midX;
+                let centerY = baselineY + offset;
+                let a1 = Math.atan2(baselineY - centerY, x1 - centerX);
+                let a2 = Math.atan2(baselineY - centerY, x2 - centerX);
+
+                let grad = ctx.createLinearGradient(x1, baselineY, x2, baselineY);
+                grad.addColorStop(0, donorColor);
+                grad.addColorStop(1, acceptorColor);
+                ctx.beginPath();
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 0.75 + 3.75 * sn;
+                if (isSkip) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
+                ctx.arc(centerX, centerY, radius, a1, a2, false);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                this._sashimiBar(ctx, x1, baselineY, dp, donorColor, maxBarPx);
+                this._sashimiBar(ctx, x2, baselineY, ap, acceptorColor, maxBarPx);
+
+                let near = a2 + (a1 - a2) * 0.10;
+                let nx = centerX + radius * Math.cos(near);
+                let ny = centerY + radius * Math.sin(near);
+                this._sashimiArrowHead(ctx, x2, baselineY, x2 - nx, baselineY - ny, 7, acceptorColor);
+                this._sashimiArrowHead(ctx, x1, baselineY - maxBarPx * Math.min(1, dp), 0, -1, 4, donorColor);
+
+                // Arc weight label at the crest — shown whenever the arc is wide
+                // enough to fit the number (independent of base-level zoom). A white
+                // halo keeps it legible over the arcs.
+                const label = s.toFixed(2);
+                // Skip trivial weights (0 or 1) — only show the interesting ones.
+                if (chord > 22 && label !== '0.00' && label !== '1.00') {
+                    let topY = centerY - radius;
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(label, midX, topY - 2);
+                    ctx.fillStyle = labelColor;
+                    ctx.fillText(label, midX, topY - 2);
+                }
+            }
+            ctx.lineWidth = 1;
+            ctx.textAlign = 'left';
+        }
+
         async draw(parentTrack, graph, __track) {
             if (!this.visible) {
                 return;
             }
+            // Rehydrate a plain-object tgraph (e.g. from a JSON clone / reload) back into a
+            // real MGrid so rescale()/X()/Y() work — otherwise draw crashes the whole track.
+            if (!this.tgraph || typeof this.tgraph.rescale !== 'function') {
+                this.tgraph = Object.assign(new MGrid(0, 0, 100, 100), this.tgraph || {});
+            }
             if (!graph.inFrame(__track.tgraph.xi, __track.tgraph.yi, __track.tgraph.width, __track.tgraph.height)) {
+                return;
+            }
+            // Sashimi layers carry their arcs as plain `junctions` data (so they
+            // survive JSON save/reload as a base TrackLayer). Render them here.
+            if (this.arc_type === 'SpliceSashimi' && Array.isArray(this.junctions) && this.junctions.length) {
+                this.drawSashimi(parentTrack, graph, __track);
                 return;
             }
             let canvas = graph.canvas;
@@ -774,7 +891,11 @@ return new Promise(async (resolve, reject) => {
                         ctx.strokeStyle = this.color;
                     }
 
-                    ctx.fillRect(x, y, width, height);
+                    // When highlighted, keep a minimum on-screen width so narrow
+                    // intervals stay visible even when the view is zoomed way out.
+                    let drawWidth = width;
+                    if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
+                    ctx.fillRect(x, y, drawWidth, height);
 
                     if (screencell > 0.4) {
                         let text;
@@ -808,7 +929,7 @@ return new Promise(async (resolve, reject) => {
                     for (let ht of this.highlight_text) {
                         const lowerSearchString = ht.toLowerCase().trim();
                         const foundSubstrings = this.intervals.reduce((matches, item) => {
-                            const lowerItem = item.t.toLowerCase();
+                            const lowerItem = ('' + (item && item.t || '')).toLowerCase();
                             if (lowerItem.includes(lowerSearchString.trim())) {
                                 matches.push(item);
                             }
@@ -1014,7 +1135,11 @@ return new Promise(async (resolve, reject) => {
                         ctx.strokeStyle = this.color;
                     }
 
-                    ctx.fillRect(x, y, width, height);
+                    // When highlighted, keep a minimum on-screen width so narrow
+                    // intervals stay visible even when the view is zoomed way out.
+                    let drawWidth = width;
+                    if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
+                    ctx.fillRect(x, y, drawWidth, height);
 
                     if (screencell > 0.4) {
                         let text;
@@ -1048,7 +1173,7 @@ return new Promise(async (resolve, reject) => {
                     for (let ht of this.highlight_text) {
                         const lowerSearchString = ht.toLowerCase().trim();
                         const foundSubstrings = this.intervals.reduce((matches, item) => {
-                            const lowerItem = item.t.toLowerCase();
+                            const lowerItem = ('' + (item && item.t || '')).toLowerCase();
                             if (lowerItem.includes(lowerSearchString.trim())) {
                                 matches.push(item);
                             }
