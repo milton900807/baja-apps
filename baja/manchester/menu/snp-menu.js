@@ -28,25 +28,55 @@ function (graph, track, snp) {
                 label: "More information",
                 click: async (scx, scy) => {
                     graph.showSprite = true;
-                    let r = await exec('py/snps/rs_snp_info.py', snp, track.geneID)
-                    graph.setCenterParagraph(r['mutation_paragraph'])
+                    // Gene symbol (from the track description "GENE;transcript") and genomic
+                    // locus for the Claude prompt, so the summary is specific to this variant.
+                    let geneSymbol = '';
+                    try { geneSymbol = ('' + (track.description || '')).split(';')[0].trim(); } catch (e) { }
+                    if (!geneSymbol) geneSymbol = track.geneID || track.name || '';
+                    let pos = snp.xi;
+                    try {
+                        if (track.isChildCDNATrack && track.isChildCDNATrack() && track.genomicAt) {
+                            const g = track.genomicAt(snp.xi);
+                            if (g != null) pos = g;
+                        }
+                    } catch (e) { }
+                    let r = await exec('py/snps/snp_info_claude.py', JSON.stringify(snp), geneSymbol, ('' + (track.chr || '')), ('' + pos));
+                    graph.setCenterParagraph(r['mutation_paragraph']);
                     graph.showSprite = false;
                     graph.showSideMenu(null)
                 },
                 move: () => {
                 }
-            }); menuList.push(
-                {
-                    label: "SNP/Indel Tools",
-                    click: async (scx, scy) => {
-                        CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        const hl = await exec('baja/manchester/menu/variant-tools-finder.js', graph)
-                        CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
-                        CurrentLayout.setComponent('buttonMenuPanel', hl);
-                    },
-                    move: () => {
-                    }
-                });
+            });
+
+
+        menuList.push(
+            {
+                label: "Properties",
+                click: async (scx, scy) => {
+
+                    showModal(
+                        {
+                            wid: 'json',
+                            data: JSON.stringify(snp)
+                        }
+                    )
+                },
+                move: () => {
+                }
+            });
+        menuList.push(
+            {
+                label: "SNP/Indel Tools",
+                click: async (scx, scy) => {
+                    CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
+                    const hl = await exec('baja/manchester/menu/variant-tools-finder.js', graph)
+                    CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
+                    CurrentLayout.setComponent('buttonMenuPanel', hl);
+                },
+                move: () => {
+                }
+            });
         menuList.push(
             {
                 label: "Mutate",
@@ -57,7 +87,7 @@ function (graph, track, snp) {
                     CurrentLayout.setComponent('buttonMenuPanel', hl);
                     track.mutateTrackWithSingleMutation(snp)
                     track.generateORF();
-                    infoPrompt ( " Track sequence has changed. ")
+                    infoPrompt(" Track sequence has changed. ")
                 },
                 move: () => {
                 }

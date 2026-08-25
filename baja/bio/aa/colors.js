@@ -77,13 +77,25 @@ function () {
         }
     ]
 
+    // Hydrophobic (nonpolar) vs hydrophilic (polar / charged) classification, used to
+    // highlight the protein residues. Hydrophobic -> warm orange, hydrophilic -> cool
+    // blue, so the two classes read at a glance.
+    const HYDROPHOBIC = new Set(['A', 'V', 'L', 'I', 'M', 'F', 'W', 'P', 'G', 'C']);
+    const HYDROPHILIC = new Set(['R', 'H', 'K', 'D', 'E', 'N', 'Q', 'S', 'T', 'Y']);
+    const HYDROPHOBIC_COLOR = 'E8641C';   // orange  — hydrophobic
+    const HYDROPHILIC_COLOR = '1E6FD9';   // blue    — hydrophilic
+    const AA_OTHER_COLOR = '9AA0A6';      // grey    — stop / unknown
+
     return (aa) => {
-        if (aa === null || aa.length <= 0)
+        if (aa === null || aa === undefined || ('' + aa).length <= 0)
             return '000000'
+        const a = ('' + aa).toUpperCase();
         if (mode === 'hydrophobicity') {
-            return polarityColor[aa]
+            if (HYDROPHOBIC.has(a)) return HYDROPHOBIC_COLOR;
+            if (HYDROPHILIC.has(a)) return HYDROPHILIC_COLOR;
+            return AA_OTHER_COLOR;
         }
-        return colors[aa]
+        return colors[a] || AA_OTHER_COLOR;
     }
 
 }

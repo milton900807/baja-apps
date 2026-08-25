@@ -1,6 +1,8 @@
 function (graph, genegraph_panel_layout) {
     graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
+    // Cursor prompt so it's clear the next click chooses the track to edit.
+    graph.setMouseMode('msg: Click on a track you want to edit.');
     graph.addMouseMoveListener((x, y) => {
         if (graph.menuVisible()) {
             return;
@@ -205,6 +207,41 @@ function (graph, genegraph_panel_layout) {
                         let tr = graph.track[trackIndex];
                         tr.showSnpIndels = !tr.showSnpIndels;
                     }
+                },
+                move: () => {
+                }
+            },
+            {
+                label: 'Edit snps',
+                click: async () => {
+                    // Sub-menu: Filter (by attribute) | Download (CSV) | Add snps (Claude prompt).
+                    let ti = graph.getTrack(x, y);
+                    let tr = (ti >= 0) ? graph.track[ti] : selectedTrack;
+                    if (!tr) { graph.setMessage(' Select a track first. '); return; }
+                    await exec('baja/manchester/menu/edit-snps-menu.js', graph, genegraph_panel_layout, tr);
+                },
+                move: () => {
+                }
+            },
+            {
+                label: 'Remove all snps',
+                click: async () => {
+                    let ti = graph.getTrack(x, y);
+                    let tr = (ti >= 0) ? graph.track[ti] : selectedTrack;
+                    if (!tr) { graph.setMessage(' Select a track first. '); return; }
+                    const count = (tr.snpindels || []).length;
+                    if (!count) { graph.setMessage(' No SNPs on this track. '); return; }
+                    const doRemove = () => {
+                        tr.snpindels = [];
+                        // Removing from a parent clears its child tracks too.
+                        try { if (tr.clearDescendantSnps) tr.clearDescendantSnps(graph); } catch (e) { }
+                        if (graph.wake) graph.wake();
+                        graph.setMessage(' Removed ' + count + ' SNP' + (count === 1 ? '' : 's') + '. ');
+                    };
+                    try {
+                        const c = await exec('baja/lib/confirm.js', 'Remove all ' + count + ' SNPs from ' + (tr.name || 'this track') + '? This cannot be undone.', () => { doRemove(); });
+                        showModal(c);
+                    } catch (e) { doRemove(); }
                 },
                 move: () => {
                 }

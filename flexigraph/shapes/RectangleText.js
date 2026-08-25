@@ -86,14 +86,18 @@ function () {
                 if (screen_height < 10 || screen_width < 10) {
                     return;
                 }
+                const rx = graph.X(this.x), ry = graph.Y(this.y);
+                // Box only when selected (tropical orange). While empty, show a faint guide
+                // so the label is visible as you place it; once text is added and the label
+                // is deselected, only the text renders — no box.
                 if (this.hl) {
-                    graph.drawRect(graph.X(this.x), graph.Y(this.y), screen_width, screen_height, 'red', 1);
+                    graph.drawRect(rx, ry, screen_width, screen_height, '#ff8c1a', 2);
+                } else if (!this.comment) {
+                    graph.drawRect(rx, ry, screen_width, screen_height, 'rgba(18,194,224,0.55)', 1);
                 }
-                let t = this.formatTextToFitRectangle(this.comment, screen_width, this.font_size, this.font)
-                if (this.showRect)
-                    graph.drawRect(graph.X(this.x), graph.Y(this.y), graph.screenWidth(this.w), graph.screenHeight(this.h), 'lightGreen', 3);
                 if (this.comment) {
-                    graph.drawTextInRectangle(t, this.x, this.y, screen_width, this.font_size, this.font, this.color)
+                    let t = this.formatTextToFitRectangle(this.comment, screen_width, this.font_size, this.font);
+                    graph.drawTextInRectangle(t, this.x, this.y, screen_width, this.font_size, this.font, this.color);
                 }
             }
         }

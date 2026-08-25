@@ -219,11 +219,13 @@ return new Promise(async (resolve, reject) => {
         }
 
         getRandomColor() {
-
-            const r = Math.floor(Math.random() * 256);
-            const g = Math.floor(Math.random() * 256);
-            const b = Math.floor(Math.random() * 256);
-            const a = 0.06
+            // Darker, more saturated random hue (0-170) at a higher alpha, so coverage
+            // layers (RNASeq, etc.) actually read against the track instead of being
+            // near-invisible (was 0-255 @ 0.06) — still relatively transparent.
+            const r = Math.floor(Math.random() * 170);
+            const g = Math.floor(Math.random() * 170);
+            const b = Math.floor(Math.random() * 170);
+            const a = 0.32
 
             return `rgba(${r},${g},${b},${a})`;
         }

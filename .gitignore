@@ -1,0 +1,10 @@
+/users/
+/data/
+*.tar
+*.keras
+*.H5
+*.csv
+*.json
+*.sdf
+*.screen
+*__pycache__*

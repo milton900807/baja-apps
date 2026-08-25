@@ -490,12 +490,12 @@ function (graph) {
 
                             menu.push({
                                 label: '← Back',
-                                click: () => showAttrMenu()
+                                click: () => showRemoveByAttrMenu()
                             })
 
                             menu.push({
                                 label: 'Remove ALL',
-                                click: () => {
+                                click: () => confirmThen(`Remove ALL ${countAll()} SNPs/indels from every track? This cannot be undone.`, () => {
                                     let removed = 0
                                     for (const t of (graph.track || [])) {
                                         if (Array.isArray(t.snpindels) && t.snpindels.length) {
@@ -505,23 +505,45 @@ function (graph) {
                                     }
                                     infoPrompt?.(`Removed ${removed}`)
                                     graph.redraw?.()
-                                }
+                                })
                             })
 
                             for (const k of keys) {
                                 menu.push({
                                     label: `${_bucketLabel(attr, k)}`,
-                                    click: () => {
+                                    click: () => confirmThen(`Remove all SNPs/indels where ${attr} = "${_bucketLabel(attr, k)}"? This cannot be undone.`, () => {
                                         const removed = removeByAttrKey(graph, attr, k, getValueFn)
                                         if (removed === 0) infoPrompt?.('Nothing removed')
                                         else infoPrompt?.(`Removed ${removed}`)
                                         graph.redraw?.()
 
                                         showValuesMenu(attr)
-                                    }
+                                    })
                                 })
                             }
 
+                            graph.showSideMenu(menu)
+                        }
+
+                        // Confirm (Yes/Cancel) before running a destructive removal.
+                        async function confirmThen(message, fn) {
+                            try {
+                                const c = await exec('baja/lib/confirm.js', message, () => { fn(); });
+                                showModal(c);
+                            } catch (e) { fn(); }
+                        }
+
+                        const countAll = () => (graph.track || []).reduce((n, t) => n + ((Array.isArray(t.snpindels) && t.snpindels.length) || 0), 0);
+
+                        // Pick an attribute to remove SNPs/indels by -> its distinct values.
+                        function showRemoveByAttrMenu() {
+                            const menu = [{ label: '← Back', click: () => showAttrMenu() }]
+                            for (const attr of filterAttrs) {
+                                menu.push({
+                                    label: `${attr} ▸`,
+                                    click: () => showValuesMenu(attr)
+                                })
+                            }
                             graph.showSideMenu(menu)
                         }
 
@@ -530,7 +552,7 @@ function (graph) {
 
                             menu.push({
                                 label: 'Remove ALL SNPs/indels',
-                                click: () => {
+                                click: () => confirmThen(`Remove ALL ${countAll()} SNPs/indels from every track? This cannot be undone.`, () => {
                                     let removed = 0
                                     for (const t of (graph.track || [])) {
                                         if (Array.isArray(t.snpindels) && t.snpindels.length) {
@@ -540,15 +562,14 @@ function (graph) {
                                     }
                                     infoPrompt?.(`Removed ${removed}`)
                                     graph.redraw?.()
-                                }
+                                })
                             })
 
-                            for (const attr of filterAttrs) {
-                                menu.push({
-                                    label: `${attr}`,
-                                    click: () => showValuesMenu(attr)
-                                })
-                            }
+                            // Remove by attribute (type / clinical significance / consequence / …).
+                            menu.push({
+                                label: 'Remove by attribute ▸',
+                                click: () => showRemoveByAttrMenu()
+                            })
 
                             graph.showSideMenu(menu)
                         }

@@ -644,6 +644,28 @@ return new Promise(async (resolve, reject) => {
     };
   }
 
+  // Draw text CENTERED horizontally on a graph-world x position (drawString is only
+  // left-anchored). Used to center each amino acid over the middle of its codon.
+  // worldXCenter / worldY are graph-world coords (tgraph.X / tgraph.Y outputs).
+  function drawCenteredWorldText(graph, text, worldXCenter, worldY, color, font) {
+    try {
+      const ctx = graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
+      if (ctx) {
+        ctx.save();
+        ctx.shadowBlur = 0;
+        if (font) ctx.font = font;
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, graph.X(worldXCenter), graph.Y(worldY) - 5);
+        ctx.restore();
+        return;
+      }
+    } catch (e) { }
+    // Fallback: approximate centering with the left-anchored drawString.
+    graph.drawString(text, worldXCenter - 0.3, worldY, color, font);
+  }
+
   function proteinFromORF(track, options = {}) {
     const { threeLetter = false } = options;
 
@@ -830,6 +852,12 @@ return new Promise(async (resolve, reject) => {
 
     const maxStem = Math.min(80, Math.max(40, Math.floor(graph.screenHeight(tg.height) * 0.15)));
 
+    // Track moved off-screen vertically: don't draw its SNPs at all. The per-lollipop
+    // edge clamping below (topBound/bottomBound) would otherwise pin every marker to the
+    // canvas edge, leaving them stacked at the bottom of an off-screen track.
+    const __canvasH = (graph.grid && graph.grid.height != null) ? graph.grid.height : (graph.canvas ? graph.canvas.height : 0);
+    if (__canvasH && (trackYminScreen < -2 || trackYminScreen > __canvasH + 2)) return;
+
     const overlaps = (placedBalls, nx, ny, r) => {
       for (const b of placedBalls) {
         const dx = nx - b.x;
@@ -863,7 +891,13 @@ return new Promise(async (resolve, reject) => {
     ctx.fillStyle = STYLE.fillFallback;
 
     for (const s of snpsv) {
-      const baseColor = getTypeColor(s);
+      // Zoomed-out uses a different lollipop geometry than the zoomed-in marker, so drop any
+      // stale screen hit region — selection here falls back to getClosestSnpindel2D.
+      s._hitScreen = null;
+      // Color by clinical significance (grey / blue / red+glow), same as the zoomed-in
+      // marker; fall back to the type color when there's no clinsigStyle.
+      const csStyle = (typeof s.clinsigStyle === 'function') ? s.clinsigStyle() : null;
+      const baseColor = csStyle ? csStyle.color : getTypeColor(s);
 
       ctx.strokeStyle = STYLE.stroke;
       ctx.fillStyle = baseColor;
@@ -960,7 +994,13 @@ return new Promise(async (resolve, reject) => {
         ctx.setLineDash(STYLE.dashDefault);
         ctx.strokeStyle = "rgba(0,0,0,0.35)";
 
-        if (poor) {
+        if (csStyle && csStyle.glow) {
+          // Pathogenic red glow.
+          ctx.shadowColor = csStyle.glow;
+          ctx.shadowBlur = 12;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        } else if (poor) {
           ctx.shadowColor = STYLE.poorGlowColor;
           ctx.shadowBlur = poorBlur;
           ctx.shadowOffsetX = 0;
@@ -1535,9 +1575,140 @@ return new Promise(async (resolve, reject) => {
       }
     }
 
+    // Correctly translate the CDS from the SPLICED cDNA. `this.sequence` is the
+    // spliced transcript (coding orientation) while the exon / start_codon (TSS) /
+    // stop_codon (STOP) annotations are GENOMIC — so a genomic-offset walk into the
+    // cDNA (what generateORF/cdsi do) reads out of frame for multi-exon genes. Here
+    // we build an exon map (cDNA index <-> genomic position, in transcript order) and
+    // translate the real CDS. Returns { protein, codonPos, cdsStartCdna }, where
+    // codonPos[k] is the GENOMIC position of residue k's codon first base (used to
+    // place protein-domain / site annotations). Handles + and - strand.
+    getCDS() {
+      const empty = { protein: '', codonPos: [], cdsStartCdna: -1 };
+      const seq = ('' + (this.sequence || '')).toUpperCase();
+      if (seq.length < 3) return empty;
+
+      const exons = this.annotations
+        .filter((a) => a.type === 'Exon')
+        .map((a) => ({ xi: Math.min(a.xi, a.xf), xf: Math.max(a.xi, a.xf) }));
+      if (!exons.length) return empty;
+
+      let tss = null, stop = null;
+      for (const a of this.annotations) {
+        const ty = ('' + a.type).toLowerCase();
+        if (ty === 'tss') tss = a;
+        else if (ty === 'stop') stop = a;
+      }
+
+      const plus = this.strand >= 0;
+      exons.sort((a, b) => (plus ? a.xi - b.xi : b.xi - a.xi));
+
+      // g[cdnaIndex] = genomic position, in transcript (5'->3') order.
+      const g = [];
+      for (const e of exons) {
+        if (plus) { for (let p = e.xi; p <= e.xf; p++) g.push(p); }
+        else { for (let p = e.xf; p >= e.xi; p--) g.push(p); }
+      }
+      const gToC = new Map();
+      for (let i = 0; i < g.length; i++) if (!gToC.has(g[i])) gToC.set(g[i], i);
+
+      // cDNA index of the start codon's 5' first base. The TSS annotation was widened
+      // by +1 at its 3' end when built from the GFF start_codon (createTrackFromLocal).
+      let cdsStart = -1;
+      if (tss) {
+        const scFirst = plus ? Math.min(tss.xi, tss.xf) : (Math.max(tss.xi, tss.xf) - 1);
+        if (gToC.has(scFirst)) cdsStart = gToC.get(scFirst);
+      }
+      // Fallback: if the annotation didn't land on an ATG, use the ATG that opens the
+      // longest ORF in the cDNA.
+      if (cdsStart < 0 || seq.substr(cdsStart, 3) !== 'ATG') {
+        cdsStart = this._longestOrfStart(seq);
+      }
+      if (cdsStart < 0) return empty;
+
+      // cDNA index of the stop codon's 5' first base (upper bound), when annotated.
+      let stopStart = -1;
+      if (stop) {
+        const stFirst = plus ? Math.min(stop.xi, stop.xf) : Math.max(stop.xi, stop.xf);
+        if (gToC.has(stFirst)) stopStart = gToC.get(stFirst);
+      }
+      const hardEnd = (stopStart >= cdsStart) ? stopStart + 3 : seq.length;
+
+      const protein = [];
+      const codonPos = [];
+      // cdsi: one entry per CDS base, matching the shape generateORF produces but with
+      // the CORRECT residue/codon — so the drawn amino-acid row can consume it directly.
+      const cdsi = [];
+      let k = 0;
+      for (let i = cdsStart; i + 2 < hardEnd && i + 2 < seq.length; i += 3) {
+        const codonStr = seq.substr(i, 3);
+        const aa = codon(codonStr);
+        if (aa === 'STOP') break;
+        const aaOne = aa || 'X';
+        protein.push(aaOne);
+        codonPos.push(g[i]);
+        for (let ci = 0; ci < 3; ci++) {
+          cdsi.push({ index: g[i + ci], ci: ci, codon_index: k, aa: aaOne, codon: codonStr });
+        }
+        k++;
+      }
+      return { protein: protein.join(''), codonPos, cdsi, cdsStartCdna: cdsStart };
+    }
+
+    // cDNA index of the ATG that opens the longest ORF (fallback start finder).
+    _longestOrfStart(seq) {
+      let best = -1, bestLen = -1;
+      for (let i = 0; i + 2 < seq.length; i++) {
+        if (seq.substr(i, 3) !== 'ATG') continue;
+        let len = 0;
+        for (let j = i; j + 2 < seq.length; j += 3) {
+          const c = seq.substr(j, 3);
+          if (c === 'TAA' || c === 'TAG' || c === 'TGA') break;
+          len++;
+        }
+        if (len > bestLen) { bestLen = len; best = i; }
+      }
+      return best;
+    }
+
     getProteinSequence() {
-      const aaSeq3 = proteinFromORF(this, { threeLetter: false });
-      return aaSeq3;
+      // Correct exon-aware translation (was proteinFromORF, which relies on the
+      // genomic-offset cdsi and is wrong for multi-exon transcripts).
+      const p = this.getCDS().protein;
+      return p || proteinFromORF(this, { threeLetter: false });
+    }
+
+    // Auto-generate / refresh the CDS: when the track carries both a start (TSS) and a
+    // stop (STOP) codon annotation, (re)build the ORF so the CDS / Translation / codon
+    // row stays in sync with the nucleotides. Called after any sequence edit so the CDS
+    // updates in real time. Re-entrancy guarded because generateORF() adds annotations
+    // (which can route back here).
+    updateCDS() {
+      if (this._cdsUpdating) return false;
+      let hasStart = false, hasStop = false;
+      for (const a of (this.annotations || [])) {
+        const ty = ('' + (a && a.type)).toLowerCase();
+        if (ty === 'tss') hasStart = true;
+        else if (ty === 'stop') hasStop = true;
+      }
+      if (!(hasStart && hasStop) || typeof this.generateORF !== 'function') return false;
+      this._cdsUpdating = true;
+      try { this.generateORF(); } catch (e) { }
+      this._cdsUpdating = false;
+      return true;
+    }
+
+    // Coalesced CDS refresh, used when annotations are added in bulk (e.g. a track load
+    // or a paste). Skips while a CDS update is already running (generateORF adds its own
+    // STOP/Translation annotations, which route through add()); a single microtask does
+    // the work once the current synchronous batch settles.
+    scheduleCDSUpdate() {
+      if (this._cdsUpdating || this._cdsUpdateScheduled) return;
+      this._cdsUpdateScheduled = true;
+      setTimeout(() => {
+        this._cdsUpdateScheduled = false;
+        try { this.updateCDS(); } catch (e) { }
+      }, 0);
     }
 
     getSequences(annotation) {
@@ -1793,6 +1964,17 @@ return new Promise(async (resolve, reject) => {
     }
 
     generateORF() {
+      // Authoritative CDS stop from the GFF/CCDS annotation (stop_codon -> STOP),
+      // captured BEFORE it is cleared just below. The codon re-scan further down can
+      // otherwise place a PREMATURE stop: the track sequence may be spliced cDNA, so
+      // a genomic-offset codon walk lands out of frame and hits an early stop (e.g.
+      // FGFR3 showed a stop ~3 residues from the start). When the annotated stop is
+      // available we force the ORF's STOP / Translation to it at the end, so the stop
+      // matches the CCDS/translation annotation.
+      let __gffStop = null;
+      for (let an of this.annotations) {
+        if (('' + an.type).toLowerCase() === 'stop') { __gffStop = { xi: an.xi, xf: an.xf }; }
+      }
       this.removeAnnotationByType("STOP");
       this.orf = null;
       let seq = "";
@@ -1961,6 +2143,7 @@ return new Promise(async (resolve, reject) => {
                   for (let ci of cdsIndex) {
                     if (ci.codon_index === codon_i) {
                       ci.codon = codon_value;
+                      let aa = codon(codon_value);   // was referenced undefined -> ReferenceError on minus strand
                       if (aa.toLowerCase() === "stop") {
                         this.add(new Annotation("STOP", "STOP", ci.index, ci.index + 3));
                         this.removeAnnotationByType("translation");
@@ -2048,6 +2231,34 @@ return new Promise(async (resolve, reject) => {
         return JSON.stringify(obj1) === JSON.stringify(obj2);
       };
       this.annotations = this.annotations.filter((obj) => !expell.find((toRemove) => isEqual(obj, toRemove)));
+
+      // Force the STOP / Translation to the GFF/CCDS-annotated stop codon when we have
+      // it, overriding any premature stop the codon re-scan produced above. This keeps
+      // the drawn stop aligned with the CCDS/translation annotation regardless of
+      // whether the underlying sequence is genomic or spliced cDNA.
+      if (__gffStop && startIndex >= 0) {
+        const __lo = Math.min(__gffStop.xi, __gffStop.xf);
+        const __hi = Math.max(__gffStop.xi, __gffStop.xf);
+        this.removeAnnotationByType("STOP");
+        this.removeAnnotationByType("translation");
+        this.add(new Annotation("STOP", "STOP", __lo, __hi));
+        this.add(new Annotation("Translation", "Translation", Math.min(startIndex, __lo), Math.max(startIndex, __hi)));
+      }
+
+      // Replace the codon index with the exon-aware translation so the drawn amino-acid
+      // row shows the correct residues. The walk above indexes the spliced cDNA by
+      // genomic offset, which mis-translates multi-exon genes; getCDS() maps genomic <->
+      // cDNA via the exon map and translates the real CDS. Each cdsi entry keeps its
+      // genomic `index`, so the per-base rendering (oor.index === base) is unchanged.
+      try {
+        const __cds = this.getCDS();
+        if (__cds && __cds.cdsi && __cds.cdsi.length) {
+          this.orf = this.orf || {};
+          this.orf.cdsi = __cds.cdsi;
+          if (__cds.protein) this.orf.sequence = __cds.protein;
+          this.orfhash = compressJson(JSON.stringify(this.orf));
+        }
+      } catch (e) { }
 
       return this.orf;
     }
@@ -3028,6 +3239,138 @@ return new Promise(async (resolve, reject) => {
       return (this.tgraph ? this.tgraph.xmin : this.xi) + localIndex;
     }
 
+    // Inverse of genomicAt(): map a GENOMIC position onto this (child / cDNA / mRNA)
+    // track's LOCAL coordinate using the exon annotations (their gxi/gxf genomic span
+    // <-> xi/xf local span). Introns are spliced out of the child, so a position that
+    // falls between exons returns null (the variant isn't on the mRNA).
+    genomicToLocal(G) {
+      const anns = this.annotations || [];
+      for (const a of anns) {
+        if (!a || String(a.type).toLowerCase() !== 'exon') continue;
+        if (a.gxi == null || a.xi == null || a.xf == null) continue;
+        const gLo = (a.gxf != null) ? Math.min(+a.gxi, +a.gxf) : +a.gxi;
+        const gHi = (a.gxf != null) ? Math.max(+a.gxi, +a.gxf) : +a.gxi;
+        if (G >= gLo && G <= gHi) {
+          const lLo = Math.min(+a.xi, +a.xf);
+          return lLo + (G - gLo);   // mirrors genomicAt's forward mapping
+        }
+      }
+      // Fallback: reverse-lookup the genome map (localIndex -> genomic) if present.
+      const gm = this.trackRef && this.trackRef.genomeMap;
+      if (gm && gm.length) {
+        const i = gm.indexOf(G);
+        if (i >= 0) return i;
+      }
+      return null;
+    }
+
+    // Is this track a spliced child (cDNA / mRNA) rendered in local coordinates?
+    isChildCDNATrack() {
+      if (this.track_type === 'CDNA') return true;
+      if (this.trackRef && this.trackRef.genomeMap && this.trackRef.genomeMap.length) return true;
+      return (this.annotations || []).some(a => a && String(a.type).toLowerCase() === 'exon' && a.gxi != null);
+    }
+
+    // Can a variant at chromosome `chr`, 1-based genomic position `G` live on this track,
+    // and if so where? Genomic tracks render in genomic world-coordinates (tgraph.X takes a
+    // genomic position — see paste-rs-numbers-to-tracks.js), so the SNP's xi IS the genomic
+    // position. Returns that xi, or null if the variant does not fall on this track. Failsafe.
+    variantWorldX(chr, G) {
+      try {
+        if (G == null || !isFinite(G)) return null;
+        const norm = (c) => ('' + (c == null ? '' : c)).toLowerCase().replace(/^chr/, '');
+        if (this.chr != null && chr != null && norm(this.chr) !== norm(chr)) return null;
+
+        // Child (cDNA / mRNA) track: it renders in LOCAL coordinates (0..len) with introns
+        // spliced out, so place the variant via the EXON annotations — map its genomic
+        // position to a local coordinate. A variant in an intron (no covering exon) is not
+        // placed on the mRNA.
+        if (this.isChildCDNATrack && this.isChildCDNATrack()) {
+          return this.genomicToLocal(G);
+        }
+
+        // Genomic (parent) track: world coord == genomic position.
+        // Genomic extent: prefer the render graph's world bounds, fall back to xi/xf.
+        let lo, hi;
+        if (this.tgraph && this.tgraph.xmin != null && this.tgraph.xmax != null) {
+          lo = Math.min(this.tgraph.xmin, this.tgraph.xmax);
+          hi = Math.max(this.tgraph.xmin, this.tgraph.xmax);
+        } else if (this.xi != null && this.xf != null) {
+          lo = Math.min(this.xi, this.xf);
+          hi = Math.max(this.xi, this.xf);
+        } else return null;
+        if (G < lo || G > hi) return null;
+        return G;
+      } catch (e) { return null; }
+    }
+
+    // ---- Flanking genomic sequence (display-only reference; NOT part of the track) ----
+    // Genomic position for a local index that lies OUTSIDE the track, extended linearly
+    // from the boundary base's genomic coordinate in the strand direction. Failsafe.
+    flankGenomicAt(seqIndex) {
+      try {
+        const len = this.sequence ? this.sequence.length : 0;
+        if (len < 1) return null;
+        if (seqIndex >= 0 && seqIndex < len) return this.genomicAt(seqIndex);
+        const gA = this.genomicAt(0);
+        const gB = this.genomicAt(len - 1);
+        if (gA == null || gB == null) return null;
+        const dir = (gB >= gA) ? 1 : -1;
+        if (seqIndex < 0) return Math.round(gA + seqIndex * dir);
+        return Math.round(gB + (seqIndex - (len - 1)) * dir);
+      } catch (e) { return null; }
+    }
+
+    // Look up a flanking base from the cached window (or null). Failsafe.
+    flankBaseAt(g) {
+      try {
+        const c = this.__flankCache;
+        if (!c || g == null) return null;
+        const i = c.revc ? (c.hi - g) : (g - c.lo);
+        if (i < 0 || i >= c.seq.length) return null;
+        return c.seq[i];
+      } catch (e) { return null; }
+    }
+
+    // Fetch (and cache) the flanking genomic sequence covering [gLo, gHi]. Entirely
+    // best-effort: any failure leaves the cache untouched, never throws, and — crucially —
+    // never re-requests a window it already tried, so a miss can't hammer the server.
+    ensureFlank(gLo, gHi) {
+      try {
+        if (this.__flankLoading) return;                                    // one fetch at a time
+        if (!this.chr || !this.species || gLo == null || gHi == null) return;
+        if (!isFinite(gLo) || !isFinite(gHi)) return;
+        // Snap the window to a ~1kb grid so small pans reuse one request/cache entry.
+        const GRID = 1000, PAD = 250;
+        let lo = Math.floor((Math.min(gLo, gHi) - PAD) / GRID) * GRID;
+        let hi = Math.ceil((Math.max(gLo, gHi) + PAD) / GRID) * GRID;
+        if (lo < 1) lo = 1;
+        if (hi - lo > 200000) return;                                       // sanity cap
+        const c = this.__flankCache;
+        if (c && c.chr === this.chr && lo >= c.lo && hi <= c.hi) return;   // already covered
+        const strand = (this.strand === -1 || this.strand === '-1' || this.strand === '-') ? -1 : 1;
+        const region = this.chr + ':' + lo + '..' + hi + ':' + strand;
+        if (this.__flankTried === region) return;   // already attempted this exact window (hit or miss)
+        this.__flankTried = region;                  // mark BEFORE the request so failures don't retry
+        this.__flankLoading = true;
+        const sp = ('' + this.species).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        const apiBase = (typeof window !== 'undefined' && window['env'] && window['env']['apiUrl']) ? window['env']['apiUrl'] : '';
+        const url = apiBase + '/ensembl/region?species=' + encodeURIComponent(sp) + '&region=' + encodeURIComponent(region);
+        const self = this;
+        fetch(url).then((r) => (r && r.ok) ? r.text() : '').then((seq) => {
+          self.__flankLoading = false;
+          try {
+            seq = ('' + (seq || '')).trim();
+            if (seq && /^[ACGTNacgtn]+$/.test(seq) && Math.abs((hi - lo + 1) - seq.length) < 5) {
+              // Ensembl returns strand -1 regions reverse-complemented, so seq[0] aligns to
+              // genomic hi for - strand and genomic lo for + strand.
+              self.__flankCache = { chr: self.chr, lo: lo, hi: hi, seq: seq, revc: strand === -1 };
+            }
+          } catch (e) { }
+        }).catch(() => { self.__flankLoading = false; });
+      } catch (e) { this.__flankLoading = false; }
+    }
+
     getGenomicIndexForCDNAIndex(cdnaIndex) {
       let mut = this.parseMutationSyntax(cdnaIndex);
 
@@ -3297,6 +3640,9 @@ return new Promise(async (resolve, reject) => {
     }
     setSequence(sequence) {
       this.sequence = sequence;
+      // Keep the CDS in sync whenever the nucleotides are (re)set, if start+stop are
+      // annotated. No-op during initial load (annotations not added yet).
+      try { this.updateCDS(); } catch (e) { }
     }
 
     async addTrackPlot() {
@@ -4390,17 +4736,31 @@ return new Promise(async (resolve, reject) => {
       }
 
       // --- snpindels ---
+      // Carry annotation/clinical metadata onto a mirrored SNP (the constructor doesn't
+      // take these), so clinical significance etc. survive parent -> child mirroring.
+      const carrySnpMeta = (dst, src) => {
+        try {
+          dst.name = src.name;
+          dst.clinsig = src.clinsig;
+          dst.clindn = src.clindn;
+          dst.quality = src.quality;
+          dst.source = src.source;
+          dst.af = src.af;
+          if (src.structure) dst.structure = src.structure;
+          if (src.color) dst.color = src.color;
+        } catch (e) { }
+      };
       if (Array.isArray(p.snpindels)) for (let sid of p.snpindels) {
         try {
           const __h = this._syncHash(sid, 'snp');
           if (present.has(__h)) continue;
           if (inMap(sid.xi)) {
             let _sid = new SnpIndel(sid.type, rm(sid.xi), sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id + '*');
-            _sid.name = sid.name; _sid.__mirror = true; _sid.__syncHash = __h;
+            carrySnpMeta(_sid, sid); _sid.__mirror = true; _sid.__syncHash = __h;
             this.snpindels.push(clearSel(_sid));
           } else if (inMap(sid.xf)) {
             let _sid = new SnpIndel(sid.type, rm(sid.xf - (sid.reference ? sid.reference.length : 0)), sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id + '*');
-            _sid.name = sid.name; _sid.__mirror = true; _sid.__syncHash = __h;
+            carrySnpMeta(_sid, sid); _sid.__mirror = true; _sid.__syncHash = __h;
             this.snpindels.push(clearSel(_sid));
           }
         } catch (e) { }
@@ -4497,6 +4857,9 @@ return new Promise(async (resolve, reject) => {
 
     add(annotation) {
       this.annotations.push(annotation);
+      // When the track gains a start or stop codon, auto-(re)generate the CDS.
+      const ty = ('' + (annotation && annotation.type)).toLowerCase();
+      if (ty === 'tss' || ty === 'stop') { try { this.scheduleCDSUpdate(); } catch (e) { } }
     }
     setAnnotation(annotation) {
       for (let a of this.annotations) {
@@ -4612,12 +4975,31 @@ return new Promise(async (resolve, reject) => {
     getVisibleSNPs(start, end) {
       let o = [];
       for (let snp of this.snpindels) {
+        if (snp && snp.hidden) continue;   // filtered out via Edit snps
         if ((snp.xi >= start && snp.xi < end) || (snp.xf >= start && snp.xf < end)) {
           o.push(snp);
         }
       }
 
       return o;
+    }
+
+    // Removing SNPs from a parent should clear them from its child tracks too. Children
+    // mirror the parent (child.trackRef.track === parent), so we clear each descendant's
+    // snpindels; the next syncFromParent() re-mirrors only the parent's REMAINING SNPs,
+    // keeping children consistent with the edited parent. Returns how many were cleared.
+    clearDescendantSnps(graph) {
+      let n = 0;
+      try {
+        const tracks = (graph && graph.track) || [];
+        for (const c of tracks) {
+          if (c && c !== this && c.trackRef && c.trackRef.track === this) {
+            if (Array.isArray(c.snpindels) && c.snpindels.length) { n += c.snpindels.length; c.snpindels = []; }
+            if (typeof c.clearDescendantSnps === 'function') n += c.clearDescendantSnps(graph);   // grandchildren
+          }
+        }
+      } catch (e) { }
+      return n;
     }
 
     removeTracksLayersWhereNameStartsWith(name) {
@@ -4770,6 +5152,8 @@ return new Promise(async (resolve, reject) => {
 
       if (inPlace) {
         this.sequence = mutated;
+        // Nucleotides changed -> refresh the CDS in real time.
+        try { this.updateCDS(); } catch (e) { }
       }
 
       return mutated;
@@ -4905,6 +5289,8 @@ return new Promise(async (resolve, reject) => {
         if (i >= 0) this.snpindels.splice(i, 1);
       }
 
+      // Nucleotides changed -> refresh the CDS in real time.
+      try { this.updateCDS(); } catch (e) { }
       return this.sequence;
     }
 
@@ -4942,6 +5328,8 @@ return new Promise(async (resolve, reject) => {
           }
         }
       }
+      // Nucleotides changed -> refresh the CDS in real time.
+      try { this.updateCDS(); } catch (e) { }
     }
 
     mutateTrack(phase) {
@@ -4982,6 +5370,8 @@ return new Promise(async (resolve, reject) => {
         }
       });
       this.snpindels = [];
+      // Nucleotides changed -> refresh the CDS in real time.
+      try { this.updateCDS(); } catch (e) { }
     }
     adjustDownstreamAnnotations(xi, xf, delta) {
       if (!delta) return;
@@ -5763,6 +6153,34 @@ return new Promise(async (resolve, reject) => {
             }
           } catch (e) { }
 
+          // Flag oligos that overlap an amplicon on this track so draw() can render
+          // them magenta with a warning label. Amplicons live in this.oligos as
+          // Amplicon objects (type 'amplicon' / left+right primers), so they share
+          // the oligos' coordinate space and overlap can be compared directly.
+          try {
+            const __ampSpans = [];
+            for (const a of this.oligos) {
+              if (!a) continue;
+              const isAmp = a.type === 'amplicon' || (a.left && a.right);
+              if (!isAmp) continue;
+              // Amplicon.xf is (right.xi + right.xf); prefer the right primer's true end.
+              const s = Number.isFinite(a.xi) ? a.xi : (a.left && a.left.xi);
+              const e = (a.right && Number.isFinite(a.right.xf)) ? a.right.xf : a.xf;
+              if (Number.isFinite(s) && Number.isFinite(e) && e > s) __ampSpans.push([Math.min(s, e), Math.max(s, e)]);
+            }
+            for (const o of this.oligos) {
+              if (!o) continue;
+              // An amplicon never flags itself.
+              if (o.type === 'amplicon' || (o.left && o.right)) { o.__overlapsAmplicon = false; continue; }
+              let over = false;
+              if (__ampSpans.length && Number.isFinite(o.xi) && Number.isFinite(o.xf)) {
+                const oi = Math.min(o.xi, o.xf), of = Math.max(o.xi, o.xf);
+                for (const sp of __ampSpans) { if (oi < sp[1] && of > sp[0]) { over = true; break; } }
+              }
+              o.__overlapsAmplicon = over;
+            }
+          } catch (e) { }
+
           if (screencell > 1) {
             for (let o of visOligos) {
               try {
@@ -5778,7 +6196,7 @@ return new Promise(async (resolve, reject) => {
                 graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xf)), graph.Y(this.tgraph.Y(o.y)), 2, o.highlight__, 1);
               }
               if (o.drawIcon) o.drawIcon(graph, this.tgraph);
-              else graph.drawLine(this.tgraph.X(o.xi), this.tgraph.Y(o.y), this.tgraph.X(o.xf), this.tgraph.Y(o.y), GX_INTRON, 1, "round");
+              else graph.drawLine(this.tgraph.X(o.xi), this.tgraph.Y(o.y), this.tgraph.X(o.xf), this.tgraph.Y(o.y), o.__overlapsAmplicon ? 'magenta' : GX_INTRON, 1, "round");
             }
           }
         }
@@ -5796,6 +6214,24 @@ return new Promise(async (resolve, reject) => {
 
           if (this.sequence) {
             let pseq = -1;
+            // Track the genomic span of any flanking (out-of-track) bases in view so we can
+            // load the reference sequence for it. Display-only; failsafe.
+            let __flankLo = Infinity, __flankHi = -Infinity;
+            // Track sequence letters: dark navy, and the glyph size grows as you zoom in
+            // (wider base cell => larger font), clamped so it always fits the cell.
+            const SEQ_INK = '#0a2540';                 // in-track bases (dark navy)
+            const SEQ_FLANK = 'rgba(10,37,64,0.72)';   // flanking reference bases (muted navy)
+            // Also cap the glyph height to the vertical gap between the sequence row and the
+            // g./index coordinate rows above it, so the larger letters never grow up into
+            // those rows — the coordinate labels stay exactly where/how they were.
+            let __seqPxFit = 44;
+            try {
+              const rowGapPx = Math.abs(graph.Y(this.tgraph.Y(0.012)) - graph.Y(this.tgraph.Y(-0.068)));
+              if (rowGapPx > 4) __seqPxFit = Math.max(11, Math.floor(rowGapPx / 0.6));
+            } catch (e) { }
+            const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
+            const dynSeqFont = seqPx + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
+            const dynSeqFontLarge = Math.min(Math.round(seqPx * 1.25), __seqPxFit) + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
               let seq_index = Math.floor(index - Math.floor(this.xi));
@@ -5805,22 +6241,24 @@ return new Promise(async (resolve, reject) => {
                   graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
-                      let color = codon_colors(oor.aa);
-
-                      if (oor.index === index) {
-                        if (oor.ci === 1) {
-                          graph.drawString(oor.aa, Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.15), "#" + color, this.detail_ffont4);
-                          graph.drawString(oor.codon_index + 1 + "", Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
-                        }
+                      if (oor.index === index && oor.ci === 1) {
+                        let color = codon_colors(oor.aa);
+                        // Codon center = middle of the 3-base cell span [cellX-1, cellX+2].
+                        const cellX = Math.floor(this.tgraph.X(index));
+                        // Peptide letter CENTERED over its codon, just above the nucleotide row.
+                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, this.tgraph.Y(-0.038), "#" + color, this.detail_ffont4);
+                        // Codon bracket: a line under the residue spanning the codon's 3 bases
+                        // (small gap between codons so each triplet reads as a group).
+                        graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
+                        // Codon number, below the track (also centered on the codon).
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
                       }
                     }
                   }
                   if (this.highlightIndex > 0 && this.highlightIndex === index) {
-                    seq_font = this.detail_ffont_large;
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFontLarge);
                   } else {
-                    seq_font = this.detail_ffont;
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFont);
                   }
 
                   let deg = 0;
@@ -5830,13 +6268,13 @@ return new Promise(async (resolve, reject) => {
                 } else {
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
-                      if (oor.index === index) {
+                      if (oor.index === index && oor.ci === 1) {
                         let color = codon_colors(oor.aa);
-                        if (oor.ci === 1) {
-                          graph.drawString(oor.aa, Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.15), "#" + color, this.font);
-                          graph.drawString(oor.codon_index + 1 + "", Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
-                        } else {
-                        }
+                        // Peptide centered over its codon, just above the nucleotides (see above).
+                        const cellX = Math.floor(this.tgraph.X(index));
+                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, this.tgraph.Y(-0.038), "#" + color, this.font);
+                        graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
                       }
                     }
                   }
@@ -5846,27 +6284,101 @@ return new Promise(async (resolve, reject) => {
                   }
                   if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
 
-                  seq_font = this.ffont;
-                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), GX_INK, seq_font);
+                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFont);
                 }
               } else {
-                graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
+                // Outside the track: draw flanking GENOMIC sequence for visual reference
+                // (display-only, muted). Failsafe — a placeholder if it isn't loaded yet.
+                let __gp = null, __fb = null;
+                try { __gp = this.flankGenomicAt(seq_index); __fb = this.flankBaseAt(__gp); } catch (e) { }
+                if (__fb) {
+                  try {
+                    graph.drawString(__fb, Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_FLANK, dynSeqFont);
+                    if (screencell > 30) graph.drawString('g.' + __gp, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GUIDE, this.detail_ffont6);
+                  } catch (e) { }
+                } else {
+                  graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
+                }
+                if (__gp != null && isFinite(__gp)) { if (__gp < __flankLo) __flankLo = __gp; if (__gp > __flankHi) __flankHi = __gp; }
               }
               for (let o of visOligos) {
                 o.showOfftargets = this.showOfftargets;
                 o.drawDetail(graph, this.tgraph, index, y + 0.15);
               }
-              let yshiftindex = 0;
-
+            }
+            // Draw each visible SNP/indel ONCE — not once per visible base. The old loop
+            // sat inside the per-index loop and sid.draw() (the full lollipop) has no index
+            // guard, so every SNP's marker was redrawn for every base in view
+            // (O(bases × SNPs) of redundant canvas work). Now it's O(SNPs).
+            {
+              // Lane-pack the lollipops so a CLUSTER doesn't step on itself: each marker
+              // (plus its ref>alt label) claims a horizontal screen-pixel footprint; a new
+              // marker takes the lowest lane whose previous occupant has already ended (in X),
+              // otherwise it opens a new lane above. draw()/drawDetail turn the lane index into
+              // a stem length, so overlapping variants fan outward in Y instead of colliding.
+              const __gapPx = 6;      // min horizontal gap between two markers in the same lane
+              const __charPx = 7;     // approx label glyph width
+              const __MAX_LANES = 12; // safety cap for very dense pileups
+              const __entries = [];
               for (let sid of snpsv) {
-                sid.drawDetail(graph, this.tgraph, index, 0.05 + y + 0.15 * yshiftindex);
-                sid.draw(graph, this.tgraph, 0.15 + y + 0.15 * yshiftindex);
-                yshiftindex += 0.15;
-                if (yshiftindex > 1) {
-                  yshiftindex = 0;
+                const __leftSX = graph.X(this.tgraph.X(sid.xi));
+                const __ref = (sid.reference0 != null ? sid.reference0 : (sid.reference || ''));
+                const __alt = (sid.alternate0 != null ? sid.alternate0 : (sid.alternate || ''));
+                const __labelLen = ('' + __ref).length + 1 + ('' + __alt).length;   // "ref>alt"
+                const __footPx = 20 + __labelLen * __charPx;
+                __entries.push({ sid, left: __leftSX - 4, right: __leftSX + __footPx });
+              }
+              __entries.sort((a, b) => a.left - b.left);
+              const __laneRight = [];   // rightmost occupied screen-X per lane
+              for (let e of __entries) {
+                let __lane = -1;
+                for (let i = 0; i < __laneRight.length; i++) {
+                  if (e.left > __laneRight[i] + __gapPx) { __lane = i; break; }
                 }
+                if (__lane === -1) __lane = __laneRight.length;
+                __laneRight[__lane] = e.right;
+                const __drawLane = __lane % __MAX_LANES;
+                // Show the ref>alt label as soon as the sequence letters are visible (>5,
+                // same threshold as the base-letter rendering above).
+                if (screencell > 5) e.sid.drawDetail(graph, this.tgraph, e.sid.xi, 0.05 + y, __drawLane);
+                e.sid.draw(graph, this.tgraph, 0.15 + y, __drawLane);
               }
             }
+            // Load any flanking reference sequence now visible (best-effort, failsafe).
+            try { if (__flankHi >= __flankLo) this.ensureFlank(__flankLo, __flankHi); } catch (e) { }
+
+            // Sequence is visible (zoomed in): draw a translucent rectangle around each
+            // LABELED variant in view, so the variant(s) stand out over the bases. Failsafe.
+            try {
+              const hctx = graph.canvas.getCTX();
+              const hyTop = graph.Y(this.tgraph.Y(this.tgraph.getymax()));
+              const hyBot = graph.Y(this.tgraph.Y(this.tgraph.getymin()));
+              const hry = Math.min(hyTop, hyBot);
+              const hrh = Math.abs(hyBot - hyTop);
+              for (const sid of (this.snpindels || [])) {
+                if (!sid || !sid.name) continue;                 // only labeled variants
+                // Match the box to the SnpIndel marker's drawn extent so they line up. Both
+                // snps and indels now sit on their reference footprint [xi, xf] (see
+                // snpindel.js draw()); the indel cylinder spans the same range.
+                const vxi = sid.xi;
+                const vxf = (sid.xf != null ? sid.xf : sid.xi + 1);
+                const vlo = Math.min(vxi, vxf), vhi = Math.max(vxi, vxf);
+                if (vhi < tx_world_start || vlo > tx_world_end) continue;   // out of view
+                const hx0 = graph.X(Math.floor(this.tgraph.X(vxi)));
+                const hx1 = graph.X(Math.floor(this.tgraph.X(vxf)));
+                const hrx = Math.min(hx0, hx1) - 2;
+                const hrw = Math.abs(hx1 - hx0) + 4;
+                if (hrw > 1 && hrh > 1) {
+                  hctx.save();
+                  hctx.fillStyle = 'rgba(255,140,26,0.16)';      // warm translucent wash
+                  hctx.fillRect(hrx, hry, hrw, hrh);
+                  hctx.lineWidth = 1.25;
+                  hctx.strokeStyle = 'rgba(255,140,26,0.75)';
+                  hctx.strokeRect(hrx + 0.5, hry + 0.5, hrw - 1, hrh - 1);
+                  hctx.restore();
+                }
+              }
+            } catch (e) { }
           }
         } else {
           let ctx = graph.canvas.getCTX();
@@ -6389,8 +6901,24 @@ return new Promise(async (resolve, reject) => {
           const headWid = clamp(pxDist * 0.03, 5, 10);
           const barInset = headLen + 2;
 
-          // (Removed the translucent marked-region box that covered the coding region;
-          // the boundary guide lines + size labels below still show the marked extent.)
+          // Translucent marked-region rectangle (shown together with the arrows/guides).
+          {
+            const rTop = graph.Y(this.tgraph.Y(yMax));
+            const rBot = graph.Y(this.tgraph.Y(yMin));
+            const rx = Math.min(screenStartX, screenEndX);
+            const rw = Math.abs(screenEndX - screenStartX);
+            const ry = Math.min(rTop, rBot);
+            const rh = Math.abs(rBot - rTop);
+            if (rw > 1 && rh > 1) {
+              ctx.save();
+              ctx.fillStyle = 'rgba(18,194,224,0.14)';    // light cyan wash — see-through
+              ctx.fillRect(rx, ry, rw, rh);
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = 'rgba(18,194,224,0.55)';
+              ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+              ctx.restore();
+            }
+          }
 
           ctx.save();
           ctx.lineWidth = 2;
@@ -6459,8 +6987,22 @@ return new Promise(async (resolve, reject) => {
           const dist = this.markend - this.markstart;
           const distLabel = fmtBp(dist);
 
-          const startLabel = `[${fmtInt(this.markstart)}]`;
-          const endLabel = `[${fmtInt(this.markend)}]`;
+          // c. (cDNA index) + g. (genomic) at each arrow — computed EXACTLY as the ruler
+          // does: seq_index = Math.floor(index) - Math.floor(xi), where markstart/markend
+          // are the world `index` values (the input to tgraph.X). c. = seq_index + 1,
+          // g. = genomicAt(seq_index).
+          const idxStart = Math.floor(this.markstart) - Math.floor(this.xi);
+          const idxEnd = Math.floor(this.markend) - Math.floor(this.xi);
+          const gStart = this.genomicAt(idxStart);
+          const gEnd = this.genomicAt(idxEnd);
+          // c. (cDNA) counts with the transcript's orientation: + strand = seq_index + 1,
+          // - strand counts from the other end (tgraph.xmax - worldIndex + 1), matching
+          // the hover base index.
+          const __minus = (this.strand === -1 || this.strand === "-1" || this.strand === '-');
+          const cStart = __minus ? Math.round(this.tgraph.xmax - Math.floor(this.markstart)) + 1 : idxStart + 1;
+          const cEnd = __minus ? Math.round(this.tgraph.xmax - Math.floor(this.markend)) + 1 : idxEnd + 1;
+          const startLabel = 'c.' + fmtInt(cStart) + '  g.' + fmtInt(gStart);
+          const endLabel = 'c.' + fmtInt(cEnd) + '  g.' + fmtInt(gEnd);
 
           const drawBadge = (text, x, y, align = "center") => {
             ctx.save();
@@ -6519,9 +7061,10 @@ return new Promise(async (resolve, reject) => {
           const safeEndX = Math.min(canvasW - margin, endLabelX);
           ctx.lineWidth = 1;
 
-          drawBadge(distLabel, centerX, yPosition - 18, "center");
-          drawBadge(startLabel, safeStartX, yPosition + 18, "center");
-          drawBadge(endLabel, safeEndX, yPosition + 18, "center");
+          // c./g. badges at the TOPS of the start/end arrows; size label below.
+          drawBadge(distLabel, centerX, yPosition + 18, "center");
+          drawBadge(startLabel, safeStartX, yPosition - 20, "center");
+          drawBadge(endLabel, safeEndX, yPosition - 20, "center");
         }
 
         if (this.targetPhase != null) {

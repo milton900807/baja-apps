@@ -45,6 +45,26 @@ function (graph, genegraph_panel_layout) {
                                                     'label': 'Arrow', 'ionfunction': createIonFunction(async () => {
                                                         await exec('baja/manchester/menu/draw-line-action.js', graph)
                                                     })
+                                                },
+                                                {
+                                                    'label': 'Highlight region', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/draw-highlight-action.js', graph)
+                                                    })
+                                                },
+                                                {
+                                                    'label': 'Text label', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/draw-label-action.js', graph)
+                                                    })
+                                                },
+                                                {
+                                                    'label': 'Citation', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/draw-citation-action.js', graph)
+                                                    })
+                                                },
+                                                {
+                                                    'label': 'Note', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/draw-note-action.js', graph)
+                                                    })
                                                 }
                                             ]
                                         },

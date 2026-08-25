@@ -96,13 +96,11 @@ function (graph, genegraph_panel_layout) {
                                 }
                             }
                             selectedTrack.generateORF()
-                            let cdsi = selectedTrack.orf.cdsi;
-                            let proteinSeq = '';
-                            for (let c = 0; c < cdsi.length; c += 3) {
-                                proteinSeq += cdsi[c].aa
-                            }
-
-                            proteinSeq = proteinSeq.toString();
+                            // Exon-aware CDS translation (correct for multi-exon genes). `cds`
+                            // gives the protein plus, per residue, the genomic position of its
+                            // codon (codonPos) for placing the domain / site annotations.
+                            let cds = selectedTrack.getCDS();
+                            let proteinSeq = ('' + (cds.protein || '')).toString();
 
                             let progressBar;
                             let w = {
@@ -192,15 +190,10 @@ function (graph, genegraph_panel_layout) {
                                     index++;
                                 }
 
+                                // CDD reports 1-based amino-acid positions; map each to the
+                                // genomic coordinate of that residue's codon (codonPos is 0-based).
                                 let getNucleotideIndex = (t) => {
-                                    let index = 0;
-                                    for (let i = 0; i < cdsi.length; i += 3) {
-                                        if (index === t) {
-                                            let value = cdsi[i]
-                                            return value.index;
-                                        }
-                                        index++;
-                                    }
+                                    if (t >= 1 && t <= cds.codonPos.length) return cds.codonPos[t - 1];
                                     return -1;
                                 }
 
@@ -216,7 +209,11 @@ function (graph, genegraph_panel_layout) {
                                     let end = i['end']
                                     let istart = getNucleotideIndex(+start)
                                     let iend = getNucleotideIndex(+end)
-                                    let annotation = new Annotation('ProteinDomain', name, istart, iend)
+                                    if (istart < 0 || iend < 0) continue;
+                                    // codonPos runs 3'->5' on the minus strand, so order the span.
+                                    let alo = Math.min(istart, iend);
+                                    let ahi = Math.max(istart, iend) + 2;   // include the last codon
+                                    let annotation = new Annotation('ProteinDomain', name, alo, ahi)
                                     annotation.labelY = Math.random() + 2;
                                     selectedTrack.add(annotation)
                                 }

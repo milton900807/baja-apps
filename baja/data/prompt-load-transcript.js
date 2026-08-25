@@ -10,6 +10,17 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             const match = ('' + inputString).match(/ENS[A-Z]*[GTPE]\d+/i);
             return match ? match[0] : null;
         }
+        // Render the New-track form directly in the mainPanel (not a modal), and put the
+        // editor canvas back in the mainPanel after loading / cancel.
+        const showInMainPanel = (comp) => {
+            try {
+                CurrentLayout.clearComponent('mainPanel');
+                CurrentLayout.setComponent('mainPanel', comp);
+            } catch (e) { console.warn('prompt-load-transcript: mainPanel set failed', e); }
+        };
+        const showEditorCanvas = () => {
+            showInMainPanel((graph && graph.genegraph_panel_layout) || genegraph_panel_layout);
+        };
         // Resolve a natural-language query (or a pasted id) into transcript(s)
         // and load them onto the graph.
         const resolveAndLoad = async (rawQuery, source) => {
@@ -18,6 +29,14 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             const loadOne = async (item) => {
                 if (!item || !item.id) return false;
                 const label = item.id + (item.gene ? " (" + item.gene + ")" : "");
+                // Upon loading a new track, deselect everything first (clear the
+                // selection window + any track/oligo highlights).
+                try {
+                    if (graph.clearSelectionVisuals) graph.clearSelectionVisuals();
+                    graph.__lassoSelection = [];
+                    if (graph.deselectAllTracks) graph.deselectAllTracks();
+                    if (graph.deselectAllCompounds) graph.deselectAllCompounds();
+                } catch (e) { }
                 graph.setMessage(" Loading " + label + " ...");
                 // graph.add loads via the server and emits its own reference-
                 // download status messages (see gene.js). It returns null when the
@@ -34,6 +53,13 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                     graph.setMessage(" Failed to load " + label + " — data service unavailable.");
                     return false;
                 }
+                // After it is loaded, select the new track and show the selection box.
+                try {
+                    if (track.select) track.select();
+                    if (graph.addTrackToSelection) graph.addTrackToSelection(track);
+                    else graph.showDisplay = true;
+                    if (graph.wake) graph.wake();
+                } catch (e) { console.warn('select loaded track failed', e); }
                 return true;
             };
 
@@ -133,11 +159,39 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
 
         let describe_transcript = {
             wid: 'card',
-            componentRef: 'bottomPanel',
+            componentRef: 'mainPanel',
             data: {
-                height: '800px',
+                height: '100%',
+                card_padding: '28px',   // breathing room from the canvas edges
+                padding: '10px',
                 cards: [
                     [
+                        {
+                            'width': '100%',
+                            'component': {
+                                wid: 'html',
+                                // Tropical header + input styling. Scoped to .card-container and
+                                // only present while this form occupies the mainPanel (it is
+                                // destroyed when the editor canvas is restored), so it doesn't
+                                // bleed into other views.
+                                data: `
+                                <style>
+                                  .card-container { background: linear-gradient(180deg,#f3fbfb 0%,#e9f6f6 100%); border-radius:16px; }
+                                  .card-container .card-title { color:#084d54; font-weight:600; letter-spacing:.2px; margin-bottom:6px; }
+                                  .card-container mat-form-field, .card-container .mat-mdc-form-field { width:100%; }
+                                  .card-container .mat-mdc-text-field-wrapper { border-radius:12px !important; background:#ffffff !important; box-shadow:0 1px 4px rgba(8,77,84,.10); }
+                                  .card-container textarea, .card-container input.mat-mdc-input-element { color:#0f2a2e; font-size:14px; line-height:1.5; }
+                                  .card-container .mdc-line-ripple::after { border-bottom-color:#0c7c86 !important; }
+                                  .card-container .mat-mdc-form-field.mat-focused .mdc-line-ripple::after { border-bottom-color:#ff8c1a !important; }
+                                  .card-container .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper { box-shadow:0 0 0 3px rgba(18,194,224,.18); }
+                                  .nt-banner { background:linear-gradient(120deg,#0c7c86 0%,#12a3ad 55%,#ff8c1a 130%); border-radius:14px; padding:16px 20px; color:#fff; box-shadow:0 4px 14px rgba(8,77,84,.28); }
+                                  .nt-banner .nt-title { font-size:18px; font-weight:700; letter-spacing:.3px; display:flex; align-items:center; gap:8px; }
+                                  .nt-banner .nt-sub { opacity:.92; font-size:13px; margin-top:3px; }
+                                </style>
+                                <div class="nt-banner">
+                                </div>`
+                            }
+                        },
                         {
                             'title': 'Describe the gene or paste an ENSEMBL/NCBI ID',
                             'width': '100%',
@@ -220,7 +274,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                                     if (desc) terms.push(desc);
                                                     query = terms.join(' ').trim();
                                                 }
-                                                hideAllModal();
+                                                // Reset to the editor canvas in the mainPanel, then load.
+                                                showEditorCanvas();
                                                 setTimeout(() => {
                                                     resolveAndLoad(query, null);
                                                 }, 200);
@@ -228,7 +283,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                         },
                                         {
                                             label: 'Cancel', ionFunction: createIonFunction(() => {
-                                                hideAllModal();
+                                                showEditorCanvas();
                                                 resolve(null);
                                             })
                                         }
@@ -241,6 +296,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             }
         };
 
-        showModal(describe_transcript);
+        // Show the New-track form in the mainPanel instead of a modal.
+        describe_transcript.componentRef = 'mainPanel';
+        showInMainPanel(describe_transcript);
     });
 }

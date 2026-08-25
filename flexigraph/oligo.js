@@ -260,7 +260,7 @@ function () {
                     const toRGB = (c) => {
                         if (typeof c !== 'string') return null;
                         const s = c.trim().toLowerCase();
-                        const named = { magenta: [255, 0, 255], cyan: [0, 255, 255], red: [255, 0, 0], maroon: [128, 0, 0], navy: [10, 37, 64], yellow: [255, 230, 0], lime: [0, 255, 0], green: [0, 128, 0], orange: [255, 165, 0] };
+                        const named = { magenta: [255, 0, 255], purple: [155, 48, 255], cyan: [0, 255, 255], red: [255, 0, 0], maroon: [128, 0, 0], navy: [10, 37, 64], yellow: [255, 230, 0], lime: [0, 255, 0], green: [0, 128, 0], orange: [255, 165, 0] };
                         if (named[s]) return named[s];
                         let m = s.match(/^#([0-9a-f]{3})$/);
                         if (m) { const h = m[1]; return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)]; }
@@ -364,7 +364,7 @@ function () {
                             tgraph.X(this.xi),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.color,
+                            this.__overlapsAmplicon ? "magenta" : this.color,
                             this.structure
                         );
                     } else {
@@ -373,10 +373,21 @@ function () {
                             tgraph.Y(y),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.color,
+                            this.__overlapsAmplicon ? "magenta" : this.color,
                             1,
                             "round"
                         );
+                    }
+
+                    // Oligo overlaps an amplicon on this track — warn: magenta body (above)
+                    // plus a warning label so it's unmistakable.
+                    if (this.__overlapsAmplicon) {
+                        drawCenteredOvalLabel("⚠ overlaps amplicon", -40, {
+                            font: "10px Arial",
+                            textColor: "magenta",
+                            fillColor: "white",
+                            strokeColor: "magenta",
+                        });
                     }
 
                     if (this.type && this.type.startsWith("deprecated")) {
@@ -457,7 +468,7 @@ function () {
                             tgraph.X(this.xi),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.color,
+                            this.__overlapsAmplicon ? "magenta" : this.color,
                             this.structure
                         );
                     } else {
@@ -466,7 +477,7 @@ function () {
                             tgraph.Y(y),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.color,
+                            this.__overlapsAmplicon ? "magenta" : this.color,
                             1,
                             "round"
                         );

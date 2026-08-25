@@ -410,11 +410,16 @@ function () {
                     return;
                 }
 
+                // (Stem length is already capped in draw() before this is called.)
                 graph.drawLine(midX, y0, midX, yPix, 'rgba(14, 1, 15, 0.88)', 1.25, 'round');
 
                 const button_center_x = graph.X(midX);
                 const button_center_y = graph.Y(y0);
                 const ctx = graph.canvas.getCTX?.() || graph.context || graph.canvasContext;
+
+                // Clinical-significance glow (red for pathogenic).
+                const cs = (instance.clinsigStyle ? instance.clinsigStyle() : null);
+                const glow = cs && cs.glow;
 
                 if (ctx) {
                     const cx = button_center_x;
@@ -433,8 +438,11 @@ function () {
                     ctx.fill(paths.shadow);
                     ctx.fillStyle = '#ffffff';
                     ctx.fill(paths.base);
-                    ctx.fillStyle = phaseColor; // use instance-aware color
+                    // Pathogenic: paint the face with a red glow (canvas shadow).
+                    if (glow) { ctx.shadowColor = cs.glow; ctx.shadowBlur = 14; }
+                    ctx.fillStyle = phaseColor; // clinsig-aware color
                     ctx.fill(paths.face);
+                    if (glow) { ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; }
 
                     ctx.strokeStyle = '#334155';
                     ctx.lineWidth = 1;
@@ -453,6 +461,12 @@ function () {
                     if (graph.drawCircle) {
                         graph.drawCircle(midX, yPix, radius + 2.5, highlightColor, 1.25);
                     }
+                }
+
+                // Soft red glow halo behind pathogenic markers (works without ctx too).
+                if (glow && graph.fillCircle) {
+                    graph.fillCircle(midX, yPix, radius + 5, 'rgba(209,52,47,0.28)');
+                    graph.fillCircle(midX, yPix, radius + 3, 'rgba(209,52,47,0.30)');
                 }
 
                 if (graph.fillCircle) {
@@ -482,6 +496,123 @@ function () {
                     w: (radius * 2) + pad * 2,
                     h: (radius * 2) + pad * 2
                 };
+
+                // Screen-space hit region covering the WHOLE lollipop — the head AND the
+                // stem line (baseline y0 -> marker yPix). over() receives screen-pixel mouse
+                // coords, so we test against screen coords directly (no re-conversion).
+                const sMidX = graph.X(midX);
+                const sA = graph.Y(y0);
+                const sB = graph.Y(yPix);
+                const hpad = 12;
+                const sLo = Math.min(sA, sB) - radius - hpad;
+                const sHi = Math.max(sA, sB) + radius + hpad;
+                instance._hitScreen = { x: sMidX - radius - hpad, y: sLo, w: (radius * 2) + hpad * 2, h: sHi - sLo };
+            }
+
+            // Lighten (amt>0) or darken (amt<0) a #rrggbb color; returns rgb(). Falls back
+            // to the input for non-hex colors.
+            static _shade(hex, amt) {
+                let c = ('' + hex).replace('#', '');
+                if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+                if (c.length < 6) return hex;
+                const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+                const f = (v) => Math.max(0, Math.min(255, Math.round(v + amt * 255)));
+                return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
+            }
+
+            // A small 3D cylinder marker for an insertion (+) / deletion (−), on a stem from
+            // the track baseline (y0) to the marker position (yPix). Colored by clinsig, with
+            // a pathogenic red glow when applicable.
+            static _drawIndel3D(instance, graph, x1, x2, yPix, y0, color, isIns) {
+                // A HORIZONTAL 3D cylinder lying over the impacted sequence range [x1..x2],
+                // offset from the track (yPix, beyond the snps). The cylinder's length covers
+                // the affected bases; thin guides drop to the sequence to mark the range.
+                const wLo = Math.min(x1, x2), wHi = Math.max(x1, x2);
+                let xL = graph.X(wLo);
+                let xR = graph.X(wHi);
+                const cy = graph.Y(yPix);      // cylinder axis
+
+                // Guide lines from the range ends down to the sequence.
+                graph.drawLine(wLo, y0, wLo, yPix, 'rgba(14,1,15,0.35)', 0.8);
+                graph.drawLine(wHi, y0, wHi, yPix, 'rgba(14,1,15,0.35)', 0.8);
+
+                const ctx = graph.canvas.getCTX?.() || graph.context || graph.canvasContext;
+                if (!ctx) { if (graph.fillCircle) graph.fillCircle((wLo + wHi) / 2, yPix, 4, color); return; }
+
+                // Guarantee a minimum visible length for tiny (single-base) indels.
+                if (xR - xL < 12) { const c = (xL + xR) / 2; xL = c - 6; xR = c + 6; }
+
+                const cs = instance.clinsigStyle ? instance.clinsigStyle() : null;
+                const dark = SnpIndel._shade(color, -0.4);
+                const light = SnpIndel._shade(color, 0.5);
+                const ry = 5;        // cylinder radius (vertical half-height)
+                const capRx = 2.8;   // end-cap ellipse horizontal radius
+                const top = cy - ry, bot = cy + ry;
+
+                ctx.save();
+
+                // Back (far) end cap — darker, sits behind the body.
+                ctx.beginPath();
+                ctx.ellipse(xL, cy, capRx, ry, 0, 0, Math.PI * 2);
+                ctx.fillStyle = dark;
+                ctx.fill();
+
+                // Cylindrical body: rectangle with a VERTICAL gradient (light band near the
+                // top, shadow at the bottom) so the tube looks round. Shadow / pathogenic glow.
+                ctx.shadowColor = (cs && cs.glow) ? cs.glow : 'rgba(0,0,0,0.30)';
+                ctx.shadowBlur = (cs && cs.glow) ? 11 : 4;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = (cs && cs.glow) ? 0 : 1.5;
+                const bodyGrad = ctx.createLinearGradient(0, top, 0, bot);
+                bodyGrad.addColorStop(0.0, SnpIndel._shade(color, 0.05));
+                bodyGrad.addColorStop(0.30, light);     // top highlight
+                bodyGrad.addColorStop(0.62, color);
+                bodyGrad.addColorStop(1.0, dark);        // bottom shadow
+                ctx.beginPath();
+                ctx.rect(xL, top, xR - xL, ry * 2);
+                ctx.fillStyle = bodyGrad;
+                ctx.fill();
+
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+                // Top / bottom edges of the tube.
+                ctx.lineWidth = 0.8;
+                ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+                ctx.beginPath();
+                ctx.moveTo(xL, top); ctx.lineTo(xR, top);
+                ctx.moveTo(xL, bot); ctx.lineTo(xR, bot);
+                ctx.stroke();
+
+                // Front (near) end cap — lighter elliptical face for depth.
+                const capGrad = ctx.createLinearGradient(0, top, 0, bot);
+                capGrad.addColorStop(0, light);
+                capGrad.addColorStop(0.6, SnpIndel._shade(color, 0.18));
+                capGrad.addColorStop(1, dark);
+                ctx.beginPath();
+                ctx.ellipse(xR, cy, capRx, ry, 0, 0, Math.PI * 2);
+                ctx.fillStyle = capGrad;
+                ctx.fill();
+                ctx.stroke();
+
+                // Specular highlight stripe running along the tube.
+                ctx.beginPath();
+                ctx.moveTo(xL, cy - ry * 0.5);
+                ctx.lineTo(xR, cy - ry * 0.5);
+                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.stroke();
+
+                // + / − glyph centered on the tube when there's room.
+                if (xR - xL > 15) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+                    ctx.font = 'bold 9px system-ui, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(isIns ? '+' : '−', (xL + xR) / 2, cy + 0.5);
+                }
+
+                ctx.restore();
+                // (The click hit region is set by draw() after this returns.)
             }
 
             static _drawCoarseShape(instance, graph, tgraph, xi, xf, yPix, y0, phaseColor, isSnp) {
@@ -624,31 +755,70 @@ function () {
                 this.color = null;
             }
 
-            draw(graph, tgraph, y) {
+            // Color a SNP/indel by clinical significance:
+            //   null / unknown -> grey; contains "benign" -> light blue;
+            //   contains "pathogenic" -> red (with a red glow).
+            clinsigStyle() {
+                const c = ('' + (this.clinsig || '')).toLowerCase();
+                if (!c) return { color: '#9aa0a6', glow: null };                                  // null -> grey
+                if (/\bpathogenic\b/.test(c)) return { color: '#d1342f', glow: 'rgba(209,52,47,0.9)' }; // pathogenic -> red + glow
+                if (/\bbenign\b/.test(c)) return { color: '#2a6fd6', glow: null };                // benign -> blue
+                if (/\buncertain\b/.test(c)) return { color: '#9aa0a6', glow: null };             // uncertain significance -> grey
+                return { color: '#9aa0a6', glow: null };                                          // other -> grey
+            }
+
+            draw(graph, tgraph, y, lane = 0) {
                 if (!graph) return;
 
                 const phase1 = this.phase === 1;
                 const drawY = phase1 ? y : -y;
                 this.y = drawY;
 
-                // use instance color, fallback to phase-based default
-                const phaseColor = this.color;
+                // Color by clinical significance (grey / light-blue / red+glow).
+                const phaseColor = this.clinsigStyle().color;
                 const neutralStroke = '#334155';
                 const highlightColor = '#2563EB';
 
-                const xi = this.xi - 1;
+                // Reference footprint [this.xi, this.xf]: the base cells this variant covers.
+                // Same origin the snp marker and the sequence letters use (base P => cell
+                // [P, P+1]), so the indel cylinder lines up with the impacted bases. (Was
+                // this.xi - 1, which shifted insertions/deletions one base to the left.)
+                const xi = this.xi;
                 const xf = this.xf;
 
                 const x1 = tgraph.X(xi);
                 const x2 = tgraph.X(xf);
-                const yPix = tgraph.Y(drawY);
+                let yPix = tgraph.Y(drawY);
                 const y0 = tgraph.Y(0);
+
+                // Place the marker a FIXED screen distance from the baseline (keeps it close
+                // to the track regardless of Y zoom). `lane` fans clustered markers outward so
+                // they don't step on each other: lane 0 sits at the base offset, each higher
+                // lane is one LANE_PX further out. Insertions/deletions start beyond the snps.
+                try {
+                    const LANE_PX = 44;   // room for a head + its label in each lane (see drawDetail)
+                    const baseOff = (this.type === 'snp') ? 26 : 38;
+                    const CAP = baseOff + Math.max(0, lane | 0) * LANE_PX;
+                    const baseSY = graph.Y(y0);
+                    const markSY = graph.Y(yPix);
+                    const sideSign = (markSY >= baseSY) ? 1 : -1;   // marker's screen side (phase)
+                    yPix = graph.Ywc(baseSY + sideSign * CAP);
+                } catch (e) { }
 
                 const midX = (xi + xf) * 0.5;
                 const screenX = graph.X(tgraph.X(midX));
 
                 if (screenX < -50 || screenX > graph.canvas.width + 50) {
                     return;
+                }
+
+                // Y visibility: if the track's baseline is off the canvas (track moved off
+                // screen), don't draw — the stem is capped near the baseline, so the marker
+                // belongs off-screen too and must not be pinned to a canvas edge.
+                {
+                    const __baseSY = graph.Y(y0);
+                    const __canvasH = (graph.canvas ? graph.canvas.height : (graph.grid ? graph.grid.height : 0));
+                    if (__canvasH && (__baseSY < -80 || __baseSY > __canvasH + 80)) return;
                 }
 
                 this._screenY = graph.Y(yPix);
@@ -660,19 +830,31 @@ function () {
                 const isKnownType = isSnp || isIns || isDel;
 
                 if (isSnp) {
-                    SnpIndel._drawSnpMarker(this, graph, x1, x2, y0, yPix,  cellPx, highlightColor, neutralStroke, phaseColor);
+                    // A single SNP impacts ONE nucleotide — center the lollipop on that base's
+                    // column. Use the same FLOORED world origin the sequence letters
+                    // (Math.floor(tgraph.X(index))) and the highlight box use; the old unfloored
+                    // tgraph.X(this.xi + 0.5) drifted off the letter by the fractional part of
+                    // tgraph.X — up to a whole cell when zoomed in.
+                    const sx1 = Math.floor(tgraph.X(this.xi));
+                    const sx2 = Math.floor(tgraph.X(this.xi + 1));
+                    SnpIndel._drawSnpMarker(this, graph, sx1, sx2, y0, yPix, cellPx, highlightColor, neutralStroke, phaseColor);
                     return;
                 }
 
-                let drew = false;
-                const isCoarse = cellPx > 5;
-
-                if (isCoarse) {
-                    drew = isKnownType && SnpIndel._drawCoarseShape(this, graph, tgraph, xi, xf, yPix, y0, phaseColor, isSnp);
-                    if (!drew) SnpIndel._drawFallbackLine(graph, x1, x2, yPix, phaseColor);
+                if (isIns || isDel) {
+                    // Zoomed-in insertion/deletion: a 3D cylinder marker, sitting just beyond
+                    // the snps (see the type-dependent stem cap above) so it doesn't hide them.
+                    SnpIndel._drawIndel3D(this, graph, x1, x2, yPix, y0, phaseColor, isIns);
                 } else {
-                    drew = isKnownType && SnpIndel._drawDetailedShape(this, graph, x1, x2, yPix, y0, phaseColor);
-                    if (!drew) SnpIndel._drawFallbackLine(graph, x1, x2, yPix, phaseColor);
+                    let drew = false;
+                    const isCoarse = cellPx > 5;
+                    if (isCoarse) {
+                        drew = isKnownType && SnpIndel._drawCoarseShape(this, graph, tgraph, xi, xf, yPix, y0, phaseColor, isSnp);
+                        if (!drew) SnpIndel._drawFallbackLine(graph, x1, x2, yPix, phaseColor);
+                    } else {
+                        drew = isKnownType && SnpIndel._drawDetailedShape(this, graph, x1, x2, yPix, y0, phaseColor);
+                        if (!drew) SnpIndel._drawFallbackLine(graph, x1, x2, yPix, phaseColor);
+                    }
                 }
 
                 const minX = Math.min(x1, x2);
@@ -684,26 +866,40 @@ function () {
                     w: (maxX - minX) + pad * 2,
                     h: 16 + pad * 2
                 };
+
+                // Screen-space hit region for the indel shape (see over()).
+                const sMinX = graph.X(minX), sMaxX = graph.X(maxX);
+                const syP = graph.Y(yPix), sy0b = graph.Y(y0);
+                const hpad = 10;
+                const iLo = Math.min(syP, sy0b) - hpad;
+                const iHi = Math.max(syP, sy0b) + hpad;
+                this._hitScreen = { x: Math.min(sMinX, sMaxX) - hpad, y: iLo, w: Math.abs(sMaxX - sMinX) + hpad * 2, h: (iHi - iLo) };
             }
 
             over(x, y, graph, tgraph) {
+                // x,y are SCREEN pixels (mouse-over-highlight converts with tgraph.Xwc(x)).
+                // Prefer the screen-space lollipop hit region (head + stem line).
+                const h = this._hitScreen;
+                if (h) {
+                    return (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
+                }
                 if (!this._drawBounds) return false;
-
                 const sx = graph.X(x);
                 const sy = graph.Y(y);
                 const b = this._drawBounds;
-
-                return (
-                    sx >= b.x &&
-                    sx <= b.x + b.w &&
-                    sy >= b.y &&
-                    sy <= b.y + b.h
-                );
+                return (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h);
             }
 
-            drawDetail(graph, tgraph, x, y) {
+            drawDetail(graph, tgraph, x, y, lane = 0) {
                 const seqIndex = (x | 0) - this.xi;
                 if (seqIndex !== 0) return;
+
+                // Track off-screen vertically -> don't draw the label (see draw()).
+                try {
+                    const __b = graph.Y(tgraph.Y(0));
+                    const __h = (graph.canvas ? graph.canvas.height : (graph.grid ? graph.grid.height : 0));
+                    if (__h && (__b < -80 || __b > __h + 80)) return;
+                } catch (e) { }
 
                 const phase = this.phase;
                 const highlight = this.highlight;
@@ -716,7 +912,25 @@ function () {
 
                 const tx = tgraph.X(x);
                 const anchorX = tx;
-                const anchorY = (phase === 1) ? tgraph.Y(y) : tgraph.Y(y * -2.7);
+                // Anchor the label next to the marker in SCREEN space (the marker's stem is
+                // capped the same way in draw()). The old graph-world anchor (y * -2.7) is not
+                // capped, so when the Y viewport tightens on zoom-in the label floated far off
+                // the track — often off-screen — even though the marker stayed put.
+                let anchorY;
+                try {
+                    const LANE_PX = 44;                                           // must match draw()
+                    const baseSY = graph.Y(tgraph.Y(0));                          // baseline (screen)
+                    const drawYSign = (phase === 1) ? 1 : -1;                     // marker side
+                    const rawSY = graph.Y(tgraph.Y(drawYSign * Math.abs(y)));     // side probe (screen)
+                    const sideSign = (rawSY >= baseSY) ? 1 : -1;
+                    const cap = ((this.type === 'snp') ? 26 : 38) + Math.max(0, lane | 0) * LANE_PX;
+                    const markSY = baseSY + sideSign * cap;                       // this lane's head (matches draw())
+                    // Push the text BEYOND the head (~11px radius) so the head never covers it;
+                    // it lands in the gap before the next lane's head.
+                    anchorY = graph.Ywc(markSY + sideSign * 22);
+                } catch (e) {
+                    anchorY = (phase === 1) ? tgraph.Y(y) : tgraph.Y(y * -2.7);
+                }
 
                 const nowMs = Date.now();
                 const tick10ms = nowMs / 10;
@@ -727,9 +941,10 @@ function () {
                 graph._ui = graph._ui || {};
                 graph._ui.detailBoxes = graph._ui.detailBoxes || [];
 
-                const changeStr = `${reference0}→${alternate0}`;
+                // Just the ref→alt nomenclature (e.g. "A>G", "AGT>A", "A>AGT").
+                const changeStr = `${reference0}>${alternate0}`;
                 const title = (phase === 1) ? `${id}: ${name}` : `${name}`;
-                const mainLabel = ` ${title}  Δ ${changeStr}`;
+                const mainLabel = ` ${changeStr} `;
 
                 const labelBg = highlight
                     ? `rgba(255,255,255,${0.90 + pulse * 0.06})`
@@ -751,8 +966,8 @@ function () {
                 if (!highlight) return;
 
                 const detailLine = clinsig
-                    ? `✅ ClinSig: ${String(clinsig)}`
-                    : (annotations ? `📝 Notes: ${String(annotations)}` : '');
+                    ? `ClinSig: ${String(clinsig)}`
+                    : (annotations ? ` Notes: ${String(annotations)}` : '');
 
                 const showDetail = Boolean(detailLine);
 

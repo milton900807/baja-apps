@@ -2198,6 +2198,36 @@ function (progress) {
 
                 this.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                 this.graph.mode = mode;
+
+                // Whenever we return to the default 'navigate' mode, arm the mouse-over hover
+                // highlight — unless the caller installs its own canvas interaction right
+                // after (checked on the next tick, so we never clobber it). Debounced and
+                // re-entrancy-guarded so re-arming (which itself touches navigate mode) can't
+                // loop.
+                if (mode === 'navigate' && !this.__hoverRearming && !this.__navHoverScheduled) {
+                    this.__navHoverScheduled = true;
+                    setTimeout(() => {
+                        this.__navHoverScheduled = false;
+                        try {
+                            if (this.graph && this.graph.mode === 'navigate'
+                                && this.mouseDownListeners.length === 0 && this.mouseMoveListeners.length === 0
+                                && !this.menuVisible() && !this.side_menu) {
+                                this.__hoverRearming = true;
+                                try {
+                                    if (typeof this.__hoverRearm === 'function') {
+                                        this.__hoverRearm();
+                                    } else {
+                                        const gpl = this.genegraph_panel_layout
+                                            || (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed ? CurrentLayout.getStashed('genegraph_panel_layout') : null);
+                                        exec('baja/manchester/menu/mouse-over-highlight.js', this, gpl);
+                                    }
+                                } finally {
+                                    setTimeout(() => { this.__hoverRearming = false; }, 150);
+                                }
+                            }
+                        } catch (e) { this.__hoverRearming = false; }
+                    }, 30);
+                }
             }
             setBaseIndex(b) {
                 this.baseIndex = b;
@@ -2509,6 +2539,12 @@ function (progress) {
 
                     this.graph.rescale();
                     this.animating = false;
+
+                    // After an animated zoom, restore the mouse-over hover highlight (the
+                    // operation that started the zoom typically cleared the listeners). A
+                    // caller that sets up its own interaction does so AFTER awaiting this, so
+                    // it still wins. See mouse-over-highlight.js (sets __hoverRearm).
+                    try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }
 
                     return resolve();
 
@@ -3437,6 +3473,17 @@ function (progress) {
                             } else {
                                 let s = new SnpIndel(sid.type, sid.xi, sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id, sid.phaseset)
                                 s.setAnnotation(sid.annotations);
+                                // The constructor doesn't take these, so restore the clinical/
+                                // annotation metadata explicitly (otherwise save+load nulls them).
+                                if (sid.clinsig != null) s.clinsig = sid.clinsig;
+                                if (sid.clindn != null) s.clindn = sid.clindn;
+                                if (sid.quality != null) s.quality = sid.quality;
+                                if (sid.name != null) s.name = sid.name;
+                                if (sid.source != null) s.source = sid.source;
+                                if (sid.af != null) s.af = sid.af;
+                                if (sid.structure) s.structure = sid.structure;
+                                if (sid._color != null) s.color = sid._color;
+                                else if (sid.color != null) s.color = sid.color;
                                 sids.push(s);
                             }
                         }
@@ -4393,6 +4440,52 @@ function (progress) {
                     });
                 }
 
+                // Tracks sit at fixed data-space y positions, so the on-screen
+                // distance between them is pitch * yscale, and yscale falls as the
+                // y range grows. Zooming out therefore squeezes stacked tracks
+                // together until they read as one smear.
+                this.MIN_TRACK_GAP_PX = 5;
+
+                // Smallest spacing between stacked tracks, in data units (centre to
+                // centre, which stays meaningful when track heights differ or
+                // overlap). Infinity when there is nothing to keep apart.
+                this.minTrackPitchWorld = () => {
+                    const ys = [];
+                    for (const t of (this.track || [])) {
+                        const g = t && t.tgraph;
+                        if (g && typeof g.yi === 'number' && isFinite(g.yi)) ys.push(g.yi);
+                    }
+                    if (ys.length < 2) return Infinity;
+                    ys.sort((a, b) => a - b);
+                    let pitch = Infinity;
+                    for (let i = 1; i < ys.length; i++) {
+                        const d = ys[i] - ys[i - 1];
+                        if (d > 1e-9 && d < pitch) pitch = d;
+                    }
+                    return pitch;
+                };
+
+                // Cap how far y may zoom out: hold the y scale high enough that
+                // adjacent tracks stay MIN_TRACK_GAP_PX apart. If the view is
+                // already below that, this returns a NARROWER range than asked for,
+                // i.e. it increases the y scale and pulls the tracks back apart.
+                // x is never touched.
+                this.clampYRangeForTracks = (ymin, ymax) => {
+                    const pitch = this.minTrackPitchWorld();
+                    if (!isFinite(pitch) || pitch <= 0) return [ymin, ymax];
+                    const g = this.graph;
+                    const usable = (g.height || 0) - 2 * (g.yinset || 0);
+                    const range = ymax - ymin;
+                    if (!isFinite(usable) || usable <= 0 || !(range > 0)) return [ymin, ymax];
+                    // want: pitch * (usable / range) >= MIN_TRACK_GAP_PX
+                    const maxRange = (pitch * usable) / this.MIN_TRACK_GAP_PX;
+                    if (!isFinite(maxRange) || maxRange <= 0 || range <= maxRange) {
+                        return [ymin, ymax];
+                    }
+                    const c = (ymin + ymax) / 2, h = maxRange / 2;
+                    return [c - h, c + h];
+                };
+
                 this.slideZoomByFactor = async (fx = 1.25, fy = 1.25, duration = 400) => {
                     const xmin0 = this.graph.getxmin(), xmax0 = this.graph.getxmax();
                     const ymin0 = this.graph.getymin(), ymax0 = this.graph.getymax();
@@ -4406,7 +4499,12 @@ function (progress) {
                     const halfH1 = halfH0 * fy;
 
                     const xmin1 = cx - halfW1, xmax1 = cx + halfW1;
-                    const ymin1 = cy - halfH1, ymax1 = cy + halfH1;
+                    let ymin1 = cy - halfH1, ymax1 = cy + halfH1;
+
+                    // Zoom out only: keep stacked tracks legible in y.
+                    if (fy >= 1) {
+                        [ymin1, ymax1] = this.clampYRangeForTracks(ymin1, ymax1);
+                    }
 
                     return this.slideZoomTo(xmin1, xmax1, ymin1, ymax1, duration);
                 }
@@ -4521,6 +4619,30 @@ function (progress) {
                         if (this.menuVisible()) {
                             await this.menu.mouseUp(this.graph, xwc, ywc)
                             this.menu = null;
+                            // If the menu was dismissed/canceled WITHOUT the item installing
+                            // its own canvas interaction, fall back to the mouse-over hover
+                            // highlight. Deferred so it runs AFTER any Cancel/dismiss handler
+                            // that calls setMouseMode('navigate') (which clears listeners) —
+                            // otherwise that would wipe the hover we just re-armed.
+                            const __rearmHover = () => {
+                                try {
+                                    if (this.mouseDownListeners.length === 0 && this.mouseMoveListeners.length === 0
+                                        && !this.side_menu && !this.menuVisible()) {
+                                        if (typeof this.__hoverRearm === 'function') {
+                                            this.__hoverRearm();
+                                        } else {
+                                            const gpl = this.genegraph_panel_layout
+                                                || (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed ? CurrentLayout.getStashed('genegraph_panel_layout') : null);
+                                            try { exec('baja/manchester/menu/mouse-over-highlight.js', this, gpl); } catch (e) { }
+                                        }
+                                    }
+                                } catch (e) { }
+                            };
+                            // Re-arm after any Cancel/dismiss handler's setMouseMode('navigate')
+                            // (which clears listeners) has run — and again a bit later as a
+                            // safety net against races clearing it.
+                            setTimeout(__rearmHover, 40);
+                            setTimeout(__rearmHover, 180);
                             return;
                         } else {
                             if (this.mode === 'menu') {
@@ -4674,6 +4796,14 @@ function (progress) {
 
                         const newW = clampSpan(width * factor, MIN_WIDTH, width * MAX_MULTIPLIER);
                         newXMin = cx - newW / 2; newXMax = cx + newW / 2;
+                    }
+
+                    // Same guard as the zoom-out button: widening y squeezes stacked
+                    // tracks together. Shift+wheel is an explicit y-only zoom, so
+                    // leave that alone - the user is driving y deliberately there.
+                    if (factor > 1 && !isShiftPressed) {
+                        const [cy0, cy1] = this.clampYRangeForTracks(newYMin, newYMax);
+                        newYMin = cy0; newYMax = cy1;
                     }
 
                     grid.xmin = newXMin;
@@ -6659,6 +6789,7 @@ pattern, GGGG | Required`
                     );
 
                     this.side_menu.menu_width = columnWidth;   // PER-COLUMN width
+                    this.side_menu.sunset = true;              // orange sunset panel background
                 }, 10);
             }
             showMenu(list, x, y, width) {
@@ -7040,10 +7171,10 @@ pattern, GGGG | Required`
                     { id: 'zoom_out', info: 'Zoom out' },
                     { id: 'navigate', info: 'Move / pan the graph' },
                     { id: 'bpx', info: 'Box zoom — drag a rectangle' },
-                    { id: 'expand_vertical', info: 'Expand vertically' },
+                    { id: 'expand_vertical', info: 'Contract vertically' },
                     { id: 'contract_vertical', info: 'Expand vertically' },
                     { id: 'expand_horizontal', info: 'Contract horizontally' },
-                    { id: 'contract_horizontal', info: 'Contract horizontally' },
+                    { id: 'contract_horizontal', info: 'Expand horizontally' },
                     // Selection tools (right)
                     { id: 'lasso', info: 'Lasso select — draw a loop around items' },
                     { id: 'select_seq', info: 'Select sequence — genomic range, track sequence, motifs…' },
@@ -7674,6 +7805,93 @@ pattern, GGGG | Required`
                 });
             }
 
+            // One-time onboarding hint: an arced arrow from a tropical label pointing at
+            // the selection window (top-left info panel), shown for ~10s the first time a
+            // track lands on a blank canvas. Fades in/out; self-clears when expired.
+            drawSelectionHint(ctx) {
+                if (!this.__selHintUntil) return;
+                const remain = this.__selHintUntil - Date.now();
+                if (remain <= 0) { this.__selHintUntil = 0; return; }
+                const b = this.__infoPanelBounds;
+                if (!b) return;
+
+                // fade in (first 300ms) / hold / fade out (last 1200ms)
+                const elapsed = 10000 - remain;
+                let alpha = 1;
+                if (elapsed < 300) alpha = elapsed / 300;
+                else if (remain < 1200) alpha = remain / 1200;
+                alpha = Math.max(0, Math.min(1, alpha));
+
+                const ORANGE = '#ff8c1a', ORANGE2 = '#ff6f3c', CYAN = '#12c2e0', INK = '#08313a';
+                const msg = 'When you select something, click here to see options';
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+
+                // Label bubble below-right of the panel.
+                ctx.font = '600 13px Arial';
+                const tw = ctx.measureText(msg).width;
+                const padX = 12, bh = 30;
+                const bw = tw + padX * 2;
+                const bx = b.x + 24;
+                const by = b.y + b.h + 88;
+                const r = 10;
+                const rr = (x, y, w, h, rad) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + rad, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, rad);
+                    ctx.arcTo(x + w, y + h, x, y + h, rad);
+                    ctx.arcTo(x, y + h, x, y, rad);
+                    ctx.arcTo(x, y, x + w, y, rad);
+                    ctx.closePath();
+                };
+
+                // Arced arrow: from the bubble's top up-left to the panel's bottom edge.
+                const sx = bx + 34, sy = by;                         // arc start (at bubble)
+                const tipX = b.x + b.w * 0.55, tipY = b.y + b.h + 6; // arrow tip (at panel)
+                const c1x = sx - 46, c1y = sy - 18;
+                const c2x = tipX + 46, c2y = tipY + 52;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.bezierCurveTo(c1x, c1y, c2x, c2y, tipX, tipY);
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = ORANGE;
+                ctx.shadowColor = 'rgba(18,194,224,0.55)';
+                ctx.shadowBlur = 8;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // Arrowhead at the tip (pointing toward the panel).
+                const ang = Math.atan2(tipY - c2y, tipX - c2x);
+                const ah = 12;
+                ctx.beginPath();
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(tipX - ah * Math.cos(ang - 0.42), tipY - ah * Math.sin(ang - 0.42));
+                ctx.lineTo(tipX - ah * Math.cos(ang + 0.42), tipY - ah * Math.sin(ang + 0.42));
+                ctx.closePath();
+                ctx.fillStyle = ORANGE;
+                ctx.fill();
+
+                // Bubble.
+                rr(bx, by, bw, bh, r);
+                const g = ctx.createLinearGradient(bx, by, bx, by + bh);
+                g.addColorStop(0, ORANGE); g.addColorStop(1, ORANGE2);
+                ctx.fillStyle = g;
+                ctx.shadowColor = 'rgba(18,194,224,0.5)';
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = CYAN;
+                ctx.stroke();
+                ctx.fillStyle = INK;
+                ctx.fillText(msg, bx + padX, by + bh / 2 + 0.5);
+
+                ctx.restore();
+            }
+
             // Info panel (tracks/oligos/chem) + lasso selection list. Called at the
             // very END of redraw so both cards render ABOVE tracks, layers and buttons.
             drawInfoPanel(ctx) {
@@ -7730,12 +7948,73 @@ pattern, GGGG | Required`
                     : ctx.measureText('None selected').width + 14;
                 maxValW = Math.max(maxValW, chemMeasure);
 
+                // Install a raw pointer listener once — records the live mouse position in
+                // canvas-pixel space directly from the DOM event (independent of the graph's
+                // hover listeners) and wakes the renderer so the Pos row updates live.
+                if (!this.__ptrListenerInstalled) {
+                    try {
+                        const el = this.graph && this.graph.canvas && this.graph.canvas.canvas && this.graph.canvas.canvas.nativeElement;
+                        if (el && el.addEventListener) {
+                            this.__ptrListenerInstalled = true;
+                            const self = this;
+                            el.addEventListener('mousemove', (e) => {
+                                try {
+                                    const rect = el.getBoundingClientRect();
+                                    self.__ptrpx = {
+                                        sx: (e.clientX - rect.left) * (el.width / (rect.width || 1)),
+                                        sy: (e.clientY - rect.top) * (el.height / (rect.height || 1))
+                                    };
+                                    if (self.wake) self.wake();
+                                } catch (err) { }
+                            }, { passive: true });
+                            el.addEventListener('mouseleave', () => { self.__ptrpx = null; if (self.wake) self.wake(); }, { passive: true });
+                        }
+                    } catch (e) { }
+                }
+
+                // Current mouse position (cDNA/genomic) from the live canvas-pixel pointer.
+                // Local/cDNA index = tgraph.Xwc(sx) - track.xi (track.xi is the genomic start,
+                // matching getHighlightedSequence's markstart - xi); genomic via genomicAt.
+                let hoverStr = '';
+                try {
+                    const p = this.__ptrpx;
+                    if (p) {
+                        const sx = p.sx, sy = p.sy;
+                        for (let i = 0; i < this.track.length; i++) {
+                            const t = this.track[i];
+                            const tsx = this.graph.X(t.tgraph.xi);
+                            const tsy = this.graph.Y(t.tgraph.yi);
+                            const tsw = this.graph.screenWidth(t.tgraph.width);
+                            const tsh = -1 * this.graph.screenHeight(t.tgraph.height);
+                            if (sy > tsy && sy < tsy + tsh + 40 && sx > tsx && sx < tsx + tsw + 40) {
+                                // Screen pixel -> grid world -> track world index, exactly as
+                                // getVisibleTrackRange: tgraph.Xwc(graph.Xwc(sx) - 2*tgraph.xi).
+                                const world = t.tgraph.Xwc(this.graph.Xwc(sx) - 2 * t.tgraph.xi);
+                                let idx = Math.floor(world) - Math.floor(t.xi);
+                                if (t.sequence) idx = Math.max(0, Math.min(idx, t.sequence.length - 1));
+                                let gpos = (t.genomicAt ? t.genomicAt(idx) : null);
+                                if (gpos == null) gpos = Math.floor(world);
+                                // c. counts with transcript orientation (- strand reversed).
+                                const __minus = (t.strand === -1 || t.strand === "-1" || t.strand === '-');
+                                const cVal = __minus ? (Math.round(t.tgraph.xmax - Math.floor(world)) + 1) : (idx + 1);
+                                hoverStr = 'c.' + cVal + '   g.' + gpos;
+                                break;
+                            }
+                        }
+                    }
+                } catch (e) { }
+                const hasHover = !!hoverStr;
+                if (hasHover) { ctx.font = VALUE_FONT; maxValW = Math.max(maxValW, ctx.measureText(hoverStr).width); }
+
                 const panelX = 8, panelY = 8;
                 const padX = 10, padY = 8;
                 const rowH = 16;
                 const labelColW = 44;
                 const panelW = padX * 2 + labelColW + maxValW + 6;
-                const panelH = padY * 2 + rowH * (rows.length + 1);
+                // Chem is hidden in a read-only (viewer) screen. Reserve rows + (Chem) + Pos
+                // so the layout never jumps.
+                const showChem = !this.readonly;
+                const panelH = padY * 2 + rowH * (rows.length + (showChem ? 2 : 1));
 
                 paintCard(panelX, panelY, panelW, panelH);
                 // Remember the stats card so a click on it opens the info menu.
@@ -7753,41 +8032,72 @@ pattern, GGGG | Required`
                     ry += rowH;
                 }
 
+                // Chem row — hidden in a read-only (viewer) screen.
+                if (showChem) {
+                    ctx.font = LABEL_FONT; ctx.fillStyle = TXT_MUTED;
+                    ctx.fillText('Chem', lx, ry);
+                    if (chemSelected) {
+                        ctx.font = VALUE_FONT; ctx.fillStyle = TXT_ACCENT;
+                        ctx.fillText(chemName || '—', vx, ry);
+                    } else {
+                        const t = 'None selected';
+                        ctx.font = '600 10px Arial';
+                        const tw = ctx.measureText(t).width;
+                        const pillPadX = 6, pillH = 14;
+                        const pillX = vx, pillY = ry - pillH / 2;
+                        ctx.fillStyle = 'rgba(255,225,77,0.16)';
+                        this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                        ctx.fill();
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = 'rgba(255,225,77,0.55)';
+                        this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
+                        ctx.stroke();
+                        ctx.fillStyle = '#ffe600';   // bright yellow for contrast on navy
+                        ctx.fillText(t, pillX + pillPadX, ry);
+                    }
+                    ry += rowH;
+                }
+
+                // Current mouse position. The row is always reserved; the value shows only
+                // when the cursor is over a track, otherwise a muted placeholder.
                 ctx.font = LABEL_FONT; ctx.fillStyle = TXT_MUTED;
-                ctx.fillText('Chem', lx, ry);
-                if (chemSelected) {
-                    ctx.font = VALUE_FONT; ctx.fillStyle = TXT_ACCENT;
-                    ctx.fillText(chemName || '—', vx, ry);
+                ctx.fillText('Pos', lx, ry);
+                if (hasHover) {
+                    ctx.font = VALUE_FONT; ctx.fillStyle = '#ffffff';
+                    ctx.fillText(hoverStr, vx, ry);
                 } else {
-                    const t = 'None selected';
-                    ctx.font = '600 10px Arial';
-                    const tw = ctx.measureText(t).width;
-                    const pillPadX = 6, pillH = 14;
-                    const pillX = vx, pillY = ry - pillH / 2;
-                    ctx.fillStyle = 'rgba(255,225,77,0.16)';
-                    this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                    ctx.fill();
-                    ctx.lineWidth = 1;
-                    ctx.strokeStyle = 'rgba(255,225,77,0.55)';
-                    this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                    ctx.stroke();
-                    ctx.fillStyle = '#ffe600';   // bright yellow for contrast on navy
-                    ctx.fillText(t, pillX + pillPadX, ry);
+                    ctx.font = VALUE_FONT; ctx.fillStyle = TXT_MUTED;
+                    ctx.fillText('—', vx, ry);
                 }
 
                 // ---- Lasso selection list, below the panel ----
                 const selList = this.__lassoSelection;
                 this.__selPanelBounds = null;
                 if (selList && selList.length) {
+                    // Show only DISTINCT items (by kind + label); duplicates are collapsed
+                    // and noted with a ×N count.
+                    const distinct = [];
+                    const byKey = new Map();
+                    for (const it of selList) {
+                        const label = '' + (it.label || '');
+                        const key = (it.kind || '') + '|' + label;
+                        let e = byKey.get(key);
+                        if (!e) { e = { kind: it.kind, label: label, count: 0 }; byKey.set(key, e); distinct.push(e); }
+                        e.count++;
+                    }
+                    const dupTotal = selList.length;
+
                     const maxItems = 12;
-                    const shown = selList.slice(0, maxItems);
-                    const extra = selList.length > maxItems ? 1 : 0;
+                    const shown = distinct.slice(0, maxItems);
+                    const extra = distinct.length > maxItems ? 1 : 0;
+                    const headerText = 'Selected (' + distinct.length + (dupTotal > distinct.length ? ' of ' + dupTotal : '') + ')';
+                    const labelOf = (e) => e.label + (e.count > 1 ? '  ×' + e.count : '');
 
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
                     ctx.font = '600 10px Arial';
-                    let lw = ctx.measureText('Selected (' + selList.length + ')  ⋯').width;
-                    for (const it of shown) lw = Math.max(lw, ctx.measureText('•  ' + it.label).width + 4);
+                    let lw = ctx.measureText(headerText + '  ⋯').width;
+                    for (const it of shown) lw = Math.max(lw, ctx.measureText('•  ' + labelOf(it)).width + 4);
 
                     const lpadX = 10, lpadY = 8, lrowH = 14;
                     const lX = panelX;
@@ -7802,7 +8112,7 @@ pattern, GGGG | Required`
                     let ry2 = lY + lpadY + lrowH / 2;
                     ctx.font = '700 10px Arial';
                     ctx.fillStyle = TXT_ACCENT;
-                    ctx.fillText('Selected (' + selList.length + ')', lX + lpadX, ry2);
+                    ctx.fillText(headerText, lX + lpadX, ry2);
                     // Clickable hint on the right of the header.
                     ctx.textAlign = 'right';
                     ctx.fillText('⋯', lX + lW - lpadX, ry2);
@@ -7815,17 +8125,64 @@ pattern, GGGG | Required`
                         ctx.fillStyle = dotColor[it.kind] || TXT_MAIN;
                         ctx.fillText('•', lX + lpadX, ry2);
                         ctx.fillStyle = TXT_MAIN;
-                        let label = '' + (it.label || '');
+                        let label = labelOf(it);
                         if (label.length > 30) label = label.slice(0, 29) + '…';
                         ctx.fillText(label, lX + lpadX + 12, ry2);
                         ry2 += lrowH;
                     }
                     if (extra) {
                         ctx.fillStyle = TXT_MUTED;
-                        ctx.fillText('+' + (selList.length - maxItems) + ' more…', lX + lpadX, ry2);
+                        ctx.fillText('+' + (distinct.length - maxItems) + ' more…', lX + lpadX, ry2);
                     }
                 }
 
+                ctx.restore();
+            }
+
+            // Hover crosshair: a vertical line at the live pointer, labelled with the
+            // c. (cDNA) + g. (genomic) position for every track the line crosses.
+            drawHoverCrosshair(ctx) {
+                const p = this.__ptrpx;
+                if (!p || !this.track || !this.track.length) return;
+                const sx = p.sx;
+                const gh = (this.graph && this.graph.grid && this.graph.grid.height) || (ctx.canvas && ctx.canvas.height) || 0;
+                ctx.save();
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(18,194,224,0.55)';
+                ctx.beginPath();
+                ctx.moveTo(sx, 0);
+                ctx.lineTo(sx, gh);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                ctx.font = '600 11px "Segoe UI", system-ui, Arial, sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                for (const t of this.track) {
+                    if (!t || !t.tgraph) continue;
+                    const tsx = this.graph.X(t.tgraph.xi);
+                    const tsw = this.graph.screenWidth(t.tgraph.width);
+                    if (sx < tsx || sx > tsx + tsw) continue;   // line not within this track's x-range
+                    let world, idx, g, c;
+                    try {
+                        world = t.tgraph.Xwc(this.graph.Xwc(sx) - 2 * t.tgraph.xi);
+                        idx = Math.floor(world) - Math.floor(t.xi);
+                        if (t.sequence) idx = Math.max(0, Math.min(idx, t.sequence.length - 1));
+                        g = (t.genomicAt ? t.genomicAt(idx) : null);
+                        if (g == null) g = Math.floor(world);
+                        const minus = (t.strand === -1 || t.strand === "-1" || t.strand === '-');
+                        c = minus ? (Math.round(t.tgraph.xmax - Math.floor(world)) + 1) : (idx + 1);
+                    } catch (e) { continue; }
+                    const label = 'c.' + c + '  g.' + g;
+                    const ty = this.graph.Y(t.tgraph.yi);
+                    const tw = ctx.measureText(label).width;
+                    const lx = sx + 6, ly = ty;
+                    ctx.fillStyle = 'rgba(10,37,64,0.92)';
+                    ctx.fillRect(lx - 3, ly - 9, tw + 6, 18);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(label, lx, ly);
+                }
                 ctx.restore();
             }
 
@@ -7930,8 +8287,9 @@ pattern, GGGG | Required`
                     const items = [];
                     for (const t of tracks) for (const o of (t.oligos || [])) items.push({ o, t });
                     const sub = [{ label: 'Select all oligos (' + oligoCount + ')', click: () => { selectAllOligos(); }, move: () => { } }];
-                    // Alongside "Select all oligos", offer running off-targets on all.
-                    sub.push({ label: 'Run off-targets: all', click: () => { runOffTargetsAll(); }, move: () => { } });
+                    // Alongside "Select all oligos", offer running off-targets on all —
+                    // but never in a read-only (viewer) screen.
+                    if (!this.readonly) sub.push({ label: 'Run off-targets: all', click: () => { runOffTargetsAll(); }, move: () => { } });
                     // Only offered when the tracks hold BOTH siRNA and ASO oligos.
                     if (hasBothTypes) sub.push({ label: 'Select by type ▸', click: () => { openByType(); }, move: () => { } });
                     for (const { o, t } of items.slice(offset, offset + OLIGO_PAGE)) {
@@ -7971,11 +8329,21 @@ pattern, GGGG | Required`
                     show(sub);
                 };
 
-                const buildMain = () => ([
-                    { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
-                    { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
-                    { label: 'Choose chemistry…', click: () => { close(); try { Promise.resolve(exec('manchester/choose-chemistry.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                ]);
+                const buildMain = () => {
+                    // Read-only (viewer): only navigation (center on a track) and Export —
+                    // no oligo selection, chemistry, or off-target (modifying) actions.
+                    if (this.readonly) {
+                        return [
+                            { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
+                            { label: 'Export ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                        ];
+                    }
+                    return [
+                        { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
+                        { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
+                        { label: 'Choose chemistry…', click: () => { close(); try { Promise.resolve(exec('manchester/choose-chemistry.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                    ];
+                };
 
                 openMain();
             }
@@ -8894,7 +9262,7 @@ pattern, GGGG | Required`
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'top';
                             ctx.fillStyle = 'rgba(1,28,60,0.85)';
-                            ctx.fillText('Searching…', _cx, _cy + _R + 12);
+                            // ctx.fillText('Searching…', _cx, _cy + _R + 12);
                             ctx.restore();
                         }
                     } catch (e) { }
@@ -9002,7 +9370,28 @@ pattern, GGGG | Required`
                     }
                     // Selection window is drawn here — above the tracks but BELOW the
                     // menus, so the side menu / center menu render on top of it.
+                    try { this.drawHoverCrosshair(ctx); } catch (e) { }
                     try { this.drawInfoPanel(ctx); } catch (e) { }
+
+                    // First track on a blank canvas → one-time "click here to see options"
+                    // hint for ~10s. Detected as a 0→1 track transition seen by the draw
+                    // loop (path-agnostic); a keep-alive wake() keeps it rendering.
+                    try {
+                        const n = (this.track && this.track.length) || 0;
+                        if (!this.__selHintShown && n >= 1 && this.__prevTrackCount === 0) {
+                            this.__selHintShown = true;
+                            this.__selHintUntil = Date.now() + 10000;
+                            this.__selHintTimer = setInterval(() => {
+                                if (this.wake) this.wake();
+                                if (!this.__selHintUntil || Date.now() >= this.__selHintUntil) {
+                                    this.__selHintUntil = 0;
+                                    clearInterval(this.__selHintTimer);
+                                }
+                            }, 60);
+                        }
+                        this.__prevTrackCount = n;
+                        this.drawSelectionHint(ctx);
+                    } catch (e) { }
 
                     ctx.textAlign = 'left';
                     if (this.menu) {

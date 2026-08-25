@@ -12,23 +12,67 @@ function (graph, genegraph_panel_layout) {
             'label': 'Load RNASeq', 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                // Arm the RNASeq (GEO / expression) public-data resource directly.
-                await exec('baja/data/public-data.js', graph, genegraph_panel_layout, 'RNASeq (GEO / expression)');
+                // Side menu that navigates the local RNASeq hierarchy in BIG_DATA
+                // (baja-bd/RNASeq/<Species>/<Tissue>/*.bw) and loads a file as a layer.
+                await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
             })
         }
     ];
 
-    // ---- IP (immunoprecipitation sequence hits) ------------------------------
+    // ---- Patents -------------------------------------------------------------
+    // Only the ASO / siRNA / gene-therapy patent set is offered. Clicking it opens a
+    // side menu of the patent-index years that are built in BIG_DATA; picking a year
+    // loads that year's BED via the shared patent-hits.js. Only the 2026 index exists
+    // today (it maps to the current, un-dated file); future years get a dated BED.
+    const asoBase = {
+        key: 'aso_sirna_gt',
+        label: 'ASO / siRNA / gene therapy',
+        assignees: '/bd/aso_sirna_gt_assignees.tsv',
+        color: 'rgba(160,80,160,0.55)',
+        noun: 'ASO/siRNA/gene-therapy hit',
+    };
+    const asoYears = [
+        { year: '2026', bed: '/bd/aso_sirna_gt_hg38_transcript_hits.bed.gz' },
+    ];
+
     const ipItems = [
         {
-            'label': 'Load IP', 'ionfunction': go(async () => {
+            'label': 'ASO / siRNA / gene therapy', 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                // Click a track → IP hits from the BIG_DATA BED as an interval layer.
-                await exec('baja/data/ip.js', graph, genegraph_panel_layout);
+                // Side menu of available patent-index years — pick one to load its BED.
+                const items = asoYears.map((y) => ({
+                    label: y.year,
+                    move: () => { },
+                    click: () => {
+                        graph.showSideMenu(null);
+                        const cfg = Object.assign({}, asoBase, {
+                            bed: y.bed,
+                            label: asoBase.label + ' (' + y.year + ')',
+                        });
+                        exec('baja/data/patent-hits.js', graph, genegraph_panel_layout, cfg);
+                    }
+                }));
+                graph.showSideMenu(items);
             })
-        }
+        },
     ];
+
+    // ---- Variants (major variant databases; by selected range or whole track) ----
+    const variantDbs = [
+        { db: 'clinvar', label: 'ClinVar' },
+        { db: 'dbsnp', label: 'dbSNP' },
+        { db: 'gnomad', label: 'gnomAD' },
+        { db: 'cosmic', label: 'COSMIC' },
+    ];
+    const variantItems = variantDbs.map((d) => ({
+        'label': d.label, 'ionfunction': go(async () => {
+            graph.clearMouseListeners();
+            graph.setMouseMode('navigate');
+            // Click a track → load this database's variants over the selection or whole track.
+            await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, d.db, d.label);
+        })
+    }));
 
     // ---- Edit Layer ----------------------------------------------------------
     const editItems = [
@@ -44,8 +88,10 @@ function (graph, genegraph_panel_layout) {
                     graph.clearMouseListeners();
                     graph.setMouseMode('navigate');
                     try {
-                        await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js', track, genegraph_panel_layout, graph);
-                    } catch (e) { graph.setMessage(' Could not open the layer editor: ' + e); }
+                        // Edit the track's layers through a side menu (hide/show/remove/…)
+                        // instead of the full-panel editor.
+                        await exec('baja/manchester/menu/track-layers-side-menu.js', track, genegraph_panel_layout, graph);
+                    } catch (e) { graph.setMessage(' Could not open the layer menu: ' + e); }
                 });
             })
         }
@@ -65,7 +111,8 @@ function (graph, genegraph_panel_layout) {
                                 style: 'sub-container',
                                 menus: [
                                     { 'label': 'RNASeq', 'items': rnaseqItems },
-                                    { 'label': 'IP', 'items': ipItems },
+                                    { 'label': 'Patents', 'items': ipItems },
+                                    { 'label': 'Variants', 'items': variantItems },
                                     { 'label': 'Edit Layer', 'items': editItems }
                                 ]
                             }

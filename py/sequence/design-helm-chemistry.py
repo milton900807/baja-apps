@@ -67,7 +67,7 @@ def parse_json_blob(txt):
 
 
 def design(helm, prompt, mons):
-    """Ask Claude to modify the chemistry. Returns (parsed_dict, error_string)."""
+    """Modify the chemistry. Returns (parsed_dict, error_string)."""
     if not requests:
         return None, "python 'requests' library unavailable"
     if not ANTHROPIC_API_KEY:

@@ -132,60 +132,13 @@ function (graph, genegraph_panel_layout) {
                 },
 
                 {
-                    label: 'Delete SNPs',
+                    label: 'Remove SNPs / indels',
                     click: (xwc, ywc) => {
-
-                        if (selectedTrack) {
-
-                            if (selectedTrack.snpindels && selectedTrack.snpindels.length > 0) {
-
-                                let deleteItem = {
-                                    wid: 'card',
-                                    data: {
-                                        height: '600px',
-                                        cards: [
-                                            [
-                                                {
-                                                    'title': ' ', 'body': ``
-                                                    ,
-                                                    'width': '90%',
-                                                    'component':
-                                                    {
-                                                        wid: 'html',
-                                                        data: '<font color=red> Are you sure you want to remove all snps? </font>'
-                                                    }
-                                                },
-                                                {
-                                                    'title': '',
-                                                    'width': '100%',
-                                                    'component': {
-                                                        wid: 'mt-button', data: {
-                                                            buttons: [
-                                                                {
-                                                                    label: 'Yes', ionFunction: createIonFunction(() => {
-
-                                                                        selectedTrack.snpindels = []
-                                                                        hideAllModal();
-
-                                                                    })
-                                                                },
-                                                                {
-                                                                    label: 'Cancel', ionFunction: createIonFunction(() => {
-                                                                        hideAllModal();
-                                                                    })
-                                                                }
-                                                            ]
-                                                        }
-                                                    }
-                                                }
-                                            ]]
-                                    }
-                                }
-                                showModal(deleteItem)
-
-                            }
-                        }
-
+                        // Standard removal menu: Remove all, or Remove by filter (attributes).
+                        let tr = selectedTrack;
+                        if (!tr) { try { const i = graph.getTrack(xwc, ywc); if (i >= 0) tr = graph.track[i]; } catch (e) { } }
+                        if (!tr) { graph.setMessage(' Select a track first. '); return; }
+                        exec('baja/manchester/menu/remove-snps-menu.js', graph, genegraph_panel_layout, tr, null);
                     }
                 },
                 {

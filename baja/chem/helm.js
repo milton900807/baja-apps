@@ -12,61 +12,71 @@ function () {
                 return null;
             }
         }
+        // Map one HELM monomer (sugar symbol + base) to its IDT code, given its
+        // position in the strand (5' end / internal / 3' end matters for some
+        // modifications). Unknown sugars fall back to the bare base — NEVER "undefined".
+        function monomerToIDT(sugar, base, isFirst, isLast) {
+            const b = ('' + base).toUpperCase();
+            const s = ('' + sugar).toLowerCase();
+            switch (s) {
+                case 'd': case '': return b;                          // DNA — base only
+                case 'r': return 'r' + b;                             // RNA
+                case 'm': return 'm' + (b === 'T' ? 'U' : b);         // 2'-OMe (T->U)
+                case 'lna': case 'l': case '+': return '+' + b;       // LNA
+                case 'f': case '2f': return 'f' + b;                  // 2'-F
+                case 'fl2r': case 'fl2l': case 'fl2i': case 'fl2': {  // 2'-F (legacy position codes)
+                    const code = isFirst ? '52F' : isLast ? '32F' : 'i2F';
+                    return '/' + code + b + '/';
+                }
+                case 'moe': {                                         // 2'-MOE (T->U)
+                    const bb = (b === 'T') ? 'U' : b;
+                    const code = isFirst ? '52MOEr' : isLast ? '32MOEr' : 'i2MOEr';
+                    return '/' + code + bb + '/';
+                }
+                default: return b;                                    // unknown -> base only
+            }
+        }
+
         function convertHELMtoIDT(HELMString) {
-            let componentMappings = {
-                "m": "m",
-                "r": "r",
-                "d": "r",
-                "sp": "*",
-                "fl2r": "/52F/",
-                "fl2l": "/32F/",
-                "fl2i": "/i2F/",
-                "A": "A",
-                "C": "C",
-                "G": "G",
-                "T": "T"
-            };
             let chains = parseHELMChains(HELMString);
             let idtChains = [];
             for (let i = 0; i < chains.length; i++) {
-
-                let chainInfo = parseChainInfo(chains[i])
-                let idtChain = "";
-                let chainID = chainInfo["chainID"]
-                let RNAString = chainInfo["chain"]
+                let chainInfo = parseChainInfo(chains[i]);
+                if (!chainInfo) continue;
+                let chainID = chainInfo["chainID"];
+                let RNAString = chainInfo["chain"];
                 let components = RNAString.split('.');
+
+                // First pass: extract (sugar, base, ps-after) for every real monomer,
+                // skipping pure linker tokens.
+                const units = [];
                 for (let j = 0; j < components.length; j++) {
-                    let component = components[j];
-                    let parts = component.match(/(\w+)(?:\(([^)]+)\))?/);
-                    console.log(parts + ' pasrts ')
-                    console.log(component)
-                    let base = component.match(/\(([^)]+)\)/)[0];
-                    base = base.replace(/[^a-zA-Z0-9]/g, '');
-                    let monomer = parts[1];
+                    const comp = components[j];
+                    // sugar symbol: a bracketed [xxx] monomer, else the word before '('
+                    let sugar = '';
+                    const mBracket = comp.match(/\[([^\]]+)\]\s*\(/);
+                    if (mBracket) sugar = mBracket[1];
+                    else { const mBare = comp.match(/([A-Za-z0-9']+)\s*\(/); if (mBare) sugar = mBare[1]; }
+                    // base inside the parentheses
+                    const mBase = comp.match(/\(([^)]+)\)/);
+                    if (!mBase) continue;   // a linker-only token (e.g. "[sp]") — handled below
+                    const base = mBase[1].replace(/[^a-zA-Z0-9]/g, '');
+                    // phosphorothioate if the token carries an sp linker
+                    const ps = /\[?sp\]?/.test(comp);
+                    units.push({ sugar, base, ps });
+                }
 
-                    let idtComponent = componentMappings[monomer];
-                    console.log(base)
-                    if (monomer.startsWith("fl2")) {
-                        if (j === 0) {
-                            idtComponent = `/52F${base}/`;
-                        } else if (j === components.length - 1) {
-                            idtComponent = `/32F${base}/`;
-                        } else {
-                            idtComponent = `/i2F${base}/`;
-                        }
-                        idtChain += idtComponent;
-
-                    } else {
-
-                        idtChain += idtComponent + base;
-                    }
-
-                    if (component.includes('[sp]')) {
-                        idtChain += '*';
+                // Second pass: build the IDT string, inserting '*' for PS linkages.
+                let idt = '';
+                for (let j = 0; j < units.length; j++) {
+                    const u = units[j];
+                    idt += monomerToIDT(u.sugar, u.base, j === 0, j === units.length - 1);
+                    if (j < units.length - 1) {
+                        const ps = u.ps || (units[j + 1] && units[j + 1].ps);
+                        if (ps) idt += '*';
                     }
                 }
-                let idt = idtChain
-                idtChain = idtChain.replace(/\/\//g, '/');
+                idt = idt.replace(/\/\//g, '/');
                 idtChains.push({ chainID, idt });
             }
             return idtChains;

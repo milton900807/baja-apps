@@ -66,11 +66,14 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
         if (!__target) {
             // Pick the target track by clicking it (mirrors primer-probe-action.js).
-            graph.setMessage(preset
-                ? (' Click a track to design ' + preset + ' oligos against its sequence. ')
-                : ' Click a track to design oligos against its sequence. ');
+            const __pickMsg = preset
+                ? ('Click on a track to design ' + preset + ' oligos against its sequence.')
+                : 'Click on a track to design oligos against its sequence.';
             graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
             graph.selectOff();
+            // Mouse-tracking prompt that follows the cursor until a track is clicked.
+            try { graph.setMouseMode('msg: ' + __pickMsg); } catch (e) { }
+            graph.setMessage(' ' + __pickMsg + ' ');
 
             graph.addMouseMoveListener((x, y) => {
                 const ti = graph.getTrack(x, y);
@@ -143,7 +146,7 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const step = Math.max(1, Math.floor(span / 4000));
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
-            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 200 });
+            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 1000 });
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
 
             // Add ALL designed oligos to the track (no menu / list), with a

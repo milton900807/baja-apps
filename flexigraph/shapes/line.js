@@ -194,12 +194,12 @@ function () {
                     yf,
                     strokeColor,
                     this.linewidth,
-                    'butt',
+                    'round',
                     useShadow
                         ? {
-                            blur: 8,
-                            color: 'rgba(0,0,0,0.35)',
-                            offsetX: 2,
+                            blur: 6,
+                            color: 'rgba(16,24,40,0.30)',
+                            offsetX: 1,
                             offsetY: 2
                         }
                         : null
@@ -210,12 +210,12 @@ function () {
                 const backwardAngle = Math.atan2(yi - yf, xi - xf);
 
                 if (this.arrowDirect === 'start') {
-                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 8, 12, strokeColor);
+                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 11, 18, strokeColor);
                 } else if (this.arrowDirect === 'end') {
-                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 8, 12, strokeColor);
+                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 11, 18, strokeColor);
                 } else if (this.arrowDirect === 'both') {
-                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 8, 12, strokeColor);
-                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 8, 12, strokeColor);
+                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 11, 18, strokeColor);
+                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 11, 18, strokeColor);
                 }
 
                 if (this.comment) {

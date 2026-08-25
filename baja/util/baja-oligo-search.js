@@ -222,7 +222,7 @@ function () {
                                         {
                                             label: 'Search', ionFunction: createIonFunction(async () => {
                                                 let value = sequenceTextEditor.code
-                                                htmlPanel.setHTML(`<font color='red'> Searching... </font> `);
+                                                htmlPanel.setHTML(`<font color='red'> ... </font> `);
 
                                                 let sequences = []
                                                 let index = 0;
@@ -278,7 +278,7 @@ function () {
 
                                                 for (let ss of s) {
                                                     if (ss != null && ss.length < 32 && ss.length > 10) {
-                                                        let idvalue =  index + '_0';
+                                                        let idvalue = index + '_0';
 
                                                         sequences.push(
                                                             {
@@ -342,7 +342,7 @@ function () {
 
                                                     oligo.offtarget.forEach(async off => {
                                                         block += `${off.chr}\t${off.start}\t${off.end}\t${off.strand}\t${off.editdistance}\n`;
-                                                        let sitev = {'chr': off.chr, 'start': off.start, 'end': off.end }
+                                                        let sitev = { 'chr': off.chr, 'start': off.start, 'end': off.end }
                                                         let rs = await exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', ([sitev]))
                                                         block += '<hr> ' + rs['html']
 

@@ -1,4 +1,49 @@
 function () {
+    // A professional vertical 3D cylinder marking a start (green) / stop (red) codon.
+    // Stands as a small shaded pillar centered on the annotation, with elliptical caps,
+    // a specular highlight and a soft drop shadow.
+    const drawCodonCylinder = (graph, tgraph, xs, xf, y, kind) => {
+        const screencell = graph.screenWidth(tgraph.screenWidth(1));
+        if (screencell < 0.05) return;
+        const isStart = (kind === 'start');
+        const base = isStart ? [46, 158, 68] : [209, 52, 47];   // green / red
+        const rgb = (a) => 'rgb(' + a[0] + ',' + a[1] + ',' + a[2] + ')';
+        const shade = (a, f) => rgb(a.map((v) => Math.max(0, Math.min(255, Math.round(v + f * 255)))));
+        const cx = graph.X((xs + xf) / 2);
+        const cy = graph.Y(y);
+        const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+        if (!ctx) {
+            try { graph.drawScreenLine(cx, cy - 13, cx, cy + 13, rgb(base), 4, 'butt'); } catch (e) { }
+            return;
+        }
+        const rx = 5, ryCap = 2.2, half = 13;
+        const top = cy - half, bot = cy + half;
+        ctx.save();
+        // Drop shadow behind the pillar.
+        ctx.shadowColor = 'rgba(0,0,0,0.28)'; ctx.shadowBlur = 4; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
+        // Bottom cap (darker), sits behind the body.
+        ctx.beginPath(); ctx.ellipse(cx, bot, rx, ryCap, 0, 0, Math.PI * 2); ctx.fillStyle = shade(base, -0.3); ctx.fill();
+        // Cylinder body with a horizontal dark→light→dark gradient (round look).
+        const g = ctx.createLinearGradient(cx - rx, 0, cx + rx, 0);
+        g.addColorStop(0, shade(base, -0.32)); g.addColorStop(0.45, shade(base, 0.4)); g.addColorStop(1, shade(base, -0.32));
+        ctx.beginPath(); ctx.rect(cx - rx, top, rx * 2, half * 2); ctx.fillStyle = g; ctx.fill();
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+        // Side edges.
+        ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath(); ctx.moveTo(cx - rx, top); ctx.lineTo(cx - rx, bot); ctx.moveTo(cx + rx, top); ctx.lineTo(cx + rx, bot); ctx.stroke();
+        // Top cap (lighter elliptical lid).
+        const cg = ctx.createLinearGradient(cx - rx, 0, cx + rx, 0);
+        cg.addColorStop(0, shade(base, 0.08)); cg.addColorStop(0.5, shade(base, 0.5)); cg.addColorStop(1, shade(base, 0.08));
+        ctx.beginPath(); ctx.ellipse(cx, top, rx, ryCap, 0, 0, Math.PI * 2); ctx.fillStyle = cg; ctx.fill(); ctx.stroke();
+        // Specular highlight stripe.
+        ctx.beginPath(); ctx.moveTo(cx - rx * 0.45, top + 2); ctx.lineTo(cx - rx * 0.45, bot - 2); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke();
+        ctx.restore();
+        // Label above the pillar when there's room.
+        if (graph.drawScreenText && screencell > 3) {
+            try { graph.drawScreenText(isStart ? 'START' : 'STOP', cx, top - 5, shade(base, -0.12), 9, 'center'); } catch (e) { }
+        }
+    };
+
     return {
         'UserAnnotation': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
@@ -656,22 +701,10 @@ function () {
         }),
 
         'TSS': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.55)', 40, 'butt')
-            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#1aa3bd', 4, 'butt')
-            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#1aa3bd', 4, 'butt')
+            drawCodonCylinder(graph, tgraph, xs, xf, y, 'start');
         }),
         'STOP': createIon((graph, tgraph, xs, xf, y) => {
-
-            let screencell = graph.screenWidth(tgraph.screenWidth(1))
-            if (screencell < 0.05) {
-                return;
-            }
-
-            graph.drawScreenLine(graph.X(xs) - 1, graph.Y(y), graph.X(xs) + 1, graph.Y(y), '#1aa3bd', 10, 'butt')
-            graph.drawScreenLine(graph.X(xf) - 1, graph.Y(y), graph.X(xf) + 1, graph.Y(y), '#1aa3bd', 10, 'butt')
-
-            graph.drawString45('TC', xf - 0.5, y + 1, '#8399ac', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
-
+            drawCodonCylinder(graph, tgraph, xs, xf, y, 'stop');
         }),
         'oligo': createIon((graph, tgraph, xs, xf, y) => {
             graph.drawLine(xs, y, xf, y, '#17a39a', 1, 'butt')

@@ -410,7 +410,18 @@ function () {
                 ctx.shadowBlur = 14;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 5;
-                ctx.fillStyle = this.panelBg || 'rgba(255,255,255,0.98)';
+                let __panelFill = this.panelBg || 'rgba(255,255,255,0.98)';
+                if (this.sunset) {
+                    // Orange sunset gradient (top-down): golden -> orange -> deep sunset.
+                    try {
+                        const __g = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+                        __g.addColorStop(0, '#ffd08a');
+                        __g.addColorStop(0.5, '#ff9e5e');
+                        __g.addColorStop(1, '#f56b4a');
+                        __panelFill = __g;
+                    } catch (e) { }
+                }
+                ctx.fillStyle = __panelFill;
                 menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
                 ctx.fill();
                 ctx.restore();

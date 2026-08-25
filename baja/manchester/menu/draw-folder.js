@@ -4,7 +4,7 @@ function (graph) {
     graph.selectOff();
     let md = false;
     graph.addMouseDownListener(async (x, y) => {
-        let Folder = await exec('flexigraph/shapes/folder.js');
+        let Folder = await exec('flexigraph/shapes/sketch-folder.js');
         if (graph.currentShape) {
             graph.currentShape = null;
             return;
@@ -28,56 +28,64 @@ function (graph) {
             return;
         }
 
-        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-        graph.setMouseMode('navigate')
-
         graph.currentShape.update(x, y);
         let zoom_to = {
             wid: 'card',
             componentRef: 'bottomPanel',
             data: {
-                height: '800px',
-                cards: [[
-                    {
-                        title: ' ',
-                        body: `Comment.`,
-                        width: '90%',
-                        component: {
-                            wid: 'input-param-items',
-                            refCallback: __nameHook,
-                            data: {
-                                input_labels: ['Comment']
+                width: 480,
+                cards: [
+                    [
+                        {
+                            title: 'Name this folder',
+                            body: 'Add a short note or description for the folder.',
+                            width: '100%',
+                            component: {
+                                wid: 'input-param-items',
+                                refCallback: __nameHook,
+                                data: {
+                                    input_labels: ['Comment']
+                                }
                             }
                         }
-                    },
-                    {
-                        title: '',
-                        width: '100%',
-                        component: {
-                            wid: 'mt-button',
-                            data: {
-                                buttons: [
-                                    {
-                                        label: 'Save',
-                                        ionFunction: createIonFunction(() => {
-                                            graph.currentShape.comment = panel.get('Comment');
-                                            graph.saveCurrentShape();
-                                            graph.currentShape = null;
-                                            hideAllModal();
-                                        })
-                                    },
-                                    {
-                                        label: 'Cancel',
-                                        ionFunction: createIonFunction(() => {
-                                            graph.currentShape = null;
-                                            hideAllModal();
-                                        })
-                                    }
-                                ]
+                    ],
+                    [
+                        {
+                            title: '',
+                            width: '100%',
+                            component: {
+                                wid: 'mt-button',
+                                data: {
+                                    buttons: [
+                                        {
+                                            label: 'Save',
+                                            background: '#1aa3bd', color: '#ffffff', borderColor: '#1aa3bd',
+                                            ionFunction: createIonFunction(() => {
+                                                graph.currentShape.comment = panel.get('Comment');
+                                                graph.saveCurrentShape();
+                                                graph.currentShape = null;
+                                                hideAllModal();
+                                                // Item added → NOW return to navigate + mouse-over-highlight.
+                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                                graph.setMouseMode('navigate');
+                                            })
+                                        },
+                                        {
+                                            label: 'Cancel',
+                                            background: 'transparent', color: '#0a2540', borderColor: '#c7d2dd',
+                                            ionFunction: createIonFunction(() => {
+                                                graph.currentShape = null;
+                                                hideAllModal();
+                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                                graph.setMouseMode('navigate');
+                                            })
+                                        }
+                                    ]
+                                }
                             }
                         }
-                    }
-                ]]
+                    ]
+                ]
             }
         };
 

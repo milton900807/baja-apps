@@ -50,6 +50,7 @@ function (graph) {
 
                             graph.setymax(graph.getymax() + l);
                             graph.setymin(graph.getymin() + l);
+                            if (graph.wake) graph.wake();
 
                         }), icon: '/assets/img/icons/png/up.svg'
                     },
@@ -61,6 +62,7 @@ function (graph) {
                             let l = (graph.getymax() - graph.getymin()) / 8;
                             graph.setymax(graph.getymax() - l);
                             graph.setymin(graph.getymin() - l);
+                            if (graph.wake) graph.wake();
                         }), icon: '/assets/img/icons/png/down.svg'
                     },
                     {
@@ -91,9 +93,13 @@ function (graph) {
                             graph.clearMouseListeners();
                             graph.setMouseMode('navigate')
 
-                            let l = (graph.getymax() - graph.getymin()) / 8;
+                            // Grow the Y view directly (NOT via zoomXY/animateTo, which clamps the
+                            // Y range by aspect ratio and refuses ranges < 1). wake() repaints.
+                            // Expanding only grows the range, so it can never invert.
+                            let l = Math.abs(graph.getymax() - graph.getymin()) / 8;
                             graph.setymax(graph.getymax() + l);
                             graph.setymin(graph.getymin() - l);
+                            if (graph.wake) graph.wake();
 
                         }), icon: '/assets/img/icons/png/yless.svg'
                     },
@@ -102,9 +108,16 @@ function (graph) {
                             graph.clearMouseListeners();
                             graph.setMouseMode('navigate')
 
-                            let l = (graph.getymax() - graph.getymin()) / 8;
-                            graph.setymax(graph.getymax() - l);
-                            graph.setymin(graph.getymin() + l);
+                            // Shrink the Y view directly (no clamp). Guard against inversion:
+                            // only apply while ymax stays above ymin, so tracks never flip.
+                            let l = Math.abs(graph.getymax() - graph.getymin()) / 8;
+                            let newMax = graph.getymax() - l;
+                            let newMin = graph.getymin() + l;
+                            if (newMax > newMin) {
+                                graph.setymax(newMax);
+                                graph.setymin(newMin);
+                                if (graph.wake) graph.wake();
+                            }
 
                         }), icon: '/assets/img/icons/png/ymore.svg'
                     },

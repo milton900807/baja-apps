@@ -222,6 +222,12 @@ function () {
                     ampColor = (this.highlight__ === true) ? 'cyan' : this.highlight__;
                 }
                 let oligColor = this.oligColor;
+                // Amplicon color scheme: forward primer (left) green, reverse primer
+                // (right) red, center amplicon (mid) maroon.
+                const FWD_COLOR = '#2e9e44';                 // forward primer — green
+                const REV_COLOR = '#d1342f';                 // reverse primer — red
+                const MID_COLOR = 'rgba(128,0,0,0.55)';      // center amplicon — maroon (thick)
+                const MID_COLOR_THIN = '#800000';            // center amplicon — maroon (thin)
 
                 let canvas = graph.canvas;
                 if (canvas != null) {
@@ -304,17 +310,17 @@ function () {
                     if (screencell > 1) {
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), ampColor, 5, 'round');
                         if (this.mid && this.mid.xi){
-                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), 'rgba(250,10,10,0.5)', 30, 'round');
+                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), MID_COLOR, 30, 'round');
                         }
 
-                        graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), oligColor, 10, 'round');
-                        graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), oligColor, 10, 'round');
+                        graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), FWD_COLOR, 10, 'round');
+                        graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), REV_COLOR, 10, 'round');
                     } else {
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), ampColor, 5, 'round');
-                        graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), oligColor, 7, 'round');
-                        graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), oligColor, 7, 'round');
+                        graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), FWD_COLOR, 7, 'round');
+                        graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), REV_COLOR, 7, 'round');
                         if (this.mid && this.mid.xi){
-                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), 'magenta', 7, 'round');
+                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), MID_COLOR_THIN, 7, 'round');
                         }
 
                     }

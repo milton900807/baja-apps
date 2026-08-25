@@ -106,19 +106,16 @@ function (datapath, server, graph, genegraph_panel_layout) {
 
                                     let name = v['ra']
 
-                                    // If ra is in key=value;key=value format, reduce it to applicant + year
-                                    if (name && name.includes('applicant=') && name.includes('year=')) {
-                                        let applicantMatch = name.match(/(?:^|;)applicant=([^;]*)/)
-                                        let yearMatch = name.match(/(?:^|;)year=([^;]*)/)
-
-                                        let applicant = applicantMatch ? applicantMatch[1].trim() : ''
-                                        let year = yearMatch ? yearMatch[1].trim() : ''
-
-                                        if (applicant || year) {
+                                    // If ra is in key=value;key=value format, show the applicant
+                                    // and the filing date (prefer a full filing date; fall back to
+                                    // a plain year, then the col-9 'dt' field).
+                                    if (name && name.includes('=')) {
+                                        const attr = (k) => { let m = name.match(new RegExp('(?:^|;)' + k + '=([^;]*)')); return m ? m[1].trim() : '' }
+                                        let applicant = attr('applicant') || attr('assignee') || attr('owner')
+                                        let filing = attr('filing_date') || attr('filing') || attr('date') || attr('year') || ('' + (v['dt'] || '')).trim()
+                                        if (applicant || filing) {
                                             name = applicant
-                                            if (year) {
-                                                name += ' (' + year + ')'
-                                            }
+                                            if (filing) name += (applicant ? ' ' : '') + '(' + filing + ')'
                                         }
                                     }
 
@@ -328,18 +325,15 @@ function (datapath, server, graph, genegraph_panel_layout) {
 
                                 let name = v.ra || '';
 
-                                if (name && name.includes('applicant=') && name.includes('year=')) {
-                                    let applicantMatch = name.match(/(?:^|;)applicant=([^;]*)/);
-                                    let yearMatch = name.match(/(?:^|;)year=([^;]*)/);
-
-                                    let applicant = applicantMatch ? applicantMatch[1].trim() : '';
-                                    let year = yearMatch ? yearMatch[1].trim() : '';
-
-                                    if (applicant || year) {
+                                // Show the applicant + filing date (prefer a full filing date;
+                                // fall back to a plain year, then the col-9 'dt' field).
+                                if (name && name.includes('=')) {
+                                    const attr = (k) => { let m = name.match(new RegExp('(?:^|;)' + k + '=([^;]*)')); return m ? m[1].trim() : ''; };
+                                    let applicant = attr('applicant') || attr('assignee') || attr('owner');
+                                    let filing = attr('filing_date') || attr('filing') || attr('date') || attr('year') || ('' + (v.dt || '')).trim();
+                                    if (applicant || filing) {
                                         name = applicant;
-                                        if (year) {
-                                            name += ' (' + year + ')';
-                                        }
+                                        if (filing) name += (applicant ? ' ' : '') + '(' + filing + ')';
                                     }
                                 }
 

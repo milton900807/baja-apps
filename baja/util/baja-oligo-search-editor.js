@@ -196,7 +196,7 @@ function (graph, genegraph_panel_layout) {
                                         {
                                             label: 'Search', ionFunction: createIonFunction(async () => {
                                                 let value = sequenceTextEditor.code
-                                                htmlPanel.setHTML(`<font color='red'> Searching... </font> `);
+                                                htmlPanel.setHTML(`<font color='red'> ... </font> `);
 
                                                 let sequences = []
                                                 let index = 0;

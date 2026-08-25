@@ -79,8 +79,17 @@ function (graph, genegraph_panel_layout, oligos, options) {
         let runOffTargets = async (oligos, seqList, __editDistance, genomes) => {
             const __t0 = Date.now();
             let rr = []
+            // Map every queried id (oligo id, and amplicon left/right/mid ids) back to
+            // the drawable oligo, so the one currently being searched can glow purple.
+            const __idToOligo = new Map();
             for (let o of oligos) {
-                o.highlight(1000, "magenta")
+                if (o == null) continue;
+                if (o.id != null) __idToOligo.set(String(o.id), o);
+                if (o.type === 'amplicon') {
+                    for (const part of [o.left, o.right, o.mid]) {
+                        if (part && part.id != null) __idToOligo.set(String(part.id), o);
+                    }
+                }
             }
             let progressBar;
             let w = {
@@ -98,6 +107,17 @@ function (graph, genegraph_panel_layout, oligos, options) {
             let sp = splitArray(seqList);
             let index = 0;
             for (let s of sp) {
+                // Glow the oligos in THIS chunk purple while their off-targets are
+                // computed, so progress is visible in real time. Cleared once the
+                // chunk's result returns.
+                const __chunkOligos = [];
+                for (const item of s) {
+                    const o = __idToOligo.get(String(item && item.id));
+                    if (o && __chunkOligos.indexOf(o) < 0) __chunkOligos.push(o);
+                }
+                for (const o of __chunkOligos) { try { o.highlight(0, 'purple'); } catch (e) { } }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+
                 let obj = {
                     "editDistance": __editDistance,
                     "strand": "+-",
@@ -111,6 +131,10 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 let uri = `${oep}/off-targets-file`;
                 let r = await POSTJSON(obj, uri)
                 rr.push(r)
+
+                // This chunk finished — clear its purple glow.
+                for (const o of __chunkOligos) { try { o.highlight__ = false; } catch (e) { } }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
 
                 if (r != null && r['oligoQuery'] != null) {
                     let oq = r['oligoQuery'];
@@ -138,8 +162,25 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     }
                 }
 
+                // Live filter: after each chunk's results are applied, let the caller
+                // remove oligos in real time (e.g. those exceeding an off-target max).
+                if (options && typeof options.liveFilter === 'function') {
+                    try { options.liveFilter(oligos); } catch (e) { }
+                }
+
                 index++;
                 progressBar((index / sp.length) * 100)
+            }
+
+            // Live-filter mode: everything was removed in real time as chunks
+            // completed. Skip the single-oligo menu and the summary modal — just
+            // finish up and re-arm the hover highlight.
+            if (options && typeof options.liveFilter === 'function') {
+                try { options.liveFilter(oligos); } catch (e) { }
+                try { if (typeof options.onDone === 'function') options.onDone(); } catch (e) { }
+                try { graph.setMouseMode('navigate'); } catch (e) { }
+                try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { }
+                return;
             }
 
             graph.setMessage("loading off-targets...")

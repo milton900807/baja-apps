@@ -71,7 +71,7 @@ def url_ok(url):
 
 
 def anthropic_candidates(resource, chrom, start, end, genome, user_query):
-    """Ask Claude for candidate bigWig / VCF endpoints. Returns (list, error)."""
+    """bigWig / VCF endpoints. Returns (list, error)."""
     if not requests:
         return None, "python 'requests' library unavailable"
     if not ANTHROPIC_API_KEY:

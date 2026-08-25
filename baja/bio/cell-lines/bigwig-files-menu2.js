@@ -39,7 +39,10 @@ function (graph, genegraph_panel_layout) {
                         drive: 'bigdata',
                         user: getUser(),
                         columns: columns,
-                        root: '/',
+                        // RNA-seq data is organized as RNASeq/<Species>/<Tissue>/<sample>.bw
+                        // (see baja-bd). Open the browser there so the menu reflects that
+                        // species/tissue structure instead of the whole big-data root.
+                        root: '/RNASeq',
                         "ionfunction.fileClick": createIonFunction(async (element) => {
 
                             let progressBar;
@@ -199,7 +202,10 @@ function (graph, genegraph_panel_layout) {
                         drive: 'bigdata',
                         user: getUser(),
                         columns: columns,
-                        root: '/',
+                        // RNA-seq data is organized as RNASeq/<Species>/<Tissue>/<sample>.bw
+                        // (see baja-bd). Open the browser there so the menu reflects that
+                        // species/tissue structure instead of the whole big-data root.
+                        root: '/RNASeq',
                         "ionfunction.fileClick": createIonFunction(async (element) => {
 
                             let progressBar;

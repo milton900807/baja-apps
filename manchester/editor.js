@@ -1063,6 +1063,51 @@ function (path, config) {
                 let savedScreens = await exec('manchester/io/save-obj.js', graph, genegraph_panel_layout, path)
                 showModal(savedScreens);
             }
+
+            // Save the current screen to the user's PUBLIC folder and produce a view-only
+            // link that anyone can open (no login) via manchester/viewer.js.
+            let shareScreen = async () => {
+                try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
+                graph.setMessage(' Creating a view-only share link… ');
+                try {
+                    const host_ = window['env']['apiUrl'];
+                    const user = getUser();
+                    // Serialize the graph (same replacer as the graph's saveState()).
+                    const seen = new WeakSet();
+                    const gs = JSON.stringify(graph, function (key, value) {
+                        if (key === 'canvas') return;
+                        if (typeof value === 'object' && value !== null) {
+                            if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
+                            else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
+                            else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
+                        }
+                        return value;
+                    });
+                    let base = ('' + (graph.file || 'shared')).replace(/\.baja$/i, '').replace(/[^A-Za-z0-9_\- ]+/g, '_').trim() || 'shared';
+                    const name = base + '.baja';
+                    // 1. Save the screen into the user's public folder.
+                    const saveRs = await POSTJSON({ name: name, key: 'user', user: user, spath: 'public', value: gs }, host_ + '/save-user-data');
+                    // 2. Grant public read on that folder (.share list; "public" satisfies the
+                    //    server's access check for logged-out viewers).
+                    try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host_ + '/save-user-data'); } catch (e) { }
+                    // 3. Build the view-only link from the saved path (/<email>/public/<name>).
+                    const sharedPath = (saveRs && saveRs.path) ? saveRs.path : ('/' + user + '/public/' + name);
+                    const link = window.location.origin + '/app/manchester/viewer?path=' + encodeURIComponent(sharedPath);
+                    try { if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(link); } catch (e) { }
+                    showModal({
+                        wid: 'html',
+                        data: '<div style="padding:18px 20px;font-family:system-ui,-apple-system,Arial;max-width:520px;">'
+                            + '<div style="font-size:15px;font-weight:700;margin-bottom:8px;">View-only link created</div>'
+                            + '<div style="font-size:12px;color:#475569;margin-bottom:10px;">Copied to your clipboard. Anyone with this link can view this screen — no login required.</div>'
+                            + '<div style="font-size:12px;word-break:break-all;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;">'
+                            + '<a href="' + link + '" target="_blank" style="color:#1d4ed8;">' + link + '</a></div>'
+                            + '</div>'
+                    }, 560, 220);
+                    graph.setMessage(' View-only link copied to clipboard. ');
+                } catch (e) {
+                    graph.setMessage(' Could not create share link: ' + e + ' ');
+                }
+            }
             let goHome = async () => {
                 exec('manchester/fb.js', getUser() + '/')
             }
@@ -1599,6 +1644,56 @@ function (path, config) {
                 return out;
             })();
 
+            // Installed news/message list (server-side; seeded on first install). Rendered as
+            // a dismissible NEWSPAPER card centered over the canvas at startup, so the gene
+            // graph keeps its full screen real estate — no permanent top panel.
+            let __newsMsgs = [];
+            try {
+                let __nem = new EngineMonitor(() => { });
+                let __nr = await exec('py/bio/get-news.py', __nem);
+                try { __newsMsgs = JSON.parse(__nr.messages) || []; } catch (e) { __newsMsgs = []; }
+            } catch (e) { __newsMsgs = []; }
+
+            const __showNewspaper = (messages) => {
+                try {
+                    const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const old = document.getElementById('baja-news-overlay');
+                    if (old) old.remove();
+                    let dateStr = '';
+                    try { dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) { }
+                    const articles = (messages || []).map((m, i) =>
+                        '<div style="' + (i > 0 ? 'border-top:1px solid #cbb6a0; padding-top:10px; margin-top:10px;' : '') + '">'
+                        + '<div style="font-size:17px; font-weight:700; line-height:1.3;">' + esc(m) + '</div>'
+                        + '</div>'
+                    ).join('');
+                    const wrap = document.createElement('div');
+                    wrap.id = 'baja-news-overlay';
+                    wrap.style.cssText = 'position:fixed; z-index:99999; left:50%; top:46%; transform:translate(-50%,-50%); width:min(560px,86vw); cursor:pointer;';
+                    wrap.innerHTML =
+                        '<div style="background:#f6f1e3; color:#1a1a1a; border:2px solid #1a1a1a; box-shadow:0 16px 48px rgba(0,0,0,0.42); padding:20px 24px; font-family:Georgia,\'Times New Roman\',serif;">'
+                        + '<div style="text-align:center; border-bottom:4px double #1a1a1a; padding-bottom:8px; margin-bottom:12px;">'
+                        + '<div style="font-size:34px; font-weight:900; letter-spacing:1px; font-variant:small-caps; line-height:1;">The Baja Times</div>'
+                        + '<div style="font-size:11px; text-transform:uppercase; letter-spacing:2px; color:#555; margin-top:6px;">' + esc(dateStr) + ' &nbsp;&bull;&nbsp; Genomics Edition</div>'
+                        + '</div>'
+                        + articles
+                        + '<div style="text-align:center; font-size:10px; color:#8a8172; margin-top:14px; border-top:1px solid #cbb6a0; padding-top:8px; font-family:system-ui,sans-serif;">click to dismiss</div>'
+                        + '</div>';
+                    const __dismiss = () => {
+                        try { wrap.remove(); } catch (e) { }
+                        try { document.removeEventListener('mousedown', __onDoc, true); } catch (e) { }
+                    };
+                    const __onDoc = (ev) => {
+                        try { if (!wrap.contains(ev.target)) __dismiss(); } catch (e) { __dismiss(); }
+                    };
+                    wrap.addEventListener('click', __dismiss);
+                    document.body.appendChild(wrap);
+                    // Click anywhere outside the newspaper to dismiss it (added on the next
+                    // tick so the click that opened it doesn't immediately close it).
+                    setTimeout(() => { try { document.addEventListener('mousedown', __onDoc, true); } catch (e) { } }, 0);
+                    setTimeout(__dismiss, 20000);
+                } catch (e) { }
+            };
+
             genegraph_panel_layout = {
                 wid: 'card',
                 componentRef: 'geneGraphPanel',
@@ -1616,8 +1711,39 @@ function (path, config) {
                                             {
                                                 label: 'File', ionFunction: createIonFunction(() => {
                                                     graph.showMenu([
+                                                        {
+                                                            label: 'New', move: () => { },
+                                                            click: async () => {
+                                                                graph.hideMenu();
+                                                                // Clear everything and relaunch a fresh editor, and reset the
+                                                                // URL to the bare editor (no ?path=...) — same pattern used to
+                                                                // launch a brand-new editor elsewhere.
+                                                                const __fresh = () => {
+                                                                    try { window.history.pushState({ 'yak': '/' + getUser() }, 'editor', '/app/manchester/editor'); } catch (e) { }
+                                                                    exec('manchester/editor');
+                                                                };
+                                                                try {
+                                                                    const c = await exec('baja/lib/confirm.js', 'Clear everything and start fresh? Unsaved changes will be lost.', __fresh);
+                                                                    showModal(c);
+                                                                } catch (e) { __fresh(); }
+                                                            }
+                                                        },
                                                         { label: 'Open', click: () => { graph.hideMenu(); openSaveScreen(); }, move: () => { } },
                                                         { label: 'Save', click: () => { graph.hideMenu(); saveSaveScreen(); }, move: () => { } },
+                                                        {
+                                                            label: 'Share (view-only link)', move: () => { },
+                                                            click: async () => {
+                                                                graph.hideMenu();
+                                                                // Confirm PUBLIC sharing first — the resulting link needs no login.
+                                                                try {
+                                                                    const c = await exec('baja/lib/confirm.js',
+                                                                        'Publish this screen PUBLICLY? Anyone with the link will be able to VIEW it (read-only) — no login required. Do not share sensitive data.',
+                                                                        () => { shareScreen(); },
+                                                                        'Share publicly');
+                                                                    showModal(c);
+                                                                } catch (e) { shareScreen(); }
+                                                            }
+                                                        },
                                                     ], 0, 0, 280);
                                                 })
                                             },
@@ -1642,13 +1768,111 @@ function (path, config) {
                                                                 graph.setMessage('Click on a track to see available edit options. ');
                                                                 exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout);
                                                             }
+                                                        },
+                                                        {
+                                                            label: 'Export', move: () => { },
+                                                            click: () => {
+                                                                graph.showSideMenu(null);
+                                                                // Click a track, then choose an export (BED, oligos as
+                                                                // FASTA/HELM/IDT, primers as CSV for Excel).
+                                                                exec('baja/manchester/menu/track-export-menu.js', graph, genegraph_panel_layout);
+                                                            }
                                                         }
                                                     ]);
                                                 })
                                             },
                                             {
-                                                label: 'Annotate', ionFunction: createIonFunction(async () => {
-                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'annotate')
+                                                label: 'Draw', ionFunction: createIonFunction(() => {
+                                                    // Entering Draw: hide the info / selection panel and clear any selection.
+                                                    graph.showDisplay = false;
+                                                    try {
+                                                        if (graph.clearSelectionVisuals) graph.clearSelectionVisuals();
+                                                        graph.__lassoSelection = [];
+                                                    } catch (e) { }
+                                                    if (graph.wake) graph.wake();
+                                                    // First-click center menu: Sequence | Sketch.
+                                                    graph.showMenu([
+                                                        {
+                                                            label: 'Sequence', move: () => { }, click: () => {
+                                                                graph.hideMenu();
+                                                                // Side menu of sequence-annotation options (incl. protein sequence).
+                                                                graph.showSideMenu([
+                                                                    {
+                                                                        label: 'Annotate by description...', move: () => { log(''); }, click: async () => {
+                                                                            graph.showSideMenu(null);
+                                                                            await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'annotate');
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Select', move: () => { log(''); }, click: () => {
+                                                                            // Arm click-and-drag sequence selection right away (default), so the
+                                                                            // user can start selecting immediately — the menu below still lets
+                                                                            // them switch to Box drag.
+                                                                            // true → show annotation tools for the selected sequence on release.
+                                                                            exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
+                                                                            // Choose a selection interaction for the sequence (center menu).
+                                                                            graph.showMenu([
+                                                                                {
+                                                                                    label: 'Click and drag on a track', move: () => { }, click: () => {
+                                                                                        if (graph.hideMenu) graph.hideMenu();
+                                                                                        // true → show annotation tools for the selected sequence on release.
+                                                                                        exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
+                                                                                    }
+                                                                                },
+                                                                                {
+                                                                                    label: 'Box drag', move: () => { }, click: () => {
+                                                                                        if (graph.hideMenu) graph.hideMenu();
+                                                                                        exec('baja/manchester/menu/select-box-sequence.js', graph, genegraph_panel_layout);
+                                                                                    }
+                                                                                }
+                                                                            ]);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Sequence tools', move: () => { log(''); }, click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Protein sequence', move: () => { log(''); }, click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/protein-annotation-tools.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Annotations', move: () => { log(''); }, click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/annotation/annotation-tools2.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Show / hide annotations', move: () => { log(''); }, click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            exec('baja/manchester/menu/annotation/show-annotations-menu.js', graph);
+                                                                        }
+                                                                    }
+                                                                ]);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Sketch', move: () => { }, click: () => {
+                                                                graph.hideMenu();
+                                                                graph.showSideMenu(null);
+                                                                // Drawing tools (rectangle / oval / line / freehand) for the canvas.
+                                                                exec('baja/manchester/menu/draw-tools-simple.js', graph, genegraph_panel_layout);
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'Variant', move: () => { }, click: () => {
+                                                                graph.hideMenu();
+                                                                graph.showSideMenu(null);
+                                                                // Describe a variant → Claude resolves type & genomic position, place it
+                                                                // on every track it can live on, and zoom into the last one added.
+                                                                exec('baja/data/prompt-variant.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
+                                                            }
+                                                        }
+                                                    ]);
                                                 })
                                             },
                                             {
@@ -1700,6 +1924,25 @@ function (path, config) {
                                                     // Also show the compound editor in the button/label panel.
                                                     exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
                                                     graph.showMenu([
+                                                        {
+                                                            label: 'Select sequence', move: () => { },
+                                                            click: () => {
+                                                                graph.showMenu([
+                                                                    {
+                                                                        label: 'Click and drag on a track', move: () => { }, click: () => {
+                                                                            if (graph.hideMenu) graph.hideMenu();
+                                                                            exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Box drag', move: () => { }, click: () => {
+                                                                            if (graph.hideMenu) graph.hideMenu();
+                                                                            exec('baja/manchester/menu/select-box-sequence.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    }
+                                                                ]);
+                                                            }
+                                                        },
                                                         {
                                                             label: 'Primer-probe', move: () => { },
                                                             click: () => {
@@ -1914,6 +2157,24 @@ function (path, config) {
                                                                             exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout);
                                                                         }
                                                                     },
+                                                                    {
+                                                                        label: 'Filter by off-targets', move: () => { },
+                                                                        click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            // Click a track, enter a max off-target count, and any oligo
+                                                                            // exceeding it is auto-removed (reports "removed ${id} with OT #").
+                                                                            exec('baja/manchester/menu/filter-oligos-by-offtargets.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        label: 'Run off-targets & filter (live)', move: () => { },
+                                                                        click: () => {
+                                                                            graph.showSideMenu(null);
+                                                                            // Click a track, enter a max, pick genome + edit distance; oligos
+                                                                            // over the max are removed in real time as results return.
+                                                                            exec('baja/manchester/menu/filter-run-offtargets.js', graph, genegraph_panel_layout);
+                                                                        }
+                                                                    },
                                                                 ]);
                                                             }
                                                         },
@@ -1973,6 +2234,15 @@ function (path, config) {
                                                             click: async () => {
                                                                 if (graph.hideMenu) graph.hideMenu();
                                                                 await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate');
+                                                            }
+                                                        },
+                                                        {
+                                                            label: 'History', move: () => { },
+                                                            click: async () => {
+                                                                // Side menu to step backward/forward through recorded views
+                                                                // (grid states that were held still for >2s).
+                                                                if (graph.hideMenu) graph.hideMenu();
+                                                                await exec('baja/manchester/menu/view-history-menu.js', graph, genegraph_panel_layout);
                                                             }
                                                         }
                                                     ]);
@@ -2370,6 +2640,34 @@ function (path, config) {
             progressBar(100);
             graph.genegraph_panel_layout = genegraph_panel_layout;
 
+            // Start the view-state history recorder: it samples the grid (zoom/pan) state and,
+            // once a view has been stable for >2s, pushes it to a back/forward history stack
+            // (see Navigate → History). Idempotent.
+            try { exec('baja/manchester/menu/view-history.js', graph); } catch (e) { }
+
+            // When the mainPanel is reset back to the editor canvas, re-arm the default
+            // mouse-over-highlight mode. Patch CurrentLayout.reset once so this happens
+            // wherever reset('mainPanel') is called.
+            try {
+                if (typeof CurrentLayout !== 'undefined' && CurrentLayout && CurrentLayout.reset && !CurrentLayout.__mohPatched) {
+                    const __origReset = CurrentLayout.reset.bind(CurrentLayout);
+                    CurrentLayout.reset = function (name) {
+                        const r = __origReset(name);
+                        if (('' + name).indexOf('mainPanel') >= 0) {
+                            setTimeout(() => {
+                                try {
+                                    graph.clearMouseListeners();
+                                    graph.setMouseMode('navigate');
+                                    exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                                } catch (e) { }
+                            }, 60);
+                        }
+                        return r;
+                    };
+                    CurrentLayout.__mohPatched = true;
+                }
+            } catch (e) { }
+
             let main_layout = {
                 wid: 'card',
                 height: '100%',
@@ -2393,6 +2691,14 @@ function (path, config) {
             working.status = 'complete'
 
             CurrentLayout.stash('mainPanel', main_layout)
+
+            // Show the installed news as a newspaper overlay at startup (click / auto-dismiss),
+            // keeping full screen space for the graph.
+            try {
+                if (__newsMsgs && __newsMsgs.length) {
+                    setTimeout(() => { try { __showNewspaper(__newsMsgs); } catch (e) { } }, 600);
+                }
+            } catch (e) { }
 
             if (window['env']['auth'] === 'b2c') {
                 var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');

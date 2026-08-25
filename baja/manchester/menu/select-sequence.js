@@ -81,10 +81,19 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
 
                 if (md && track) {
                     end = Math.ceil(track.tgraph.Xwc(x) - track.tgraph.xi * 2);
-                    console.log(" start " + start + " end " + end)
                     track.highlight(start, end);
+                    // Show the current selection in cDNA (c.) and genomic (g.) coordinates.
+                    try {
+                        const li = Math.floor(Math.min(start, end) - track.xi);
+                        const lj = Math.floor(Math.max(start, end) - track.xi);
+                        let msg = 'c.' + (li + 1) + '_' + (lj + 1);
+                        if (track.genomicAt) {
+                            const g1 = track.genomicAt(li), g2 = track.genomicAt(lj);
+                            if (g1 != null && g2 != null) msg += '   g.' + g1 + '_' + g2;
+                        }
+                        graph.setMessage(msg);
+                    } catch (e) { }
                     potential_motifds_in_selected_space = null;
-                    console.log(' track... ')
                     return
                 }
 
@@ -110,6 +119,13 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                     end = Math.ceil(track.tgraph.Xwc(x) - track.tgraph.xi * 2);
                     currentx = x;
                     currenty = y;
+                }
+                // When requested, show the annotation tools for the selected sequence.
+                const __seltrack = track;
+                if (showMenuOptions && __seltrack && __seltrack.markstart >= 0 && __seltrack.markend > __seltrack.markstart) {
+                    setTimeout(() => {
+                        try { exec('baja/manchester/menu/selected-sequence-tools.js', graph, genegraph_panel_layout, __seltrack); } catch (e) { }
+                    }, 80);
                 }
                 track = null;
                 // On mouse-up, hand the mouse back to the normal mouse-over-highlight
