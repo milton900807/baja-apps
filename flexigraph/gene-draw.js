@@ -55,6 +55,24 @@ function () {
 
         }),
 
+        // A highlighted region with a title + commentary (from the Points-of-interest tool).
+        'PointOfInterest': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
+            const col = annotation.color || 'rgba(255,140,26,0.85)';
+            graph.drawLine(xs, y, xf, y, col, 14, 'butt');
+            graph.drawVerticalLine(xs, y, 0.16, '#0a2540', 0.6);
+            graph.drawVerticalLine(xf, y, 0.16, '#0a2540', 0.6);
+            const mid = (xs + xf) / 2;
+            const ly = y + (annotation.labelY || 0.45);
+            graph.drawLine(mid, y, mid, ly, '#0a2540', 0.5, 'butt');
+            if (annotation.name) {
+                graph.drawString(annotation.name, mid, ly, '#0a2540', 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif');
+            }
+            let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)));
+            if (screencell > 2 && annotation.description) {
+                graph.drawString(('' + annotation.description).slice(0, 90), mid, ly + 0.14, '#365a63', '9px system-ui, -apple-system, Roboto, Arial, sans-serif');
+            }
+        }),
+
         'Acceptor-Splice-Site': createIon((graph, tgraph, xss, xff, __y, color, annotation) => {
             var radius = 10;
 
