@@ -196,9 +196,9 @@ function (server, graph, genegraph_panel_layout) {
             if (!SnpIndel) { graph.setMessage(' Variant support unavailable.'); resolve(null); return; }
 
             // Place one resolved variant on every loaded track that spans it (mirrors the
-            // single-variant placeOnTracks). Returns {added, found}.
+            // single-variant placeOnTracks). Returns {added, found, lastIndex, lastXi}.
             const place = (variant) => {
-                let added = 0, found = 0;
+                let added = 0, found = 0, lastIndex = -1, lastXi = null;
                 const G = variant.genomic;
                 try {
                     for (let i = 0; i < (graph.track ? graph.track.length : 0); i++) {
@@ -207,7 +207,7 @@ function (server, graph, genegraph_panel_layout) {
                         let xi = t.variantWorldX(variant.chr, G);
                         if (xi == null) continue;
                         if ((variant.type === 'del') && (t.strand !== -1)) xi = xi + 1;
-                        found++;
+                        found++; lastIndex = i; lastXi = xi;
                         if ((t.snpindels || []).some(s => s && Math.round(s.xi) === Math.round(xi)
                             && (s.name === (variant.rsid || variant.label) || s.reference === (variant.ref || 'N')))) {
                             continue;
@@ -225,8 +225,47 @@ function (server, graph, genegraph_panel_layout) {
                         added++;
                     }
                 } catch (e) { console.warn('add variant failed', e); }
-                return { added, found };
+                return { added, found, lastIndex, lastXi };
             };
+
+            // Navigate/zoom to a placed variant (centered, sequence-level), resolving when
+            // the animation finishes. Mirrors the single-variant zoom in resolveAndAdd.
+            const zoomToVariant = (lastIndex, lastXi) => new Promise((res) => {
+                if (!(lastIndex >= 0 && lastXi != null && graph.track)) { res(); return; }
+                try {
+                    const t = graph.track[lastIndex];
+                    if (!t || !t.tgraph) { res(); return; }
+                    graph.animating = false;
+                    const HALF = 12;
+                    const a = t.tgraph.X(lastXi - HALF), b = t.tgraph.X(lastXi + HALF);
+                    const txMin = Math.min(a, b), txMax = Math.max(a, b);
+                    const ht = -1 * t.tgraph.height;
+                    const yi = t.tgraph.yi - ht;
+                    const halfBand = 0.5 * 0.90;
+                    const tyMin = yi - halfBand, tyMax = yi + halfBand;
+                    const gg = (typeof graph.setxmin === 'function') ? graph : graph.graph;
+                    const grid = (gg && gg.grid) ? gg.grid : gg;
+                    if (!grid || !grid.setxmin) { res(); return; }
+                    const sxMin = grid.getxmin(), sxMax = grid.getxmax();
+                    const syMin = grid.getymin(), syMax = grid.getymax();
+                    const DURATION = 650;
+                    const ease = (p) => 1 - Math.pow(1 - p, 3);
+                    const startMs = Date.now();
+                    const step = () => {
+                        const p = Math.min(1, (Date.now() - startMs) / DURATION);
+                        const e = ease(p);
+                        grid.setxmin(sxMin + (txMin - sxMin) * e);
+                        grid.setxmax(sxMax + (txMax - sxMax) * e);
+                        grid.setymin(syMin + (tyMin - syMin) * e);
+                        grid.setymax(syMax + (tyMax - syMax) * e);
+                        if (grid.rescale) grid.rescale();
+                        if (graph.wake) graph.wake();
+                        if (p < 1) setTimeout(step, 16);
+                        else { try { if (typeof graph.__hoverRearm === 'function') graph.__hoverRearm(); } catch (e) { } res(); }
+                    };
+                    step();
+                } catch (e) { res(); }
+            });
 
             let totalAdded = 0, resolved = 0, failed = 0, idx = 0;
             for (const item of list) {
@@ -252,6 +291,15 @@ function (server, graph, genegraph_panel_layout) {
                     }
                 }
                 totalAdded += r.added;
+
+                // Navigate to the variant we just placed; on all but the last, hold 2s so the
+                // user can see it before moving on.
+                if (r.lastIndex >= 0 && r.lastXi != null) {
+                    try { if (graph.setMouseMode) graph.setMouseMode('navigate'); } catch (e) { }
+                    await new Promise((rr) => setTimeout(rr, 300));   // let a fetched sequence settle
+                    await zoomToVariant(r.lastIndex, r.lastXi);
+                    if (idx < list.length) await new Promise((rr) => setTimeout(rr, 2000));
+                }
             }
 
             try { if (graph.setMouseMode) graph.setMouseMode('navigate'); } catch (e) { }
