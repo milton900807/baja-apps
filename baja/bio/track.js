@@ -6340,7 +6340,10 @@ return new Promise(async (resolve, reject) => {
                   return distPx > maxPx ? (_botY - maxPx / _ppw) : worldY;
                 };
                 _seqRowY = _clampRow(this.tgraph.Y(0.012), 20);
-                _pepRowY = _clampRow(this.tgraph.Y(-0.038), 18);
+                // Peptide row: fixed a constant distance just BELOW the track bottom
+                // (screen Y = bottom + 16px), independent of zoom, so it never overlaps
+                // the nucleotide row and stays pinned under the track.
+                _pepRowY = _botY + 16 / _ppw;
               }
             } catch (e) { }
             const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
