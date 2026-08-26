@@ -64,6 +64,65 @@ function (graph, genegraph_panel_layout, presetText) {
             return { gi: gi, gf: gi + a.length, orient: orient };
         };
 
+        // Build the spliced transcript from the track's exon annotations (introns removed),
+        // reusing the track's own genomic->sequence indexing so junction bases are exact.
+        // Returns { S: splicedSeq, segs:[{gLo, sStart, len}] } or null. Cached on the track.
+        const buildSpliced = (track) => {
+            if (track.__spliced !== undefined) return track.__spliced;
+            let exons = [];
+            try {
+                for (const an of (track.annotations || [])) {
+                    if (('' + (an.type || '')) === 'Exon') {
+                        const lo = Math.min(an.xi, an.xf), hi = Math.max(an.xi, an.xf);
+                        if (isFinite(lo) && isFinite(hi) && hi > lo) exons.push([Math.floor(lo), Math.floor(hi)]);
+                    }
+                }
+            } catch (e) { }
+            if (exons.length < 2) { track.__spliced = null; return null; }
+            exons.sort((a, b) => a[0] - b[0]);
+            // Collapse overlapping exons (multiple transcripts' exons) into a non-overlapping model.
+            let merged = [exons[0].slice()];
+            for (let i = 1; i < exons.length; i++) {
+                const last = merged[merged.length - 1];
+                if (exons[i][0] <= last[1]) last[1] = Math.max(last[1], exons[i][1]);
+                else merged.push(exons[i].slice());
+            }
+            if (merged.length < 2) { track.__spliced = null; return null; }
+            let S = '', segs = [], cursor = 0;
+            for (const seg of merged) {
+                let piece = '';
+                try { piece = ('' + track.getSequenceRange(seg[0], seg[1])).toUpperCase().replace(/U/g, 'T'); } catch (e) { piece = ''; }
+                if (!piece) continue;
+                segs.push({ gLo: seg[0], sStart: cursor, len: piece.length });
+                S += piece; cursor += piece.length;
+            }
+            track.__spliced = (segs.length >= 2) ? { S: S, segs: segs } : null;
+            return track.__spliced;
+        };
+
+        // Map an ASO that spans an exon-exon junction: search the spliced transcript, then
+        // project the spliced match back to (1-2+) genomic intervals across the exons.
+        const mapAsoSpliced = (track, aso) => {
+            const sp = buildSpliced(track);
+            if (!sp || !sp.S) return null;
+            const a = ('' + (aso.sequence || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
+            if (a.length < 8) return null;
+            const cands = [{ seq: a, orient: 'sense' }, { seq: revcomp(a), orient: 'antisense' }];
+            for (const c of cands) {
+                const idx = sp.S.indexOf(c.seq);
+                if (idx < 0) continue;
+                const ss = idx, se = idx + c.seq.length;
+                let intervals = [];
+                for (const g of sp.segs) {
+                    const gsEnd = g.sStart + g.len;
+                    const os = Math.max(ss, g.sStart), oe = Math.min(se, gsEnd);
+                    if (oe > os) intervals.push([g.gLo + (os - g.sStart), g.gLo + (oe - g.sStart)]);
+                }
+                if (intervals.length) return { intervals: intervals, orient: c.orient };
+            }
+            return null;
+        };
+
         const run = async (rawText) => {
             const txt = ('' + (rawText || '')).trim();
             if (!txt) { resolve(null); return; }
@@ -118,11 +177,26 @@ function (graph, genegraph_panel_layout, presetText) {
             for (const a of asos) {
                 const track = loaded[('' + (a.target_gene || '')).toLowerCase()];
                 if (!track) { aUnmapped++; continue; }
+                // 1) Contiguous match against the pre-mRNA (exon-internal / intron targets).
                 const hit = mapAso(track, a);
                 if (hit) {
                     const label = 'ASO' + (a.name ? ' ' + a.name : '');
                     const note = 'ASO (' + hit.orient + ') target' + (a.comment ? ' — ' + a.comment : '');
                     placePoint(track, hit.gi, hit.gf, label, note, 'rgba(10,120,200,0.9)');
+                    aMapped++;
+                    continue;
+                }
+                // 2) Fallback: spliced-mRNA search for exon-exon junction-spanning ASOs.
+                const sh = mapAsoSpliced(track, a);
+                if (sh) {
+                    const parts = sh.intervals.length;
+                    let pi = 0;
+                    for (const iv of sh.intervals) {
+                        pi++;
+                        const label = 'ASO' + (a.name ? ' ' + a.name : '') + (parts > 1 ? ' (junction ' + pi + '/' + parts + ')' : '');
+                        const note = 'ASO (' + sh.orient + ', spliced junction) target' + (a.comment ? ' — ' + a.comment : '');
+                        placePoint(track, iv[0], iv[1], label, note, 'rgba(120,80,200,0.9)');
+                    }
                     aMapped++;
                 } else { aUnmapped++; }
             }
