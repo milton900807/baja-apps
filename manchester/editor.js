@@ -1105,7 +1105,12 @@ function (path, config) {
                     try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host_ + '/save-user-data'); } catch (e) { }
                     // 3. Build the view-only link from the saved path (/<email>/public/<name>).
                     const sharedPath = (saveRs && saveRs.path) ? saveRs.path : ('/' + user + '/public/' + name);
-                    const link = window.location.origin + '/app/manchester/viewer?path=' + encodeURIComponent(sharedPath);
+                    // Prefer a SHORT alias link (origin/s/<code>); fall back to the full path.
+                    let link = window.location.origin + '/app/manchester/viewer?path=' + encodeURIComponent(sharedPath);
+                    try {
+                        const __al = await POSTJSON({ path: sharedPath }, host_ + '/share-alias');
+                        if (__al && __al.code) link = window.location.origin + '/s/' + __al.code;
+                    } catch (e) { }
                     try { if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(link); } catch (e) { }
                     showModal({
                         wid: 'html',
