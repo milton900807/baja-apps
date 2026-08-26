@@ -599,8 +599,12 @@ function () {
                         for (let c of seq) out = out.replace('()', `(${c})`);
                         return out;
                     };
+                    // Guide (antisense) strand = synthesisSeq. The passenger (sense) strand is
+                    // the reverse-complement of the guide — its antiparallel duplex partner —
+                    // NOT the raw target (which is only reverseComp(guide) on the forward strand).
+                    const passengerSeq = Biopolymer.reverseComp(synthesisSeq);
                     antisense = Biopolymer.normalizeStructure(fillTmpl(antisense, synthesisSeq));
-                    if (sense) sense = Biopolymer.normalizeStructure(fillTmpl(sense, subseq));
+                    if (sense) sense = Biopolymer.normalizeStructure(fillTmpl(sense, passengerSeq));
 
                     let base_count = Biopolymer.countBases(chemObj) || synthesisSeq.length;
                     // SIRNA(type, sequence, sense, antisense, xi, xf, y, strand, structure).
