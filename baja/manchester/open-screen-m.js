@@ -1937,7 +1937,14 @@ function (lib_id, file_id) {
                             ],
                         },
 
-                    ]
+                    ],
+                    // Until a sequence track is on the canvas, block every top-level menu
+                    // except File and Track; highlight the Track menu in sunset orange to
+                    // point the user at how to load one.
+                    guard: createIonFunction(() => (graph.track ? graph.track.length : 0) === 0),
+                    guardAllow: ['File', 'Track'],
+                    guardHighlight: ['Track'],
+                    onBlocked: createIonFunction(() => graph.setMessage(' You must first load a sequence track — use the Track menu. '))
                 }
             }
 
