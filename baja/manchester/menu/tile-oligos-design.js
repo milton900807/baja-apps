@@ -141,12 +141,13 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
                 const me = Math.min(seq.length, Math.floor(selectedTrack.markend));
                 if (me - ms >= L) { seq = seq.substring(ms, me); __designOffset = ms; }
             }
-            // Keep the candidate count bounded for very long (e.g. pre-mRNA) tracks.
+            // Score every position (step 1) up to the 100,000,000 candidate ceiling;
+            // only a sequence longer than that gets subsampled.
             const span = Math.max(0, seq.length - L);
-            const step = Math.max(1, Math.floor(span / 4000));
+            const step = Math.max(1, Math.floor(span / 100000000));
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
-            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 1000 });
+            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 100000000 });
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
 
             // Add ALL designed oligos to the track (no menu / list), with a
