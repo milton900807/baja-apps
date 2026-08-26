@@ -1944,7 +1944,11 @@ function (lib_id, file_id) {
                     guard: createIonFunction(() => (graph.track ? graph.track.length : 0) === 0),
                     guardAllow: ['File', 'Track'],
                     guardHighlight: ['Track'],
-                    onBlocked: createIonFunction(() => graph.setMessage(' You must first load a sequence track — use the Track menu. '))
+                    onBlocked: createIonFunction(() => {
+                        // Prominent warning popup + status-bar message.
+                        try { infoPrompt(' ⚠  Load a sequence track first — use the Track menu to add one. '); } catch (e) { }
+                        try { graph.setMessage(' You must first load a sequence track — use the Track menu. '); } catch (e) { }
+                    })
                 }
             }
 
