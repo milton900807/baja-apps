@@ -282,11 +282,13 @@ function (server, graph, genegraph_panel_layout) {
                 if (!variant) { failed++; continue; }
                 resolved++;
                 let r = place(variant);
+                let justFetched = false;
                 if (!r.found && variant.ensembl && graph.add) {
                     let nt = null;
                     try { nt = await graph.add(variant.ensembl, null, null, null); } catch (e) { nt = null; }
                     if (nt) {
                         try { if (nt.select) nt.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(nt); } catch (e) { }
+                        justFetched = true;
                         r = place(variant);
                     }
                 }
@@ -296,6 +298,11 @@ function (server, graph, genegraph_panel_layout) {
                 // user can see it before moving on.
                 if (r.lastIndex >= 0 && r.lastXi != null) {
                     try { if (graph.setMouseMode) graph.setMouseMode('navigate'); } catch (e) { }
+                    if (graph.wake) graph.wake();
+                    // Let the layout settle before framing — longer when we just fetched a new
+                    // track (its tgraph isn't positioned until a render pass runs), otherwise the
+                    // zoom would compute against a stale mapping and appear to do nothing.
+                    await new Promise((rr) => setTimeout(rr, justFetched ? 1100 : 450));
                     // Push this variant's location onto the navigation stack as "Variant N".
                     try {
                         if (graph.addBookmark && typeof MGrid !== 'undefined') {
@@ -312,7 +319,6 @@ function (server, graph, genegraph_panel_layout) {
                             await graph.addBookmark('Variant ' + variantNo + ' — ' + (variant.label || variant.rsid || 'variant'), grid);
                         }
                     } catch (e) { console.warn('variant bookmark push failed', e); }
-                    await new Promise((rr) => setTimeout(rr, 300));   // let a fetched sequence settle
                     await zoomToVariant(r.lastIndex, r.lastXi);
                     if (idx < list.length) await new Promise((rr) => setTimeout(rr, 2000));
                 }
