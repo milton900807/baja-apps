@@ -114,14 +114,16 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             });
 
             let progressBar;
+            let __cancelled = false;
+            let __modalPB = null;
+            // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
-                wid: 'progress',
-                componentRef: 'progressBar',
+                wid: 'card',
                 data: {
-                    'progress': 10,
-                    'progressBar': createIonFunction((progessBar) => {
-                        progressBar = progessBar;
-                    })
+                    cards: [[
+                        { 'width': '100%', 'component': { wid: 'progress', componentRef: 'progressBar', data: { 'progress': 10, 'progressBar': createIonFunction((progessBar) => { progressBar = progessBar; }) } } },
+                        { 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [{ label: 'Cancel', ionFunction: createIonFunction(() => { __cancelled = true; }) }] } } }
+                    ]]
                 }
             }
 
@@ -129,8 +131,6 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             CurrentLayout.setComponent('buttonMenuPanel', w);
 
             // Block the app while the run is in progress — only Cancel is actionable.
-            let __cancelled = false;
-            let __modalPB = null;
             try { graph.setMouseMode('none'); graph.clearMouseListeners(); } catch (e) { }
             const __runModal = {
                 wid: 'card',
