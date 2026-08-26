@@ -65,6 +65,11 @@ function (graph, genegraph_panel_layout) {
                                                     'label': 'Note', 'ionfunction': createIonFunction(async () => {
                                                         await exec('baja/manchester/menu/draw-note-action.js', graph)
                                                     })
+                                                },
+                                                {
+                                                    'label': 'Points-of-interest', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/points-of-interest.js', graph, genegraph_panel_layout)
+                                                    })
                                                 }
                                             ]
                                         },
