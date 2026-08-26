@@ -2992,7 +2992,22 @@ function (progress, options) {
 
                                 let t = this.createTrack(ensembleId, start, end, strand);
                                 t.transcriptID = ensembleId;
-                                t.species = 'Human';
+                                // Species from the Ensembl transcript-id prefix (ENST=human,
+                                // ENSMUST=mouse, ENSRNOT=rat, ENSCAFT=dog, ...), falling back
+                                // to the server-reported species. Was hardcoded to 'Human'.
+                                (function () {
+                                    const _id = String(ensembleId || '').toUpperCase();
+                                    let _sp = null;
+                                    if (/^ENSMUST/.test(_id)) _sp = 'Mouse';
+                                    else if (/^ENSRNOT/.test(_id)) _sp = 'Rat';
+                                    else if (/^ENSCAFT/.test(_id)) _sp = 'Dog';
+                                    else if (/^ENST/.test(_id)) _sp = 'Human';
+                                    else if (localResp && localResp.species) {
+                                        const s = String(localResp.species);
+                                        _sp = s.charAt(0).toUpperCase() + s.slice(1);
+                                    }
+                                    t.species = _sp || 'Human';
+                                })();
                                 t.chr = chr;
 
                                 const regex = /\d+/;
