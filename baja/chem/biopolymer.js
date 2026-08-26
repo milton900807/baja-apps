@@ -490,7 +490,7 @@ function () {
                     }
                     let synthesisSeq = targetSequence;
                     if (strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -516,7 +516,7 @@ function () {
                     }
                     let synthesisSeq = targetSequence;
                     if (strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -555,7 +555,7 @@ function () {
                     }
                     let synthesisSeq = targetSequence;
                     if (strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -581,7 +581,7 @@ function () {
                     let strand = (bioObj.strand != null) ? bioObj.strand : 1;
                     let subseq = bioObj.targetSequence;                 // sense/target strand
                     let synthesisSeq = (strand < 0)
-                        ? Biopolymer.comp(subseq)
+                        ? subseq                                        // reverse strand: guide = genomic+ target
                         : Biopolymer.reverseComp(subseq);               // guide/antisense strand
 
                     let antisense = chemObj.antisense || chemObj.template;
@@ -680,7 +680,7 @@ function () {
 
             static generateSynthesisSequence(o) {
                 if (o.strand < 0) {
-                    o.synthesisSequence = Biopolymer.comp(o.sequence)
+                    o.synthesisSequence = o.sequence
                 } else {
                     o.synthesisSequence = Biopolymer.reverseComp(o.sequence)
                 }
@@ -694,7 +694,7 @@ function () {
                     let targetSequence = oligo.sequence;
                     let synthesisSeq = ''
                     if (track.strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -708,7 +708,7 @@ function () {
                     let targetSequence = oligo.sequence;
                     let synthesisSeq = ''
                     if (track.strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -728,7 +728,7 @@ function () {
                 chemObj.sequence = targetSequence;
                 if (type === 'gapmer') {
                     if (strand < 0) {
-                        chemObj.synthesisSeq = Biopolymer.comp(targetSequence)
+                        chemObj.synthesisSeq = targetSequence
                     } else {
                         chemObj.synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -739,7 +739,7 @@ function () {
                 } else if (type === 'siRNA') {
                     let synthesisSeq = targetSequence;
                     if (strand < 0) {
-                        synthesisSeq = Biopolymer.comp(targetSequence)
+                        synthesisSeq = targetSequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                     } else {
                         synthesisSeq = Biopolymer.reverseComp(targetSequence)
                     }
@@ -843,7 +843,7 @@ function () {
                 let oligo = new Oligo(type, sequence, Biopolymer.wrapHelm(antisense), tstart, (tstart + base_count), y);
                 oligo.strand = track.strand;
                 if (track.strand < 0) {
-                    oligo.synthesisSequence = Biopolymer.comp(sequence)
+                    oligo.synthesisSequence = sequence
                 } else {
                     oligo.synthesisSequence = Biopolymer.reverseComp(sequence)
                 }
@@ -913,7 +913,7 @@ function () {
                 let synthesisSeq = subseq;
 
                 if (track.strand < 0) {
-                    synthesisSeq = Biopolymer.comp(sequence)
+                    synthesisSeq = sequence   // reverse strand: ASO = genomic+ target (antisense to mRNA)
                 } else {
                     synthesisSeq = Biopolymer.reverseComp(sequence)
                 }
@@ -982,7 +982,7 @@ function () {
                 let oligo = new Oligo(type, sequence, sequence, tstart, (tstart + sequence.length));
                 oligo.strand = track;
                 if (track.strand < 0) {
-                    oligo.synthesisSequence = Biopolymer.comp(sequence)
+                    oligo.synthesisSequence = sequence
                 } else {
                     oligo.synthesisSequence = Biopolymer.reverseComp(sequence)
                 }
@@ -1017,7 +1017,7 @@ function () {
                     let anno = new Oligo(type, reverse_complament, sequence, tstart, (tstart + base_count), y);
                     oligo.strand = track.strand;
                     if (track.strand < 0) {
-                        oligo.synthesisSequence = Biopolymer.comp(sequence)
+                        oligo.synthesisSequence = sequence
                     } else {
                         oligo.synthesisSequence = Biopolymer.reverseComp(sequence)
                     }

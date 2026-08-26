@@ -37,7 +37,14 @@ function (graph, genegraph_panel_layout, oligos, options) {
         // a real strand — it matches nothing, so reverse-strand ASOs would find no hits
         // (not even their own gene). reverseComp(target) works for both strands.
         let g = '';
-        if (o.sequence && Biopolymer) g = __toDNA(Biopolymer.reverseComp(o.sequence));
+        if (o.sequence) {
+            const st = __oligoStrand(o);
+            // ASO (antisense) strand: for a FORWARD-strand gene the target is the mRNA
+            // sense, so the ASO is reverseComp(target); for a REVERSE-strand gene the track
+            // shows the genomic+ slice, which already IS the antisense of the mRNA, so the
+            // ASO is the target itself (identity). A plain complement is not a real strand.
+            g = __toDNA(st < 0 ? o.sequence : (Biopolymer ? Biopolymer.reverseComp(o.sequence) : ''));
+        }
         if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);
         if (!g || g.length < 8) g = __toDNA(o.synthesisSequence);   // last-resort fallback
         // Strip a 3' overhang (e.g. dTdT) if the chosen field carries one — it does

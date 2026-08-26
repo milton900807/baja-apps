@@ -44,11 +44,12 @@ function (graph, genegraph_panel_layout, selectedOnly) {
 
                 }
                 for (let o of oligos) {
+                    o.__strand = t.strand;   // remember strand for the query rebuild below
                     let synthesisSeq = o.synthesisSequence;
                     if (!synthesisSeq || synthesisSeq.length <= 0) {
 
                         if (t.strand < 0) {
-                            o.synthesisSequence = Biopolymer.comp(o.sequence)
+                            o.synthesisSequence = o.sequence   // reverse strand: ASO = genomic+ target
                         } else {
                             o.synthesisSequence = Biopolymer.reverseComp(o.sequence)
                         }
@@ -78,10 +79,14 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             try {
                 ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
                 if (ot_oligos.length > 200) { graph.setMessage(' Off-targets run 200 oligos at a time — running the first 200 (left→right, top→bottom). '); ot_oligos = ot_oligos.slice(0, 200); }
-                // Query with the REVERSE-COMPLEMENT of the target (a real antisense strand) so
-                // reverse-strand oligos find hits — a plain complement matches nothing on the
-                // both-strand DNA index.
-                seqList = ot_oligos.map((o) => ({ "id": o.id, "synthesisSequence": (o.sequence && Biopolymer ? Biopolymer.reverseComp(o.sequence) : o.synthesisSequence) }));
+                // Query with the actual ASO strand: reverse-complement of the target for a
+                // forward-strand gene, the target itself (genomic+) for a reverse-strand gene.
+                // A plain complement is not a real strand and matches nothing on the DNA index.
+                seqList = ot_oligos.map((o) => {
+                    const st = (o.__strand != null ? o.__strand : (o.strand != null ? o.strand : 1));
+                    const q = (st < 0) ? o.sequence : (Biopolymer ? Biopolymer.reverseComp(o.sequence) : o.synthesisSequence);
+                    return { "id": o.id, "synthesisSequence": q };
+                });
             } catch (e) { }
             const __idToOligo = new Map();
             for (const o of ot_oligos) { if (o && o.id != null) __idToOligo.set(String(o.id), o); }
