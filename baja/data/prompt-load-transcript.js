@@ -162,6 +162,28 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         let build = null;  // gene-symbol typeahead
         let geneBox = null;         // human gene-symbol field
 
+        // A rotating example is prefilled into the description box and cleared the
+        // first time the user clicks in, so they can type their own.
+        const __examples = [
+            'load human, mouse and rat KRAS',
+            'canonical FGFR3 in human',
+            'all PTEN isoforms in mouse',
+            'human TP53 tumor suppressor',
+            'mouse Kras pre-mRNA',
+            'EGFR canonical transcript',
+            'BRCA1 in human',
+            'rat Bdnf',
+            'MYH7 cardiac myosin, human',
+            'SOD1 in human and mouse',
+            'ENST00000311936',
+            'load the MANE Select for SMN2',
+            'human DMD dystrophin',
+            'HTT huntingtin canonical',
+            'all APOE transcripts in human'
+        ];
+        const __ex = __examples[Math.floor(Math.random() * __examples.length)];
+        let __exActive = true;   // true until the user focuses/edits the box
+
         let describe_transcript = {
             wid: 'card',
             componentRef: 'mainPanel',
@@ -205,6 +227,10 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                 data: {
                                     'showButton': false,
                                     'title': 'Prompt / ID',
+                                    'text': __ex,   // rotating example, cleared on first focus
+                                    'onFocus': createIonFunction(() => {
+                                        if (__exActive && v) { try { v.updateValue(''); } catch (e) { } __exActive = false; }
+                                    }),
                                     'ionHookFunction': createIonFunction((input_box) => {
                                         v = input_box;
                                     })
@@ -236,7 +262,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                         try {
                                             let transcript = extractFirstEnsemblId(value.toString());
                                             if (transcript && v && v.updateValue) {
-                                                v.updateValue(transcript);
+                                                v.updateValue(transcript); __exActive = false;
                                             }
                                         } catch (e) { }
                                     }),
@@ -259,6 +285,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                                     desc = (v && v.getWidgetValue) ? v.getWidgetValue()
                                                         : (v && v.value ? v.value : '');
                                                 } catch (e) { }
+                                                // Ignore the prefilled example if the user never edited it.
+                                                if (__exActive && ('' + (desc || '')).trim() === __ex) desc = '';
                                                 let gene = '';
                                                 try {
                                                     gene = (geneBox && geneBox.getWidgetValue) ? geneBox.getWidgetValue()
