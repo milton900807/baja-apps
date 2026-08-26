@@ -2829,7 +2829,7 @@ function (progress, options) {
                     const _plus = !(_strand === '-' || _strand === -1 || _strand === '-1');
                     const _startG = _plus ? [lo, lo + 2] : [hi - 2, hi];
                     const _stopG = _plus ? [hi - 2, hi] : [lo, lo + 2];
-                    if (!_hasTSS) { let a = new Annotation('TSS', 'TSS', _startG[0], _startG[1] + 1, _strand); try { a.shapeFunction = getIon(shapes[a.type]); } catch (e) { } annotations.push(a); }
+                    if (!_hasTSS) { let a = new Annotation('TSS', 'TSS', _startG[0], _startG[1], _strand); try { a.shapeFunction = getIon(shapes[a.type]); } catch (e) { } annotations.push(a); }
                     if (!_hasSTOP) { let a = new Annotation('STOP', 'STOP', _stopG[0], _stopG[1], _strand); try { a.shapeFunction = getIon(shapes[a.type]); } catch (e) { } annotations.push(a); }
                 }
 
