@@ -75,6 +75,11 @@ function (graph, genegraph_panel_layout) {
                                                     'label': 'Protein Domains', 'ionfunction': createIonFunction(async () => {
                                                         await exec('baja/manchester/menu/protein-domains.js', graph, genegraph_panel_layout)
                                                     })
+                                                },
+                                                {
+                                                    'label': 'Extract from Text', 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/text-extract.js', graph, genegraph_panel_layout)
+                                                    })
                                                 }
                                             ]
                                         },
