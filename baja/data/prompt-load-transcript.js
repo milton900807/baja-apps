@@ -59,6 +59,12 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                     else graph.showDisplay = true;
                     if (graph.wake) graph.wake();
                 } catch (e) { console.warn('select loaded track failed', e); }
+                // After a track loads, hand the mouse to hover / mouse-over-highlight mode.
+                try {
+                    graph.setMouseMode('navigate');
+                    graph.clearMouseListeners();
+                    exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                } catch (e) { }
                 return true;
             };
 
