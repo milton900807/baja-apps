@@ -16,16 +16,29 @@ function (graph, genegraph_panel_layout, oligos, options) {
     // The off-target search queries with the GUIDE (target) sequence: for siRNA the
     // guide/antisense strand, for single-stranded oligos the synthesis sequence —
     // always converted to DNA.
+    // Loaded once inside the Promise; used to derive an ASO synthesis strand when a
+    // compound did not carry one.
+    let Biopolymer = null;
+    // Strand of the oligo (from the oligo itself, else the track that spans it):
+    // >= 0 forward (+), < 0 reverse (-).
+    const __oligoStrand = (o) => {
+        if (o && o.strand != null) return o.strand;
+        let t = o && (o.track || o.__track);
+        if (!t) { try { for (const tr of (graph.track || [])) { if (tr && o && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } } catch (e) { } }
+        return (t && t.strand != null) ? t.strand : 1;
+    };
     const __querySeq = (o) => {
         if (!o) return '';
-        // The off-target query is the ACTUAL synthesized strand, ORIENTED for the
-        // transcript's direction: generateCompound builds it with comp() for
-        // minus-strand tracks and reverseComp() for plus-strand tracks. For siRNA
-        // that synthesized strand is the guide; for single-stranded ASOs it is the
-        // ASO itself. (Using cand.guide directly would ignore strand and come out
-        // reversed on minus-strand transcripts.)
-        let g = __toDNA(o.synthesisSequence || o.sequence);
-        if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);   // fallback
+        // The off-target query is the ACTUAL synthesized ASO strand. Prefer the compound's
+        // own synthesisSequence (generateCompound already oriented it). If it is missing,
+        // derive it from the target sequence per the ASO convention: COMPLEMENT on a
+        // reverse-strand track, REVERSE-COMPLEMENT on a forward-strand track.
+        let g = __toDNA(o.synthesisSequence);
+        if ((!g || g.length < 8) && o.sequence && Biopolymer) {
+            const st = __oligoStrand(o);
+            g = __toDNA(st < 0 ? Biopolymer.comp(o.sequence) : Biopolymer.reverseComp(o.sequence));
+        }
+        if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);   // last-resort fallback
         // Strip a 3' overhang (e.g. dTdT) if the chosen field carries one — it does
         // not target the transcript.
         const oh = __toDNA(o.antisenseOverhang || o.overhang);
@@ -53,6 +66,10 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 oligos = oligos.slice(0, OFF_MAX);
             }
         } catch (e) { }
+
+        // For deriving an ASO synthesis strand when a compound lacks one (comp on reverse,
+        // reverseComp on forward — see __querySeq).
+        try { Biopolymer = await exec('baja/chem/biopolymer.js'); } catch (e) { }
 
         graph.setMessage("Loading indexed genomes from the server... ")
         // The indexed genomes and the off-target search are served by the baja app
