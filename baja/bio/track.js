@@ -6340,7 +6340,7 @@ return new Promise(async (resolve, reject) => {
                   return distPx > maxPx ? (_botY - maxPx / _ppw) : worldY;
                 };
                 _seqRowY = _clampRow(this.tgraph.Y(0.012), 20);
-                _pepRowY = _clampRow(this.tgraph.Y(-0.038), 20);
+                _pepRowY = _clampRow(this.tgraph.Y(-0.038), 18);
               }
             } catch (e) { }
             const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
