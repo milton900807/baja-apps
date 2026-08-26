@@ -2260,6 +2260,24 @@ return new Promise(async (resolve, reject) => {
         }
       } catch (e) { }
 
+      // If a Translation is annotated, it is authoritative: define the start (TSS)
+      // and stop (STOP) codons from its genomic bounds, taking orientation into
+      // account (5'-most base is the start; for '-' strand that is the highest
+      // genomic coordinate). Overrides any existing/derived codon annotations.
+      try {
+        const _tr = (this.annotations || []).find(a => ('' + a.type).toLowerCase() === 'translation');
+        if (_tr && _tr.xi != null && _tr.xf != null) {
+          const _lo = Math.min(+_tr.xi, +_tr.xf), _hi = Math.max(+_tr.xi, +_tr.xf);
+          const _plus = this.strand >= 0;
+          const _s = _plus ? [_lo, _lo + 2] : [_hi - 2, _hi];   // start codon (5')
+          const _e = _plus ? [_hi - 2, _hi] : [_lo, _lo + 2];   // stop codon (3')
+          this.removeAnnotationByType('TSS');
+          this.removeAnnotationByType('STOP');
+          this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], this.strand));
+          this.add(new Annotation('STOP', 'STOP', _e[0], _e[1], this.strand));
+        }
+      } catch (e) { }
+
       return this.orf;
     }
 
