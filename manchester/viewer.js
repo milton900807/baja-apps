@@ -22,12 +22,21 @@ function (path, config) {
         await showWidget(progW);
         try { progressBar(0); } catch (e) { }
 
-        // Resolve the .baja path robustly. The route launcher fills the module's `path`
-        // param by name from the URL, but depending on the flow it can arrive empty or
-        // as something else — so fall back to config.path and then the live URL query
-        // (?path=…) before giving up.
+        // Resolve the .baja path. PREFER a share CODE (?s=…) resolved server-side, so the
+        // owner's email (embedded in the path) never appears in the browser URL. Fall back
+        // to the path arg, config.path, or a legacy ?path= link.
+        const __host0 = window['env']['apiUrl'];
         const __isBaja = (s) => { try { return /\.baja$/i.test(decodeURIComponent('' + (s || ''))); } catch (e) { return /\.baja$/i.test('' + (s || '')); } };
-        let __p = '' + (path || '');
+        let __code = '';
+        try { __code = new URL(window.location.href).searchParams.get('s') || ''; } catch (e) { }
+        let __p = '';
+        if (__code) {
+            try {
+                const __rr = await GETJSON(__host0 + '/share-resolve?code=' + encodeURIComponent(__code));
+                if (__rr && __rr.path) __p = '' + __rr.path;
+            } catch (e) { }
+        }
+        if (!__isBaja(__p)) __p = '' + (path || '');
         if (!__isBaja(__p)) {
             try { if (config && typeof config === 'object' && config.path && __isBaja(config.path)) __p = '' + config.path; } catch (e) { }
         }
@@ -38,6 +47,13 @@ function (path, config) {
             } catch (e) { }
         }
         path = decodeURIComponent('' + __p);
+
+        // Scrub the address bar so the email-bearing path is never displayed: keep only
+        // ?s=<code> when we came from a short link, otherwise a bare viewer URL.
+        try {
+            const __clean = window.location.origin + '/app/manchester/viewer' + (__code ? ('?s=' + encodeURIComponent(__code)) : '');
+            if (window.location.href !== __clean) window.history.replaceState({}, document.title, __clean);
+        } catch (e) { }
 
         const graph = await exec('flexigraph/gene.js', progressBar);
         graph.readonly = true;              // signal read-only to any component that checks it

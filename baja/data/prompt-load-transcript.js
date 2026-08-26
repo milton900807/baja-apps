@@ -1,7 +1,12 @@
 function (server, graph, genegraph_panel_layout, presetQuery) {
     return new Promise(async (resolve, reject) => {
         // The python endpoint (server env forwards ANTHROPIC_API_KEY to it).
-        const PY = server + '/py/sequence/prompt-to-transcript.py';
+        // NOTE: pass a RELATIVE '/py/...' path here, NOT `server + '/py/...'`.
+        // exec()/execPyPost prepend window.env.apiUrl + '/py/' themselves; giving it an
+        // absolute http URL (with no '/ionworks/' segment) makes execPyPost's URL splitter
+        // mangle it (e.g. '/py/ligodesigner.com/py/sequence/...'), so the script path
+        // resolves wrong on the server and the exec exits code 2 (no transcript loads).
+        const PY = '/py/sequence/prompt-to-transcript.py';
         const host_ = server;
         // Any Ensembl transcript stable id (human ENST, mouse ENSMUST, rat ENSRNOT, ...).
         const TRANSCRIPT_ID_RE = /ENS[A-Z]*T\d+/i;
