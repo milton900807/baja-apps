@@ -6247,6 +6247,23 @@ return new Promise(async (resolve, reject) => {
               const rowGapPx = Math.abs(graph.Y(this.tgraph.Y(0.012)) - graph.Y(this.tgraph.Y(-0.068)));
               if (rowGapPx > 4) __seqPxFit = Math.max(11, Math.floor(rowGapPx / 0.6));
             } catch (e) { }
+            // Cap the nucleotide sequence row to <=20px above the track bottom and the
+            // peptide (amino-acid) row to <=35px, regardless of zoom/track height.
+            // graph.Y(worldY) -> screen pixels; the track bottom is tgraph.Y(0).
+            let _seqRowY = this.tgraph.Y(0.012);
+            let _pepRowY = this.tgraph.Y(-0.038);
+            try {
+              const _botY = this.tgraph.Y(0), _botPx = graph.Y(_botY);
+              const _ppw = (graph.Y(this.tgraph.Y(0.012)) - _botPx) / (this.tgraph.Y(0.012) - _botY);
+              if (_ppw) {
+                const _clampRow = (worldY, maxPx) => {
+                  const distPx = _botPx - graph.Y(worldY);   // px above the track bottom
+                  return distPx > maxPx ? (_botY - maxPx / _ppw) : worldY;
+                };
+                _seqRowY = _clampRow(this.tgraph.Y(0.012), 20);
+                _pepRowY = _clampRow(this.tgraph.Y(-0.038), 35);
+              }
+            } catch (e) { }
             const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
             const dynSeqFont = seqPx + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
             const dynSeqFontLarge = Math.min(Math.round(seqPx * 1.25), __seqPxFit) + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
@@ -6264,7 +6281,7 @@ return new Promise(async (resolve, reject) => {
                         // Codon center = middle of the 3-base cell span [cellX-1, cellX+2].
                         const cellX = Math.floor(this.tgraph.X(index));
                         // Peptide letter CENTERED over its codon, just above the nucleotide row.
-                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, this.tgraph.Y(-0.038), "#" + color, this.detail_ffont4);
+                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.detail_ffont4);
                         // Codon bracket: a line under the residue spanning the codon's 3 bases
                         // (small gap between codons so each triplet reads as a group).
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
@@ -6274,9 +6291,9 @@ return new Promise(async (resolve, reject) => {
                     }
                   }
                   if (this.highlightIndex > 0 && this.highlightIndex === index) {
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFontLarge);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFontLarge);
                   } else {
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFont);
+                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                   }
 
                   let deg = 0;
@@ -6290,7 +6307,7 @@ return new Promise(async (resolve, reject) => {
                         let color = codon_colors(oor.aa);
                         // Peptide centered over its codon, just above the nucleotides (see above).
                         const cellX = Math.floor(this.tgraph.X(index));
-                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, this.tgraph.Y(-0.038), "#" + color, this.font);
+                        drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.font);
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
                         drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
                       }
@@ -6302,7 +6319,7 @@ return new Promise(async (resolve, reject) => {
                   }
                   if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
 
-                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_INK, dynSeqFont);
+                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                 }
               } else {
                 // Outside the track: draw flanking GENOMIC sequence for visual reference
@@ -6311,7 +6328,7 @@ return new Promise(async (resolve, reject) => {
                 try { __gp = this.flankGenomicAt(seq_index); __fb = this.flankBaseAt(__gp); } catch (e) { }
                 if (__fb) {
                   try {
-                    graph.drawString(__fb, Math.floor(this.tgraph.X(index)) + 0.2, this.tgraph.Y(0.012), SEQ_FLANK, dynSeqFont);
+                    graph.drawString(__fb, Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
                     if (screencell > 30) graph.drawString('g.' + __gp, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GUIDE, this.detail_ffont6);
                   } catch (e) { }
                 } else {
