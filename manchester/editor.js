@@ -1798,6 +1798,15 @@ function (path, config) {
                                                 {
                                                     label: 'Draw', ionFunction: createIonFunction(() => {
                                                         // Entering Draw: hide the info / selection panel and clear any selection.
+
+
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            return;
+                                                        }
+
+
+
                                                         graph.showDisplay = false;
                                                         try {
                                                             if (graph.clearSelectionVisuals) graph.clearSelectionVisuals();
@@ -1870,7 +1879,7 @@ function (path, config) {
                                                                 }
                                                             },
                                                             {
-                                                                label: 'Sketch', move: () => { }, click: () => {
+                                                                label: 'Annotation', move: () => { }, click: () => {
                                                                     graph.hideMenu();
                                                                     graph.showSideMenu(null);
                                                                     // Drawing tools (rectangle / oval / line / freehand) for the canvas.
@@ -1891,6 +1900,14 @@ function (path, config) {
                                                 },
                                                 {
                                                     label: 'Layers', ionFunction: createIonFunction(() => {
+
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            return;
+                                                        }
+
+
+
                                                         // Show the layers-tools toolbar in the button/label panel.
                                                         exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
                                                         // Centered menu of layer actions.
@@ -1935,6 +1952,13 @@ function (path, config) {
                                                 },
                                                 {
                                                     label: 'Design', ionFunction: createIonFunction(() => {
+
+
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            return;
+                                                        }
+
                                                         // Also show the compound editor in the button/label panel.
                                                         exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
                                                         graph.showMenu([
@@ -2203,6 +2227,15 @@ function (path, config) {
                                                 },
                                                 {
                                                     label: 'Navigate', ionFunction: createIonFunction(async () => {
+
+
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            return;
+                                                        }
+
+
+
                                                         graph.showMenu([
                                                             {
                                                                 label: 'View all', move: () => { },
