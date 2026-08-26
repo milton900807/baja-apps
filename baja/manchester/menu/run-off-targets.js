@@ -135,25 +135,35 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 }
             }
 
-            // Zoom/center the view on the oligo currently being searched (instant, so the
-            // scan can move quickly through up to 200 oligos).
-            const centerOnOligo = (o) => {
+            // Smoothly zoom/center the view on an oligo (animated ~320ms ease-out). Returns a
+            // Promise that resolves when the animation completes.
+            const centerOnOligo = (o) => new Promise((res) => {
                 try {
-                    if (!o) return;
+                    if (!o) { res(); return; }
                     let t = o.track || o.__track || null;
                     if (!t) { for (const tr of (graph.track || [])) { if (tr && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } }
-                    if (!t || !t.tgraph) return;
+                    if (!t || !t.tgraph) { res(); return; }
                     const gg = (typeof graph.setxmin === 'function') ? graph : graph.graph;
                     const grid = (gg && gg.grid) ? gg.grid : gg;
-                    if (!grid || !grid.setxmin) return;
-                    const HALF = 45;   // bases of context on each side of the oligo
+                    if (!grid || !grid.setxmin) { res(); return; }
+                    const HALF = 60;   // bases of context on each side (shows the trailing + leading oligo)
                     const a = t.tgraph.X(Math.min(o.xi, o.xf) - HALF), b = t.tgraph.X(Math.max(o.xi, o.xf) + HALF);
-                    grid.setxmin(Math.min(a, b)); grid.setxmax(Math.max(a, b));
+                    const txMin = Math.min(a, b), txMax = Math.max(a, b);
                     const ht = -1 * t.tgraph.height, yi = t.tgraph.yi - ht, band = 0.5 * 0.9;
-                    grid.setymin(yi - band); grid.setymax(yi + band);
-                    if (grid.rescale) grid.rescale();
-                } catch (e) { }
-            };
+                    const tyMin = yi - band, tyMax = yi + band;
+                    const sxMin = grid.getxmin(), sxMax = grid.getxmax(), syMin = grid.getymin(), syMax = grid.getymax();
+                    const DUR = 320, ease = (p) => 1 - Math.pow(1 - p, 3), t0 = Date.now();
+                    const step = () => {
+                        const p = Math.min(1, (Date.now() - t0) / DUR), e = ease(p);
+                        grid.setxmin(sxMin + (txMin - sxMin) * e); grid.setxmax(sxMax + (txMax - sxMax) * e);
+                        grid.setymin(syMin + (tyMin - syMin) * e); grid.setymax(syMax + (tyMax - syMax) * e);
+                        if (grid.rescale) grid.rescale();
+                        if (graph.wake) graph.wake();
+                        if (p < 1) setTimeout(step, 16); else res();
+                    };
+                    step();
+                } catch (e) { res(); }
+            });
             let progressBar;
             let w = {
                 wid: 'progress',
@@ -192,6 +202,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
 
             let sp = splitArray(seqList);
             let index = 0;
+            let __framePrev = null;   // previously-completed oligo (camera trails one behind)
             for (let s of sp) {
                 if (__cancelled) break;
                 // Glow the oligos in THIS chunk purple while their off-targets are
@@ -202,10 +213,11 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     const o = __idToOligo.get(String(item && item.id));
                     if (o && __chunkOligos.indexOf(o) < 0) __chunkOligos.push(o);
                 }
-                // Put the targeting gunsight (+ a red glow) on the oligo(s) being searched,
-                // and zoom/center the view on it.
+                // Put the targeting gunsight (+ a red glow) on the oligo being searched.
                 for (const o of __chunkOligos) { try { o.__gunsight = true; o.highlight(0, 'red'); } catch (e) { } }
-                try { if (__chunkOligos[0]) centerOnOligo(__chunkOligos[0]); } catch (e) { }
+                // Stay one oligo BEHIND the calculation: smoothly frame the PREVIOUS oligo —
+                // whose off-target results are already in — while THIS one is computed.
+                try { if (__framePrev) await centerOnOligo(__framePrev); } catch (e) { }
                 try { if (graph.wake) graph.wake(); } catch (e) { }
 
                 let r = null;
@@ -263,7 +275,11 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 index++;
                 progressBar((index / sp.length) * 100)
                 try { if (__modalPB) __modalPB((index / sp.length) * 100); } catch (e) { }
+                __framePrev = (__chunkOligos && __chunkOligos[0]) || __framePrev;   // now completed
             }
+
+            // Frame the LAST completed oligo so its results are shown (the camera trailed by one).
+            try { if (!__cancelled && __framePrev) await centerOnOligo(__framePrev); } catch (e) { }
 
             // Run finished (or was cancelled) — unblock the app.
             __finishRun();
