@@ -1993,9 +1993,10 @@ return new Promise(async (resolve, reject) => {
           this.removeAnnotationByType('TSS');
           this.removeAnnotationByType('STOP');
           this.removeAnnotationByType('translation');
-          this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], this.strand));
-          this.add(new Annotation('STOP', 'STOP', _e[0], _e[1], this.strand));
-          this.add(new Annotation('Translation', 'Translation', _lo, _hi, this.strand));
+          const _gs = _plus ? 1 : -1;   // gene strand (this.strand is the +genome-slice strand on pre-mRNA)
+          this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], _gs));
+          this.add(new Annotation('STOP', 'STOP', _e[0], _e[1], _gs));
+          this.add(new Annotation('Translation', 'Translation', _lo, _hi, _gs));
           return this.orf;
         }
       } catch (e) { }
@@ -2011,11 +2012,11 @@ return new Promise(async (resolve, reject) => {
       for (let an of this.annotations) {
         if (('' + an.type).toLowerCase() === 'stop') { __gffStop = { xi: an.xi, xf: an.xf }; }
       }
-      this.removeAnnotationByType("STOP");
+      // this.removeAnnotationByType("STOP");
       this.orf = null;
       let seq = "";
 
-      this.removeAnnotationByType("translation");
+      // this.removeAnnotationByType("translation");
       let sorted_annotations = this.annotations;
       if (this.strand >= 0)
         sorted_annotations.sort(function (a, b) {
@@ -2038,9 +2039,9 @@ return new Promise(async (resolve, reject) => {
       if (startIndex > 0 && endIndex < 0) {
         let endI = this.findSTOPCodonIndex();
         endIndex = endI.index;
-        this.add(new Annotation("TSS", "TSS", startIndex, startIndex + 2));
-        this.add(new Annotation("STOP", "STOP", endIndex, endIndex + 2));
-        this.add(new Annotation("Translation", "Translation", startIndex, endIndex));
+        // this.add(new Annotation("TSS", "TSS", startIndex, startIndex + 2));
+        // this.add(new Annotation("STOP", "STOP", endIndex, endIndex + 2));
+        // this.add(new Annotation("Translation", "Translation", startIndex, endIndex));
       } else if (startIndex < 0 && endIndex < 0) {
         this.removeAnnotationByType("translation");
         for (let an of sorted_annotations) {

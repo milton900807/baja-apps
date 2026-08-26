@@ -748,18 +748,20 @@ function () {
             graph.drawZigZag(xs, y, xf, y, '#b0533f', 2)
 
         }),
-        'Translation': createIon((graph, tgraph, xs, xf, y) => {
+        'Translation': createIon((graph, tgraph, xs, xf, y, color, annotation, strand) => {
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
             if (screencell < 0.05) {
                 return;
             }
-            let r = 0.1;
-            graph.drawString('START', xs, y + r, '#0a2540', '9px system-ui, -apple-system, Roboto, Arial, sans-serif')
-
-            graph.drawVerticalLine(xs, y, 0.2, '#17a39a', 4)
-            graph.drawString('STOP', xf - 1, y + r, '#0a2540', '9px system-ui, -apple-system, Roboto, Arial, sans-serif')
-
-            graph.drawVerticalLine(xf, y, 0.2, '#9c3350', 4)
+            // Reverse-strand translation runs high->low genomic, so the START is at the
+            // high (xf) end and the STOP at the low (xs) end. Draw them as the same
+            // START (green) / STOP (red) cylinders, at the correct strand-aware ends.
+            const _sv = (annotation && annotation.strand != null) ? annotation.strand : strand;
+            const _minus = (_sv === '-' || _sv === -1 || _sv === '-1');
+            const startX = _minus ? xf : xs;
+            const stopX = _minus ? xs : xf;
+            drawCodonCylinder(graph, tgraph, startX, startX, y, 'start');
+            drawCodonCylinder(graph, tgraph, stopX, stopX, y, 'stop');
 
         }),
         'CODON': createIon((graph, tgraph, xs, xf, y) => {
