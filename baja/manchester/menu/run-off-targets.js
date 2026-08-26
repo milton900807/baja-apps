@@ -29,22 +29,25 @@ function (graph, genegraph_panel_layout, oligos, options) {
     };
     const __querySeq = (o) => {
         if (!o) return '';
-        // The off-target index is DNA searched on BOTH strands, so the query MUST be a real
-        // strand of the target duplex. Use the REVERSE-COMPLEMENT of the target region — the
-        // true antisense (ASO) strand — which finds the target on either genome strand.
-        // IMPORTANT: do NOT use synthesisSequence directly: generateCompound stores a plain
-        // COMPLEMENT (not reversed) for reverse-strand oligos, and a plain complement is not
-        // a real strand — it matches nothing, so reverse-strand ASOs would find no hits
-        // (not even their own gene). reverseComp(target) works for both strands.
+        // The DNA index is searched on BOTH strands, so the query MUST be a real strand of
+        // the target duplex. The most reliable one is the target region itself, read straight
+        // from the track's sequence at the oligo's coordinates (genomic+, and guaranteed to
+        // be present in the index) — this self-hits for BOTH strands. We query its reverse-
+        // complement (the antisense) so the off-target set matches the ASO. o.sequence /
+        // synthesisSequence are NOT reliable: some build paths store a transform (or a plain
+        // complement, which is a dead strand that matches nothing).
         let g = '';
-        if (o.sequence) {
-            const st = __oligoStrand(o);
-            // ASO (antisense) strand: for a FORWARD-strand gene the target is the mRNA
-            // sense, so the ASO is reverseComp(target); for a REVERSE-strand gene the track
-            // shows the genomic+ slice, which already IS the antisense of the mRNA, so the
-            // ASO is the target itself (identity). A plain complement is not a real strand.
-            g = __toDNA(st < 0 ? o.sequence : (Biopolymer ? Biopolymer.reverseComp(o.sequence) : ''));
-        }
+        try {
+            let t = o.track || o.__track || null;
+            if (!t) { for (const tr of (graph.track || [])) { if (tr && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } }
+            if (t && t.getSequenceRange && Biopolymer) {
+                const lo = Math.min(o.xi, o.xf), hi = Math.max(o.xi, o.xf);
+                const tgt = __toDNA(t.getSequenceRange(lo, hi));
+                if (tgt && tgt.length >= 8) g = __toDNA(Biopolymer.reverseComp(tgt));
+            }
+        } catch (e) { }
+        // Fallbacks if the track sequence wasn't available.
+        if ((!g || g.length < 8) && o.sequence && Biopolymer) g = __toDNA(Biopolymer.reverseComp(o.sequence));
         if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);
         if (!g || g.length < 8) g = __toDNA(o.synthesisSequence);   // last-resort fallback
         // Strip a 3' overhang (e.g. dTdT) if the chosen field carries one — it does
