@@ -3064,6 +3064,15 @@ function (progress, options) {
                                 }
 
                                 t.generateORF();
+                                // Guard: a track with no sequence or NaN genomic dimensions is
+                                // useless (e.g. the sequence fetch 502'd) — remove it from the
+                                // graph rather than leaving an empty/broken track behind.
+                                if (!t.sequence || String(t.sequence).length === 0 ||
+                                    !Number.isFinite(+t.xi) || !Number.isFinite(+t.xf)) {
+                                    try { if (this.removeTrack) this.removeTrack(t); } catch (e) { }
+                                    try { graph.setMessage(' Skipped ' + ensembleId + ' — no sequence / invalid coordinates. '); } catch (e) { }
+                                    return null;
+                                }
                                 localLoaded = true;
                                 return t;
                             }
@@ -3196,12 +3205,24 @@ function (progress, options) {
                 }
 
                 if (!usedLocalPayload) {
-                    let ensembl_sequence = `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/sequence/${ensembleId}?prefix=${encodeURIComponent(prefix)}`;
-                    let fasta = await GETXT(ensembl_sequence);
-                    setTrackSequenceFromRawFasta(t, fasta);
-                    this.buildENSEMBLAnnotations(t, js);
+                    try {
+                        let ensembl_sequence = `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/sequence/${ensembleId}?prefix=${encodeURIComponent(prefix)}`;
+                        let fasta = await GETXT(ensembl_sequence);
+                        setTrackSequenceFromRawFasta(t, fasta);
+                        this.buildENSEMBLAnnotations(t, js);
+                    } catch (e) {
+                        console.warn('Ensembl sequence fetch failed for ' + ensembleId + ':', e);
+                    }
                 }
 
+                // Guard: a track with no sequence or NaN genomic dimensions (e.g. the
+                // sequence fetch 502'd) is broken — remove it rather than leave it behind.
+                if (!t.sequence || String(t.sequence).length === 0 ||
+                    !Number.isFinite(+t.xi) || !Number.isFinite(+t.xf)) {
+                    try { if (this.removeTrack) this.removeTrack(t); } catch (e) { }
+                    try { graph.setMessage(' Skipped ' + ensembleId + ' — no sequence / invalid coordinates. '); } catch (e) { }
+                    return null;
+                }
                 return t;
             }
             addNCBI(ncbi, x, y) {
