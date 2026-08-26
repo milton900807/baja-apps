@@ -6326,8 +6326,13 @@ return new Promise(async (resolve, reject) => {
               const rowGapPx = Math.abs(graph.Y(this.tgraph.Y(0.012)) - graph.Y(this.tgraph.Y(-0.068)));
               if (rowGapPx > 4) __seqPxFit = Math.max(11, Math.floor(rowGapPx / 0.6));
             } catch (e) { }
-            // Cap the nucleotide sequence row to <=20px above the track bottom and the
-            // peptide (amino-acid) row to <=35px, regardless of zoom/track height.
+            // Nucleotide cell font FIRST, so the peptide row can be offset by its height.
+            const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
+            const dynSeqFont = seqPx + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
+            const dynSeqFontLarge = Math.min(Math.round(seqPx * 1.25), __seqPxFit) + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
+            // Nucleotide sequence row: <=20px above the track bottom. Peptide row: pinned
+            // just ABOVE the nucleotide row, offset by the LIVE nucleotide font height
+            // (seqPx) + a gap, so it scales with the font and never overlaps.
             // graph.Y(worldY) -> screen pixels; the track bottom is tgraph.Y(0).
             let _seqRowY = this.tgraph.Y(0.012);
             let _pepRowY = this.tgraph.Y(-0.038);
@@ -6340,15 +6345,11 @@ return new Promise(async (resolve, reject) => {
                   return distPx > maxPx ? (_botY - maxPx / _ppw) : worldY;
                 };
                 _seqRowY = _clampRow(this.tgraph.Y(0.012), 20);
-                // Peptide row: fixed a constant distance just BELOW the track bottom
-                // (screen Y = bottom + 16px), independent of zoom, so it never overlaps
-                // the nucleotide row and stays pinned under the track.
-                _pepRowY = _botY + 22 / _ppw;
+                // Peptide baseline sits (seqPx + gap) px above the nucleotide baseline,
+                // so it clears the nucleotide letters however large the font grows.
+                _pepRowY = _seqRowY - (seqPx + 8) / _ppw;
               }
             } catch (e) { }
-            const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
-            const dynSeqFont = seqPx + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
-            const dynSeqFontLarge = Math.min(Math.round(seqPx * 1.25), __seqPxFit) + "px system-ui, -apple-system, Roboto, Arial, sans-serif";
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
               let seq_index = Math.floor(index - Math.floor(this.xi));
