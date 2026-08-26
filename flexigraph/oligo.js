@@ -285,6 +285,34 @@ function () {
                     ctx.restore();
                 }
 
+                // Targeting "gunsight" reticle drawn on the oligo currently being run
+                // through off-target search (set/cleared by run-off-targets.js). A red
+                // crosshair — concentric rings + N/S/E/W ticks + center dot — that pulses.
+                if (this.__gunsight && ctx) {
+                    const gx = screenMidX, gy = screenY;
+                    const pulse = (typeof graph.__pulse === 'number') ? graph.__pulse : 0.6;
+                    const R = 20 + 3 * pulse;
+                    const Ri = R * 0.45;
+                    ctx.save();
+                    ctx.strokeStyle = '#ff3b30';
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = 'rgba(255,59,48,0.9)';
+                    ctx.shadowBlur = 8;
+                    ctx.beginPath(); ctx.arc(gx, gy, R, 0, Math.PI * 2); ctx.stroke();       // outer ring
+                    ctx.beginPath(); ctx.arc(gx, gy, Ri, 0, Math.PI * 2); ctx.stroke();      // inner ring
+                    const tk = 8;   // tick length beyond the outer ring
+                    ctx.beginPath();
+                    ctx.moveTo(gx - R - tk, gy); ctx.lineTo(gx - Ri, gy);   // W
+                    ctx.moveTo(gx + Ri, gy); ctx.lineTo(gx + R + tk, gy);   // E
+                    ctx.moveTo(gx, gy - R - tk); ctx.lineTo(gx, gy - Ri);   // N
+                    ctx.moveTo(gx, gy + Ri); ctx.lineTo(gx, gy + R + tk);   // S
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#ff3b30';
+                    ctx.beginPath(); ctx.arc(gx, gy, 2.5, 0, Math.PI * 2); ctx.fill();       // center dot
+                    ctx.restore();
+                }
+
                 const screencell = graph.screenWidth(tgraph.screenWidth(1));
 
                 const drawCenteredOvalLabel = (text, offsetY = 0, opts = {}) => {

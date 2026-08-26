@@ -37,6 +37,23 @@ function (graph, genegraph_panel_layout, oligos, options) {
     return new Promise(async (resolve, reject) => {
         let returnMode = 'editdistance'
 
+        // Run oligos in reading order — LEFT to RIGHT (genomic x), then TOP to BOTTOM
+        // (higher world-y is toward the top of the screen) — and cap each run at 200
+        // oligos so a single user can't queue an unbounded search.
+        const OFF_MAX = 200;
+        try {
+            oligos = (oligos || []).filter(Boolean).slice();
+            oligos.sort((a, b) => {
+                const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf);
+                if (ax !== bx) return ax - bx;              // left -> right
+                return (b.y || 0) - (a.y || 0);             // top -> bottom
+            });
+            if (oligos.length > OFF_MAX) {
+                graph.setMessage(' Off-targets run ' + OFF_MAX + ' oligos at a time — running the first ' + OFF_MAX + ' (left→right, top→bottom). ');
+                oligos = oligos.slice(0, OFF_MAX);
+            }
+        } catch (e) { }
+
         graph.setMessage("Loading indexed genomes from the server... ")
         // The indexed genomes and the off-target search are served by the baja app
         // server itself (apiUrl) — GET {apiUrl}/genomes and POST {apiUrl}/off-targets-file.
@@ -68,7 +85,8 @@ function (graph, genegraph_panel_layout, oligos, options) {
         }
         let splitArray = (array) => {
             const result = [];
-            const chunkSize = 5;
+            // One oligo per request so the gunsight advances one-at-a-time, left→right.
+            const chunkSize = 1;
             for (let i = 0; i < array.length; i += chunkSize) {
                 const chunk = array.slice(i, i + chunkSize);
                 result.push(chunk);
@@ -115,26 +133,29 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     const o = __idToOligo.get(String(item && item.id));
                     if (o && __chunkOligos.indexOf(o) < 0) __chunkOligos.push(o);
                 }
-                for (const o of __chunkOligos) { try { o.highlight(0, 'purple'); } catch (e) { } }
+                // Put the targeting gunsight (+ a red glow) on the oligo(s) being searched.
+                for (const o of __chunkOligos) { try { o.__gunsight = true; o.highlight(0, 'red'); } catch (e) { } }
                 try { if (graph.wake) graph.wake(); } catch (e) { }
 
-                let obj = {
-                    "editDistance": __editDistance,
-                    "strand": "+-",
-                    "genomes": genomes,
-                    "sequences": s,
-                    "runMode": returnMode
+                let r = null;
+                try {
+                    let obj = {
+                        "editDistance": __editDistance,
+                        "strand": "+-",
+                        "genomes": genomes,
+                        "sequences": s,
+                        "runMode": returnMode
+                    }
+                    // Same baja app server that served /genomes.
+                    const oep = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
+                    let uri = `${oep}/off-targets-file`;
+                    r = await POSTJSON(obj, uri)
+                    rr.push(r)
+                } finally {
+                    // This oligo finished (or errored) — clear its gunsight + glow.
+                    for (const o of __chunkOligos) { try { o.__gunsight = false; o.highlight__ = false; } catch (e) { } }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
                 }
-
-                // Same baja app server that served /genomes.
-                const oep = window["env"]["apiUrl"] || window["env"]["offtarget"] || '';
-                let uri = `${oep}/off-targets-file`;
-                let r = await POSTJSON(obj, uri)
-                rr.push(r)
-
-                // This chunk finished — clear its purple glow.
-                for (const o of __chunkOligos) { try { o.highlight__ = false; } catch (e) { } }
-                try { if (graph.wake) graph.wake(); } catch (e) { }
 
                 if (r != null && r['oligoQuery'] != null) {
                     let oq = r['oligoQuery'];
