@@ -3034,6 +3034,10 @@ function (progress, options) {
                                 }
 
                                 t.generateORF();
+                                // Robustly (re)place start/stop codons from annotation or
+                                // bioinformatically, synchronously so they're correct on the
+                                // first render (defineCodons supersedes generateORF's markers).
+                                try { t.updateCDS(); } catch (e) { }
                                 localLoaded = true;
                                 return t;
                             }

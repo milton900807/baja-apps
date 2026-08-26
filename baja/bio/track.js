@@ -1687,6 +1687,17 @@ return new Promise(async (resolve, reject) => {
     // start was defined. This replaces the genomic-offset walk in generateORF, which
     // mis-locates the start on multi-exon / minus-strand transcripts.
     defineCodons() {
+      // Guard against re-entrancy, and suppress the scheduleCDSUpdate that our own
+      // TSS/STOP add()s would otherwise trigger (via _cdsUpdating).
+      if (this._definingCodons) return false;
+      this._definingCodons = true;
+      const _wasUpdating = this._cdsUpdating;
+      this._cdsUpdating = true;
+      try { return this._defineCodonsImpl(); }
+      finally { this._cdsUpdating = _wasUpdating; this._definingCodons = false; }
+    }
+
+    _defineCodonsImpl() {
       const rawSeq = ('' + (this.sequence || '')).toUpperCase();
       if (rawSeq.length < 3) return false;
 
@@ -2376,6 +2387,16 @@ return new Promise(async (resolve, reject) => {
           if (__cds.protein) this.orf.sequence = __cds.protein;
           this.orfhash = compressJson(JSON.stringify(this.orf));
         }
+      } catch (e) { }
+
+      // Correct the start/stop codon placement for spliced (multi-exon) transcripts:
+      // the genomic-offset walk above mis-locates codons on multi-exon / minus-strand
+      // genes (the drawn start was missing on KRAS). defineCodons is exon-aware and
+      // strand-aware, and re-derives from the annotations or bioinformatically. Runs
+      // for every generateORF caller (load, redraws at line ~1443), so redraws no
+      // longer clobber the corrected markers.
+      try {
+        if (this.annotations.some((a) => a.type === 'Exon')) this.defineCodons();
       } catch (e) { }
 
       return this.orf;
