@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Points-of-interest finder (genomic-range mode): given a gene name and a genomic
-coordinate range [range_start, range_end] on a chromosome, ask Claude to return the
-important genomic features/annotations that fall WITHIN that range, as GENOMIC
-coordinates + a short title + a one-sentence rationale.
+Points-of-interest finder (mutation mode): given a GENE SYMBOL and SPECIES, ask Claude
+to surface important known mutations/variants for that gene that carry a stable database
+ID (dbSNP rsID, ClinVar, COSMIC, or HGVS) from which a genomic location can be derived.
+Each returned point includes the variant id, its derived genomic location, a title, and a
+one-sentence note on why it matters.
 
 Invoked by the server:  python3 points-of-interest.py jfile:<argsfile>
 Ionworks params:
-    param(1) : gene name / transcript id
-    param(2) : genomic range start (xi)
-    param(3) : genomic range end (xf)
-    param(4) : chromosome (e.g. "chr12" or "12")
-Emits IONWORKS:RESOLUTION with { points:[{start,end,title,comment}], error, count }.
+    param(1) : gene symbol (or transcript id)
+    param(2) : species  (e.g. "human", "mouse", "rat")
+    param(3) : chromosome, for assembly context  (e.g. "chr12" or "12")
+    param(4) : anchor coord start (assembly context only; NOT a constraint)
+    param(5) : anchor coord end   (assembly context only; NOT a constraint)
+Emits IONWORKS:RESOLUTION with { points:[{id,chr,start,end,title,comment}], error, count }.
 """
 import json
 import os
@@ -28,44 +30,59 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
 
 gene = works.param(1) or ""
+species = works.param(2) or "human"
+chrom = works.param(3) or ""
 try:
-    range_start = int(float(works.param(2) or 0))
+    anchor_lo = int(float(works.param(4) or 0))
 except Exception:
-    range_start = 0
+    anchor_lo = 0
 try:
-    range_end = int(float(works.param(3) or 0))
+    anchor_hi = int(float(works.param(5) or 0))
 except Exception:
-    range_end = 0
-chrom = works.param(4) or ""
+    anchor_hi = 0
 
 works.progress(15)
 
 
-def find_points(gene, chrom, rs, re_):
+def find_points(gene, species, chrom, alo, ahi):
     if not ANTHROPIC_API_KEY:
         return [], "ANTHROPIC_API_KEY is not set on the server"
     if requests is None:
         return [], "python 'requests' is not available on the server"
 
-    lo, hi = (rs, re_) if rs <= re_ else (re_, rs)
+    anchor = ""
+    if chrom or ahi:
+        anchor = (
+            "\nAssembly/coordinate context (for consistency ONLY, not a filter): the track "
+            "sits on chromosome %s roughly spanning %d - %d on the current reference assembly. "
+            "Use the same assembly so coordinates are comparable, but do NOT restrict variants "
+            "to this span." % (chrom or "?", alo, ahi)
+        )
+
     system = (
-        "You are a genomics expert. Given a gene and a GENOMIC coordinate range on a "
-        "chromosome, return the important genomic features/annotations for that gene that "
-        "fall WITHIN that range. Consider exons, CDS, start (ATG) and stop codons, 5'/3' UTRs, "
-        "key protein domains mapped to their genomic coordinates, splice donor/acceptor sites, "
-        "promoter/regulatory elements, polyA signals, and known pathogenic variant hotspots. "
-        "For each feature return GENOMIC start and end coordinates (integers, on the given "
-        "chromosome, with range_start <= start < end <= range_end), a concise title (<= 6 "
-        "words) and a single-sentence rationale for why it is notable. Respond with ONLY JSON, "
-        "no prose:\n"
-        '{"points":[{"start":int,"end":int,"title":"...","comment":"..."}]}\n'
-        "Return at most 15 features; prefer specific, non-overlapping regions with real "
-        "genomic coordinates inside the range."
+        "You are a clinical/cancer genomics expert. Given a GENE SYMBOL and SPECIES, list the "
+        "most important known mutations/variants in that gene that carry a stable database "
+        "identifier from which a genomic location can be derived: dbSNP rsID, ClinVar variation "
+        "id, COSMIC id, or a precise HGVS (genomic g. or coding c.) descriptor. Prioritise "
+        "clinically or biologically significant variants: pathogenic/likely-pathogenic alleles, "
+        "recurrent oncogenic hotspots (e.g. activating driver mutations), founder alleles, and "
+        "well-characterised functional variants. For EACH variant return:\n"
+        "  id     : the database identifier (e.g. rs121913529, VCV000012600, COSM521, or an "
+        "HGVS string) — required, this is what locates it\n"
+        "  chr    : chromosome on the reference assembly (string)\n"
+        "  start  : genomic start coordinate (1-based integer)\n"
+        "  end    : genomic end coordinate (>= start; equal to start for a SNV)\n"
+        "  title  : short label, ideally protein change + id (e.g. \"KRAS G12D (rs121913529)\")\n"
+        "  comment: one sentence on clinical/biological significance\n"
+        "Respond with ONLY JSON, no prose:\n"
+        '{"points":[{"id":"...","chr":"...","start":int,"end":int,"title":"...","comment":"..."}]}\n'
+        "Return at most 15 variants, most important first. Only include a variant if you can "
+        "give a real database id AND a genomic coordinate; omit anything you cannot locate."
     )
     user = (
-        "Gene: %s\nChromosome: %s\nGenomic range (inclusive): %d - %d\n"
-        "Return features with genomic coordinates strictly inside this range."
-        % (gene, chrom, lo, hi)
+        "Gene symbol: %s\nSpecies: %s%s\n"
+        "List the important, identifiable mutations for this gene."
+        % (gene, species, anchor)
     )
     try:
         r = requests.post(
@@ -77,7 +94,7 @@ def find_points(gene, chrom, rs, re_):
             },
             json={
                 "model": ANTHROPIC_MODEL,
-                "max_tokens": 2500,
+                "max_tokens": 3000,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
@@ -97,14 +114,21 @@ def find_points(gene, chrom, rs, re_):
     out = []
     for p in raw:
         try:
-            s = int(p.get("start", lo))
-            e = int(p.get("end", s + 1))
-            s = max(lo, min(hi - 1, s))
-            e = max(s + 1, min(hi, e))
+            s = int(p.get("start", 0))
+            e = int(p.get("end", s))
+            if e < s:
+                s, e = e, s
+            if e == s:
+                e = s + 1
+            vid = ("" + str(p.get("id", ""))).strip()[:60]
+            if not vid or s <= 0:
+                continue
             out.append({
+                "id": vid,
+                "chr": ("" + str(p.get("chr", chrom))).strip()[:20],
                 "start": s,
                 "end": e,
-                "title": ("" + str(p.get("title", ""))).strip()[:60],
+                "title": ("" + str(p.get("title", vid))).strip()[:80],
                 "comment": ("" + str(p.get("comment", ""))).strip()[:400],
             })
         except Exception:
@@ -112,6 +136,6 @@ def find_points(gene, chrom, rs, re_):
     return out, None
 
 
-points, err = find_points(gene, chrom, range_start, range_end)
+points, err = find_points(gene, species, chrom, anchor_lo, anchor_hi)
 works.progress(100)
 works.resolve({"points": points, "error": err, "count": len(points)})
