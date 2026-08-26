@@ -2,9 +2,10 @@
 """
 Points-of-interest finder (mutation mode): given a GENE SYMBOL and SPECIES, ask Claude
 to surface important known mutations/variants for that gene that carry a stable database
-ID (dbSNP rsID, ClinVar, COSMIC, or HGVS) from which a genomic location can be derived.
-Each returned point includes the variant id, its derived genomic location, a title, and a
-one-sentence note on why it matters.
+ID (dbSNP rsID, ClinVar, COSMIC, or HGVS). Any dbSNP rsID is then resolved through the
+Ensembl REST API to its EXACT genomic coordinates (authoritative), overriding the model's
+coordinate. Each returned point includes the variant id, its genomic location, a title,
+and a one-sentence note on why it matters.
 
 Invoked by the server:  python3 points-of-interest.py jfile:<argsfile>
 Ionworks params:
@@ -13,7 +14,7 @@ Ionworks params:
     param(3) : chromosome, for assembly context  (e.g. "chr12" or "12")
     param(4) : anchor coord start (assembly context only; NOT a constraint)
     param(5) : anchor coord end   (assembly context only; NOT a constraint)
-Emits IONWORKS:RESOLUTION with { points:[{id,chr,start,end,title,comment}], error, count }.
+Emits IONWORKS:RESOLUTION with { points:[{id,chr,start,end,title,comment,resolved}], error, count }.
 """
 import json
 import os
@@ -29,6 +30,15 @@ except Exception:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
 
+# species -> Ensembl REST species slug
+ENSEMBL_SPECIES = {
+    "human": "homo_sapiens",
+    "mouse": "mus_musculus",
+    "rat": "rattus_norvegicus",
+    "dog": "canis_lupus_familiaris",
+}
+ENSEMBL_REST = "https://rest.ensembl.org"
+
 gene = works.param(1) or ""
 species = works.param(2) or "human"
 chrom = works.param(3) or ""
@@ -41,10 +51,10 @@ try:
 except Exception:
     anchor_hi = 0
 
-works.progress(15)
+works.progress(10)
 
 
-def find_points(gene, species, chrom, alo, ahi):
+def ask_claude(gene, species, chrom, alo, ahi):
     if not ANTHROPIC_API_KEY:
         return [], "ANTHROPIC_API_KEY is not set on the server"
     if requests is None:
@@ -62,22 +72,22 @@ def find_points(gene, species, chrom, alo, ahi):
     system = (
         "You are a clinical/cancer genomics expert. Given a GENE SYMBOL and SPECIES, list the "
         "most important known mutations/variants in that gene that carry a stable database "
-        "identifier from which a genomic location can be derived: dbSNP rsID, ClinVar variation "
-        "id, COSMIC id, or a precise HGVS (genomic g. or coding c.) descriptor. Prioritise "
-        "clinically or biologically significant variants: pathogenic/likely-pathogenic alleles, "
-        "recurrent oncogenic hotspots (e.g. activating driver mutations), founder alleles, and "
-        "well-characterised functional variants. For EACH variant return:\n"
-        "  id     : the database identifier (e.g. rs121913529, VCV000012600, COSM521, or an "
-        "HGVS string) — required, this is what locates it\n"
+        "identifier from which a genomic location can be derived. STRONGLY PREFER dbSNP rsIDs "
+        "(e.g. rs121913529) because their coordinates will be looked up authoritatively; you "
+        "may also use ClinVar variation ids, COSMIC ids, or a precise HGVS descriptor. "
+        "Prioritise clinically or biologically significant variants: pathogenic/likely-"
+        "pathogenic alleles, recurrent oncogenic hotspots (activating driver mutations), "
+        "founder alleles, and well-characterised functional variants. For EACH variant return:\n"
+        "  id     : the database identifier — prefer the rsID (e.g. rs121913529) — required\n"
         "  chr    : chromosome on the reference assembly (string)\n"
-        "  start  : genomic start coordinate (1-based integer)\n"
+        "  start  : genomic start coordinate (1-based integer; best estimate)\n"
         "  end    : genomic end coordinate (>= start; equal to start for a SNV)\n"
         "  title  : short label, ideally protein change + id (e.g. \"KRAS G12D (rs121913529)\")\n"
         "  comment: one sentence on clinical/biological significance\n"
         "Respond with ONLY JSON, no prose:\n"
         '{"points":[{"id":"...","chr":"...","start":int,"end":int,"title":"...","comment":"..."}]}\n'
         "Return at most 15 variants, most important first. Only include a variant if you can "
-        "give a real database id AND a genomic coordinate; omit anything you cannot locate."
+        "give a real database id AND a coordinate estimate."
     )
     user = (
         "Gene symbol: %s\nSpecies: %s%s\n"
@@ -121,7 +131,7 @@ def find_points(gene, species, chrom, alo, ahi):
             if e == s:
                 e = s + 1
             vid = ("" + str(p.get("id", ""))).strip()[:60]
-            if not vid or s <= 0:
+            if not vid:
                 continue
             out.append({
                 "id": vid,
@@ -130,12 +140,76 @@ def find_points(gene, species, chrom, alo, ahi):
                 "end": e,
                 "title": ("" + str(p.get("title", vid))).strip()[:80],
                 "comment": ("" + str(p.get("comment", ""))).strip()[:400],
+                "resolved": False,
             })
         except Exception:
             pass
     return out, None
 
 
-points, err = find_points(gene, species, chrom, anchor_lo, anchor_hi)
+def resolve_rsid(species, rsid):
+    """Look up a dbSNP rsID's exact genomic coordinates via Ensembl REST.
+    Returns {chr,start,end,assembly} on the primary chromosome, or None."""
+    if requests is None:
+        return None
+    sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    try:
+        r = requests.get(
+            "%s/variation/%s/%s" % (ENSEMBL_REST, sp, rsid),
+            headers={"content-type": "application/json"},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return None
+        maps = (r.json() or {}).get("mappings") or []
+    except Exception:
+        return None
+    best = None
+    for m in maps:
+        srn = str(m.get("seq_region_name", ""))
+        # primary chromosome only (skip patches/haplotypes/scaffolds)
+        if m.get("coord_system") == "chromosome" and "_" not in srn and "." not in srn:
+            best = m
+            break
+    if best is None and maps:
+        best = maps[0]
+    if best is None:
+        return None
+    try:
+        return {
+            "chr": str(best.get("seq_region_name", "")),
+            "start": int(best.get("start")),
+            "end": int(best.get("end")),
+            "assembly": str(best.get("assembly_name", "")),
+        }
+    except Exception:
+        return None
+
+
+points, err = ask_claude(gene, species, chrom, anchor_lo, anchor_hi)
+works.progress(55)
+
+# Resolve any dbSNP rsID to authoritative Ensembl coordinates, overriding the estimate.
+resolved_n = 0
+if points:
+    total = len(points)
+    for i, p in enumerate(points):
+        m = re.search(r"rs\d+", p.get("id", ""), re.I)
+        if m:
+            loc = resolve_rsid(species, m.group(0).lower())
+            if loc and loc.get("start"):
+                p["chr"] = loc["chr"] or p["chr"]
+                p["start"] = loc["start"]
+                # keep at least a 1bp span; use Ensembl end when it is larger
+                p["end"] = loc["end"] if loc["end"] and loc["end"] >= loc["start"] else loc["start"] + 1
+                if p["end"] <= p["start"]:
+                    p["end"] = p["start"] + 1
+                p["resolved"] = True
+                resolved_n += 1
+        works.progress(55 + int(40.0 * (i + 1) / max(1, total)))
+
+# Drop anything we still could not place (no positive coordinate).
+points = [p for p in points if p.get("start", 0) > 0]
+
 works.progress(100)
-works.resolve({"points": points, "error": err, "count": len(points)})
+works.resolve({"points": points, "error": err, "count": len(points), "resolved": resolved_n})

@@ -63,7 +63,9 @@ function (graph, genegraph_panel_layout) {
                 const an = new Annotation('PointOfInterest', label, gi, gf, t.strand);
                 an.color = colors[n % colors.length];
                 an.variantId = p.id || '';
-                const note = (p.id ? (p.id + ' — ') : '') + (p.comment || '');
+                an.resolved = !!p.resolved;   // true = exact Ensembl coordinate
+                let note = (p.id ? (p.id + ' — ') : '') + (p.comment || '');
+                if (!p.resolved) note += ' (position estimated)';
                 an.description = note;
                 an.comment = note;
                 an.labelY = 0.45 + (n % 3) * 0.18;   // stagger labels so they don't collide
@@ -73,6 +75,9 @@ function (graph, genegraph_panel_layout) {
         }
         try { if (t.fitYAxis) t.fitYAxis(); } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
-        graph.setMessage(' Added ' + n + ' mutation(s) of interest to ' + (t.name || 'the track') + '. ');
+        const resolved = (res && res.resolved) || 0;
+        graph.setMessage(' Added ' + n + ' mutation(s) of interest to ' + (t.name || 'the track')
+            + ' — ' + resolved + ' at exact Ensembl positions'
+            + (n - resolved > 0 ? ', ' + (n - resolved) + ' estimated' : '') + '. ');
     })();
 }
