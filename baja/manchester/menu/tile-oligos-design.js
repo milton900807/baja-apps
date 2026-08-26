@@ -148,49 +148,56 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
             // Design the top 500 candidates by rule score.
-            let ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 500 });
+            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 500 });
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
 
-            // Real-time off-target filter: drop any candidate whose target site is NOT
-            // unique — i.e. more than 1 exact (edit distance 0) hit in the species'
-            // transcriptome. Uses the same local off-target service as the off-target tool.
-            try {
-                const _host = window['env']['apiUrl'];
-                // Always filter against the human pre-mRNA off-target index.
-                let _genome = 'human_premrna';
-                try {
-                    const _gj = await GETJSON(_host + '/genomes');
-                    const _keys = Object.keys(_gj || {});
-                    if (!_keys.includes(_genome)) _genome = _keys.find(k => /human.*premrna|premrna.*human/i.test(k)) || null;
-                } catch (e) { }
-                if (_genome) {
-                    const _keep = new Array(ranked.length).fill(true);
-                    const _seqs = ranked.map((c, i) => ({ id: String(i), synthesisSequence: Rules.clean(c.targetWindow) }));
-                    const _CH = 200;
-                    for (let _s = 0; _s < _seqs.length; _s += _CH) {
-                        graph.setMessage(' Off-target filtering (edit distance 0) ' + Math.min(_s + _CH, _seqs.length) + '/' + _seqs.length + '… ');
-                        const _r = await POSTJSON({ editDistance: 0, strand: '+-', genomes: _genome, sequences: _seqs.slice(_s, _s + _CH), runMode: 'return' }, _host + '/off-targets-file');
-                        const _oq = (_r && _r.oligoQuery) || [];
-                        for (const _q of _oq) {
-                            const _ot = (_q.offtarget || _q.offTargets || []);
-                            if (_ot.length > 1) _keep[+_q.id] = false;   // >1 exact hit => not unique
-                        }
-                    }
-                    const _before = ranked.length;
-                    ranked = ranked.filter((_, i) => _keep[i]);
-                    graph.setMessage(' Off-target filter kept ' + ranked.length + '/' + _before + ' unique candidate(s). ');
-                    if (!ranked.length) { graph.setMessage(' No unique candidates left after off-target filtering (edit distance 0). '); return; }
-                }
-            } catch (e) { console.warn('off-target filter skipped:', e); }
+            // Design has started: hand the mouse back to hover/highlight mode so the user
+            // can interact while the oligos tile in real time.
+            try { graph.setMouseMode('navigate'); } catch (e) { }
+            try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
-            // Add ALL designed oligos to the track (no menu / list), with a
-            // progress bar while they are built and placed.
+            // Resolve the human pre-mRNA off-target index once.
+            const _host = window['env']['apiUrl'];
+            let _genome = 'human_premrna';
+            try {
+                const _gj = await GETJSON(_host + '/genomes');
+                const _keys = Object.keys(_gj || {});
+                if (!_keys.includes(_genome)) _genome = _keys.find(k => /human.*premrna|premrna.*human/i.test(k)) || null;
+            } catch (e) { }
+
+            // Real-time tiling: off-target-filter each chunk (edit distance 0), then place
+            // the passers immediately, with live status + estimated time remaining. Any
+            // candidate with >1 exact hit in human pre-mRNA (non-unique) is dropped.
             const prog = makeProgress();
-            let placed = 0;
-            for (let i = 0; i < ranked.length; i++) {
-                if (await dropCandidate(ranked[i], ruleset, chemObj, true)) placed++;
-                prog.set(((i + 1) / ranked.length) * 100);
-                graph.setMessage(' Designing… placed ' + placed + '/' + ranked.length + ' ' + ruleset + ' oligo(s) ');
+            const _t0 = Date.now();
+            let placed = 0, filtered = 0, done = 0;
+            const _CH = 100;
+            const _fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's' : (Math.floor(s / 60) + 'm ' + (s % 60) + 's'); };
+            for (let _s = 0; _s < ranked.length; _s += _CH) {
+                const _chunk = ranked.slice(_s, _s + _CH);
+                const _pass = _chunk.map(() => true);
+                if (_genome) {
+                    try {
+                        const _seqs = _chunk.map((c, i) => ({ id: String(i), synthesisSequence: Rules.clean(c.targetWindow) }));
+                        const _r = await POSTJSON({ editDistance: 0, strand: '+-', genomes: _genome, sequences: _seqs, runMode: 'return' }, _host + '/off-targets-file');
+                        for (const _q of ((_r && _r.oligoQuery) || [])) {
+                            const _ot = (_q.offtarget || _q.offTargets || []);
+                            if (_ot.length > 1) _pass[+_q.id] = false;   // >1 exact hit => not unique
+                        }
+                    } catch (e) { }
+                }
+                for (let i = 0; i < _chunk.length; i++) {
+                    done++;
+                    if (!_pass[i]) filtered++;
+                    else if (await dropCandidate(_chunk[i], ruleset, chemObj, true)) placed++;
+                    prog.set((done / ranked.length) * 100);
+                    const _el = Date.now() - _t0;
+                    const _eta = done > 0 ? (_el / done) * (ranked.length - done) : 0;
+                    graph.setMessage(' Tiling ' + ruleset + '… placed ' + placed + ', off-target-filtered ' + filtered +
+                        ' — ' + done + '/' + ranked.length + ' (' + Math.round(done / ranked.length * 100) + '%), ETA ' + _fmt(_eta));
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                }
+                try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
             }
             prog.done();
             try { if (graph.fitAllTrackYAxes) graph.fitAllTrackYAxes(); else if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
