@@ -156,49 +156,26 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             try { graph.setMouseMode('navigate'); } catch (e) { }
             try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
-            // Resolve the human pre-mRNA off-target index once.
-            const _host = window['env']['apiUrl'];
-            let _genome = 'human_premrna';
-            try {
-                const _gj = await GETJSON(_host + '/genomes');
-                const _keys = Object.keys(_gj || {});
-                if (!_keys.includes(_genome)) _genome = _keys.find(k => /human.*premrna|premrna.*human/i.test(k)) || null;
-            } catch (e) { }
-
-            // Real-time tiling: off-target-filter each chunk (edit distance 0), then place
-            // the passers immediately, with live status + estimated time remaining. Any
-            // candidate with >1 exact hit in human pre-mRNA (non-unique) is dropped.
+            // Real-time tiling: place each candidate immediately, with live status +
+            // estimated time remaining. No off-target filtering here — this is tile & score
+            // only (run off-targets separately from the off-target tools if needed).
             const prog = makeProgress();
             const _t0 = Date.now();
-            let placed = 0, filtered = 0, done = 0;
-            const _CH = 100;
+            let placed = 0, done = 0;
             const _fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's' : (Math.floor(s / 60) + 'm ' + (s % 60) + 's'); };
-            for (let _s = 0; _s < ranked.length; _s += _CH) {
-                const _chunk = ranked.slice(_s, _s + _CH);
-                const _pass = _chunk.map(() => true);
-                if (_genome) {
-                    try {
-                        const _seqs = _chunk.map((c, i) => ({ id: String(i), synthesisSequence: Rules.clean(c.targetWindow) }));
-                        const _r = await POSTJSON({ editDistance: 0, strand: '+-', genomes: _genome, sequences: _seqs, runMode: 'return' }, _host + '/off-targets-file');
-                        for (const _q of ((_r && _r.oligoQuery) || [])) {
-                            const _ot = (_q.offtarget || _q.offTargets || []);
-                            if (_ot.length > 1) _pass[+_q.id] = false;   // >1 exact hit => not unique
-                        }
-                    } catch (e) { }
+            for (let i = 0; i < ranked.length; i++) {
+                done++;
+                if (await dropCandidate(ranked[i], ruleset, chemObj, true)) placed++;
+                prog.set((done / ranked.length) * 100);
+                const _el = Date.now() - _t0;
+                const _eta = done > 0 ? (_el / done) * (ranked.length - done) : 0;
+                graph.setMessage(' Tiling ' + ruleset + '… placed ' + placed +
+                    ' — ' + done + '/' + ranked.length + ' (' + Math.round(done / ranked.length * 100) + '%), ETA ' + _fmt(_eta));
+                // Batch the redraw every 10 placements (counter/status stays live).
+                if (done % 10 === 0) {
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
                 }
-                for (let i = 0; i < _chunk.length; i++) {
-                    done++;
-                    if (!_pass[i]) filtered++;
-                    else if (await dropCandidate(_chunk[i], ruleset, chemObj, true)) placed++;
-                    prog.set((done / ranked.length) * 100);
-                    const _el = Date.now() - _t0;
-                    const _eta = done > 0 ? (_el / done) * (ranked.length - done) : 0;
-                    graph.setMessage(' Tiling ' + ruleset + '… placed ' + placed + ', off-target-filtered ' + filtered +
-                        ' — ' + done + '/' + ranked.length + ' (' + Math.round(done / ranked.length * 100) + '%), ETA ' + _fmt(_eta));
-                    // Batch the redraw every 10 placements (counter/status stays live).
-                    if (done % 10 === 0) { try { if (graph.wake) graph.wake(); } catch (e) { } }
-                }
-                try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
             }
             prog.done();
             try { if (graph.wake) graph.wake(); } catch (e) { }   // final redraw for the remainder
