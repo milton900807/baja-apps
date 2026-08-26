@@ -223,16 +223,23 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                             'title': 'Describe the gene or paste an ENSEMBL/NCBI ID',
                             'width': '100%',
                             'component': {
-                                wid: 'input-textarea-editor',
+                                wid: 'text-editor',
+                                refCallback: createIonFunction((p) => { v = p; }),
                                 data: {
-                                    'showButton': false,
-                                    'title': 'Prompt / ID',
-                                    'text': __ex,   // rotating example, cleared on first focus
-                                    'onFocus': createIonFunction(() => {
-                                        if (__exActive && v) { try { v.updateValue(''); } catch (e) { } __exActive = false; }
-                                    }),
-                                    'ionHookFunction': createIonFunction((input_box) => {
-                                        v = input_box;
+                                    height: '120px',
+                                    showButton: false,
+                                    editorOptions: {
+                                        value: '',
+                                        language: 'text', automaticLayout: true, fontSize: 20, lineNumbers: 'off',
+                                        suggestOnTriggerCharacters: false, quickSuggestions: false,
+                                        parameterHints: { enabled: false }, minimap: { enabled: false },
+                                        fontFamily: 'Courier New, monospace',
+                                        placeholder: 'Describe the gene or paste an ENSEMBL/NCBI ID',
+                                        cursorStyle: 'block'
+                                    },
+                                    // Clear the typed-in example the first time the user clicks in.
+                                    onDidFocusEditorWidget: createIon(() => {
+                                        if (__exActive && v) { try { v.setContent(''); } catch (e) { } __exActive = false; }
                                     })
                                 }
                             }
@@ -261,8 +268,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                         // straight into the description/ID box for a direct load.
                                         try {
                                             let transcript = extractFirstEnsemblId(value.toString());
-                                            if (transcript && v && v.updateValue) {
-                                                v.updateValue(transcript); __exActive = false;
+                                            if (transcript && v && v.setContent) {
+                                                v.setContent(transcript); __exActive = false;
                                             }
                                         } catch (e) { }
                                     }),
@@ -282,8 +289,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                             label: 'Load', ionFunction: createIonFunction(async () => {
                                                 let desc = '';
                                                 try {
-                                                    desc = (v && v.getWidgetValue) ? v.getWidgetValue()
-                                                        : (v && v.value ? v.value : '');
+                                                    desc = (v && v.getContent) ? v.getContent()
+                                                        : (v && v.getWidgetValue ? v.getWidgetValue() : (v && v.value ? v.value : ''));
                                                 } catch (e) { }
                                                 // Ignore the prefilled example if the user never edited it.
                                                 if (__exActive && ('' + (desc || '')).trim() === __ex) desc = '';
@@ -332,5 +339,15 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         // Show the New-track form in the mainPanel instead of a modal.
         describe_transcript.componentRef = 'mainPanel';
         showInMainPanel(describe_transcript);
+        // Typewriter: type the random example into the editor (cleared on first focus).
+        setTimeout(() => {
+            let __i = 0;
+            const __iv = setInterval(() => {
+                if (!__exActive || !v || !v.setContent) { try { clearInterval(__iv); } catch (e) { } return; }
+                try { v.setContent(__ex.slice(0, __i + 1)); } catch (e) { }
+                __i++;
+                if (__i >= __ex.length) clearInterval(__iv);
+            }, 25);
+        }, 500);
     });
 }
