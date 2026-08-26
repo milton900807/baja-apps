@@ -1997,6 +1997,41 @@ return new Promise(async (resolve, reject) => {
           this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], _gs));
           this.add(new Annotation('STOP', 'STOP', _e[0], _e[1], _gs));
           this.add(new Annotation('Translation', 'Translation', _lo, _hi, _gs));
+
+          // Peptide: splice the CDS in transcription order (complement for '-'),
+          // translate from the start ATG to the first in-frame stop, and set
+          // this.orf.cdsi so the amino-acid row draws each residue at its genomic pos.
+          try {
+            const _cdsA = (this.annotations || []).filter(a => a.type === 'CDS')
+              .map(a => ({ lo: Math.min(+a.xi, +a.xf), hi: Math.max(+a.xi, +a.xf) }))
+              .sort((a, b) => _plus ? a.lo - b.lo : b.lo - a.lo);   // 5'->3' transcription order
+            if (_cdsA.length) {
+              const _comp = { A: 'T', T: 'A', C: 'G', G: 'C', N: 'N' };
+              const _seq = ('' + (this.sequence || '')).toUpperCase();
+              const _xi = this.xi;
+              const _gpos = [], _cb = [];
+              for (const c of _cdsA) {
+                if (_plus) { for (let p = c.lo; p <= c.hi; p++) { _gpos.push(p); _cb.push(_seq[p - _xi] || 'N'); } }
+                else { for (let p = c.hi; p >= c.lo; p--) { _gpos.push(p); _cb.push(_comp[_seq[p - _xi]] || 'N'); } }
+              }
+              const _cseq = _cb.join('');
+              const _cdsi = [];
+              const _protein = [];
+              for (let i = 0; i + 2 < _cseq.length; i += 3) {
+                const _codon = _cseq.substr(i, 3);
+                const _aa = (typeof codon === 'function') ? codon(_codon) : 'X';
+                if (_aa === 'STOP') break;
+                _protein.push(_aa || 'X');
+                for (let ci = 0; ci < 3; ci++) {
+                  _cdsi.push({ index: _gpos[i + ci], ci: ci, codon_index: i / 3, aa: _aa || 'X', codon: _codon });
+                }
+              }
+              this.orf = this.orf || {};
+              this.orf.cdsi = _cdsi;
+              this.orf.sequence = _protein.join('');
+              try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }
+            }
+          } catch (e) { }
           return this.orf;
         }
       } catch (e) { }
