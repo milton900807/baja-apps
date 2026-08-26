@@ -173,6 +173,94 @@ function (server, graph, genegraph_panel_layout) {
             resolve(variant);
         };
 
+        // Add MANY variants: split the text into individual descriptors, resolve each
+        // through prompt-to-variant.py, and place them on the loaded tracks (no per-variant
+        // zoom). Fetches a covering track only when nothing loaded spans a variant.
+        const addManyVariants = async (rawText) => {
+            const text = ('' + (rawText || '')).trim();
+            if (!text) { resolve(null); return; }
+            graph.setMessage(' Finding all variants in the text… ');
+
+            let list = [];
+            try {
+                let em = new EngineMonitor((m) => { log(m); });
+                let sres = await exec(server + '/py/sequence/split-variants.py', em, text);
+                try { list = JSON.parse(sres.variants); } catch (e) { list = []; }
+            } catch (e) {
+                graph.setMessage(' Variant splitter failed: ' + (e && e.message ? e.message : e)); resolve(null); return;
+            }
+            if (!list.length) { graph.setMessage(' No variants found in the text.'); resolve(null); return; }
+
+            let SnpIndel = null;
+            try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { }
+            if (!SnpIndel) { graph.setMessage(' Variant support unavailable.'); resolve(null); return; }
+
+            // Place one resolved variant on every loaded track that spans it (mirrors the
+            // single-variant placeOnTracks). Returns {added, found}.
+            const place = (variant) => {
+                let added = 0, found = 0;
+                const G = variant.genomic;
+                try {
+                    for (let i = 0; i < (graph.track ? graph.track.length : 0); i++) {
+                        const t = graph.track[i];
+                        if (!t || !t.variantWorldX) continue;
+                        let xi = t.variantWorldX(variant.chr, G);
+                        if (xi == null) continue;
+                        if ((variant.type === 'del') && (t.strand !== -1)) xi = xi + 1;
+                        found++;
+                        if ((t.snpindels || []).some(s => s && Math.round(s.xi) === Math.round(xi)
+                            && (s.name === (variant.rsid || variant.label) || s.reference === (variant.ref || 'N')))) {
+                            continue;
+                        }
+                        const snp = new SnpIndel(
+                            variant.type || 'snp', xi,
+                            variant.ref || 'N', variant.alt || 'N',
+                            0, t.strand,
+                            (variant.rsid || variant.label || 'variant'),
+                            null, '#ff8c1a'
+                        );
+                        try { snp.name = variant.label || variant.hgvs_c || variant.hgvs_g || variant.rsid || 'variant'; } catch (e) { }
+                        t.addsnpindel(snp);
+                        t.showSnpIndels = true;
+                        added++;
+                    }
+                } catch (e) { console.warn('add variant failed', e); }
+                return { added, found };
+            };
+
+            let totalAdded = 0, resolved = 0, failed = 0, idx = 0;
+            for (const item of list) {
+                idx++;
+                const descr = ('' + (item && item.text ? item.text : item)).trim();
+                if (!descr) { continue; }
+                graph.setMessage(' Resolving variant ' + idx + '/' + list.length + ': ' + descr + ' …');
+                let variant = null;
+                try {
+                    let em = new EngineMonitor((m) => { });
+                    let res = await exec(PY, em, descr, '');
+                    variant = JSON.parse(res.variant);
+                } catch (e) { variant = null; }
+                if (!variant) { failed++; continue; }
+                resolved++;
+                let r = place(variant);
+                if (!r.found && variant.ensembl && graph.add) {
+                    let nt = null;
+                    try { nt = await graph.add(variant.ensembl, null, null, null); } catch (e) { nt = null; }
+                    if (nt) {
+                        try { if (nt.select) nt.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(nt); } catch (e) { }
+                        r = place(variant);
+                    }
+                }
+                totalAdded += r.added;
+            }
+
+            try { if (graph.setMouseMode) graph.setMouseMode('navigate'); } catch (e) { }
+            if (graph.wake) graph.wake();
+            graph.setMessage(' Added ' + totalAdded + ' variant marker(s) from ' + resolved
+                + ' resolved variant(s)' + (failed ? ' (' + failed + ' unresolved)' : '') + '.');
+            resolve({ added: totalAdded, resolved: resolved });
+        };
+
         // ---- the form (mainPanel) --------------------------------------------------
         let v = null;        // variant description textarea
         let describe_variant = {
@@ -232,11 +320,19 @@ function (server, graph, genegraph_panel_layout) {
                             wid: 'mt-button', data: {
                                 buttons: [
                                     {
-                                        label: 'Add variant', ionFunction: createIonFunction(async () => {
+                                        label: 'Add best variant', ionFunction: createIonFunction(async () => {
                                             let desc = '';
                                             try { desc = (v && v.getWidgetValue) ? v.getWidgetValue() : (v && v.value ? v.value : ''); } catch (e) { }
                                             showEditorCanvas();
                                             setTimeout(() => { resolveAndAdd(desc, null); }, 200);
+                                        })
+                                    },
+                                    {
+                                        label: 'Add variants', ionFunction: createIonFunction(async () => {
+                                            let desc = '';
+                                            try { desc = (v && v.getWidgetValue) ? v.getWidgetValue() : (v && v.value ? v.value : ''); } catch (e) { }
+                                            showEditorCanvas();
+                                            setTimeout(() => { addManyVariants(desc); }, 200);
                                         })
                                     },
                                     {
