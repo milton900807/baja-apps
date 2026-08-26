@@ -6343,7 +6343,7 @@ return new Promise(async (resolve, reject) => {
                 // Peptide row: fixed a constant distance just BELOW the track bottom
                 // (screen Y = bottom + 16px), independent of zoom, so it never overlaps
                 // the nucleotide row and stays pinned under the track.
-                _pepRowY = _botY + 16 / _ppw;
+                _pepRowY = _botY + 22 / _ppw;
               }
             } catch (e) { }
             const seqPx = Math.max(11, Math.min(Math.round(screencell * 0.8), 44, __seqPxFit));
