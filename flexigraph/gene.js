@@ -2815,6 +2815,24 @@ function (progress, options) {
 
                 });
 
+                // If the transcript has a CDS but no explicit start_codon/stop_codon,
+                // derive the start (TSS) and stop (STOP) from the CDS bounds and the
+                // orientation: 5'-most CDS base is the start, 3'-most is the stop (for
+                // '-' strand these swap in genomic coordinates).
+                const _hasTSS = annotations.some(a => ('' + a.type).toLowerCase() === 'tss');
+                const _hasSTOP = annotations.some(a => ('' + a.type).toLowerCase() === 'stop');
+                const _cds = annotations.filter(a => a.type === 'CDS');
+                if (_cds.length && (!_hasTSS || !_hasSTOP)) {
+                    let lo = Infinity, hi = -Infinity;
+                    for (const c of _cds) { lo = Math.min(lo, c.xi, c.xf); hi = Math.max(hi, c.xi, c.xf); }
+                    const _strand = _cds[0].strand;
+                    const _plus = !(_strand === '-' || _strand === -1 || _strand === '-1');
+                    const _startG = _plus ? [lo, lo + 2] : [hi - 2, hi];
+                    const _stopG = _plus ? [hi - 2, hi] : [lo, lo + 2];
+                    if (!_hasTSS) { let a = new Annotation('TSS', 'TSS', _startG[0], _startG[1] + 1, _strand); try { a.shapeFunction = getIon(shapes[a.type]); } catch (e) { } annotations.push(a); }
+                    if (!_hasSTOP) { let a = new Annotation('STOP', 'STOP', _stopG[0], _stopG[1], _strand); try { a.shapeFunction = getIon(shapes[a.type]); } catch (e) { } annotations.push(a); }
+                }
+
                 return annotations;
             }
 
