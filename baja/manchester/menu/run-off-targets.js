@@ -29,16 +29,17 @@ function (graph, genegraph_panel_layout, oligos, options) {
     };
     const __querySeq = (o) => {
         if (!o) return '';
-        // The off-target query is the ACTUAL synthesized ASO strand. Prefer the compound's
-        // own synthesisSequence (generateCompound already oriented it). If it is missing,
-        // derive it from the target sequence per the ASO convention: COMPLEMENT on a
-        // reverse-strand track, REVERSE-COMPLEMENT on a forward-strand track.
-        let g = __toDNA(o.synthesisSequence);
-        if ((!g || g.length < 8) && o.sequence && Biopolymer) {
-            const st = __oligoStrand(o);
-            g = __toDNA(st < 0 ? Biopolymer.comp(o.sequence) : Biopolymer.reverseComp(o.sequence));
-        }
-        if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);   // last-resort fallback
+        // The off-target index is DNA searched on BOTH strands, so the query MUST be a real
+        // strand of the target duplex. Use the REVERSE-COMPLEMENT of the target region — the
+        // true antisense (ASO) strand — which finds the target on either genome strand.
+        // IMPORTANT: do NOT use synthesisSequence directly: generateCompound stores a plain
+        // COMPLEMENT (not reversed) for reverse-strand oligos, and a plain complement is not
+        // a real strand — it matches nothing, so reverse-strand ASOs would find no hits
+        // (not even their own gene). reverseComp(target) works for both strands.
+        let g = '';
+        if (o.sequence && Biopolymer) g = __toDNA(Biopolymer.reverseComp(o.sequence));
+        if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);
+        if (!g || g.length < 8) g = __toDNA(o.synthesisSequence);   // last-resort fallback
         // Strip a 3' overhang (e.g. dTdT) if the chosen field carries one — it does
         // not target the transcript.
         const oh = __toDNA(o.antisenseOverhang || o.overhang);

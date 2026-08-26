@@ -78,7 +78,10 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             try {
                 ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
                 if (ot_oligos.length > 200) { graph.setMessage(' Off-targets run 200 oligos at a time — running the first 200 (left→right, top→bottom). '); ot_oligos = ot_oligos.slice(0, 200); }
-                seqList = ot_oligos.map((o) => ({ "id": o.id, "synthesisSequence": o.synthesisSequence }));
+                // Query with the REVERSE-COMPLEMENT of the target (a real antisense strand) so
+                // reverse-strand oligos find hits — a plain complement matches nothing on the
+                // both-strand DNA index.
+                seqList = ot_oligos.map((o) => ({ "id": o.id, "synthesisSequence": (o.sequence && Biopolymer ? Biopolymer.reverseComp(o.sequence) : o.synthesisSequence) }));
             } catch (e) { }
             const __idToOligo = new Map();
             for (const o of ot_oligos) { if (o && o.id != null) __idToOligo.set(String(o.id), o); }
