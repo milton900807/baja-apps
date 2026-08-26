@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Points-of-interest finder: given a gene's nucleotide sequence + its annotations,
-ask Claude to identify the most biologically interesting regions WITHIN the
-sequence and return their offsets + a short title + a one-sentence rationale.
+Points-of-interest finder (genomic-range mode): given a gene name and a genomic
+coordinate range [range_start, range_end] on a chromosome, ask Claude to return the
+important genomic features/annotations that fall WITHIN that range, as GENOMIC
+coordinates + a short title + a one-sentence rationale.
 
 Invoked by the server:  python3 points-of-interest.py jfile:<argsfile>
 Ionworks params:
-    param(1) : the track's nucleotide sequence
-    param(2) : the annotations as a JSON string
-    param(3) : optional context (gene symbol / transcript id / description)
+    param(1) : gene name / transcript id
+    param(2) : genomic range start (xi)
+    param(3) : genomic range end (xf)
+    param(4) : chromosome (e.g. "chr12" or "12")
 Emits IONWORKS:RESOLUTION with { points:[{start,end,title,comment}], error, count }.
 """
 import json
@@ -25,36 +27,45 @@ except Exception:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
 
-sequence = works.param(1) or ""
-annotations = works.param(2) or "[]"
-context = works.param(3) or ""
+gene = works.param(1) or ""
+try:
+    range_start = int(float(works.param(2) or 0))
+except Exception:
+    range_start = 0
+try:
+    range_end = int(float(works.param(3) or 0))
+except Exception:
+    range_end = 0
+chrom = works.param(4) or ""
 
 works.progress(15)
 
 
-def find_points(seq, anns, ctx):
+def find_points(gene, chrom, rs, re_):
     if not ANTHROPIC_API_KEY:
         return [], "ANTHROPIC_API_KEY is not set on the server"
     if requests is None:
         return [], "python 'requests' is not available on the server"
 
+    lo, hi = (rs, re_) if rs <= re_ else (re_, rs)
     system = (
-        "You are a molecular biology expert examining a single gene/transcript. Given its "
-        "nucleotide sequence and annotations, identify the most biologically INTERESTING or "
-        "IMPORTANT regions that lie WITHIN the provided sequence. Consider: the start (ATG) "
-        "and stop codons, functional/protein domains, key sequence motifs, splice donor/"
-        "acceptor sites and branch points, 5'/3' UTR regulatory elements, uORFs, Kozak "
-        "context, miRNA/RBP binding sites, polyA signals, repeat / low-complexity stretches, "
-        "GC-rich or notable secondary-structure regions, and any disease-relevant hotspots. "
-        "For each region return 0-based half-open offsets [start,end) INTO THE PROVIDED "
-        "SEQUENCE (0 <= start < end <= sequence length), a concise title (<= 6 words), and a "
-        "single-sentence rationale for why it is interesting. Respond with ONLY JSON, no prose:\n"
+        "You are a genomics expert. Given a gene and a GENOMIC coordinate range on a "
+        "chromosome, return the important genomic features/annotations for that gene that "
+        "fall WITHIN that range. Consider exons, CDS, start (ATG) and stop codons, 5'/3' UTRs, "
+        "key protein domains mapped to their genomic coordinates, splice donor/acceptor sites, "
+        "promoter/regulatory elements, polyA signals, and known pathogenic variant hotspots. "
+        "For each feature return GENOMIC start and end coordinates (integers, on the given "
+        "chromosome, with range_start <= start < end <= range_end), a concise title (<= 6 "
+        "words) and a single-sentence rationale for why it is notable. Respond with ONLY JSON, "
+        "no prose:\n"
         '{"points":[{"start":int,"end":int,"title":"...","comment":"..."}]}\n'
-        "Return at most 12 points; prefer non-overlapping, biologically specific regions."
+        "Return at most 15 features; prefer specific, non-overlapping regions with real "
+        "genomic coordinates inside the range."
     )
     user = (
-        "Context: %s\nSequence length: %d nt\nAnnotations (JSON): %s\n\nSequence:\n%s"
-        % (ctx, len(seq), (anns or "")[:6000], seq[:200000])
+        "Gene: %s\nChromosome: %s\nGenomic range (inclusive): %d - %d\n"
+        "Return features with genomic coordinates strictly inside this range."
+        % (gene, chrom, lo, hi)
     )
     try:
         r = requests.post(
@@ -83,14 +94,13 @@ def find_points(seq, anns, ctx):
     except Exception as ex:
         return [], str(ex)
 
-    L = len(seq)
     out = []
     for p in raw:
         try:
-            s = int(p.get("start", 0))
+            s = int(p.get("start", lo))
             e = int(p.get("end", s + 1))
-            s = max(0, min(L - 1, s))
-            e = max(s + 1, min(L, e))
+            s = max(lo, min(hi - 1, s))
+            e = max(s + 1, min(hi, e))
             out.append({
                 "start": s,
                 "end": e,
@@ -102,6 +112,6 @@ def find_points(seq, anns, ctx):
     return out, None
 
 
-points, err = find_points(sequence, annotations, context)
+points, err = find_points(gene, chrom, range_start, range_end)
 works.progress(100)
 works.resolve({"points": points, "error": err, "count": len(points)})
