@@ -1572,6 +1572,13 @@ function (progress, options) {
             setSunsetMessage(m, seconds) {
                 if (this.wake) this.wake();
                 this.sunsetMessage = m;
+                // Make sure the 80s display font (Audiowide) is loaded, then repaint so the
+                // message renders in it rather than the fallback.
+                try {
+                    if (typeof document !== 'undefined' && document.fonts && document.fonts.load) {
+                        document.fonts.load('48px "Audiowide"').then(() => { if (this.wake) this.wake(); }).catch(() => { });
+                    }
+                } catch (e) { }
                 if (this.sunsetTimeout) clearTimeout(this.sunsetTimeout);
                 const ms = Math.max(1500, (seconds || 5) * 1000);
                 this.sunsetTimeout = setTimeout(() => {
@@ -9307,13 +9314,15 @@ pattern, GGGG | Required`
                             let fs = Math.max(26, Math.round(Math.min(cw, ch) * 0.06));
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'middle';
+                            // 80s / synthwave display face; falls back to a heavy sans until loaded.
+                            const fam = '"Audiowide", "Impact", "Arial Black", system-ui, sans-serif';
                             // Shrink to fit the canvas width if the message is long.
-                            ctx.font = '800 ' + fs + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                            ctx.font = fs + 'px ' + fam;
                             let tw = ctx.measureText(smsg).width;
                             const maxW = cw - 48;
                             if (tw > maxW) {
                                 fs = Math.max(16, Math.floor(fs * maxW / tw));
-                                ctx.font = '800 ' + fs + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                                ctx.font = fs + 'px ' + fam;
                                 tw = ctx.measureText(smsg).width;
                             }
                             // Warm sunset gradient across the text (amber -> orange -> pink).
