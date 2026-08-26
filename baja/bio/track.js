@@ -2268,7 +2268,14 @@ return new Promise(async (resolve, reject) => {
         const _tr = (this.annotations || []).find(a => ('' + a.type).toLowerCase() === 'translation');
         if (_tr && _tr.xi != null && _tr.xf != null) {
           const _lo = Math.min(+_tr.xi, +_tr.xf), _hi = Math.max(+_tr.xi, +_tr.xf);
-          const _plus = this.strand >= 0;
+          // Orientation from the ANNOTATIONS' strand, not this.strand: a pre-mRNA
+          // track's this.strand is the (+) genome-slice strand, while the exon/CDS
+          // annotations carry the real gene strand. Using this.strand mislabeled
+          // reverse genes as forward and put the start at the low genomic end.
+          const _sSrc = (this.annotations || []).find(a => {
+            const s = a && a.strand; return s === '-' || s === '+' || s === 1 || s === -1 || s === '1' || s === '-1';
+          });
+          const _plus = _sSrc ? !(String(_sSrc.strand) === '-' || String(_sSrc.strand) === '-1') : (this.strand >= 0);
           const _s = _plus ? [_lo, _lo + 2] : [_hi - 2, _hi];   // start codon (5')
           const _e = _plus ? [_hi - 2, _hi] : [_lo, _lo + 2];   // stop codon (3')
           this.removeAnnotationByType('TSS');
