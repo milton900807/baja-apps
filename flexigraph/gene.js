@@ -2940,7 +2940,7 @@ function (progress, options) {
                                 // downloading and this came from the remote service.
                                 if (localResp.referencesLoading) {
                                     let sp = localResp.species || 'reference';
-                                    this.graph.setMessage(' ' + sp
+                                    this.setMessage(' ' + sp
                                         + ' reference data is still downloading — using the remote service for now (local will be faster once ready).');
                                 }
                             }
@@ -3020,7 +3020,7 @@ function (progress, options) {
                                 } else {
                                     try {
                                         let ensembl_sequence = `${(window['env']?.['apiUrl'] || window.location.origin)}/api/ensembl/sequence/${ensembleId}?prefix=${encodeURIComponent(prefix)}`;
-                                        this.graph.setMessage(" Loading sequence " + prefix)
+                                        this.setMessage(" Loading sequence " + prefix)
                                         let fasta = await GETXT(ensembl_sequence);
                                         setTrackSequenceFromRawFasta(t, fasta);
                                     } catch (seqEx) {
@@ -3099,8 +3099,8 @@ function (progress, options) {
                 }
 
                 if (!js) {
-                    if (this.graph && this.graph.setMessage) {
-                        this.graph.setMessage('Could not reach Ensembl for ' + ensembleId + ' — loaded without remote annotations.');
+                    if (this.setMessage) {
+                        this.setMessage('Could not reach Ensembl for ' + ensembleId + ' — loaded without remote annotations.');
                     }
                     return null;
                 }
