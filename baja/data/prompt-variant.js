@@ -267,7 +267,7 @@ function (server, graph, genegraph_panel_layout) {
                 } catch (e) { res(); }
             });
 
-            let totalAdded = 0, resolved = 0, failed = 0, idx = 0;
+            let totalAdded = 0, resolved = 0, failed = 0, idx = 0, variantNo = 0;
             for (const item of list) {
                 idx++;
                 const descr = ('' + (item && item.text ? item.text : item)).trim();
@@ -296,6 +296,22 @@ function (server, graph, genegraph_panel_layout) {
                 // user can see it before moving on.
                 if (r.lastIndex >= 0 && r.lastXi != null) {
                     try { if (graph.setMouseMode) graph.setMouseMode('navigate'); } catch (e) { }
+                    // Push this variant's location onto the navigation stack as "Variant N".
+                    try {
+                        if (graph.addBookmark && typeof MGrid !== 'undefined') {
+                            const t = graph.track[r.lastIndex];
+                            const base = (graph.graph && graph.graph.grid) ? graph.graph.grid : graph.grid;
+                            const grid = Object.assign(new MGrid(), base);
+                            const HALF = 12;
+                            grid.xmin = t.tgraph.X(r.lastXi - HALF);
+                            grid.xmax = t.tgraph.X(r.lastXi + HALF);
+                            grid.ymax = t.tgraph.yi + Math.abs(t.tgraph.height) / 6;
+                            grid.ymin = t.tgraph.yi - Math.abs(t.tgraph.height - 0.5);
+                            if (grid.rescale) grid.rescale();
+                            variantNo++;
+                            await graph.addBookmark('Variant ' + variantNo + ' — ' + (variant.label || variant.rsid || 'variant'), grid);
+                        }
+                    } catch (e) { console.warn('variant bookmark push failed', e); }
                     await new Promise((rr) => setTimeout(rr, 300));   // let a fetched sequence settle
                     await zoomToVariant(r.lastIndex, r.lastXi);
                     if (idx < list.length) await new Promise((rr) => setTimeout(rr, 2000));
