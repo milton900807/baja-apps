@@ -2268,11 +2268,9 @@ return new Promise(async (resolve, reject) => {
         const _tr = (this.annotations || []).find(a => ('' + a.type).toLowerCase() === 'translation');
         if (_tr && _tr.xi != null && _tr.xf != null) {
           const _lo = Math.min(+_tr.xi, +_tr.xf), _hi = Math.max(+_tr.xi, +_tr.xf);
-          // Place codons by GENOMIC bounds only — the annotation rendering already
-          // applies the strand flip (the cylinder icons are correct), so applying
-          // orientation here too would double-flip and swap start/stop on reverse.
-          const _s = [_lo, _lo + 2];   // start codon at the low genomic end
-          const _e = [_hi - 2, _hi];   // stop codon at the high genomic end
+          const _plus = this.strand >= 0;
+          const _s = _plus ? [_lo, _lo + 2] : [_hi - 2, _hi];   // start codon (5')
+          const _e = _plus ? [_hi - 2, _hi] : [_lo, _lo + 2];   // stop codon (3')
           this.removeAnnotationByType('TSS');
           this.removeAnnotationByType('STOP');
           this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], this.strand));
