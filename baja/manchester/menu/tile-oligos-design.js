@@ -147,8 +147,45 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const step = Math.max(1, Math.floor(span / 100000000));
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
-            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 100000000 });
+            // Design the top 500 candidates by rule score.
+            let ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 500 });
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
+
+            // Real-time off-target filter: drop any candidate whose target site is NOT
+            // unique — i.e. more than 1 exact (edit distance 0) hit in the species'
+            // transcriptome. Uses the same local off-target service as the off-target tool.
+            try {
+                const _host = window['env']['apiUrl'];
+                const _sp = String((selectedTrack.species || 'human')).toLowerCase();
+                let _genome = null;
+                try {
+                    const _gj = await GETJSON(_host + '/genomes');
+                    const _keys = Object.keys(_gj || {});
+                    const _want = _sp.startsWith('mouse') ? ['mouse_cdna', 'mouse_all_transcripts', 'mouse_premrna']
+                        : _sp.startsWith('rat') ? ['rat_cdna', 'rat_all_transcripts', 'rat_premrna']
+                            : ['human_all_transcripts', 'human_cdna_all', 'human_premrna'];
+                    _genome = _want.find(w => _keys.includes(w)) ||
+                        _keys.find(k => k.toLowerCase().startsWith(_sp.slice(0, 3)));
+                } catch (e) { }
+                if (_genome) {
+                    const _keep = new Array(ranked.length).fill(true);
+                    const _seqs = ranked.map((c, i) => ({ id: String(i), synthesisSequence: Rules.clean(c.targetWindow) }));
+                    const _CH = 200;
+                    for (let _s = 0; _s < _seqs.length; _s += _CH) {
+                        graph.setMessage(' Off-target filtering (edit distance 0) ' + Math.min(_s + _CH, _seqs.length) + '/' + _seqs.length + '… ');
+                        const _r = await POSTJSON({ editDistance: 0, strand: '+-', genomes: _genome, sequences: _seqs.slice(_s, _s + _CH), runMode: 'return' }, _host + '/off-targets-file');
+                        const _oq = (_r && _r.oligoQuery) || [];
+                        for (const _q of _oq) {
+                            const _ot = (_q.offtarget || _q.offTargets || []);
+                            if (_ot.length > 1) _keep[+_q.id] = false;   // >1 exact hit => not unique
+                        }
+                    }
+                    const _before = ranked.length;
+                    ranked = ranked.filter((_, i) => _keep[i]);
+                    graph.setMessage(' Off-target filter kept ' + ranked.length + '/' + _before + ' unique candidate(s). ');
+                    if (!ranked.length) { graph.setMessage(' No unique candidates left after off-target filtering (edit distance 0). '); return; }
+                }
+            } catch (e) { console.warn('off-target filter skipped:', e); }
 
             // Add ALL designed oligos to the track (no menu / list), with a
             // progress bar while they are built and placed.
