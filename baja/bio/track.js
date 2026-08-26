@@ -1585,8 +1585,8 @@ return new Promise(async (resolve, reject) => {
     // place protein-domain / site annotations). Handles + and - strand.
     getCDS() {
       const empty = { protein: '', codonPos: [], cdsStartCdna: -1 };
-      const seq = ('' + (this.sequence || '')).toUpperCase();
-      if (seq.length < 3) return empty;
+      const rawSeq = ('' + (this.sequence || '')).toUpperCase();
+      if (rawSeq.length < 3) return empty;
 
       const exons = this.annotations
         .filter((a) => a.type === 'Exon')
@@ -1601,6 +1601,11 @@ return new Promise(async (resolve, reject) => {
       }
 
       const plus = this.strand >= 0;
+      // Minus-strand cDNA is served 3'->5' (coding mRNA reversed); flip it to the
+      // 5'->3' coding orientation that aligns index-for-index with the exon map g[]
+      // below. Forward strand is already 5'->3'. Without this the ATG/stop scan reads
+      // the wrong end and the ORF comes out short (e.g. KRAS 77aa instead of 188).
+      const seq = plus ? rawSeq : rawSeq.split('').reverse().join('');
       exons.sort((a, b) => (plus ? a.xi - b.xi : b.xi - a.xi));
 
       // g[cdnaIndex] = genomic position, in transcript (5'->3') order.
@@ -1671,6 +1676,121 @@ return new Promise(async (resolve, reject) => {
       return best;
     }
 
+    // Robustly define the start (TSS) and stop (STOP) codons + Translation span for
+    // a protein-coding transcript — cDNA/exon-aware and strand-aware. Source order:
+    //   1. an existing start_codon/stop_codon (TSS/STOP) annotation,
+    //   2. the CDS annotation's 5'/3' bounds (the GFF's declared translation),
+    //   3. bioinformatic detection — the ATG opening the ORF / first in-frame stop.
+    // Places the annotations at the correct GENOMIC positions (so they render) and
+    // refreshes this.orf via getCDS (correct exon-aware translation). No-ops for
+    // non-coding transcripts (no CDS and no codon annotation). Returns true when a
+    // start was defined. This replaces the genomic-offset walk in generateORF, which
+    // mis-locates the start on multi-exon / minus-strand transcripts.
+    defineCodons() {
+      const rawSeq = ('' + (this.sequence || '')).toUpperCase();
+      if (rawSeq.length < 3) return false;
+
+      const exonAnns = this.annotations.filter((a) => a.type === 'Exon');
+      const cdsAnns = this.annotations.filter((a) => a.type === 'CDS');
+      const tssAnn = this.annotations.find((a) => ('' + a.type).toLowerCase() === 'tss');
+      const stopAnn = this.annotations.find((a) => ('' + a.type).toLowerCase() === 'stop');
+      // Only derive codons for protein-coding transcripts.
+      if (!cdsAnns.length && !tssAnn && !stopAnn) return false;
+      if (!exonAnns.length) return false;
+
+      const plus = this.strand >= 0;
+      // Minus-strand cDNA is served 3'->5'; reverse to the coding 5'->3' orientation
+      // that aligns index-for-index with the exon map g[] (see getCDS).
+      const seq = plus ? rawSeq : rawSeq.split('').reverse().join('');
+
+      // Exon map: g[cdnaIndex] = genomic position, in transcript (5'->3') order.
+      const exons = exonAnns
+        .map((a) => ({ xi: Math.min(a.xi, a.xf), xf: Math.max(a.xi, a.xf) }))
+        .sort((a, b) => (plus ? a.xi - b.xi : b.xi - a.xi));
+      const g = [];
+      for (const e of exons) {
+        if (plus) { for (let p = e.xi; p <= e.xf; p++) g.push(p); }
+        else { for (let p = e.xf; p >= e.xi; p--) g.push(p); }
+      }
+      if (g.length < 3) return false;
+      const gToC = new Map();
+      for (let i = 0; i < g.length; i++) if (!gToC.has(g[i])) gToC.set(g[i], i);
+
+      // --- START (cDNA index): start_codon annotation -> CDS 5' end -> longest ORF.
+      let cdsStart = -1;
+      if (tssAnn) {
+        const scFirst = plus ? Math.min(tssAnn.xi, tssAnn.xf) : (Math.max(tssAnn.xi, tssAnn.xf) - 1);
+        if (gToC.has(scFirst)) cdsStart = gToC.get(scFirst);
+      }
+      if ((cdsStart < 0 || seq.substr(cdsStart, 3) !== 'ATG') && cdsAnns.length) {
+        // 5'-most CDS base in transcription order = the declared translation start.
+        let cds5 = plus ? Infinity : -Infinity;
+        for (const c of cdsAnns) {
+          const lo = Math.min(c.xi, c.xf), hi = Math.max(c.xi, c.xf);
+          cds5 = plus ? Math.min(cds5, lo) : Math.max(cds5, hi);
+        }
+        if (gToC.has(cds5)) {
+          const ci = gToC.get(cds5);
+          if (seq.substr(ci, 3) === 'ATG' || cdsStart < 0) cdsStart = ci;
+        }
+      }
+      if (cdsStart < 0 || seq.substr(cdsStart, 3) !== 'ATG') {
+        const orf = this._longestOrfStart(seq);
+        if (orf >= 0) cdsStart = orf;
+      }
+      if (cdsStart < 0) return false;
+
+      // --- STOP (cDNA index): stop_codon annotation -> first in-frame stop.
+      let stopCdna = -1;
+      if (stopAnn) {
+        const stFirst = plus ? Math.min(stopAnn.xi, stopAnn.xf) : Math.max(stopAnn.xi, stopAnn.xf);
+        if (gToC.has(stFirst)) stopCdna = gToC.get(stFirst);
+      }
+      if (stopCdna < 0) {
+        for (let i = cdsStart; i + 2 < seq.length; i += 3) {
+          const c = seq.substr(i, 3);
+          if (c === 'TAA' || c === 'TAG' || c === 'TGA') { stopCdna = i; break; }
+        }
+      }
+
+      // cDNA codon index -> genomic [min,max] of its 3 bases.
+      const spanG = (ci) => {
+        if (ci < 0 || ci + 2 >= g.length) return null;
+        const a = g[ci], b = g[ci + 2];
+        return [Math.min(a, b), Math.max(a, b)];
+      };
+      const startG = spanG(cdsStart);
+      const stopG = spanG(stopCdna);
+      if (!startG) return false;
+
+      // Replace any existing codon annotations with the derived, correct ones. Match
+      // createTrackFromLocal's +1 widening of a start_codon's 3' end so getCDS re-reads
+      // the same start base.
+      this.removeAnnotationByType('TSS');
+      this.removeAnnotationByType('STOP');
+      this.removeAnnotationByType('Translation');
+      this.removeAnnotationByType('translation');
+      const strand = this.strand;
+      this.add(new Annotation('TSS', 'TSS', startG[0], startG[1] + 1, strand));
+      if (stopG) {
+        this.add(new Annotation('STOP', 'STOP', stopG[0], stopG[1], strand));
+        this.add(new Annotation('Translation', 'Translation',
+          Math.min(startG[0], stopG[0]), Math.max(startG[1], stopG[1]), strand));
+      }
+
+      // Refresh the ORF/protein from the corrected annotations (exon-aware).
+      try {
+        const cds = this.getCDS();
+        if (cds && cds.cdsi && cds.cdsi.length) {
+          this.orf = this.orf || {};
+          this.orf.cdsi = cds.cdsi;
+          if (cds.protein) this.orf.sequence = cds.protein;
+          try { this.orfhash = compressJson(JSON.stringify(this.orf)); } catch (e) { }
+        }
+      } catch (e) { }
+      return true;
+    }
+
     getProteinSequence() {
       // Correct exon-aware translation (was proteinFromORF, which relies on the
       // genomic-offset cdsi and is wrong for multi-exon transcripts).
@@ -1685,17 +1805,15 @@ return new Promise(async (resolve, reject) => {
     // (which can route back here).
     updateCDS() {
       if (this._cdsUpdating) return false;
-      let hasStart = false, hasStop = false;
-      for (const a of (this.annotations || [])) {
-        const ty = ('' + (a && a.type)).toLowerCase();
-        if (ty === 'tss') hasStart = true;
-        else if (ty === 'stop') hasStop = true;
-      }
-      if (!(hasStart && hasStop) || typeof this.generateORF !== 'function') return false;
       this._cdsUpdating = true;
-      try { this.generateORF(); } catch (e) { }
+      let ok = false;
+      // defineCodons robustly (re)places the start/stop codons from the annotations
+      // or bioinformatically, and refreshes this.orf via the exon-aware getCDS. It
+      // supersedes the old "needs both TSS and STOP annotations, then generateORF"
+      // path, so tracks with only CDS/exons (no codon features) also get a start/stop.
+      try { ok = this.defineCodons(); } catch (e) { }
       this._cdsUpdating = false;
-      return true;
+      return ok;
     }
 
     // Coalesced CDS refresh, used when annotations are added in bulk (e.g. a track load
@@ -4859,7 +4977,10 @@ return new Promise(async (resolve, reject) => {
       this.annotations.push(annotation);
       // When the track gains a start or stop codon, auto-(re)generate the CDS.
       const ty = ('' + (annotation && annotation.type)).toLowerCase();
-      if (ty === 'tss' || ty === 'stop') { try { this.scheduleCDSUpdate(); } catch (e) { } }
+      // A start/stop codon or a CDS (protein-coding transcript) triggers a coalesced
+      // codon derivation, so tracks whose payload has only CDS/exons still get a
+      // start/stop marker (see defineCodons).
+      if (ty === 'tss' || ty === 'stop' || ty === 'cds') { try { this.scheduleCDSUpdate(); } catch (e) { } }
     }
     setAnnotation(annotation) {
       for (let a of this.annotations) {
