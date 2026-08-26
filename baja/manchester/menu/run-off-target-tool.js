@@ -117,10 +117,32 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
             CurrentLayout.setComponent('buttonMenuPanel', w);
 
+            // Block the app while the run is in progress — only Cancel is actionable.
+            let __cancelled = false;
+            let __modalPB = null;
+            try { graph.setMouseMode('none'); graph.clearMouseListeners(); } catch (e) { }
+            const __runModal = {
+                wid: 'card',
+                data: {
+                    cards: [
+                        [{ 'width': '100%', 'component': { wid: 'html', data: `<div style="padding:14px 20px;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#eaf6f9;background:rgba(10,37,64,0.98);border:1px solid #1aa3bd;border-radius:10px;"><div style="font-size:15px;font-weight:700;">Running off-targets…</div><div style="font-size:12.5px;color:#8fb8c8;margin-top:4px;">Scanning oligos one at a time, left→right — the app is locked until this finishes.</div></div>` } }],
+                        [{ 'width': '100%', 'component': { wid: 'progress', data: { 'progress': 0, 'progressBar': createIonFunction((pb) => { __modalPB = pb; }) } } }],
+                        [{ 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [{ label: 'Cancel', ionFunction: createIonFunction(() => { __cancelled = true; }) }] } } }]
+                    ]
+                }
+            };
+            try { showModal(__runModal, 460, 210); } catch (e) { }
+            const __finishRun = () => {
+                try { for (const o of ot_oligos) { if (o) o.__gunsight = false; } } catch (e) { }
+                try { hideAllModal(); } catch (e) { }
+                try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { }
+            };
+
             let sp = splitArray(seqList);
             let rr = [];
             let index = 0;
             for (let s of sp) {
+                if (__cancelled) break;
                 // Put the targeting gunsight (+ red glow) on the oligo being searched.
                 const __chunkOligos = [];
                 for (const item of s) { const o = __idToOligo.get(String(item && item.id)); if (o && __chunkOligos.indexOf(o) < 0) __chunkOligos.push(o); }
@@ -199,7 +221,12 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                 rr.push(r);
                 index++;
                 progressBar((index / sp.length) * 100)
+                try { if (__modalPB) __modalPB((index / sp.length) * 100); } catch (e) { }
             }
+
+            // Run finished (or was cancelled) — unblock the app.
+            __finishRun();
+            if (__cancelled) { graph.setMessage(' Off-target run cancelled. '); return; }
 
             let btns = [
                 {
