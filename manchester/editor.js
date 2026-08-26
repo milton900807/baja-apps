@@ -122,12 +122,25 @@ function (path, config) {
 
         }
 
+        // News headlines for the startup newspaper shown INSIDE the progress bar while
+        // the editor loads (server-installed via get-news.py; the widget falls back to
+        // its own defaults if this is empty). Fetched here so it's ready when the bar
+        // first renders; it auto-hides the moment loading reaches 100%.
+        let __newsMsgs = [];
+        try {
+            let __nem = new EngineMonitor(() => { });
+            let __nr = await exec('py/bio/get-news.py', __nem);
+            try { __newsMsgs = JSON.parse(__nr.messages) || []; } catch (e) { __newsMsgs = []; }
+        } catch (e) { __newsMsgs = []; }
+
         let progressBar;
         let w = {
             wid: 'progress',
             componentRef: 'progressBar',
             data: {
                 'progress': 1,
+                'showNews': true,
+                'news': __newsMsgs,
                 'progressBar': createIonFunction((progessBar) => {
                     progressBar = progessBar;
                 })
@@ -1647,12 +1660,8 @@ function (path, config) {
             // Installed news/message list (server-side; seeded on first install). Rendered as
             // a dismissible NEWSPAPER card centered over the canvas at startup, so the gene
             // graph keeps its full screen real estate — no permanent top panel.
-            let __newsMsgs = [];
-            try {
-                let __nem = new EngineMonitor(() => { });
-                let __nr = await exec('py/bio/get-news.py', __nem);
-                try { __newsMsgs = JSON.parse(__nr.messages) || []; } catch (e) { __newsMsgs = []; }
-            } catch (e) { __newsMsgs = []; }
+            // __newsMsgs was already fetched at startup and is shown inside the
+            // progress-bar newspaper while the editor loads.
 
             const __showNewspaper = (messages) => {
                 try {
@@ -2694,11 +2703,14 @@ function (path, config) {
 
             // Show the installed news as a newspaper overlay at startup (click / auto-dismiss),
             // keeping full screen space for the graph.
-            try {
-                if (__newsMsgs && __newsMsgs.length) {
-                    setTimeout(() => { try { __showNewspaper(__newsMsgs); } catch (e) { } }, 600);
-                }
-            } catch (e) { }
+            // The newspaper now appears INSIDE the startup progress bar while loading
+            // (and auto-hides at 100%), so the separate post-load overlay is disabled to
+            // avoid showing it twice. (__showNewspaper is kept for manual/other use.)
+            // try {
+            //     if (__newsMsgs && __newsMsgs.length) {
+            //         setTimeout(() => { try { __showNewspaper(__newsMsgs); } catch (e) { } }, 600);
+            //     }
+            // } catch (e) { }
 
             if (window['env']['auth'] === 'b2c') {
                 var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');

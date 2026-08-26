@@ -22,7 +22,22 @@ function (path, config) {
         await showWidget(progW);
         try { progressBar(0); } catch (e) { }
 
-        path = decodeURIComponent('' + (path || ''));
+        // Resolve the .baja path robustly. The route launcher fills the module's `path`
+        // param by name from the URL, but depending on the flow it can arrive empty or
+        // as something else — so fall back to config.path and then the live URL query
+        // (?path=…) before giving up.
+        const __isBaja = (s) => { try { return /\.baja$/i.test(decodeURIComponent('' + (s || ''))); } catch (e) { return /\.baja$/i.test('' + (s || '')); } };
+        let __p = '' + (path || '');
+        if (!__isBaja(__p)) {
+            try { if (config && typeof config === 'object' && config.path && __isBaja(config.path)) __p = '' + config.path; } catch (e) { }
+        }
+        if (!__isBaja(__p)) {
+            try {
+                const __qp = new URL(window.location.href).searchParams.get('path');
+                if (__qp) __p = __qp;
+            } catch (e) { }
+        }
+        path = decodeURIComponent('' + __p);
 
         const graph = await exec('flexigraph/gene.js', progressBar);
         graph.readonly = true;              // signal read-only to any component that checks it

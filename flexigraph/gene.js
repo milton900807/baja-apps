@@ -1,4 +1,4 @@
-function (progress) {
+function (progress, options) {
 
     return new Promise(async (resolve, reject) => {
         if (progress) {
