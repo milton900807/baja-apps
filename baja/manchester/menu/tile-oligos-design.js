@@ -161,9 +161,9 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
                 try {
                     const _gj = await GETJSON(_host + '/genomes');
                     const _keys = Object.keys(_gj || {});
-                    const _want = _sp.startsWith('mouse') ? ['mouse_cdna', 'mouse_all_transcripts', 'mouse_premrna']
-                        : _sp.startsWith('rat') ? ['rat_cdna', 'rat_all_transcripts', 'rat_premrna']
-                            : ['human_all_transcripts', 'human_cdna_all', 'human_premrna'];
+                    const _want = _sp.startsWith('mouse') ? ['mouse_premrna', 'mouse_cdna', 'mouse_all_transcripts']
+                        : _sp.startsWith('rat') ? ['rat_premrna', 'rat_cdna', 'rat_all_transcripts']
+                            : ['human_premrna', 'human_all_transcripts', 'human_cdna_all'];
                     _genome = _want.find(w => _keys.includes(w)) ||
                         _keys.find(k => k.toLowerCase().startsWith(_sp.slice(0, 3)));
                 } catch (e) { }
