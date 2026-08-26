@@ -1563,6 +1563,22 @@ function (progress, options) {
                 if (this.wake) this.wake();
                 this.setMessageCenter(m, fontSize)
             }
+
+            // A bold, centered "sunset orange" announcement that stands out far more than
+            // setCenterMessage: large heavy letters filled with a warm sunset gradient
+            // (amber -> orange -> pink), a dark outline for contrast and a warm glow,
+            // centered on the canvas. Uses its own property/timeout so it doesn't clobber
+            // the normal message toast. Held for `seconds` (default 5).
+            setSunsetMessage(m, seconds) {
+                if (this.wake) this.wake();
+                this.sunsetMessage = m;
+                if (this.sunsetTimeout) clearTimeout(this.sunsetTimeout);
+                const ms = Math.max(1500, (seconds || 5) * 1000);
+                this.sunsetTimeout = setTimeout(() => {
+                    this.sunsetMessage = null;
+                    if (this.wake) this.wake();
+                }, ms);
+            }
             isConnected() {
                 if (!this.graph) {
                     return false;
@@ -9276,6 +9292,45 @@ pattern, GGGG | Required`
                             let ty = cardY + padY;
                             for (const l of shown) { ctx.fillText(l, cardX + padX, ty); ty += lineH; }
 
+                            ctx.restore();
+                        }
+                    }
+                    // Bold centered "sunset orange" announcement (setSunsetMessage) — large
+                    // gradient letters with a warm glow, centered on the canvas.
+                    if (this.sunsetMessage) {
+                        const smsg = ('' + this.sunsetMessage).trim();
+                        if (smsg) {
+                            ctx.save();
+                            this.resetCanvasEffects(ctx);
+                            const cw = ctx.canvas.width, ch = ctx.canvas.height;
+                            const cx = cw / 2, cy = ch / 2;
+                            let fs = Math.max(26, Math.round(Math.min(cw, ch) * 0.06));
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            // Shrink to fit the canvas width if the message is long.
+                            ctx.font = '800 ' + fs + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                            let tw = ctx.measureText(smsg).width;
+                            const maxW = cw - 48;
+                            if (tw > maxW) {
+                                fs = Math.max(16, Math.floor(fs * maxW / tw));
+                                ctx.font = '800 ' + fs + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                                tw = ctx.measureText(smsg).width;
+                            }
+                            // Warm sunset gradient across the text (amber -> orange -> pink).
+                            const grad = ctx.createLinearGradient(cx - tw / 2, cy, cx + tw / 2, cy);
+                            grad.addColorStop(0, '#ffb020');
+                            grad.addColorStop(0.5, '#ff6d3a');
+                            grad.addColorStop(1, '#ff3d6e');
+                            // Dark outline + warm glow so it pops off the canvas.
+                            ctx.shadowColor = 'rgba(255,109,58,0.85)';
+                            ctx.shadowBlur = 28;
+                            ctx.lineJoin = 'round';
+                            ctx.lineWidth = Math.max(3, Math.round(fs * 0.14));
+                            ctx.strokeStyle = 'rgba(40,12,0,0.6)';
+                            ctx.strokeText(smsg, cx, cy);
+                            ctx.shadowColor = 'transparent';
+                            ctx.fillStyle = grad;
+                            ctx.fillText(smsg, cx, cy);
                             ctx.restore();
                         }
                     }
