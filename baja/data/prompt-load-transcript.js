@@ -1,11 +1,5 @@
 function (server, graph, genegraph_panel_layout, presetQuery) {
     return new Promise(async (resolve, reject) => {
-        // The python endpoint (server env forwards ANTHROPIC_API_KEY to it).
-        // NOTE: pass a RELATIVE '/py/...' path here, NOT `server + '/py/...'`.
-        // exec()/execPyPost prepend window.env.apiUrl + '/py/' themselves; giving it an
-        // absolute http URL (with no '/ionworks/' segment) makes execPyPost's URL splitter
-        // mangle it (e.g. '/py/ligodesigner.com/py/sequence/...'), so the script path
-        // resolves wrong on the server and the exec exits code 2 (no transcript loads).
         const PY = '/py/sequence/prompt-to-transcript.py';
         const host_ = server;
         // Any Ensembl transcript stable id (human ENST, mouse ENSMUST, rat ENSRNOT, ...).
@@ -194,35 +188,6 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                 cards: [
                     [
                         {
-                            'width': '100%',
-                            'component': {
-                                wid: 'html',
-                                // Tropical header + input styling. Scoped to .card-container and
-                                // only present while this form occupies the mainPanel (it is
-                                // destroyed when the editor canvas is restored), so it doesn't
-                                // bleed into other views.
-                                data: `
-                                <style>
-                                  .card-container { background: linear-gradient(180deg,#f3fbfb 0%,#e9f6f6 100%); border-radius:16px; }
-                                  .card-container .card-title { color:#084d54; font-weight:600; letter-spacing:.2px; margin-bottom:6px; }
-                                  .card-container mat-form-field, .card-container .mat-mdc-form-field { width:100%; }
-                                  .card-container .mat-mdc-text-field-wrapper { border-radius:12px !important; background:#ffffff !important; box-shadow:0 1px 4px rgba(8,77,84,.10); }
-                                  .card-container textarea, .card-container input.mat-mdc-input-element { color:#0f2a2e; font-size:14px; line-height:1.5; }
-                                  .card-container .mdc-line-ripple::after { border-bottom-color:#0c7c86 !important; }
-                                  .card-container .mat-mdc-form-field.mat-focused .mdc-line-ripple::after { border-bottom-color:#ff8c1a !important; }
-                                  .card-container .mat-mdc-form-field.mat-focused .mat-mdc-text-field-wrapper { box-shadow:0 0 0 3px rgba(18,194,224,.18); }
-                                  .nt-banner { background:linear-gradient(120deg,#0c7c86 0%,#12a3ad 55%,#ff8c1a 130%); border-radius:14px; padding:16px 20px; color:#fff; box-shadow:0 4px 14px rgba(8,77,84,.28); }
-                                  .nt-banner .nt-title { font-size:18px; font-weight:700; letter-spacing:.3px; display:flex; align-items:center; gap:8px; }
-                                  .nt-banner .nt-sub { opacity:.92; font-size:13px; margin-top:3px; }
-                                  /* Rounded navy border around the description text editor. */
-                                  .card-container text-editor { display:block; border:2px solid #0a2a66; border-radius:12px; overflow:hidden; background:#fff; box-shadow:0 1px 4px rgba(10,42,102,.12); }
-                                  .card-container text-editor .monaco-editor, .card-container text-editor .overflow-guard { border-radius:12px; }
-                                </style>
-                                <div class="nt-banner">
-                                </div>`
-                            }
-                        },
-                        {
                             'title': 'Describe the gene or paste an ENSEMBL/NCBI ID',
                             'width': '100%',
                             'component': {
@@ -295,8 +260,10 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                                     desc = (v && v.getContent) ? v.getContent()
                                                         : (v && v.getWidgetValue ? v.getWidgetValue() : (v && v.value ? v.value : ''));
                                                 } catch (e) { }
-                                                // Ignore the prefilled example if the user never edited it.
-                                                if (__exActive && ('' + (desc || '')).trim() === __ex) desc = '';
+                                                // If the user never touched the box, use the prefilled
+                                                // sample example as the prompt (even if the typewriter
+                                                // hasn't finished, use the full example text).
+                                                if (__exActive) desc = __ex;
                                                 let gene = '';
                                                 try {
                                                     gene = (geneBox && geneBox.getWidgetValue) ? geneBox.getWidgetValue()
