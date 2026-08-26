@@ -195,11 +195,13 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
                     const _eta = done > 0 ? (_el / done) * (ranked.length - done) : 0;
                     graph.setMessage(' Tiling ' + ruleset + '… placed ' + placed + ', off-target-filtered ' + filtered +
                         ' — ' + done + '/' + ranked.length + ' (' + Math.round(done / ranked.length * 100) + '%), ETA ' + _fmt(_eta));
-                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    // Batch the redraw every 10 placements (counter/status stays live).
+                    if (done % 10 === 0) { try { if (graph.wake) graph.wake(); } catch (e) { } }
                 }
                 try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
             }
             prog.done();
+            try { if (graph.wake) graph.wake(); } catch (e) { }   // final redraw for the remainder
             try { if (graph.fitAllTrackYAxes) graph.fitAllTrackYAxes(); else if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
             if (placed === 0) {
                 // Explain why nothing was added.
