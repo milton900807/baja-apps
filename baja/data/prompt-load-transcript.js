@@ -194,24 +194,6 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                 cards: [
                     [
                         {
-                            'width': '100%',
-                            'component': {
-                                wid: 'html',
-                                data: `<style>
-                                  /* Light-gray Monaco panel with a clearly visible navy block cursor */
-                                  .card-container text-editor .monaco-editor,
-                                  .card-container text-editor .monaco-editor .monaco-editor-background,
-                                  .card-container text-editor .monaco-editor .margin,
-                                  .card-container text-editor .monaco-editor .inputarea,
-                                  .card-container text-editor .monaco-editor .overflow-guard { background-color:#e8e8e8 !important; }
-                                  .card-container text-editor .monaco-editor .cursors-layer .cursor {
-                                    background:#0a2a66 !important; border-color:#0a2a66 !important;
-                                    color:#e8e8e8 !important; width:11px !important; opacity:1 !important;
-                                  }
-                                </style>`
-                            }
-                        },
-                        {
                             'title': 'Describe the gene or paste an ENSEMBL/NCBI ID',
                             'width': '100%',
                             'component': {
