@@ -1616,7 +1616,7 @@ return new Promise(async (resolve, reject) => {
       // by +1 at its 3' end when built from the GFF start_codon (createTrackFromLocal).
       let cdsStart = -1;
       if (tss) {
-        const scFirst = plus ? Math.min(tss.xi, tss.xf) : (Math.max(tss.xi, tss.xf) - 1);
+        const scFirst = plus ? Math.min(tss.xi, tss.xf) : Math.max(tss.xi, tss.xf);
         if (gToC.has(scFirst)) cdsStart = gToC.get(scFirst);
       }
       // Fallback: if the annotation didn't land on an ATG, use the ATG that opens the

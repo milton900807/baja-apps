@@ -2798,9 +2798,6 @@ function (progress, options) {
                         ID = ""
                     }
 
-                    if (feature__ === "TSS") {
-                        e++;
-                    }
 
                     let an = new Annotation(
                         adjustType(feature),
