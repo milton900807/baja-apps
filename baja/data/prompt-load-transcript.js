@@ -214,6 +214,9 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                   .nt-banner { background:linear-gradient(120deg,#0c7c86 0%,#12a3ad 55%,#ff8c1a 130%); border-radius:14px; padding:16px 20px; color:#fff; box-shadow:0 4px 14px rgba(8,77,84,.28); }
                                   .nt-banner .nt-title { font-size:18px; font-weight:700; letter-spacing:.3px; display:flex; align-items:center; gap:8px; }
                                   .nt-banner .nt-sub { opacity:.92; font-size:13px; margin-top:3px; }
+                                  /* Rounded navy border around the description text editor. */
+                                  .card-container text-editor { display:block; border:2px solid #0a2a66; border-radius:12px; overflow:hidden; background:#fff; box-shadow:0 1px 4px rgba(10,42,102,.12); }
+                                  .card-container text-editor .monaco-editor, .card-container text-editor .overflow-guard { border-radius:12px; }
                                 </style>
                                 <div class="nt-banner">
                                 </div>`
