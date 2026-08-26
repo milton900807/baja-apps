@@ -762,6 +762,9 @@ function () {
             const stopX = _minus ? xs : xf;
             drawCodonCylinder(graph, tgraph, startX, startX, y, 'start');
             drawCodonCylinder(graph, tgraph, stopX, stopX, y, 'stop');
+            const r = 0.1;
+            graph.drawString('START', startX, y + r, '#2e9e44', '9px system-ui, -apple-system, Roboto, Arial, sans-serif');
+            graph.drawString('STOP', stopX, y + r, '#9c3350', '9px system-ui, -apple-system, Roboto, Arial, sans-serif');
 
         }),
         'CODON': createIon((graph, tgraph, xs, xf, y) => {
