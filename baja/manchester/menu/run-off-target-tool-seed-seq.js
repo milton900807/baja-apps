@@ -9,7 +9,8 @@ function (graph, genegraph_panel_layout, selectedOnly) {
         let returnMode = 'editdistance'
         let splitArray = (array) => {
             const result = [];
-            const chunkSize = 2;
+            // One oligo per request so the gunsight advances one-at-a-time, left→right.
+            const chunkSize = 1;
 
             for (let i = 0; i < array.length; i += chunkSize) {
                 const chunk = array.slice(i, i + chunkSize);
@@ -72,6 +73,35 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                 }
             }
 
+            // Reading order — left→right (genomic x), then top→bottom (world-y desc) —
+            // and cap each run at 200 oligos; rebuild the seed query list in that order.
+            try {
+                ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
+                if (ot_oligos.length > 200) { graph.setMessage(' Off-targets run 200 oligos at a time — running the first 200 (left→right, top→bottom). '); ot_oligos = ot_oligos.slice(0, 200); }
+                seqList = ot_oligos.map((o) => ({ "id": String(o.id), "synthesisSequence": o.getSeedSequence ? o.getSeedSequence() : '' }));
+            } catch (e) { }
+            const __idToOligo = new Map();
+            for (const o of ot_oligos) { if (o && o.id != null) __idToOligo.set(String(o.id), o); }
+
+            // Zoom/center the view on the oligo currently being searched (instant).
+            const centerOnOligo = (o) => {
+                try {
+                    if (!o) return;
+                    let t = o.track || o.__track || null;
+                    if (!t) { for (const tr of (graph.track || [])) { if (tr && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } }
+                    if (!t || !t.tgraph) return;
+                    const gg = (typeof graph.setxmin === 'function') ? graph : graph.graph;
+                    const grid = (gg && gg.grid) ? gg.grid : gg;
+                    if (!grid || !grid.setxmin) return;
+                    const HALF = 45;
+                    const a = t.tgraph.X(Math.min(o.xi, o.xf) - HALF), b = t.tgraph.X(Math.max(o.xi, o.xf) + HALF);
+                    grid.setxmin(Math.min(a, b)); grid.setxmax(Math.max(a, b));
+                    const ht = -1 * t.tgraph.height, yi = t.tgraph.yi - ht, band = 0.5 * 0.9;
+                    grid.setymin(yi - band); grid.setymax(yi + band);
+                    if (grid.rescale) grid.rescale();
+                } catch (e) { }
+            };
+
             let progressBar;
             let w = {
                 wid: 'progress',
@@ -91,22 +121,34 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             let rr = [];
             let index = 0;
             for (let s of sp) {
+                // Put the targeting gunsight (+ red glow) on the oligo being searched.
+                const __chunkOligos = [];
+                for (const item of s) { const o = __idToOligo.get(String(item && item.id)); if (o && __chunkOligos.indexOf(o) < 0) __chunkOligos.push(o); }
+                for (const o of __chunkOligos) { try { o.__gunsight = true; if (o.highlight) o.highlight(0, 'red'); } catch (e) { } }
+                try { if (__chunkOligos[0]) centerOnOligo(__chunkOligos[0]); } catch (e) { }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
 
-                let obj = {
-                    "editDistance": __editDistance,
-                    "strand": "+-",
-                    "genomes": genomes,
-                    "sequences": s,
-                    "runMode": returnMode
+                let r = null;
+                try {
+                    let obj = {
+                        "editDistance": __editDistance,
+                        "strand": "+-",
+                        "genomes": genomes,
+                        "sequences": s,
+                        "runMode": returnMode
+                    }
+
+                    let oep = window["env"]["offtarget"];
+                    if (!oep || oep.length <= 0) {
+                        oep = '/levenshtein'
+                    }
+
+                    let uri = `${oep}/off-targets-file`;
+                    r = await POSTJSON(obj, uri)
+                } finally {
+                    for (const o of __chunkOligos) { try { o.__gunsight = false; o.highlight__ = false; } catch (e) { } }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
                 }
-
-                let oep = window["env"]["offtarget"];
-                if (!oep || oep.length <= 0) {
-                    oep = '/levenshtein'
-                }
-
-                let uri = `${oep}/off-targets-file`;
-                let r = await POSTJSON(obj, uri)
                 if (r != null && r['oligoQuery'] != null) {
                     let oq = r['oligoQuery'];
 
