@@ -1964,6 +1964,42 @@ return new Promise(async (resolve, reject) => {
     }
 
     generateORF() {
+      // Annotation-authoritative codons for pre-mRNA / genomic tracks: if a
+      // Translation (or CDS) is annotated, place start (TSS) and stop (STOP) from its
+      // genomic bounds using the ANNOTATION strand (a pre-mRNA track's this.strand is
+      // the '+' genome-slice strand, not the gene strand), and SKIP the genomic-offset
+      // ORF walk below — that walk / getCDS use this.strand and put the stop at the
+      // wrong (high) end on reverse-strand genes.
+      try {
+        let _lo, _hi, _have = false;
+        const _tr = (this.annotations || []).find(a => ('' + a.type).toLowerCase() === 'translation');
+        if (_tr && _tr.xi != null && _tr.xf != null) {
+          _lo = Math.min(+_tr.xi, +_tr.xf); _hi = Math.max(+_tr.xi, +_tr.xf); _have = true;
+        } else {
+          const _cds = (this.annotations || []).filter(a => a.type === 'CDS');
+          if (_cds.length) {
+            _lo = Infinity; _hi = -Infinity;
+            for (const c of _cds) { _lo = Math.min(_lo, +c.xi, +c.xf); _hi = Math.max(_hi, +c.xi, +c.xf); }
+            _have = true;
+          }
+        }
+        if (_have && isFinite(_lo) && isFinite(_hi)) {
+          const _sSrc = (this.annotations || []).find(a => {
+            const s = a && a.strand; return s === '-' || s === '+' || s === 1 || s === -1 || s === '1' || s === '-1';
+          });
+          const _plus = _sSrc ? !(String(_sSrc.strand) === '-' || String(_sSrc.strand) === '-1') : (this.strand >= 0);
+          const _s = _plus ? [_lo, _lo + 2] : [_hi - 2, _hi];   // start (5')
+          const _e = _plus ? [_hi - 2, _hi] : [_lo, _lo + 2];   // stop (3')
+          this.removeAnnotationByType('TSS');
+          this.removeAnnotationByType('STOP');
+          this.removeAnnotationByType('translation');
+          this.add(new Annotation('TSS', 'TSS', _s[0], _s[1], this.strand));
+          this.add(new Annotation('STOP', 'STOP', _e[0], _e[1], this.strand));
+          this.add(new Annotation('Translation', 'Translation', _lo, _hi, this.strand));
+          return this.orf;
+        }
+      } catch (e) { }
+
       // Authoritative CDS stop from the GFF/CCDS annotation (stop_codon -> STOP),
       // captured BEFORE it is cleared just below. The codon re-scan further down can
       // otherwise place a PREMATURE stop: the track sequence may be spliced cDNA, so
