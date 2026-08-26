@@ -156,16 +156,12 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             // transcriptome. Uses the same local off-target service as the off-target tool.
             try {
                 const _host = window['env']['apiUrl'];
-                const _sp = String((selectedTrack.species || 'human')).toLowerCase();
-                let _genome = null;
+                // Always filter against the human pre-mRNA off-target index.
+                let _genome = 'human_premrna';
                 try {
                     const _gj = await GETJSON(_host + '/genomes');
                     const _keys = Object.keys(_gj || {});
-                    const _want = _sp.startsWith('mouse') ? ['mouse_premrna', 'mouse_cdna', 'mouse_all_transcripts']
-                        : _sp.startsWith('rat') ? ['rat_premrna', 'rat_cdna', 'rat_all_transcripts']
-                            : ['human_premrna', 'human_all_transcripts', 'human_cdna_all'];
-                    _genome = _want.find(w => _keys.includes(w)) ||
-                        _keys.find(k => k.toLowerCase().startsWith(_sp.slice(0, 3)));
+                    if (!_keys.includes(_genome)) _genome = _keys.find(k => /human.*premrna|premrna.*human/i.test(k)) || null;
                 } catch (e) { }
                 if (_genome) {
                     const _keep = new Array(ranked.length).fill(true);
