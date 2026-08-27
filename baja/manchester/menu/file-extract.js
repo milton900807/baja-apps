@@ -5,7 +5,6 @@ function (graph, genegraph_panel_layout) {
     // While the file is being read/processed the background is blurred behind a spinner.
     return new Promise((resolve) => {
 
-        graph.setCenterMessage("Uploading...")
 
 
         const guessMime = (name) => {
@@ -70,6 +69,9 @@ function (graph, genegraph_panel_layout) {
         document.body.appendChild(input);
 
         input.onchange = async () => {
+
+            graph.setSunsetMessage(" Uploading...  ")
+
             const file = input.files && input.files[0];
             if (!file) { cleanup(); resolve(null); return; }
 
@@ -106,9 +108,15 @@ function (graph, genegraph_panel_layout) {
             // Pull genes / mutations / ASOs out of the file.
             ov.set('Finding genes & mutations in ' + file.name + '…');
             let em = new EngineMonitor(() => { });
+            // If it's slow (>20s), let the user know the analysis can take up to 2 minutes.
+            let slow = setTimeout(() => {
+                try { ov.set('Analyzing ' + file.name + '… this can take up to 2 minutes.'); } catch (e) { }
+                try { graph.setMessage(' Analyzing… this can take up to 2 minutes. '); } catch (e) { }
+            }, 20000);
             let entities = null;
             try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }
-            catch (e) { ov.remove(); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            catch (e) { clearTimeout(slow); ov.remove(); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            clearTimeout(slow);
 
             if (!hasHits(entities)) {
                 ov.remove();

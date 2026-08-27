@@ -5,6 +5,8 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
     // location, then TOUR the mutations — zoom into each and dwell 3s until the last.
     return new Promise(async (resolve) => {
         const Annotation = await exec('flexigraph/annotation.js');
+        const SnpIndel = await exec('flexigraph/snpindel.js');
+        const RectangleText = await exec('flexigraph/shapes/Rect-text.js');
         let v = null;   // paste editor widget
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -167,8 +169,6 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (t && t.gene && t.id) { const k = ('' + t.gene).toLowerCase(); if (!trMap[k]) trMap[k] = t.id; }
             }
 
-            // Manuscript title -> persistent banner pinned above all the tracks.
-            try { if (ex && ex.title && graph.setTitle) graph.setTitle(ex.title); } catch (e) { }
 
             // Union of genes to load: explicit genes + mutation genes + ASO target genes.
             const toLoad = {};
@@ -188,23 +188,44 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             // Hand the mouse to hover / mouse-over-highlight once tracks are in.
             try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
-            // Map mutations onto their gene track (Ensembl-resolved genomic coordinates),
-            // collecting each mapped position so we can zoom-tour them afterwards.
+            // Mark each mutation as a SnpIndel on every loaded track whose extent spans its
+            // genomic locus (variantWorldX -> null when the track doesn't hold it, so each
+            // variant lands on its own gene). ref/alt/type come from the variant's HGVS.
             if (muts.length) graph.setMessage(' Marking the variants on the genes… ');
-            const mappedMuts = [];
+            const SNP_COLOR = '#dc2626';   // red for mutations
+            const parseAllele = (m) => {
+                const h = ('' + (m.hgvs || m.protein || '')).toUpperCase();
+                const sub = h.match(/([ACGT])\s*>\s*([ACGT])/);
+                if (sub) return { type: 'snp', ref: sub[1], sequence: sub[2] };
+                if (/DELINS|INDEL/.test(h)) return { type: 'delins', ref: 'N', sequence: 'N' };
+                if (/DEL/.test(h)) return { type: 'del', ref: 'N', sequence: '-' };
+                if (/INS|DUP/.test(h)) return { type: 'ins', ref: '-', sequence: 'N' };
+                return { type: 'snp', ref: (m.ref || 'N'), sequence: (m.sequence || 'N') };
+            };
+            const mappedSnps = [];
             let mMapped = 0, mUnres = 0;
             for (const m of muts) {
-                const track = loaded[('' + (m.gene || '')).toLowerCase()];
-                if (!track) { mUnres++; continue; }
-                if (m.resolved && +m.start > 0) {
-                    let gi = Math.floor(+m.start), gf = Math.floor(+m.end || gi + 1);
-                    if (gf <= gi) gf = gi + 1;
-                    const label = m.label || m.id || 'Mutation';
-                    const note = (m.id ? m.id + ' — ' : '') + (m.comment || '');
-                    placePoint(track, gi, gf, label, note, 'rgba(220,38,38,0.9)');
-                    mappedMuts.push({ track: track, gi: gi, gf: gf, label: label });
-                    mMapped++;
-                } else { mUnres++; }
+                if (!(m.resolved && +m.start > 0)) { mUnres++; continue; }
+                const g0 = Math.floor(+m.start);
+                const mp = parseAllele(m);          // { type, ref, sequence }
+                const ref = mp.ref;
+                let placed = false;
+                for (const k of gkeys) {
+                    const t = loaded[k];
+                    if (!t || !t.variantWorldX) continue;
+                    let gi = t.variantWorldX(m.chr, g0);   // track world-x, or null if not held
+                    if (gi == null) continue;
+                    if (mp.type === 'del' && t.strand !== -1) gi = gi + 1;
+                    const snp = new SnpIndel(mp.type, gi, ref, mp.sequence, 0, t.strand, SNP_COLOR);
+                    try { snp.color = SNP_COLOR; } catch (e) { }
+                    try { snp.name = m.label || m.id || 'variant'; } catch (e) { }
+                    try { snp.comment = (m.id ? m.id + ' — ' : '') + (m.comment || ''); } catch (e) { }
+                    t.addsnpindel(snp);
+                    t.showSnpIndels = true;
+                    mappedSnps.push({ track: t, snp: snp });
+                    placed = true;
+                }
+                if (placed) mMapped++; else mUnres++;
             }
 
             // Map ASOs onto their target gene track by sequence search.
@@ -242,16 +263,35 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 + (mUnres ? ' (' + mUnres + ' unresolved)' : '') + ' and ' + aMapped + ' ASO(s)'
                 + (aUnmapped ? ' (' + aUnmapped + ' unmapped)' : '') + '. ');
 
-            // Tour the mutations: zoom into each and dwell 3 seconds, stopping on the last.
-            if (mappedMuts.length) {
-                const PAD = 80;   // bp of genomic context on each side of the mutation
-                for (let i = 0; i < mappedMuts.length; i++) {
-                    const mm = mappedMuts[i];
-                    graph.setMessage(' Variant ' + (i + 1) + ' of ' + mappedMuts.length + ': ' + mm.label + ' ');
-                    await goToLocus(mm.track, mm.gi - PAD, mm.gf + PAD);
-                    if (i < mappedMuts.length - 1) await sleep(3000);
-                }
+            // Title of the paper: a RectangleText added ABOVE all the tracks and added LAST
+            // (so it renders on top). World coords: span the tracks' x-extent and sit just
+            // above the topmost track (world Y increases upward, so the top track is max yi).
+            if (ex && ex.title) {
+                try {
+                    let xLo = Infinity, xHi = -Infinity, yTop = -Infinity;
+                    for (const t of (graph.track || [])) {
+                        const g = t && t.tgraph;
+                        if (!g || !isFinite(g.xi)) continue;
+                        xLo = Math.min(xLo, g.xi);
+                        xHi = Math.max(xHi, g.xi + (g.width || 0));
+                        yTop = Math.max(yTop, g.yi);
+                    }
+                    if (isFinite(xLo) && isFinite(xHi) && isFinite(yTop)) {
+                        const rt = new RectangleText('paper-title', xLo, yTop + 0.5 + 1.4);
+                        rt.w = Math.max(1, xHi - xLo); rt.h = 1.4;
+                        rt.setText(ex.title);
+                        rt.setColor('#0b1f3a'); rt.setRectColor('#ffd98a');
+                        rt.autoScaleText = true;
+                        if (!graph.shapes) graph.shapes = [];
+                        graph.shapes.push(rt);   // added last -> drawn above the tracks
+                    }
+                } catch (e) { }
             }
+
+            // Everything is loaded: view all tracks, then highlight the variant locations.
+            try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
+            for (const s of mappedSnps) { try { if (s && s.snp) s.snp.highlight = true; } catch (e) { } }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
 
             resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped });
         };
@@ -263,9 +303,15 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             graph.setMessage(' Reading text — finding genes & mutations… ');
             try { window.__workStatus = 'Reading text — finding genes & mutations…'; } catch (e) { }
             let em = new EngineMonitor(() => { });
+            // If it's slow (>20s), let the user know the analysis can take up to 2 minutes.
+            let slow = setTimeout(() => {
+                graph.setMessage(' Analyzing… this can take up to 2 minutes. ');
+                try { window.__workStatus = 'Analyzing… this can take up to 2 minutes.'; } catch (e) { }
+            }, 20000);
             let ex = null;
             try { ex = await exec('/py/sequence/extract-entities.py', em, txt); }
-            catch (e) { graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            catch (e) { clearTimeout(slow); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            clearTimeout(slow);
             await process(ex);
         };
 
