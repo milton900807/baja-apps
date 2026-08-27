@@ -274,7 +274,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                         if (!g || !isFinite(g.xi)) continue;
                         xLo = Math.min(xLo, g.xi);
                         xHi = Math.max(xHi, g.xi + (g.width || 0));
-                        yMin = Math.min(yMin, g.yi);   // topmost track (smaller y = top of canvas)
+                        yMin = Math.max(yMin, g.yi);   // topmost track (smaller y = top of canvas)
                     }
                     if (isFinite(xLo) && isFinite(xHi) && isFinite(yMin)) {
                         const h = 1.4;
@@ -293,7 +293,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 } catch (e) { }
             }
 
-            // Everything is loaded: view all tracks, then highlight the variant locations.
+            // Everything is loaded: hold on the loaded tracks ~3s, then zoom out to view all.
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            await sleep(3000);
             try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
             for (const s of mappedSnps) { try { if (s && s.snp) s.snp.highlight = true; } catch (e) { } }
 

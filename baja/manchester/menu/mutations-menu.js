@@ -33,15 +33,23 @@ function (graph, genegraph_panel_layout) {
             try { graph.showSideMenu(menu); } catch (e) { }
         };
 
-        // Leaf action: zoom the view onto a single variant on its track.
+        // Leaf action: zoom IN and CENTER the view on a single variant. Uses the track
+        // object directly (mirrors gene.js goToTrackLocus) so it doesn't rely on name
+        // matching; the SNP ends up centered because the window is symmetric about s.xi.
         const zoomToSnp = async (t, s) => {
             try {
-                const xi = s.xi, pad = 60;
-                if (graph.goToTrackLocus && t.name) {
-                    await graph.goToTrackLocus(t.name, xi - pad, xi + pad);
-                } else if (t.tgraph && t.tgraph.X && graph.graph && graph.graph.setxmin) {
-                    graph.graph.setxmin(t.tgraph.X(xi - pad));
-                    graph.graph.setxmax(t.tgraph.X(xi + pad));
+                const g = graph.graph;          // FlexiGraph
+                const tg = t && t.tgraph;
+                if (g && tg && tg.X) {
+                    if (g.rescale) g.rescale();
+                    const pad = 45;             // bp on each side -> tight, variant centered
+                    const gi = tg.X(s.xi - pad), gf = tg.X(s.xi + pad);
+                    g.setxmin(Math.min(gi, gf));
+                    g.setxmax(Math.max(gi, gf));
+                    if (tg.yi != null && tg.height != null) {
+                        g.setymin(tg.yi + tg.height);
+                        g.setymax(tg.yi);
+                    }
                 }
                 try { s.highlight = true; } catch (e) { }
                 if (graph.wake) graph.wake();
