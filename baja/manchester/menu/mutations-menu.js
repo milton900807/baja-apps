@@ -40,13 +40,13 @@ function (graph, genegraph_panel_layout) {
                 const tg = t && t.tgraph;
                 if (!tg || !tg.X) return;
 
-                // Zoom just close enough to READ the base sequence, but no closer. Track
-                // sequence letters only render above ~5 px/base (track.js), so target a
-                // fixed px-per-base a little past that where the letters are cleanly
-                // legible. The window width in bases = grid pixel width / target px-per-base,
-                // centered on the SNP; zoomRect fits it to the same pixel width, landing the
-                // final zoom at exactly TARGET px/base regardless of where we started.
-                const TARGET_PXPB = 13;                // px per base: sequence readable, not over-zoomed
+                // Zoom just close enough to SEE the base sequence, but no closer. Track
+                // sequence letters only render above screencell > 5 px/base (track.js), so
+                // target just past that threshold — the most zoomed-out view that still
+                // shows the sequence (maximizing surrounding context). Window width in bases
+                // = grid pixel width / target px-per-base, centered on the SNP; zoomRect fits
+                // it to the same pixel width, landing the final zoom at exactly TARGET px/base.
+                const TARGET_PXPB = 6;                 // px per base: just above the >5 sequence-visible threshold
                 let gridW = 800;
                 try { gridW = (graph.grid && graph.grid.width) || (graph.canvas && graph.canvas.width) || 800; } catch (e) { }
                 const worldPerBase = Math.abs((tg.screenWidth ? tg.screenWidth(1) : (tg.X(s.xi + 1) - tg.X(s.xi))) || 1) || 1;
