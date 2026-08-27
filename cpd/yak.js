@@ -178,7 +178,6 @@ function (path, filebrowserplease) {
                                                         data: {
                                                             images: [
                                                                 await exec('icons/svg/editor-features', 'genomics-mutations'),
-                                                                await exec('icons/svg/editor-features', 'sirna'),
                                                                 await exec('icons/svg/editor-features', 'offtargets'),
                                                                 await exec('icons/svg/editor-features', 'primers'),
                                                                 await exec('icons/svg/editor-features', 'splicing'),
@@ -262,7 +261,6 @@ function (path, filebrowserplease) {
                 data: {
                     images: [
                         await exec('icons/svg/editor-features', 'genomics-mutations'),
-                        await exec('icons/svg/editor-features', 'sirna'),
                         await exec('icons/svg/editor-features', 'offtargets'),
                         await exec('icons/svg/editor-features', 'primers'),
                         await exec('icons/svg/editor-features', 'splicing'),

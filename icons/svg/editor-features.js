@@ -61,23 +61,32 @@ function (select) {
        </g>
        <line x1="205" y1="95" x2="270" y2="95" stroke="${MUTE}" stroke-width="2" stroke-dasharray="4 4"/>`),
 
-    'primers': card('Design qPCR primers and probes',
-      'Amplicons scored by assay success',
-      `<line x1="10" y1="95" x2="550" y2="95" stroke="${MUTE}" stroke-width="3"/>
-       <rect x="70"  y="88" width="130" height="14" rx="7" fill="${GREEN}"/><polygon points="200,88 220,95 200,102" fill="${GREEN}"/>
-       <rect x="360" y="88" width="130" height="14" rx="7" fill="${CYAN}"/><polygon points="360,88 340,95 360,102" fill="${CYAN}"/>
-       <rect x="245" y="70" width="70" height="12" rx="6" fill="${ORANGE}"/>
-       <text x="280" y="62" fill="${ORANGE}" font-family="Arial" font-size="13" text-anchor="middle">probe</text>`),
+    'primers': card('Design primers with djPrimer',
+      'Design with primer3 · ranked by predicted assay success',
+      `<line x1="10" y1="66" x2="360" y2="66" stroke="${MUTE}" stroke-width="3"/>
+       <rect x="40"  y="59" width="110" height="13" rx="6" fill="${GREEN}"/><polygon points="150,59 168,66 150,73" fill="${GREEN}"/>
+       <rect x="250" y="59" width="110" height="13" rx="6" fill="${CYAN}"/><polygon points="250,59 232,66 250,73" fill="${CYAN}"/>
+       <rect x="165" y="43" width="60" height="11" rx="5" fill="${ORANGE}"/>
+       <text x="195" y="36" fill="${ORANGE}" font-family="Arial" font-size="12" text-anchor="middle">probe</text>
+       <line x1="405" y1="170" x2="560" y2="170" stroke="${MUTE}" stroke-width="2"/>
+       <line x1="405" y1="120" x2="560" y2="120" stroke="${MUTE}" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7"/>
+       <text x="560" y="114" fill="${MUTE}" font-family="Arial" font-size="10" text-anchor="end">chance</text>
+       <rect x="420" y="120" width="40" height="50" rx="4" fill="${MUTE}"/>
+       <rect x="500" y="86"  width="40" height="84" rx="4" fill="${GREEN}"/>
+       <text x="440" y="186" fill="${MUTE}"  font-family="Arial" font-size="11" text-anchor="middle">primer3</text>
+       <text x="520" y="186" fill="${GREEN}" font-family="Arial" font-size="11" text-anchor="middle">djPrimer</text>`),
 
-    'splicing': card('Predict splicing (sashimi)',
-      'PSI and site-strength deep-learning models',
+    'splicing': card('Predict splicing with BajaSplice',
+      'Splice sites, exon inclusion & cryptic exons',
       `${exonRow(140, TEAL)}
        <path d="M65 127 C 140 30, 205 30, 215 127" fill="none" stroke="${ORANGE}" stroke-width="4"/>
        <path d="M215 127 C 300 60, 350 60, 370 127" fill="none" stroke="${GREEN}" stroke-width="3"/>
-       <path d="M65 127 C 250 -10, 450 -10, 500 127" fill="none" stroke="${CYAN}" stroke-width="3" opacity="0.85"/>`),
+       <path d="M65 127 C 250 -10, 450 -10, 500 127" fill="none" stroke="${CYAN}" stroke-width="3" opacity="0.85"/>
+       <rect x="288" y="127" width="42" height="26" rx="4" fill="none" stroke="${ORANGE}" stroke-width="2" stroke-dasharray="5 4"/>
+       <text x="309" y="176" fill="${ORANGE}" font-family="Arial" font-size="12" text-anchor="middle">cryptic exon</text>`),
 
-    'rbp': card('RNA-binding protein sites',
-      'Predicted binding across the transcript',
+    'rbp': card('RBP binding with BajaCLIP',
+      'Predicted protein–RNA binding across the transcript',
       `<path d="M0 120 Q 40 90 80 120 T 160 120 T 240 120 T 320 120 T 400 120 T 480 120 T 560 120" fill="none" stroke="${CYAN}" stroke-width="4"/>
        <ellipse cx="250" cy="80" rx="52" ry="40" fill="${ORANGE}"/>
        <text x="250" y="86" fill="${DARK}" font-family="Arial" font-size="18" font-weight="700" text-anchor="middle">RBP</text>
