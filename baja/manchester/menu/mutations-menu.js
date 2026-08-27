@@ -1,11 +1,11 @@
 function (graph, genegraph_panel_layout) {
-    // A drill-down side menu off Navigate -> Mutations:
+    // A drill-down SIDE menu off Navigate -> Mutations:
     //   tracks (that have mutations)  ->  mutation types  ->  variants by g. location.
     // Any level with more than PAGE entries pages with a "More…" item and a "‹ Back" item
-    // (Back = previous page while paging, else up to the parent level).
+    // (Back = previous page while paging, else up to the parent level). The final leaf
+    // (a variant) zooms the view onto that SNP.
     return new Promise((resolve) => {
         const PAGE = 12;
-        const hide = () => { try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { } };
 
         const rearmNavigate = () => {
             try {
@@ -14,8 +14,13 @@ function (graph, genegraph_panel_layout) {
                 exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
             } catch (e) { }
         };
+        const closeMenu = () => {
+            try { if (graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
+            rearmNavigate();
+        };
 
-        // Show one page of `items` ({label, onClick}); onParent (optional) is the level above.
+        // Show one page of `items` ({label, onClick}) in the SIDE menu; onParent (optional)
+        // is the level above. Root level (no parent) also gets a Close item.
         const showPaged = (items, page, onParent) => {
             const start = page * PAGE;
             const slice = items.slice(start, start + PAGE);
@@ -24,17 +29,19 @@ function (graph, genegraph_panel_layout) {
             else if (onParent) menu.push({ label: '‹ Back', move: () => { }, click: () => onParent() });
             for (const it of slice) menu.push({ label: it.label, move: () => { }, click: () => it.onClick() });
             if (start + PAGE < items.length) menu.push({ label: 'More… (' + (items.length - (start + PAGE)) + ' more)', move: () => { }, click: () => showPaged(items, page + 1, onParent) });
-            graph.showMenu(menu);
+            if (!onParent) menu.push({ label: 'Close', move: () => { }, click: () => closeMenu() });
+            try { graph.showSideMenu(menu); } catch (e) { }
         };
 
-        // Zoom the view onto a single variant on its track.
+        // Leaf action: zoom the view onto a single variant on its track.
         const zoomToSnp = async (t, s) => {
             try {
                 const xi = s.xi, pad = 60;
-                if (graph.goToTrackLocus && t.name) { await graph.goToTrackLocus(t.name, xi - pad, xi + pad); }
-                else if (t.tgraph && graph.graph && t.tgraph.X) {
-                    const a = graph.graph.X ? t.tgraph.X(xi - pad) : null;   // world->grid
-                    if (a != null) { graph.graph.setxmin(t.tgraph.X(xi - pad)); graph.graph.setxmax(t.tgraph.X(xi + pad)); }
+                if (graph.goToTrackLocus && t.name) {
+                    await graph.goToTrackLocus(t.name, xi - pad, xi + pad);
+                } else if (t.tgraph && t.tgraph.X && graph.graph && graph.graph.setxmin) {
+                    graph.graph.setxmin(t.tgraph.X(xi - pad));
+                    graph.graph.setxmax(t.tgraph.X(xi + pad));
                 }
                 try { s.highlight = true; } catch (e) { }
                 if (graph.wake) graph.wake();
@@ -51,7 +58,7 @@ function (graph, genegraph_panel_layout) {
                 const nm = (s.name && s.name !== 'variant') ? ('  ' + s.name) : '';
                 return {
                     label: chr + 'g.' + Math.round(s.xi) + (ref || alt ? ('  ' + ref + '>' + alt) : '') + nm,
-                    onClick: async () => { hide(); await zoomToSnp(t, s); rearmNavigate(); }
+                    onClick: async () => { closeMenu(); await zoomToSnp(t, s); }
                 };
             });
             showPaged(items, 0, () => showTypes(t));
