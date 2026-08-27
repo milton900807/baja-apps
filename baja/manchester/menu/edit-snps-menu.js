@@ -41,7 +41,7 @@ function (graph, genegraph_panel_layout, selectedTrack) {
         {
             label: 'Add snps', move: () => { }, click: () => {
                 if (graph.hideMenu) graph.hideMenu();
-                // Description prompt -> Claude resolves the variant -> loads the first match
+                // Description prompt ->  resolves the variant -> loads the first match
                 // onto the track(s) it fits (or reports that none was found).
                 exec('baja/data/prompt-variant.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
             }

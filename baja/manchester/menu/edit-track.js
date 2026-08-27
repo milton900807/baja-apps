@@ -214,7 +214,7 @@ function (graph, genegraph_panel_layout) {
             {
                 label: 'Edit snps',
                 click: async () => {
-                    // Sub-menu: Filter (by attribute) | Download (CSV) | Add snps (Claude prompt).
+                    // Sub-menu: Filter (by attribute) | Download (CSV) | Add snps ( prompt).
                     let ti = graph.getTrack(x, y);
                     let tr = (ti >= 0) ? graph.track[ti] : selectedTrack;
                     if (!tr) { graph.setMessage(' Select a track first. '); return; }

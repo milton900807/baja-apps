@@ -2,7 +2,7 @@ import json
 import os
 import re
 
-# "More information" for a SNP/indel, answered by the Claude API. The prompt includes the
+# "More information" for a SNP/indel, answered by the  API. The prompt includes the
 # genomic context — gene symbol, genomic locus (chr:pos), ref>alt, dbSNP id, ClinVar
 # significance — so the summary is specific to the variant/gene.
 #   let r = await exec('py/snps/snp_info_claude.py', JSON.stringify(snp), geneSymbol, chr, pos)

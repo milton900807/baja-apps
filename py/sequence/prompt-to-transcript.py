@@ -9,9 +9,9 @@ except Exception:
     requests = None
 
 # ---------------------------------------------------------------------------
-# Natural-language -> Ensembl transcript ids, resolved by Anthropic (Claude).
+# Natural-language -> Ensembl transcript ids, resolved by Anthropic ().
 #
-# Claude is asked to return the matching Ensembl transcript stable IDs directly
+#  is asked to return the matching Ensembl transcript stable IDs directly
 # (Ensembl REST resolution is unreliable / rate-limited in this deployment).
 # The actual sequence + annotations for each id are loaded later by the client
 # through the server's failsafe /transcript endpoint.
@@ -47,7 +47,7 @@ def parse_json_blob(txt):
 
 
 def anthropic_transcripts(text, species_hint):
-    """Ask Claude to return real Ensembl transcript ids for the request.
+    """Ask  to return real Ensembl transcript ids for the request.
     Returns (parsed_dict, error_string)."""
     if not requests:
         return None, "python 'requests' library unavailable"

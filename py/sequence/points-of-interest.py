@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Points-of-interest finder (mutation mode): given a GENE SYMBOL and SPECIES, ask Claude
+Points-of-interest finder (mutation mode): given a GENE SYMBOL and SPECIES, ask 
 to surface important known mutations/variants for that gene that carry a stable database
 ID (dbSNP rsID, ClinVar, COSMIC, or HGVS). Any dbSNP rsID is then resolved through the
 Ensembl REST API to its EXACT genomic coordinates (authoritative), overriding the model's

@@ -1,6 +1,6 @@
 """List data files available in the local BIG_DATA folder.
 
-Replaces the remote (Claude) endpoint discovery for public-data loading: instead
+Replaces the remote () endpoint discovery for public-data loading: instead
 of finding bigWig / VCF URLs on the web, this walks the server's BIG_DATA
 directory (env BIGDATA, forwarded from BIG_DATA) and returns the local data
 files, ranked by how well they match the requested resource / species.

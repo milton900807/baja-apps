@@ -29,7 +29,7 @@ function (graph, track, snp) {
                 click: async (scx, scy) => {
                     graph.showSprite = true;
                     // Gene symbol (from the track description "GENE;transcript") and genomic
-                    // locus for the Claude prompt, so the summary is specific to this variant.
+                    // locus for the  prompt, so the summary is specific to this variant.
                     let geneSymbol = '';
                     try { geneSymbol = ('' + (track.description || '')).split(';')[0].trim(); } catch (e) { }
                     if (!geneSymbol) geneSymbol = track.geneID || track.name || '';

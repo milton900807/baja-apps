@@ -10,7 +10,7 @@ except Exception:
 
 # ---------------------------------------------------------------------------
 # Natural-language / HGVS / rsID variant description -> a structured variant,
-# resolved by Anthropic (Claude). Claude determines the variant TYPE and the
+# resolved by Anthropic ().  determines the variant TYPE and the
 # genomic coordinates so the client can place a SNP/indel on any track that
 # spans that position.
 #
@@ -119,7 +119,7 @@ def anthropic_variant(text, hint):
 
 
 def build_variant(v):
-    """Normalize a resolver dict (from Claude) into our variant shape."""
+    """Normalize a resolver dict (from ) into our variant shape."""
     try:
         t = str(v.get("type") or "snp").lower()
         if t.startswith("ins"):
@@ -353,7 +353,7 @@ if not variant:
             err = err or verr
         works.progress(55)
 
-# Anything else (or an id VEP/Ensembl could not resolve): let Claude resolve it.
+# Anything else (or an id VEP/Ensembl could not resolve): let  resolve it.
 if not variant:
     if rsm or mode == "vep":
         mode = "anthropic-fallback"

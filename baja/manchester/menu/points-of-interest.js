@@ -1,6 +1,6 @@
 function (graph, genegraph_panel_layout) {
     // Points-of-interest (mutation mode): take the selected track's gene symbol + species,
-    // ask Claude for important known mutations/variants that carry a database id (rsID /
+    // ask  for important known mutations/variants that carry a database id (rsID /
     // ClinVar / COSMIC / HGVS) from which a genomic location can be derived, then draw a
     // labelled annotation at each variant's location with a note on why it matters.
     return (async () => {
@@ -35,7 +35,7 @@ function (graph, genegraph_panel_layout) {
                 (t.annotations && t.annotations[0] && (t.annotations[0].chr || t.annotations[0].chromosome)) || '');
         } catch (e) { }
 
-        graph.setMessage(' Finding important mutations for ' + (gene || 'this gene') + ' with Claude… ');
+        graph.setMessage(' Finding important mutations for ' + (gene || 'this gene') + '… ');
         let em = new EngineMonitor((m) => { });
         let res = null;
         try {
@@ -54,7 +54,7 @@ function (graph, genegraph_panel_layout) {
         let n = 0;
         for (const p of pts) {
             try {
-                // Claude returns 1-based genomic coordinates; place at that location.
+                //  returns 1-based genomic coordinates; place at that location.
                 let gi = Math.floor(+p.start);
                 let gf = Math.floor(+p.end);
                 if (!isFinite(gi) || gi <= 0) continue;

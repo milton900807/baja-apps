@@ -9,14 +9,14 @@ except Exception:
     requests = None
 
 # ---------------------------------------------------------------------------
-# Public-resource endpoint finder (Anthropic / Claude).
+# Public-resource endpoint finder (Anthropic / ).
 #
 # Given a public genomics resource (RNASeq, ClinVar, dbSNP, GWAS, conservation,
-# ...), a genome build and a region (chr:start-end), Claude proposes candidate
+# ...), a genome build and a region (chr:start-end),  proposes candidate
 # PUBLIC bigWig or VCF data endpoints (files/URLs) that cover the region. The
 # client then (a) lets the user pick one if there is more than one, and (b)
 # reads the chosen endpoint as a bigWig / VCF to build a track-layer (see
-# public-data.js). The genomic coordinates are passed through so Claude can
+# public-data.js). The genomic coordinates are passed through so  can
 # scope the suggestions to the region.
 #
 # Params (after the EngineMonitor at param(0)):

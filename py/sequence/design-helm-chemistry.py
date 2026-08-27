@@ -9,10 +9,10 @@ except Exception:
     requests = None
 
 # ---------------------------------------------------------------------------
-# HELM chemistry design assistant (Anthropic / Claude).
+# HELM chemistry design assistant (Anthropic / ).
 #
 # Given an oligonucleotide's HELM string, the monomer library available in the
-# editor, and a natural-language request, Claude returns a MODIFIED HELM string
+# editor, and a natural-language request,  returns a MODIFIED HELM string
 # so the user can restyle the chemistry (sugars, linkers, modifications) while
 # keeping to monomers that actually exist in the library.
 #
