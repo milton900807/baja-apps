@@ -18,6 +18,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from ion import works  # type: ignore
 
@@ -237,11 +238,13 @@ def resolve_gene_transcripts(genes, mutations, asos):
         add(m.get("gene"), m.get("species"))
     for a in asos:
         add(a.get("target_gene"), a.get("species"))
+    vals = list(want.values())
     out = []
-    for v in want.values():
-        tid = resolve_transcript(v["species"], v["gene"])
-        if tid:
-            out.append({"gene": v["gene"], "species": v["species"], "id": tid})
+    if vals:
+        with ThreadPoolExecutor(max_workers=min(8, len(vals))) as pool:
+            for v, tid in pool.map(lambda v: (v, resolve_transcript(v["species"], v["gene"])), vals):
+                if tid:
+                    out.append({"gene": v["gene"], "species": v["species"], "id": tid})
     return out
 
 
@@ -299,9 +302,10 @@ else:
     tid_by_gene = {("" + g["gene"]).lower(): g["id"] for g in gene_transcripts}
     works.progress(50)
 
-    # Resolve mutation coordinates (rsID first, then coding/genomic HGVS via the transcript).
-    total = max(1, len(mutations))
-    for i, mut in enumerate(mutations):
+    # Resolve every mutation's coordinate + gene IN PARALLEL (rsID first, then coding/genomic
+    # HGVS via the transcript). Each mutation's Ensembl calls run concurrently across
+    # mutations, so total time is ~one round-trip rather than the sum.
+    def _resolve_mut(mut):
         mut["resolved"] = False
         sp = mut.get("species") or "human"
         loc = None
@@ -320,7 +324,12 @@ else:
             gsym = resolve_gene_at(sp, mut["chr"], mut["start"], mut["end"])
             if gsym:
                 mut["gene"] = gsym
-        works.progress(50 + int(45.0 * (i + 1) / total))
+        return mut
+
+    if mutations:
+        with ThreadPoolExecutor(max_workers=min(8, len(mutations))) as pool:
+            list(pool.map(_resolve_mut, mutations))
+    works.progress(95)
 
     # Recompute transcripts to include any gene backfilled from a locus (cached, so cheap).
     gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
