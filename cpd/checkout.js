@@ -1,6 +1,6 @@
 function () {
 
-    const price = 99;
+    const price = 55;
 
     exec('cpd/license').then(async license => {
 
@@ -71,7 +71,7 @@ function () {
                                 wid: 'mt-button', data: {
                                     buttons: [
                                         {
-                                            label: `(Early access) Purchase  $${price}`, ionFunction: createIonFunction(() => {
+                                            label: `(Early access) Purchase  $${price}/year`, ionFunction: createIonFunction(() => {
                                                 hideAllModal();
                                                 clear();
 
