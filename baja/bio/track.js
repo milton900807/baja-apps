@@ -24,7 +24,7 @@ return new Promise(async (resolve, reject) => {
   const GFONT_SM = '10px ' + GFONT_STACK;
   const GX_INK = '#0a2540'; // text
   const GX_PAPER = '#ffffff'; // background
-  const GX_GUIDE = 'rgba(255, 0, 0, 0.29)'; // faint guide/tick lines
+  const GX_GUIDE = 'rgb(168, 255, 240)'; // faint guide/tick lines
   const GX_ARROW = 'rgba(120,130,145,0.22)'; // lighter still — track direction arrows
   const GX_GTAG = 'rgba(150,160,175,0.85)';  // light gray for the g. genomic-locus tags
   // Abbreviate a genomic position so the 45deg g. tags aren't a wall of digits:
@@ -6044,6 +6044,10 @@ return new Promise(async (resolve, reject) => {
               }
             }
 
+            // Reset the exon-index badge overlap anchor for this track/frame so the
+            // Exon shape (gene-draw.js) can drop badges whose circles/numbers would
+            // overlap the previous one, without the anchor leaking across frames.
+            graph.__exonBadgeLastX = null;
             for (let a of this.annotations) {
               a.gxi = Math.floor(a.gxi);
               a.gxf = Math.floor(a.gxf);

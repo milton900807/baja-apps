@@ -329,26 +329,41 @@ function () {
                     // doesn't obscure the number; centered on the lane when zoomed in.
                     const x = (graph.X(xs) + graph.X(xf)) / 2;
                     const y = small ? (graph.Y(yv) + (radius + 28)) : graph.Y(yv);
-                    ctx.save();
-                    ctx.setLineDash([]);
-                    ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
-                    ctx.shadowColor = 'transparent';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'white';     // white background
-                    ctx.strokeStyle = '#0a2540'; // oval border
-                    ctx.lineWidth = 1;
-                    ctx.fill();
-                    ctx.closePath();
-                    ctx.stroke();
 
-                    ctx.font = `${fontSize}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'black';     // black number
-                    ctx.fillText('' + annotation.index, x, y);
-                    ctx.restore();
+                    // Hide overlapping exon-index badges: if this badge's circle
+                    // would collide with the previous badge kept on this track/frame,
+                    // skip it entirely (both the circle AND the number) rather than
+                    // let numbers and their background circles pile up when zoomed out.
+                    // track.js resets graph.__exonBadgeLastX before each track's
+                    // exon-draw loop, so the anchor never carries across frames.
+                    const minGap = 2 * radius + 3;   // circle diameter + a little pad
+                    const prevX = (typeof graph.__exonBadgeLastX === 'number') ? graph.__exonBadgeLastX : null;
+                    if (!isFinite(x) || (prevX !== null && Math.abs(x - prevX) < minGap)) {
+                        // too close (or invalid) -> drop this badge; keep prev as anchor
+                    } else {
+                        ctx.save();
+                        ctx.setLineDash([]);
+                        ctx.shadowBlur = 0;          // don't inherit a leaked drop shadow
+                        ctx.shadowColor = 'transparent';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                        ctx.fillStyle = 'white';     // white background
+                        ctx.strokeStyle = '#0a2540'; // oval border
+                        ctx.lineWidth = 1;
+                        ctx.fill();
+                        ctx.closePath();
+                        ctx.stroke();
+
+                        ctx.font = `${fontSize}px system-ui, -apple-system, Roboto, Arial, sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = 'black';     // black number
+                        ctx.fillText('' + annotation.index, x, y);
+                        ctx.restore();
+
+                        graph.__exonBadgeLastX = x;  // this badge becomes the anchor
+                    }
                 }
             }
 
