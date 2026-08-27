@@ -82,8 +82,9 @@ function (graph, genegraph_panel_layout) {
             }
 
             const mime = ('' + (file.type || '')).toLowerCase() || guessMime(file.name);
-            graph.setMessage(' Reading ' + file.name + ' — finding genes & mutations… ');
-            const ov = makeOverlay('Reading ' + file.name + '…');
+            // Show the blurred overlay + spinner immediately so the upload lag is visible.
+            graph.setMessage(' Uploading ' + file.name + '… ');
+            const ov = makeOverlay('Uploading ' + file.name + '…');
 
             let dataUrl = '';
             try {
@@ -105,18 +106,24 @@ function (graph, genegraph_panel_layout) {
             const b64 = comma >= 0 ? ('' + dataUrl).slice(comma + 1) : '';
             if (!b64) { ov.remove(); graph.setMessage(' The file was empty. '); resolve(null); return; }
 
-            // Pull genes / mutations / ASOs out of the file.
-            ov.set('Finding genes & mutations in ' + file.name + '…');
+            // The file is now read into memory and being sent to the server. Keep the
+            // "Uploading" message during the network upload, switch to "Analyzing" once it's
+            // likely landed (~4s), and note the 2-minute ceiling if it's still going at 20s.
+            ov.set('Uploading ' + file.name + '…');
             let em = new EngineMonitor(() => { });
-            // If it's slow (>20s), let the user know the analysis can take up to 2 minutes.
+            let t1 = setTimeout(() => {
+                try { ov.set('Analyzing ' + file.name + '…'); } catch (e) { }
+                try { graph.setMessage(' Analyzing ' + file.name + '… '); } catch (e) { }
+            }, 4000);
             let slow = setTimeout(() => {
                 try { ov.set('Analyzing ' + file.name + '… this can take up to 2 minutes.'); } catch (e) { }
                 try { graph.setMessage(' Analyzing… this can take up to 2 minutes. '); } catch (e) { }
             }, 20000);
+            const _clearTimers = () => { try { clearTimeout(t1); } catch (e) { } try { clearTimeout(slow); } catch (e) { } };
             let entities = null;
             try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }
-            catch (e) { clearTimeout(slow); ov.remove(); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
-            clearTimeout(slow);
+            catch (e) { _clearTimers(); ov.remove(); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            _clearTimers();
 
             if (!hasHits(entities)) {
                 ov.remove();
