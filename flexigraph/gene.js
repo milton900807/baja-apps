@@ -8889,10 +8889,13 @@ pattern, GGGG | Required`
 
                 const buildMain = () => {
                     const menu = [];
+                    // Make it unmistakable that this menu acts on the SELECTED items only
+                    // (not everything on the canvas).
+                    menu.push({ label: '— Selected items only (' + sel.length + ') —', header: true, click: () => { }, move: () => { } });
                     for (const k of kindsPresent) {
                         const count = sel.filter((s) => s.kind === k).length;
                         const kl = kindLabels[k] || k;
-                        menu.push({ label: kl + ' (' + count + ') ▸', click: () => { openTypeMenu(k); }, move: () => { } });
+                        menu.push({ label: 'Selected ' + kl + ' (' + count + ') ▸', click: () => { openTypeMenu(k); }, move: () => { } });
                     }
                     // Whole-selection actions below the per-type groups.
                     menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
