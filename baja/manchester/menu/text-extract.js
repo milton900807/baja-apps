@@ -1,10 +1,12 @@
-function (graph, genegraph_panel_layout, presetText) {
-    // Read pasted text with Claude, extract genes / mutations / ASOs, load the appropriate
-    // gene tracks (pre-mRNA), map mutations to their Ensembl-resolved genomic positions, and
-    // map each ASO to its target location by searching the target track's sequence.
+function (graph, genegraph_panel_layout, presetText, presetEntities) {
+    // Read text (pasted) OR a set of pre-extracted entities (from a file upload) with Claude,
+    // extract genes / mutations / ASOs, load the appropriate gene tracks (pre-mRNA), map
+    // mutations to their Ensembl-resolved genomic positions, map each ASO to its target
+    // location, then TOUR the mutations — zoom into each and dwell 3s until the last.
     return new Promise(async (resolve) => {
         const Annotation = await exec('flexigraph/annotation.js');
         let v = null;   // paste editor widget
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
         const showInMainPanel = (comp) => {
             try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', comp); } catch (e) { }
@@ -123,16 +125,27 @@ function (graph, genegraph_panel_layout, presetText) {
             return null;
         };
 
-        const run = async (rawText) => {
-            const txt = ('' + (rawText || '')).trim();
-            if (!txt) { resolve(null); return; }
-            showEditorCanvas();
-            graph.setMessage(' Reading text with Claude… ');
-            let em = new EngineMonitor(() => { });
-            let ex = null;
-            try { ex = await exec('/py/sequence/extract-entities.py', em, txt); }
-            catch (e) { graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+        // Zoom the view to a genomic window on a specific track (mirrors gene.js goToTrackLocus
+        // but takes the track object directly so it doesn't depend on track-name matching).
+        const goToLocus = async (track, xi, xf) => {
+            try {
+                const g = graph.graph;          // FlexiGraph
+                const tg = track && track.tgraph;
+                if (!g || !tg || !tg.X) return;
+                if (g.rescale) g.rescale();
+                const gi = tg.X(xi), gf = tg.X(xf);
+                const wx = 5;
+                g.setxmin(gi - wx); g.setxmax(gf + wx);
+                if (tg.yi != null && tg.height != null) {
+                    g.setymin(tg.yi + tg.height); g.setymax(tg.yi);
+                }
+                if (graph.wake) graph.wake();
+            } catch (e) { }
+        };
 
+        // Shared processing: given the extracted entities, load tracks, map mutations + ASOs,
+        // then tour each mapped mutation (zoom in, dwell 3s, until the last one).
+        const process = async (ex) => {
             const genes = (ex && ex.genes) || [];
             const muts = (ex && ex.mutations) || [];
             const asos = (ex && ex.asos) || [];
@@ -158,7 +171,9 @@ function (graph, genegraph_panel_layout, presetText) {
             // Hand the mouse to hover / mouse-over-highlight once tracks are in.
             try { graph.setMouseMode('navigate'); graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
 
-            // Map mutations onto their gene track (Ensembl-resolved genomic coordinates).
+            // Map mutations onto their gene track (Ensembl-resolved genomic coordinates),
+            // collecting each mapped position so we can zoom-tour them afterwards.
+            const mappedMuts = [];
             let mMapped = 0, mUnres = 0;
             for (const m of muts) {
                 const track = loaded[('' + (m.gene || '')).toLowerCase()];
@@ -166,8 +181,10 @@ function (graph, genegraph_panel_layout, presetText) {
                 if (m.resolved && +m.start > 0) {
                     let gi = Math.floor(+m.start), gf = Math.floor(+m.end || gi + 1);
                     if (gf <= gi) gf = gi + 1;
+                    const label = m.label || m.id || 'Mutation';
                     const note = (m.id ? m.id + ' — ' : '') + (m.comment || '');
-                    placePoint(track, gi, gf, m.label || m.id || 'Mutation', note, 'rgba(220,38,38,0.9)');
+                    placePoint(track, gi, gf, label, note, 'rgba(220,38,38,0.9)');
+                    mappedMuts.push({ track: track, gi: gi, gf: gf, label: label });
                     mMapped++;
                 } else { mUnres++; }
             }
@@ -206,8 +223,36 @@ function (graph, genegraph_panel_layout, presetText) {
             graph.setMessage(' Loaded ' + gkeys.length + ' gene(s); mapped ' + mMapped + ' mutation(s)'
                 + (mUnres ? ' (' + mUnres + ' unresolved)' : '') + ' and ' + aMapped + ' ASO(s)'
                 + (aUnmapped ? ' (' + aUnmapped + ' unmapped)' : '') + '. ');
+
+            // Tour the mutations: zoom into each and dwell 3 seconds, stopping on the last.
+            if (mappedMuts.length) {
+                const PAD = 80;   // bp of genomic context on each side of the mutation
+                for (let i = 0; i < mappedMuts.length; i++) {
+                    const mm = mappedMuts[i];
+                    graph.setMessage(' Mutation ' + (i + 1) + '/' + mappedMuts.length + ': ' + mm.label + ' ');
+                    await goToLocus(mm.track, mm.gi - PAD, mm.gf + PAD);
+                    if (i < mappedMuts.length - 1) await sleep(3000);
+                }
+            }
+
             resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped });
         };
+
+        const run = async (rawText) => {
+            const txt = ('' + (rawText || '')).trim();
+            if (!txt) { resolve(null); return; }
+            showEditorCanvas();
+            graph.setMessage(' Reading text with Claude… ');
+            let em = new EngineMonitor(() => { });
+            let ex = null;
+            try { ex = await exec('/py/sequence/extract-entities.py', em, txt); }
+            catch (e) { graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
+            await process(ex);
+        };
+
+        // A caller can hand us already-extracted entities (e.g. from a file upload) — skip the
+        // Claude text call and the paste modal and go straight to loading + mapping + touring.
+        if (presetEntities) { showEditorCanvas(); await process(presetEntities); return; }
 
         // A preset text (from a caller) skips the modal.
         if (presetText && ('' + presetText).trim()) { await run(presetText); return; }

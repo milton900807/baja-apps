@@ -1726,6 +1726,14 @@ function (path, config) {
                                                     label: 'File', ionFunction: createIonFunction(() => {
                                                         graph.showMenu([
                                                             {
+                                                                label: 'Extract from File', move: () => { },
+                                                                click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
+                                                            },
+                                                            {
+                                                                label: 'My Files', move: () => { },
+                                                                click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
+                                                            },
+                                                            {
                                                                 label: 'New', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
@@ -1757,6 +1765,44 @@ function (path, config) {
                                                                         showModal(c);
                                                                     } catch (e) { shareScreen(); }
                                                                 }
+                                                            },
+
+                                                            {
+                                                                label: 'The Library', move: () => { },
+                                                                click: async () => {
+                                                                    graph.hideMenu();
+                                                                    let path_j = '.'
+                                                                    let commands = await exec('manchester/controls/cmds')
+                                                                    let userfiles = {
+                                                                        wid: 'pdf-bookshelf',
+                                                                        title: 'RNA Therapeutics Library',
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        data: {
+                                                                            width: '100%',
+                                                                            drive: 'wd',
+                                                                            user: getUser(),
+                                                                            root: 'library',
+                                                                            columns: 3,
+                                                                            showSearch: true,
+                                                                            "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
+                                                                            "ionfunction.fileClick": createIonFunction(async (element) => {
+                                                                                path_j = element.path;
+                                                                                let host_ = window['env']['apiUrl']
+                                                                                const user = getUser();
+                                                                                const key = 'library';
+                                                                                const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
+                                                                                window.open(pdfUrl, "_blank", "noopener,noreferrer");
+                                                                            }),
+                                                                            "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+                                                                            "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
+                                                                        }
+                                                                    }
+                                                                    const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
+                                                                    clear();
+                                                                    showWidget(tu);
+
+                                                                },
                                                             },
                                                         ], 0, 0, 280);
                                                     })
@@ -2222,6 +2268,51 @@ function (path, config) {
                                                                 label: 'Edit...', move: () => { },
                                                                 click: () => { graph.hideMenu(); try { graph.setMouseMode('navigate'); } catch (e) { } }
                                                             },
+                                                            {
+                                                                label: 'The Library', move: () => { },
+                                                                click: async () => {
+                                                                    graph.hideMenu();
+                                                                    let path_j = '.'
+                                                                    let commands = await exec('manchester/controls/cmds')
+                                                                    let userfiles = {
+                                                                        wid: 'pdf-bookshelf',
+                                                                        title: 'RNA Therapeutics Library',
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        data: {
+                                                                            width: '100%',
+                                                                            drive: 'wd',
+                                                                            user: getUser(),
+                                                                            root: 'library',
+                                                                            columns: 3,
+                                                                            showSearch: true,
+                                                                            "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
+                                                                            "ionfunction.fileClick": createIonFunction(async (element) => {
+                                                                                path_j = element.path;
+                                                                                let host_ = window['env']['apiUrl']
+                                                                                const user = getUser();
+                                                                                const key = 'library';
+                                                                                const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
+                                                                                window.open(pdfUrl, "_blank", "noopener,noreferrer");
+                                                                            }),
+                                                                            "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+                                                                            "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
+                                                                        }
+                                                                    }
+                                                                    const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
+                                                                    clear();
+                                                                    showWidget(tu);
+
+                                                                },
+                                                            },
+
+
+
+
+
+
+
+
                                                         ], 0, 0, 300);
                                                     })
                                                 },

@@ -1596,11 +1596,6 @@ function (lib_id, file_id) {
                         {
                             'label': 'File', 'items': [
                                 {
-                                    'label': 'My Files', 'ionfunction': createIonFunction(async () => {
-                                        await exec('manchester/fb.js');
-                                    })
-                                },
-                                {
                                     'label': 'Open', 'ionfunction': createIonFunction(showSavedScreens)
                                 },
                                 {
@@ -1618,11 +1613,19 @@ function (lib_id, file_id) {
                                         CurrentLayout.setComponent('mainPanel', m);
                                     })
                                 },
-                            ]
-                        },
-                        {
-                            label: 'Library',
-                            items: [
+                                {
+                                    'label': 'Extract from File', 'ionfunction': createIonFunction(async () => {
+                                        await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout);
+                                    })
+                                },
+                                {
+                                    'label': 'My Files', 'ionfunction': createIonFunction(async () => {
+                                        await exec('manchester/fb.js');
+                                    })
+                                },
+                                {
+                                    label: 'Library',
+                                    items: [
 
                                 {
                                     label: 'Browse library',
@@ -1637,7 +1640,8 @@ function (lib_id, file_id) {
                                         let commands = await exec('manchester/controls/cmds')
 
                                         let userfiles = {
-                                            wid: 'simple-file-browser',
+                                            wid: 'pdf-bookshelf',
+                                            title: 'RNA Therapeutics Library',
                                             width: '100%',
                                             height: '100%',
                                             refCallback: userFilesRef,
@@ -1709,6 +1713,8 @@ function (lib_id, file_id) {
                                         mode = 'delete'
 
                                     })
+                                },
+                                    ]
                                 },
                             ]
                         },
@@ -2045,7 +2051,7 @@ function (lib_id, file_id) {
                         for (let t of tr) { if (t && t.sequence && ('' + t.sequence).length > 0) return false; }
                         return true;
                     }),
-                    guardAllow: ['File', 'Track', 'Library'],
+                    guardAllow: ['File', 'Track'],
                     guardHighlight: ['Track'],
                     onBlocked: createIonFunction(() => {
                         // Prominent warning popup + status-bar message.

@@ -428,12 +428,6 @@ function (__path) {
             }
 
             let myfiles_button = {
-                label: 'My Files',
-                ionfunction: createIonFunction(() => {
-                    view = '' + getUser();
-                    CurrentLayout.clearComponent('bottomPanel')
-                    CurrentLayout.setComponent('bottomPanel', tu);
-                })
             }
 
             let fbmenu = []
@@ -489,22 +483,13 @@ function (__path) {
 
             )
 
-            const appmenu = await exec('baja/app-menu.js');
-
-
-
             let w = {
                 wid: 'menu',
                 data: {
                     menus: [
                         {
-                            label: 'Tools',
-                            items: appmenu
-                        },
-                        {
-                            label: 'Files',
+                            label: 'Files & Folder',
                             items: [
-                                myfiles_button,
                                 {
                                     'label': 'Upload', 'ionfunction': createIonFunction(async () => {
                                         let currentPath = userFiles_panel.currentPath;
@@ -518,12 +503,6 @@ function (__path) {
                                         let menu = await exec('baja/ml/upload-large-file.js', currentPath);
                                     })
                                 },
-                            ]
-                        },
-                        {
-                            label: 'Edit',
-                            items: [
-
                                 {
                                     label: 'New folder',
                                     ionfunction: createIonFunction(() => {
@@ -583,26 +562,6 @@ function (__path) {
                                         }
 
                                     })
-                                },
-                                {
-                                    label: 'Share Folder',
-                                    ionfunction: createIonFunction(async () => {
-                                        let host_ = window['env']['apiUrl']
-                                        let jsonobj = {
-                                            'spath': '.',
-                                            "key": "user",
-                                            "user": getUser(),
-                                            "spath": path_j,
-                                            'name': '.share',
-                                            'value': '{remove this and replace with a list of emails you want to share.  One email per line}'
-
-                                        }
-                                        let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
-
-                                        userFiles_panel.refresh();
-
-                                    })
-
                                 },
                                 {
                                     label: 'Delete file',

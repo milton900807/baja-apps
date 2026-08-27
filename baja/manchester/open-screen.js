@@ -1556,6 +1556,110 @@ function (lib_id, file_id) {
 
             }
 
+            // My Files + Library at the end of the file menu (mirrors the mobile
+            // open-screen-m.js so both desktop and mobile expose them).
+            file_items.push({
+                'label': 'Extract from File', 'ionfunction': createIonFunction(async () => {
+                    await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout);
+                })
+            })
+            file_items.push({
+                'label': 'My Files', 'ionfunction': createIonFunction(async () => {
+                    await exec('manchester/fb.js');
+                })
+            })
+            file_items.push({
+                label: 'Library',
+                items: [
+                    {
+                        label: 'Browse library',
+                        ionfunction: createIonFunction(async () => {
+
+                            let path_j = '.'
+                            let userFiles_panel;
+                            let userFilesRef = createIonFunction((panel) => {
+                                userFiles_panel = panel;
+                            })
+                            let commands = await exec('manchester/controls/cmds')
+
+                            let userfiles = {
+                                wid: 'pdf-bookshelf',
+                                title: 'RNA Therapeutics Library',
+                                width: '100%',
+                                height: '100%',
+                                refCallback: userFilesRef,
+                                data: {
+                                    width: '100%',
+                                    drive: 'wd',
+                                    user: getUser(),
+                                    root: 'library',
+                                    columns: 3,
+                                    showSearch: true,
+                                    "ionfunction.cmd": createIonFunction((element) => {
+                                        commands.go(path_j, element.cmd);
+                                    }),
+                                    "ionfunction.fileClick": createIonFunction(async (element) => {
+                                        path_j = element.path;
+
+                                        let host_ = window['env']['apiUrl']
+                                        const user = getUser();
+                                        const key = 'library';
+
+                                        const pdfUrl =
+                                            `${host_}/load-pdf` +
+                                            `?path=${encodeURIComponent(element.path)}` +
+                                            `&key=${encodeURIComponent(key)}` +
+                                            `&user=${encodeURIComponent(user)}`;
+
+                                        window.open(pdfUrl, "_blank", "noopener,noreferrer");
+                                    }),
+                                    "ionfunction.openfile": createIonFunction(async (file, text) => {
+
+                                    }
+                                    ),
+                                    "ionfunction.path": createIonFunction(async (path) => {
+                                        path_j = path;
+                                    })
+                                }
+                            }
+                            const tu = {
+                                wid: 'card',
+                                height: '100%',
+                                width: '100%',
+                                data: {
+                                    cards: [
+                                        [
+                                            {
+                                                'component': userfiles,
+                                                'width': '100%'
+                                            }
+                                        ]
+                                    ]
+                                }
+
+                            };
+
+
+                            clear();
+                            showWidget(tu);
+                        })
+                    },
+                    {
+                        'label': 'Upload', 'ionfunction': createIonFunction(async () => {
+                            let menu = await exec('ljl/ml/upload-large-file.js', graph, genegraph_panel_layout);
+                            graph.showWindowMenu(menu, 10, 10, 400)
+                        })
+                    },
+                    {
+                        label: 'Delete file',
+                        ionfunction: createIonFunction(() => {
+                            mode = 'delete'
+
+                        })
+                    },
+                ]
+            })
+
             genegraph_panel_layout = {
                 wid: 'card',
                 componentRef: 'geneGraphPanel',

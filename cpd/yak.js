@@ -711,7 +711,7 @@ function (path, filebrowserplease) {
                     return parts[parts.length - 2];
                 }
 
-                let myfiles_button = await exec('baja/app-menu')
+                // let myfiles_button = await exec('baja/app-menu')
 
 
                 let fbmenu = []
@@ -742,12 +742,6 @@ function (path, filebrowserplease) {
                     wid: 'menu',
                     data: {
                         menus: [
-                            {
-                                label: 'Apps',
-                                items:
-                                    myfiles_button,
-
-                            },
                             {
                                 label: 'Files & Folders',
                                 items: [
