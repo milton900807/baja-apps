@@ -2742,6 +2742,7 @@ function (progress, options) {
                         js['strand']
                     );
 
+                    if (!t) continue;   // bad/NaN coordinates -> skip this transcript
                     t.transcriptID = transcriptId;
                     t.species = js['species'];
                     t.chr = js['seq_region_name'];
@@ -3040,7 +3041,14 @@ function (progress, options) {
                                 }
 
                                 let t = this.createTrack(ensembleId, start, end, strand);
+                                if (!t) return null;   // bad/NaN coordinates -> skip, don't poison layout
                                 t.transcriptID = ensembleId;
+                                // Canonical gene symbol as the track name when available; else the id.
+                                try {
+                                    const _sym = ('' + ((jsm.attributes && (jsm.attributes.gene_name || jsm.attributes.Name))
+                                        || (desc ? ('' + desc).split(';')[0] : '') || '')).trim();
+                                    if (_sym) t.name = _sym;
+                                } catch (e) { }
                                 // Species from the Ensembl transcript-id prefix (ENST=human,
                                 // ENSMUST=mouse, ENSRNOT=rat, ENSCAFT=dog, ...), falling back
                                 // to the server-reported species. Was hardcoded to 'Human'.
@@ -3213,12 +3221,18 @@ function (progress, options) {
                 let desc = js['display_name'];
 
                 let t = this.createTrack(ensembleId, start, end, strand);
+                if (!t) return null;   // bad/NaN coordinates -> skip, don't poison layout
 
                 t.transcriptID = ensembleId;
                 t.species = species;
                 t.chr = chromosome;
                 t.description = desc;
                 t.geneID = geneID;
+                // Prefer a canonical gene symbol as the track name; fall back to the id.
+                try {
+                    const _sym = ('' + (js['gene_symbol'] || js['display_name'] || '')).replace(/-\d+$/, '').trim();
+                    if (_sym) t.name = _sym;
+                } catch (e) { }
 
                 applyTrackViewport(t);
 
@@ -3282,6 +3296,7 @@ function (progress, options) {
                         let end = +js['end']
                         let strand = js['strand']
                         let t = this.createTrack(ncbi, start, end, strand);
+                        if (!t) return null;   // bad/NaN coordinates -> skip
                         if (x) {
                             t.tgraph.xi = x;
                         }
@@ -3769,6 +3784,7 @@ function (progress, options) {
                     sequence += lines[i].trim();
                 }
                 let t = this.createTrack(title, 0, sequence.length, '+');
+                if (!t) return null;   // empty/invalid sequence -> skip
                 t.setSequence(sequence)
                 if (x) {
                     t.tgraph.xi = x;
@@ -9723,6 +9739,15 @@ pattern, GGGG | Required`
             }
 
             createTrack(name, start, end, strand) {
+                // Never build a track with NaN/null/zero-length coordinates (e.g. a failed
+                // Ensembl lookup returning bad or missing start/end). Such a track corrupts
+                // the shared layout and impacts other tracks — so notify the user and return
+                // null here, BEFORE any track object exists; callers must bail on null.
+                const s = +start, e = +end;
+                if (!isFinite(s) || !isFinite(e) || s === e) {
+                    try { this.setMessage(' A track failed to load: ' + (name || 'unknown') + ' '); } catch (ex) { }
+                    return null;
+                }
                 let t = new Track(name, start, end, 2, strand)
 
                 this.addTrack(t)
