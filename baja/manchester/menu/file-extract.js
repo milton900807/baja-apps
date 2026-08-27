@@ -118,10 +118,21 @@ function (graph, genegraph_panel_layout) {
             const em = new EngineMonitor(() => { });
             const t1 = setTimeout(() => { try { notice.set('Analyzing ' + file.name + '… still working'); } catch (e) { } }, 4000);
             const slow = setTimeout(() => { try { notice.set('Analyzing ' + file.name + '… this can take up to 2 minutes'); } catch (e) { } }, 20000);
-            const clearTimers = () => { try { clearTimeout(t1); } catch (e) { } try { clearTimeout(slow); } catch (e) { } };
+            // Hard 3-minute cap: if the job runs longer, treat the service as overloaded, stop
+            // waiting on it and drop the notice. exec() has no client-side abort hook, but the
+            // extractor's own Claude request is bounded to ~3 minutes server-side (requests
+            // timeout=180), so the underlying Claude job is dropped around the same moment.
+            const TIMEOUT_MS = 3 * 60 * 1000;
+            let timedOut = false, toTimer = null;
+            const timeoutP = new Promise((res) => { toTimer = setTimeout(() => { timedOut = true; res(null); }, TIMEOUT_MS); });
+            const clearTimers = () => {
+                try { clearTimeout(t1); } catch (e) { }
+                try { clearTimeout(slow); } catch (e) { }
+                try { clearTimeout(toTimer); } catch (e) { }
+            };
 
             let entities = null;
-            try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }
+            try { entities = await Promise.race([exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name), timeoutP]); }
             catch (e) {
                 clearTimers();
                 notice.set('Extraction failed: ' + (e && e.message ? e.message : e)); notice.stop('#c0455a');
@@ -129,6 +140,14 @@ function (graph, genegraph_panel_layout) {
                 return;
             }
             clearTimers();
+
+            // Over 3 minutes -> service overloaded; abandon the job (any late result is ignored).
+            if (timedOut) {
+                notice.set('Service overloaded — please try again later'); notice.stop('#c0455a');
+                graph.setMessage(' The extraction service is overloaded. Please try again later. ');
+                setTimeout(() => notice.remove(), 8000);
+                return;
+            }
 
             if (!hasHits(entities)) {
                 notice.set('No genetic information found in ' + file.name); notice.stop('#c0455a');
