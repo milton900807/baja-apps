@@ -27,12 +27,26 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         const loaded = {};   // geneSymbol(lower) -> track
         let trMap = {};      // geneSymbol(lower) -> real Ensembl transcript id (from step 2)
 
+        const stripV = (x) => ('' + (x || '')).split('.')[0].toUpperCase().trim();
+        // Is a track for this transcript/gene already on the canvas? Match by transcript id
+        // (or gene id), else by the gene symbol appearing in the track name.
+        const findLoadedTrack = (tid, symbol) => {
+            const tt = stripV(tid);
+            const sym = ('' + (symbol || '')).toLowerCase().trim();
+            for (const t of (graph.track || [])) {
+                if (!t) continue;
+                if (tt && (stripV(t.transcriptID) === tt || stripV(t.id) === tt || stripV(t.geneID) === tt)) return t;
+                if (sym && ('' + (t.name || '')).toLowerCase().indexOf(sym) >= 0) return t;
+            }
+            return null;
+        };
+
         const loadGene = async (symbol, species) => {
             const key = ('' + (symbol || '')).toLowerCase().trim();
             if (!key) return null;
             if (loaded[key]) return loaded[key];
             // Prefer the authoritative Ensembl transcript id resolved server-side (step 2);
-            // only fall back to the  natural-language resolver if we don't have one.
+            // only fall back to the natural-language resolver if we don't have one.
             let tid = trMap[key] || null;
             if (!tid) {
                 const sp = ('' + (species || 'human')).toLowerCase();
@@ -46,12 +60,25 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (list.length) { const pick = list.find(x => x.canonical) || list[0]; tid = pick && pick.id; }
             }
             if (!tid) return null;
+            // Already loaded on the canvas? Reuse it instead of loading it again.
+            const existing = findLoadedTrack(tid, symbol);
+            if (existing) {
+                loaded[key] = existing;
+                try { if (existing.select) existing.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(existing); } catch (e) { }
+                return existing;
+            }
             let track = null;
             try { track = await graph.add(tid, null, null, null); } catch (e) { track = null; }
-            if (track) {
-                loaded[key] = track;
-                try { if (track.select) track.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(track); } catch (e) { }
+            if (!track) return null;   // Ensembl id not found -> skip it.
+            // A transcript not found locally can come back as an empty shell -> skip + remove.
+            const hasContent = (('' + (track.sequence || '')).length > 0)
+                || (Array.isArray(track.annotations) && track.annotations.length > 0);
+            if (!hasContent) {
+                try { if (graph.track) graph.track = graph.track.filter((x) => x !== track); } catch (e) { }
+                return null;
             }
+            loaded[key] = track;
+            try { if (track.select) track.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(track); } catch (e) { }
             return track;
         };
 
@@ -216,6 +243,16 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                     let gi = t.variantWorldX(m.chr, g0);   // track world-x, or null if not held
                     if (gi == null) continue;
                     if (mp.type === 'del' && t.strand !== -1) gi = gi + 1;
+                    // Already on this track (same position + ref)? Reuse it — don't add a
+                    // duplicate; only variants not yet present get added to the existing track.
+                    const dupe = (t.snpindels || []).find((x) => x && Math.round(x.xi) === Math.round(gi)
+                        && ('' + (x.reference || '')).toUpperCase() === ('' + ref).toUpperCase());
+                    if (dupe) {
+                        t.showSnpIndels = true;
+                        mappedSnps.push({ track: t, snp: dupe });
+                        placed = true;
+                        continue;
+                    }
                     const snp = new SnpIndel(mp.type, gi, ref, mp.sequence, 0, t.strand, SNP_COLOR);
                     try { snp.color = SNP_COLOR; } catch (e) { }
                     try { snp.name = m.label || m.id || 'variant'; } catch (e) { }
