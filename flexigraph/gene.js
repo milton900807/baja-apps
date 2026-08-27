@@ -4899,15 +4899,10 @@ function (progress, options) {
                     this.prev = null;   // reset the pinch baseline so the next pinch starts fresh
                 }
                 this.touchMove = (ct) => {
-                    // Called by the canvas ONCE when a single-finger DRAG is detected (movement
-                    // past the threshold). Switch to navigate/pan and re-anchor the pan at the
-                    // current point so the drag pans smoothly. A stationary tap never triggers
-                    // this, so single-finger tap-to-select still works.
-                    try {
-                        this.clearMouseListeners();
-                        this.setMouseMode('navigate');
-                        if (ct && this.mouseDownListener) this.mouseDownListener(ct.x, ct.y);
-                    } catch (e) { }
+                    // No-op: a single-finger drag pans via the idle hover mode's own pan
+                    // listeners (mouse-over-highlight.js), which fire from the same touch→mouse
+                    // forwarding. Forcing navigate here would clear those listeners mid-drag,
+                    // and would wrongly override an active selection/lasso tool.
                 }
                 this.dblclick = (scx, scy) => {
                 }

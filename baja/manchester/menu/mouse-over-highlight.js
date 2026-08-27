@@ -1301,6 +1301,32 @@ function (graph, genegraph_panel_layout) {
         }
 
         let current = null;
+
+        // Idle click-and-drag PANS the graph. This runs only in the default hover mode
+        // (nothing is selecting a sequence or lassoing), so an empty-space drag moves the
+        // view; a "grab" keeps the world point under the cursor as you drag. Dragging an
+        // oligo still moves the oligo (guarded by __oligoDrag).
+        let __panWorld = null;
+        const __gg = () => (graph && graph.graph && graph.graph.Xwc) ? graph.graph : graph;
+        graph.addMouseDownListener((scx, scy) => {
+            try { const g = __gg(); __panWorld = { x: g.Xwc(scx), y: g.Ywc(scy) }; }
+            catch (e) { __panWorld = null; }
+        });
+        graph.addMouseMoveListener((scx, scy) => {
+            if (!__panWorld || !graph.mouseDown || graph.__oligoDrag) return;
+            try {
+                const g = __gg();
+                const shiftX = __panWorld.x - g.Xwc(scx);
+                const shiftY = __panWorld.y - g.Ywc(scy);
+                if (!shiftX && !shiftY) return;
+                g.setxmin(g.getxmin() + shiftX); g.setxmax(g.getxmax() + shiftX);
+                g.setymin(g.getymin() + shiftY); g.setymax(g.getymax() + shiftY);
+                if (g.rescale) g.rescale();
+                if (graph.wake) graph.wake();
+            } catch (e) { }
+        });
+        graph.addMouseUpListener(() => { __panWorld = null; });
+
         graph.addMouseMoveListener(async (scx, scy) => {
             let x = scx;
             let y = scy;
