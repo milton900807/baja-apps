@@ -4894,6 +4894,15 @@ function (progress, options) {
 
                 this.touchStart = (event) => {
                     this.initDwn = event;
+                    // One-finger touch → navigate/pan mode, so a single-finger drag pans the
+                    // grid (two-finger pinch is handled by pinchListener). Runs before the
+                    // canvas issues its mouseDown, so the drag begins in navigate mode.
+                    try {
+                        if (event && event.touches && event.touches.length === 1) {
+                            this.clearMouseListeners();
+                            this.setMouseMode('navigate');
+                        }
+                    } catch (e) { }
                 }
                 this.touchEnd = (event) => {
                     this.prev = null;   // reset the pinch baseline so the next pinch starts fresh
