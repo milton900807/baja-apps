@@ -268,19 +268,24 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             // above the topmost track (world Y increases upward, so the top track is max yi).
             if (ex && ex.title) {
                 try {
-                    let xLo = Infinity, xHi = -Infinity, yTop = -Infinity;
+                    let xLo = Infinity, xHi = -Infinity, yMin = Infinity;
                     for (const t of (graph.track || [])) {
                         const g = t && t.tgraph;
                         if (!g || !isFinite(g.xi)) continue;
                         xLo = Math.min(xLo, g.xi);
                         xHi = Math.max(xHi, g.xi + (g.width || 0));
-                        yTop = Math.max(yTop, g.yi);
+                        yMin = Math.min(yMin, g.yi);   // topmost track (smaller y = top of canvas)
                     }
-                    if (isFinite(xLo) && isFinite(xHi) && isFinite(yTop)) {
-                        const rt = new RectangleText('paper-title', xLo, yTop + 0.5 + 1.4);
-                        rt.w = Math.max(1, xHi - xLo); rt.h = 1.4;
+                    if (isFinite(xLo) && isFinite(xHi) && isFinite(yMin)) {
+                        const h = 1.4;
+                        // Sit ABOVE the top track (smaller y). Box spans [y, y+h].
+                        const rt = new RectangleText('paper-title', xLo, yMin - 0.4 - h);
+                        rt.w = Math.max(1, xHi - xLo); rt.h = h;
                         rt.setText(ex.title);
-                        rt.setColor('#0b1f3a'); rt.setRectColor('#ffd98a');
+                        rt.setColor('white');               // white foreground text
+                        rt.backgroundColor = '#0b1f3a';     // dark background
+                        rt.rectColor = '#0b1f3a';
+                        rt.borderWhenSelectedOnly = true;   // no border unless selected
                         rt.autoScaleText = true;
                         if (!graph.shapes) graph.shapes = [];
                         graph.shapes.push(rt);   // added last -> drawn above the tracks
@@ -291,6 +296,42 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             // Everything is loaded: view all tracks, then highlight the variant locations.
             try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
             for (const s of mappedSnps) { try { if (s && s.snp) s.snp.highlight = true; } catch (e) { } }
+
+            // Added at the very end: a fixed-screen-size arrow above each variant so the SNP
+            // locations stay visible even when the whole gene is zoomed out to fit. The arrow
+            // draws in screen pixels (independent of zoom) and points down at the marker.
+            if (!graph.shapes) graph.shapes = [];
+            for (const s of mappedSnps) {
+                try {
+                    const t = s.track, snp = s.snp;
+                    if (!t || !t.tgraph || snp == null || snp.xi == null) continue;
+                    graph.shapes.push({
+                        x: snp.xi, y: t.tgraph.yi, type: 'SnpArrow', color: SNP_COLOR,
+                        isIn: () => false,
+                        draw: function (g) {
+                            try {
+                                const ctx = g && g.canvas && g.canvas.getCTX();
+                                if (!ctx) return;
+                                const sx = g.X(this.x), sy = g.Y(this.y);
+                                const H = 20, W = 13, STEM = 12;   // fixed screen px
+                                ctx.save();
+                                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+                                ctx.strokeStyle = this.color; ctx.lineWidth = 2;
+                                ctx.beginPath(); ctx.moveTo(sx, sy - H - STEM); ctx.lineTo(sx, sy - 1); ctx.stroke();
+                                ctx.beginPath();
+                                ctx.moveTo(sx, sy);                 // tip at the variant
+                                ctx.lineTo(sx - W / 2, sy - H);
+                                ctx.lineTo(sx + W / 2, sy - H);
+                                ctx.closePath();
+                                ctx.fillStyle = this.color; ctx.fill();
+                                ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+                                ctx.restore();
+                            } catch (e) { }
+                        }
+                    });
+                } catch (e) { }
+            }
+
             try { if (graph.wake) graph.wake(); } catch (e) { }
 
             resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped });

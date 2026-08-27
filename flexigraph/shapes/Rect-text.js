@@ -23,6 +23,8 @@ function () {
 
             showRect = true;
             hl = false;
+            backgroundColor = null;          // fill behind the text (null = no fill; keeps old look)
+            borderWhenSelectedOnly = false;  // when true, the border draws only while selected/hl
 
             lineWidth = 2;
             displayMinWidth = 10;
@@ -270,15 +272,28 @@ function () {
                 const borderColor = this.hl ? this.highlightColor : this.rectColor;
 
                 if (this.showRect) {
-                    this.drawRectShape(
-                        drawCtx,
-                        screenX,
-                        screenY,
-                        screenW,
-                        screenH,
-                        borderColor,
-                        this.hl ? this.lineWidth + 1 : this.lineWidth
-                    );
+                    // Background fill (dark banner etc.) behind the text.
+                    if (this.backgroundColor) {
+                        drawCtx.save();
+                        this.applyShadow(drawCtx);
+                        drawCtx.beginPath();
+                        drawCtx.rect(screenX, screenY, screenW, screenH);
+                        drawCtx.fillStyle = this.backgroundColor;
+                        drawCtx.fill();
+                        drawCtx.restore();
+                    }
+                    // Border: always, or only while selected/highlighted when requested.
+                    if (this.hl || !this.borderWhenSelectedOnly) {
+                        this.drawRectShape(
+                            drawCtx,
+                            screenX,
+                            screenY,
+                            screenW,
+                            screenH,
+                            borderColor,
+                            this.hl ? this.lineWidth + 1 : this.lineWidth
+                        );
+                    }
                 }
 
                 if (this.comment) {
