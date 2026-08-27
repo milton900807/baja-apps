@@ -77,13 +77,24 @@ function (select) {
        <text x="520" y="186" fill="${GREEN}" font-family="Arial" font-size="11" text-anchor="middle">djPrimer</text>`),
 
     'splicing': card('Predict splicing with BajaSplice',
-      'Splice sites, exon inclusion & cryptic exons',
-      `${exonRow(140, TEAL)}
-       <path d="M65 127 C 140 30, 205 30, 215 127" fill="none" stroke="${ORANGE}" stroke-width="4"/>
-       <path d="M215 127 C 300 60, 350 60, 370 127" fill="none" stroke="${GREEN}" stroke-width="3"/>
-       <path d="M65 127 C 250 -10, 450 -10, 500 127" fill="none" stroke="${CYAN}" stroke-width="3" opacity="0.85"/>
-       <rect x="288" y="127" width="42" height="26" rx="4" fill="none" stroke="${ORANGE}" stroke-width="2" stroke-dasharray="5 4"/>
-       <text x="309" y="176" fill="${ORANGE}" font-family="Arial" font-size="12" text-anchor="middle">cryptic exon</text>`),
+      'Splice sites, exon inclusion &amp; cryptic exons',
+      `<line x1="0" y1="120" x2="560" y2="120" stroke="${MUTE}" stroke-width="3"/>
+       <rect x="20"  y="107" width="95"  height="26" rx="5" fill="${TEAL}"/>
+       <rect x="250" y="107" width="120" height="26" rx="5" fill="${TEAL}"/>
+       <rect x="470" y="107" width="90"  height="26" rx="5" fill="${TEAL}"/>
+       <path d="M115 120 C 170 44, 200 44, 250 120" fill="none" stroke="${CYAN}" stroke-width="3.5"/>
+       <path d="M370 120 C 405 58, 435 58, 470 120" fill="none" stroke="${CYAN}" stroke-width="3"/>
+       <path d="M115 120 C 250 -6, 340 -6, 470 120" fill="none" stroke="${GREEN}" stroke-width="2.5" opacity="0.8"/>
+       <line x1="115" y1="99" x2="115" y2="141" stroke="${GREEN}"  stroke-width="3"/>
+       <line x1="250" y1="99" x2="250" y2="141" stroke="${ORANGE}" stroke-width="3"/>
+       <line x1="370" y1="99" x2="370" y2="141" stroke="${GREEN}"  stroke-width="3"/>
+       <line x1="470" y1="99" x2="470" y2="141" stroke="${ORANGE}" stroke-width="3"/>
+       <rect x="150" y="107" width="62" height="26" rx="4" fill="none" stroke="${ORANGE}" stroke-width="2" stroke-dasharray="5 4"/>
+       <text x="181" y="163" fill="${ORANGE}" font-family="Arial" font-size="12" text-anchor="middle">cryptic exon</text>
+       <g font-family="Arial" font-size="11">
+         <line x1="352" y1="150" x2="370" y2="150" stroke="${GREEN}"  stroke-width="3"/><text x="376" y="154" fill="${MUTE}">donor</text>
+         <line x1="432" y1="150" x2="450" y2="150" stroke="${ORANGE}" stroke-width="3"/><text x="456" y="154" fill="${MUTE}">acceptor</text>
+       </g>`),
 
     'rbp': card('RBP binding with BajaCLIP',
       'Predicted protein–RNA binding across the transcript',
