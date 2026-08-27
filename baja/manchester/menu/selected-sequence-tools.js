@@ -36,7 +36,9 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             graph.showSideMenu(null);
             if (!st) { graph.setMessage(' Select a sequence on a track first. '); return; }
             try {
-                exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, dbLabel);
+                // autoUseSelection=true: if a sequence is already selected on any track,
+                // load straight onto that region; otherwise prompt to select/click a track.
+                exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, dbLabel, true);
             } catch (e) { graph.setMessage(' Could not open the ' + dbLabel + ' loader. '); }
         };
         graph.setMessage(' Load more SNPs — pick a source:');

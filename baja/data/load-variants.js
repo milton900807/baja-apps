@@ -1,9 +1,13 @@
-function (server, graph, genegraph_panel_layout, db, dbLabel) {
+function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection) {
     // Load variants from a major variant database (ClinVar / dbSNP / gnomAD / COSMIC).
     // A center menu first asks for the scope: load over an ENTIRE track (click a track),
     // or over a SELECTED SEQUENCE (click-and-drag a region on a track). Variants come back
     // from the server's /variants/region proxy and are dropped on the track as SnpIndels,
     // colored by database (ClinVar by clinical significance). Failsafe.
+    //
+    // When autoUseSelection is true (the "Load more SNPs" menu), skip the scope prompt if
+    // the user already has a sequence selected on one or more tracks: load those selected
+    // regions directly. Only when nothing is selected do we fall back to the scope prompt.
     const label = dbLabel || db;
 
     const restoreHover = () => {
@@ -218,6 +222,26 @@ function (server, graph, genegraph_panel_layout, db, dbLabel) {
     graph.clearMouseListeners();
     CurrentLayout.clearComponent('mainPanel');
     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+
+    // Auto-scope: if the user already has a sequence selected on one or more tracks,
+    // load the variants straight onto those selected regions (no scope prompt). Only
+    // when nothing is selected do we prompt below (select a sequence / click a track).
+    if (autoUseSelection) {
+        const selectedTracks = (graph.track || []).filter((t) => {
+            try { return t && t.markstart != null && t.markend != null && t.markend > t.markstart; }
+            catch (e) { return false; }
+        });
+        if (selectedTracks.length) {
+            (async () => {
+                for (const t of selectedTracks) {
+                    try { await loadRegion(t, false); } catch (e) { }   // false -> honor the selection
+                }
+            })();
+            return;
+        }
+        graph.setMessage(' No sequence selected — select a sequence or click a track to load ' + label + '. ');
+        // fall through to the scope prompt below
+    }
 
     // Center menu: choose where to load the variant data.
     graph.showMenu([
