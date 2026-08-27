@@ -273,10 +273,64 @@ def resolve_hgvs(species, hgvs):
         return None
 
 
+_GENE_TX_CACHE = {}      # (species, gene) -> [transcript ids] ordered
+_GENE_WORKING_TX = {}    # (species, gene) -> transcript id that last resolved a coding HGVS
+
+
+def _gene_transcripts(species, symbol):
+    """All of a gene's transcript ids, canonical first then protein-coding by length. The
+    manuscript's c. numbering follows ITS transcript (often the MANE Select), which may
+    differ from our canonical, so coding-HGVS resolution must try several."""
+    key = (("" + species).lower(), ("" + symbol).lower())
+    if key in _GENE_TX_CACHE:
+        return _GENE_TX_CACHE[key]
+    sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    from urllib.parse import quote
+    r = _ensembl_get("%s/lookup/symbol/%s/%s?expand=1" % (ENSEMBL_REST, sp, quote(str(symbol), safe="")))
+    out = []
+    if r is not None:
+        try:
+            rows = []
+            for t in ((r.json() or {}).get("Transcript") or []):
+                rows.append((0 if t.get("is_canonical") else 1,
+                             0 if t.get("biotype") == "protein_coding" else 1,
+                             -abs((t.get("end") or 0) - (t.get("start") or 0)),
+                             str(t.get("id") or "").split(".")[0]))
+            rows.sort()
+            out = [row[3] for row in rows if row[3]]
+        except Exception:
+            out = []
+    _GENE_TX_CACHE[key] = out
+    return out
+
+
+def resolve_coding_hgvs(species, gene, core):
+    """Resolve a bare coding change (c.2106G>A) by trying the gene's transcripts until VEP
+    accepts one (the transcript whose reference matches the manuscript's numbering)."""
+    if not gene:
+        return None
+    key = (("" + species).lower(), ("" + gene).lower())
+    order, tried = [], set()
+    if key in _GENE_WORKING_TX:
+        order.append(_GENE_WORKING_TX[key])
+    order += _gene_transcripts(species, gene)
+    for tid in order:
+        if not tid or tid in tried:
+            continue
+        tried.add(tid)
+        loc = resolve_hgvs(species, "%s:%s" % (tid, core))
+        if loc and loc.get("start"):
+            _GENE_WORKING_TX[key] = tid
+            return loc
+        if len(tried) >= 6:
+            break
+    return None
+
+
 def resolve_hgvs_smart(species, hgvs, gene, tid_by_gene):
     """Resolve an HGVS string. A bare coding/non-coding change (c./n.###) needs a transcript
-    reference — use the gene's resolved Ensembl transcript (so a manuscript's 'c.529A>G' maps
-    without an rsID). Anything already qualified (ENST/NM_/genomic) goes straight to VEP."""
+    reference — try the gene's transcripts (so a manuscript's 'c.529A>G' maps without an rsID
+    even when its transcript differs from the canonical). Already-qualified HGVS goes to VEP."""
     h = ("" + (hgvs or "")).strip()
     if not h:
         return None
@@ -284,8 +338,7 @@ def resolve_hgvs_smart(species, hgvs, gene, tid_by_gene):
         return resolve_hgvs(species, h)
     core = h.split(":")[-1].strip()
     if re.match(r"^[cn]\.", core, re.I):
-        tid = tid_by_gene.get(("" + (gene or "")).lower())
-        return resolve_hgvs(species, "%s:%s" % (tid, core)) if tid else None
+        return resolve_coding_hgvs(species, gene, core)
     return resolve_hgvs(species, h)
 
 

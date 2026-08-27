@@ -33,25 +33,25 @@ function (graph, genegraph_panel_layout) {
             try { graph.showSideMenu(menu); } catch (e) { }
         };
 
-        // Leaf action: zoom IN and CENTER the view on a single variant. Uses the track
-        // object directly (mirrors gene.js goToTrackLocus) so it doesn't rely on name
-        // matching; the SNP ends up centered because the window is symmetric about s.xi.
+        // Leaf action: ANIMATE a zoom onto a single variant, centered, but backed off so the
+        // marker's label + some buffer are visible (not zoomed all the way to the sequence).
         const zoomToSnp = async (t, s) => {
             try {
-                const g = graph.graph;          // FlexiGraph
                 const tg = t && t.tgraph;
-                if (g && tg && tg.X) {
-                    if (g.rescale) g.rescale();
-                    const pad = 45;             // bp on each side -> tight, variant centered
-                    const gi = tg.X(s.xi - pad), gf = tg.X(s.xi + pad);
-                    g.setxmin(Math.min(gi, gf));
-                    g.setxmax(Math.max(gi, gf));
-                    if (tg.yi != null && tg.height != null) {
-                        g.setymin(tg.yi + tg.height);
-                        g.setymax(tg.yi);
-                    }
-                }
+                if (!tg || !tg.X) return;
+                const pad = 250;                       // bp buffer each side -> room for label
+                const a = tg.X(s.xi - pad), b = tg.X(s.xi + pad);
+                const xMin = Math.min(a, b), xMax = Math.max(a, b);
+                const yA = tg.yi, yB = tg.yi + (tg.height || 0);
+                const cy = (yA + yB) / 2;
+                const yhalf = (Math.abs(yB - yA) || 1) * 2.2;   // extra vertical room for the label
                 try { s.highlight = true; } catch (e) { }
+                if (graph.zoomRect) {
+                    await graph.zoomRect(xMin, xMax, cy + yhalf, cy - yhalf, 500);   // smooth animated
+                } else if (graph.graph && graph.graph.setxmin) {
+                    graph.graph.setxmin(xMin); graph.graph.setxmax(xMax);
+                    graph.graph.setymin(cy + yhalf); graph.graph.setymax(cy - yhalf);
+                }
                 if (graph.wake) graph.wake();
             } catch (e) { }
         };
