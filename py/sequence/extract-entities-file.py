@@ -170,6 +170,27 @@ def resolve_rsid(species, rsid):
         return None
 
 
+def resolve_gene_at(species, chrom, start, end):
+    """The authoritative gene symbol overlapping a resolved locus (so the client loads the
+    gene that actually contains the mutation, not whatever name the text happened to use)."""
+    if requests is None or not chrom:
+        return None
+    sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    try:
+        r = requests.get(
+            "%s/overlap/region/%s/%s:%d-%d?feature=gene" % (ENSEMBL_REST, sp, chrom, int(start), int(end)),
+            headers={"content-type": "application/json"}, timeout=30)
+        if r.status_code != 200:
+            return None
+        for g in (r.json() or []):
+            name = g.get("external_name") or g.get("gene_id")
+            if name:
+                return str(name)
+    except Exception:
+        return None
+    return None
+
+
 def resolve_hgvs(species, hgvs):
     """Best-effort: resolve a full HGVS descriptor via the Ensembl VEP endpoint."""
     if requests is None or ":" not in hgvs:
@@ -217,6 +238,11 @@ else:
             mut["start"] = loc["start"]
             mut["end"] = loc["end"] if loc["end"] and loc["end"] >= loc["start"] else loc["start"] + 1
             mut["resolved"] = True
+            # Backfill/override the gene from the resolved locus so the loaded track always
+            # contains the mutation (fixes empty or mismatched gene names in the source).
+            gsym = resolve_gene_at(sp, mut["chr"], mut["start"], mut["end"])
+            if gsym:
+                mut["gene"] = gsym
         works.progress(45 + int(50.0 * (i + 1) / total))
 
     works.progress(100)
