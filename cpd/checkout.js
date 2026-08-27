@@ -96,22 +96,18 @@ function () {
                                     ], links: [
                                         () => {
 
-                                            window.open(`https://www.youtube.com/watch?v=t8vHuw33R1Q`, "_blank");
 
                                         },
                                         () => {
 
-                                            window.open(`https://www.youtube.com/watch?v=AOg7a4N-PCo`, "_blank");
 
                                         },
                                         () => {
 
-                                            window.open(`https://www.youtube.com/watch?v=i4f-l5M8rq4`, "_blank");
 
                                         },
                                         () => {
 
-                                            window.open(`https://www.youtube.com/watch?v=t8vHuw33R1Q`, "_blank");
 
                                         }, () => {
                                             hideAllModal();
