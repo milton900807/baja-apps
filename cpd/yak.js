@@ -184,7 +184,6 @@ function (path, filebrowserplease) {
                                                                 await exec('icons/svg/editor-features', 'rbp'),
                                                                 await exec('icons/svg/editor-features', 'rnaseq'),
                                                                 await exec('icons/svg/editor-features', 'mrna'),
-                                                                await exec('icons/svg/editor-features', 'structure'),
                                                                 await exec('icons/svg/editor-features', 'aso'),
                                                                 await exec('icons/svg/editor-features', 'patents'),
                                                                 await exec('icons/svg/editor-features', 'tracks')
@@ -267,7 +266,6 @@ function (path, filebrowserplease) {
                         await exec('icons/svg/editor-features', 'rbp'),
                         await exec('icons/svg/editor-features', 'rnaseq'),
                         await exec('icons/svg/editor-features', 'mrna'),
-                        await exec('icons/svg/editor-features', 'structure'),
                         await exec('icons/svg/editor-features', 'aso'),
                         await exec('icons/svg/editor-features', 'patents'),
                         await exec('icons/svg/editor-features', 'tracks')
