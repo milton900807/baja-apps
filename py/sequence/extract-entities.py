@@ -189,6 +189,52 @@ def resolve_gene_at(species, chrom, start, end):
     return None
 
 
+def resolve_transcript(species, symbol):
+    """The REAL canonical Ensembl transcript id for a gene symbol, from Ensembl itself.
+    Claude fabricates plausible-but-wrong stable ids that then fail to load, so the second
+    step ('convert genetic info -> Ensembl ids') must be authoritative, not model-generated."""
+    if not symbol:
+        return None
+    sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    from urllib.parse import quote
+    r = _ensembl_get("%s/lookup/symbol/%s/%s?expand=1" % (ENSEMBL_REST, sp, quote(str(symbol), safe="")))
+    if r is None:
+        return None
+    try:
+        d = r.json() or {}
+    except Exception:
+        return None
+    tx = d.get("Transcript") or []
+    if not tx:
+        return None
+    canon = [t for t in tx if t.get("is_canonical")]
+    t = (canon or tx)[0]
+    tid = str(t.get("id") or "").split(".")[0].strip()
+    return tid or None
+
+
+def resolve_gene_transcripts(genes, mutations, asos):
+    """Step 2: every distinct (gene, species) -> its real Ensembl transcript id, so the
+    client can load the tracks directly instead of relying on model-guessed ids."""
+    want = {}
+    def add(sym, sp):
+        if sym:
+            want.setdefault((("" + sym).lower(), ("" + (sp or "human")).lower()),
+                            {"gene": sym, "species": sp or "human"})
+    for g in genes:
+        add(g.get("symbol"), g.get("species"))
+    for m in mutations:
+        add(m.get("gene"), m.get("species"))
+    for a in asos:
+        add(a.get("target_gene"), a.get("species"))
+    out = []
+    for v in want.values():
+        tid = resolve_transcript(v["species"], v["gene"])
+        if tid:
+            out.append({"gene": v["gene"], "species": v["species"], "id": tid})
+    return out
+
+
 def resolve_hgvs(species, hgvs):
     """Best-effort: resolve a full HGVS descriptor via the Ensembl VEP endpoint."""
     if requests is None or ":" not in hgvs:
@@ -243,5 +289,10 @@ else:
                 mut["gene"] = gsym
         works.progress(45 + int(50.0 * (i + 1) / total))
 
+    # Step 2: convert the extracted genes into REAL Ensembl transcript ids to load.
+    works.progress(95)
+    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
+
     works.progress(100)
-    works.resolve({"genes": genes, "mutations": mutations, "asos": asos, "error": err})
+    works.resolve({"genes": genes, "mutations": mutations, "asos": asos,
+                   "geneTranscripts": gene_transcripts, "error": err})

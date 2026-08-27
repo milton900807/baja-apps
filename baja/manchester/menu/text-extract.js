@@ -23,22 +23,28 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         };
 
         const loaded = {};   // geneSymbol(lower) -> track
+        let trMap = {};      // geneSymbol(lower) -> real Ensembl transcript id (from step 2)
 
         const loadGene = async (symbol, species) => {
             const key = ('' + (symbol || '')).toLowerCase().trim();
             if (!key) return null;
             if (loaded[key]) return loaded[key];
-            const sp = ('' + (species || 'human')).toLowerCase();
-            const q = 'canonical ' + symbol + (sp && sp !== 'human' ? ' in ' + sp : '');
-            let em = new EngineMonitor(() => { });
-            let res = null;
-            try { res = await exec('/py/sequence/prompt-to-transcript.py', em, q); } catch (e) { return null; }
-            let list = [];
-            try { list = JSON.parse(res.transcripts); } catch (e) { list = []; }
-            if (!list.length) return null;
-            const pick = list.find(x => x.canonical) || list[0];
+            // Prefer the authoritative Ensembl transcript id resolved server-side (step 2);
+            // only fall back to the Claude natural-language resolver if we don't have one.
+            let tid = trMap[key] || null;
+            if (!tid) {
+                const sp = ('' + (species || 'human')).toLowerCase();
+                const q = 'canonical ' + symbol + (sp && sp !== 'human' ? ' in ' + sp : '');
+                let em = new EngineMonitor(() => { });
+                let res = null;
+                try { res = await exec('/py/sequence/prompt-to-transcript.py', em, q); } catch (e) { return null; }
+                let list = [];
+                try { list = JSON.parse(res.transcripts); } catch (e) { list = []; }
+                if (list.length) { const pick = list.find(x => x.canonical) || list[0]; tid = pick && pick.id; }
+            }
+            if (!tid) return null;
             let track = null;
-            try { track = await graph.add(pick.id, null, null, null); } catch (e) { track = null; }
+            try { track = await graph.add(tid, null, null, null); } catch (e) { track = null; }
             if (track) {
                 loaded[key] = track;
                 try { if (track.select) track.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(track); } catch (e) { }
@@ -152,6 +158,12 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             if (!genes.length && !muts.length && !asos.length) {
                 graph.setMessage(' No genes, mutations, or ASOs found' + (ex && ex.error ? ' (' + ex.error + ')' : '') + '. ');
                 resolve(null); return;
+            }
+
+            // Step 2 result: gene symbol -> real Ensembl transcript id (loaded directly).
+            trMap = {};
+            for (const t of ((ex && ex.geneTranscripts) || [])) {
+                if (t && t.gene && t.id) { const k = ('' + t.gene).toLowerCase(); if (!trMap[k]) trMap[k] = t.id; }
             }
 
             // Union of genes to load: explicit genes + mutation genes + ASO target genes.
