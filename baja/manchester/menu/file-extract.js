@@ -1,5 +1,5 @@
 function (graph, genegraph_panel_layout) {
-    // Upload a file (PDF, text, or image), use Claude to pull out all genetic information
+    // Upload a file (PDF, text, or image), use  to pull out all genetic information
     // (genes / mutations / ASOs), then load the genes, plot the mutations, and zoom-tour each
     // mutation (3s dwell) — all via the shared text-extract processing (presetEntities path).
     return new Promise((resolve) => {
@@ -34,7 +34,7 @@ function (graph, genegraph_panel_layout) {
             }
 
             const mime = ('' + (file.type || '')).toLowerCase() || guessMime(file.name);
-            graph.setMessage(' Reading ' + file.name + ' with Claude… ');
+            graph.setMessage(' Reading ' + file.name + ' — finding genes & mutations… ');
 
             let dataUrl = '';
             try {
@@ -51,7 +51,7 @@ function (graph, genegraph_panel_layout) {
             const b64 = comma >= 0 ? ('' + dataUrl).slice(comma + 1) : '';
             if (!b64) { graph.setMessage(' The file was empty. '); resolve(null); return; }
 
-            // Ask Claude to pull genes / mutations / ASOs out of the file.
+            // Ask  to pull genes / mutations / ASOs out of the file.
             let em = new EngineMonitor(() => { });
             let entities = null;
             try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }

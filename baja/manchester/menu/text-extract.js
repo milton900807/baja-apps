@@ -1,5 +1,5 @@
 function (graph, genegraph_panel_layout, presetText, presetEntities) {
-    // Read text (pasted) OR a set of pre-extracted entities (from a file upload) with Claude,
+    // Read text (pasted) OR a set of pre-extracted entities (from a file upload) with ,
     // extract genes / mutations / ASOs, load the appropriate gene tracks (pre-mRNA), map
     // mutations to their Ensembl-resolved genomic positions, map each ASO to its target
     // location, then TOUR the mutations — zoom into each and dwell 3s until the last.
@@ -30,7 +30,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             if (!key) return null;
             if (loaded[key]) return loaded[key];
             // Prefer the authoritative Ensembl transcript id resolved server-side (step 2);
-            // only fall back to the Claude natural-language resolver if we don't have one.
+            // only fall back to the  natural-language resolver if we don't have one.
             let tid = trMap[key] || null;
             if (!tid) {
                 const sp = ('' + (species || 'human')).toLowerCase();
@@ -257,7 +257,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             const txt = ('' + (rawText || '')).trim();
             if (!txt) { resolve(null); return; }
             showEditorCanvas();
-            graph.setMessage(' Reading text with Claude… ');
+            graph.setMessage(' Reading text — finding genes & mutations… ');
             let em = new EngineMonitor(() => { });
             let ex = null;
             try { ex = await exec('/py/sequence/extract-entities.py', em, txt); }
@@ -266,7 +266,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         };
 
         // A caller can hand us already-extracted entities (e.g. from a file upload) — skip the
-        // Claude text call and the paste modal and go straight to loading + mapping + touring.
+        //  text call and the paste modal and go straight to loading + mapping + touring.
         if (presetEntities) { showEditorCanvas(); await process(presetEntities); return; }
 
         // A preset text (from a caller) skips the modal.
