@@ -1,11 +1,10 @@
 function (graph, genegraph_panel_layout) {
-    // Upload a file (PDF, text, or image), pull out all genetic information (genes /
-    // mutations / ASOs), then load the genes, plot the mutations, and zoom-tour each
-    // mutation (3s dwell) — all via the shared text-extract processing (presetEntities path).
-    // While the file is being read/processed the background is blurred behind a spinner.
+    // Upload a file (PDF, text, or image) and pull out all genetic information (genes /
+    // mutations / ASOs). This runs in the BACKGROUND: the app stays fully interactive while
+    // a small spinning notice in the UPPER-LEFT corner shows the job is still running. When
+    // the extraction finishes, the app PROMPTS the user to ask whether to load the results
+    // into the workbench (via the shared text-extract loader/mapper/zoom-tour).
     return new Promise((resolve) => {
-
-
 
         const guessMime = (name) => {
             const n = ('' + name).toLowerCase();
@@ -17,45 +16,48 @@ function (graph, genegraph_panel_layout) {
             return 'text/plain';
         };
         const hasHits = (e) => e && (((e.genes || []).length) || ((e.mutations || []).length) || ((e.asos || []).length));
+        const summarize = (e) => {
+            const ng = (e.genes || []).length, nm = (e.mutations || []).length, na = (e.asos || []).length;
+            const parts = [];
+            if (ng) parts.push(ng + ' gene' + (ng === 1 ? '' : 's'));
+            if (nm) parts.push(nm + ' mutation' + (nm === 1 ? '' : 's'));
+            if (na) parts.push(na + ' ASO' + (na === 1 ? '' : 's'));
+            return parts.join(', ') || 'results';
+        };
 
-        // A full-viewport blurred backdrop with a CSS-animated ring. The ring spins via a
-        // CSS @keyframe, so it keeps moving regardless of the canvas redraw loop.
-        const makeOverlay = (label) => {
-            let ov = null, txt = null;
+        // A small, NON-BLOCKING spinning notice pinned to the upper-left of the window. The
+        // ring spins via a CSS @keyframe (independent of the canvas redraw loop). pointer-events
+        // are off so it never blocks interaction with the workbench underneath.
+        const makeNotice = (label) => {
+            let box = null, ring = null, txt = null;
             try {
                 if (!document.getElementById('baja-blur-kf')) {
                     const st = document.createElement('style'); st.id = 'baja-blur-kf';
                     st.textContent = '@keyframes bajaBlurSpin{to{transform:rotate(360deg)}}';
                     document.head.appendChild(st);
                 }
-                ov = document.createElement('div');
-                ov.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;'
-                    + 'flex-direction:column;align-items:center;justify-content:center;gap:18px;'
-                    + 'background:rgba(10,16,30,0.30);backdrop-filter:blur(7px);'
-                    + '-webkit-backdrop-filter:blur(7px);cursor:progress;';
-                const ring = document.createElement('div');
-                ring.style.cssText = 'width:66px;height:66px;border-radius:50%;'
-                    + 'border:6px solid rgba(255,255,255,0.22);border-top-color:#ffd98a;'
-                    + 'animation:bajaBlurSpin 0.85s linear infinite;';
+                box = document.createElement('div');
+                box.style.cssText = 'position:fixed;top:14px;left:14px;z-index:2147483000;'
+                    + 'display:flex;align-items:center;gap:10px;padding:9px 14px 9px 11px;'
+                    + 'border-radius:12px;background:rgba(10,25,40,0.88);'
+                    + 'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);'
+                    + 'box-shadow:0 8px 24px rgba(0,0,0,0.42);border:1px solid rgba(18,194,224,0.35);'
+                    + 'font:600 13px "Segoe UI",Arial,sans-serif;color:#eaf6f9;max-width:46vw;'
+                    + 'pointer-events:none;';
+                ring = document.createElement('div');
+                ring.style.cssText = 'flex:0 0 auto;width:18px;height:18px;border-radius:50%;'
+                    + 'border:3px solid rgba(255,255,255,0.22);border-top-color:#ffd98a;'
+                    + 'animation:bajaBlurSpin 0.8s linear infinite;';
                 txt = document.createElement('div');
-                txt.style.cssText = 'color:#f6ecd8;font:600 15px "Segoe UI",Arial,sans-serif;'
-                    + 'text-shadow:0 1px 3px rgba(0,0,0,.6);max-width:80vw;text-align:center;';
                 txt.textContent = label || 'Working…';
-                ov.appendChild(ring); ov.appendChild(txt);
-                // Block interaction with the blurred UI underneath.
-                const swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
-                ov.addEventListener('mousedown', swallow, true);
-                ov.addEventListener('click', swallow, true);
-                ov.addEventListener('wheel', swallow, { capture: true, passive: false });
-                document.body.appendChild(ov);
-                try { window.__bajaBlurActive = true; } catch (e) { }   // hide the top work badge while blurred
+                box.appendChild(ring); box.appendChild(txt);
+                document.body.appendChild(box);
             } catch (e) { }
             return {
                 set: (m) => { try { if (txt) txt.textContent = m; } catch (e) { } },
-                remove: () => {
-                    try { window.__bajaBlurActive = false; } catch (e) { }
-                    try { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); } catch (e) { } ov = null;
-                }
+                // Stop the spin and recolor the ring into a static dot to signal a final state.
+                stop: (color) => { try { if (ring) { ring.style.animation = 'none'; ring.style.border = '3px solid ' + (color || '#16c47f'); } } catch (e) { } },
+                remove: () => { try { if (box && box.parentNode) box.parentNode.removeChild(box); } catch (e) { } box = null; }
             };
         };
 
@@ -69,9 +71,6 @@ function (graph, genegraph_panel_layout) {
         document.body.appendChild(input);
 
         input.onchange = async () => {
-
-            graph.setSunsetMessage(" Uploading...  ")
-
             const file = input.files && input.files[0];
             if (!file) { cleanup(); resolve(null); return; }
 
@@ -82,64 +81,90 @@ function (graph, genegraph_panel_layout) {
             }
 
             const mime = ('' + (file.type || '')).toLowerCase() || guessMime(file.name);
-            // Show the blurred overlay + spinner immediately so the upload lag is visible.
-            graph.setMessage(' Uploading ' + file.name + '… ');
-            const ov = makeOverlay('Uploading ' + file.name + '…');
 
+            // Start the upper-left background notice, then release the menu immediately so the
+            // app stays interactive while the file uploads and is analyzed.
+            const notice = makeNotice('Uploading ' + file.name + '…');
+            graph.setMessage(' Uploading ' + file.name + ' — extracting in the background… ');
+            cleanup();
+            resolve(null);   // <- background mode: the launcher menu closes, the work continues below
+
+            // ---- Background work (not awaited by the caller) --------------------------------
             let dataUrl = '';
             try {
                 dataUrl = await new Promise((res, rej) => {
                     const fr = new FileReader();
-
-                    graph.setSunsetMessage(" Uploading...  ")
-
-
-
                     fr.onload = () => res(fr.result);
                     fr.onerror = () => rej(fr.error || new Error('read error'));
                     fr.readAsDataURL(file);
                 });
-            } catch (e) { ov.remove(); graph.setMessage(' Could not read the file. '); cleanup(); resolve(null); return; }
-            cleanup();
+            } catch (e) {
+                notice.set('Could not read ' + file.name); notice.stop('#c0455a');
+                setTimeout(() => notice.remove(), 4000);
+                return;
+            }
 
             const comma = ('' + dataUrl).indexOf(',');
             const b64 = comma >= 0 ? ('' + dataUrl).slice(comma + 1) : '';
-            if (!b64) { ov.remove(); graph.setMessage(' The file was empty. '); resolve(null); return; }
-
-            // The file is now read into memory and being sent to the server. Keep the
-            // "Uploading" message during the network upload, switch to "Analyzing" once it's
-            // likely landed (~4s), and note the 2-minute ceiling if it's still going at 20s.
-            ov.set('Uploading ' + file.name + '…');
-            let em = new EngineMonitor(() => { });
-            let t1 = setTimeout(() => {
-                try { ov.set('Analyzing ' + file.name + '…'); } catch (e) { }
-                try { graph.setMessage(' Analyzing ' + file.name + '… '); } catch (e) { }
-            }, 4000);
-            let slow = setTimeout(() => {
-                try { ov.set('Analyzing ' + file.name + '… this can take up to 2 minutes.'); } catch (e) { }
-                try { graph.setMessage(' Analyzing… this can take up to 2 minutes. '); } catch (e) { }
-            }, 20000);
-            const _clearTimers = () => { try { clearTimeout(t1); } catch (e) { } try { clearTimeout(slow); } catch (e) { } };
-            let entities = null;
-            try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }
-            catch (e) { _clearTimers(); ov.remove(); graph.setMessage(' Extraction failed: ' + (e && e.message ? e.message : e)); resolve(null); return; }
-            _clearTimers();
-
-            if (!hasHits(entities)) {
-                ov.remove();
-                graph.setMessage(' No genetic information found in ' + file.name
-                    + (entities && entities.error ? ' (' + entities.error + ')' : '') + '. ');
-                resolve(entities || null); return;
+            if (!b64) {
+                notice.set(file.name + ' was empty'); notice.stop('#c0455a');
+                setTimeout(() => notice.remove(), 4000);
+                return;
             }
 
-            // Extraction done — drop the blur so the tracks load and zoom-tour in full view.
-            ov.remove();
+            // Progress copy: "Analyzing" once the upload has likely landed (~4s), and the
+            // 2-minute ceiling note if it's still going at 20s.
+            notice.set('Analyzing ' + file.name + ' in the background…');
+            const em = new EngineMonitor(() => { });
+            const t1 = setTimeout(() => { try { notice.set('Analyzing ' + file.name + '… still working'); } catch (e) { } }, 4000);
+            const slow = setTimeout(() => { try { notice.set('Analyzing ' + file.name + '… this can take up to 2 minutes'); } catch (e) { } }, 20000);
+            const clearTimers = () => { try { clearTimeout(t1); } catch (e) { } try { clearTimeout(slow); } catch (e) { } };
 
-            // Hand the extracted entities to the shared loader/mapper/zoom-tour.
-            let r = null;
-            try { r = await exec('baja/manchester/menu/text-extract.js', graph, genegraph_panel_layout, null, entities); }
-            catch (e) { graph.setMessage(' Mapping failed: ' + (e && e.message ? e.message : e)); }
-            resolve(r);
+            let entities = null;
+            try { entities = await exec('/py/sequence/extract-entities-file.py', em, b64, mime, file.name); }
+            catch (e) {
+                clearTimers();
+                notice.set('Extraction failed: ' + (e && e.message ? e.message : e)); notice.stop('#c0455a');
+                setTimeout(() => notice.remove(), 6000);
+                return;
+            }
+            clearTimers();
+
+            if (!hasHits(entities)) {
+                notice.set('No genetic information found in ' + file.name); notice.stop('#c0455a');
+                graph.setMessage(' No genetic information found in ' + file.name
+                    + (entities && entities.error ? ' (' + entities.error + ')' : '') + '. ');
+                setTimeout(() => notice.remove(), 6000);
+                return;
+            }
+
+            // ---- Done: prompt the user before loading anything into the workbench ----------
+            const summary = summarize(entities);
+            notice.set('✓ Found ' + summary + ' in ' + file.name); notice.stop('#16c47f');
+            graph.setMessage(' Extraction complete — ' + summary + ' found in ' + file.name + '. ');
+
+            const doLoad = async () => {
+                try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
+                notice.set('Loading ' + summary + ' into the workbench…');
+                try { await exec('baja/manchester/menu/text-extract.js', graph, genegraph_panel_layout, null, entities); }
+                catch (e) { graph.setMessage(' Mapping failed: ' + (e && e.message ? e.message : e)); }
+                notice.remove();
+            };
+            const dismiss = () => {
+                try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
+                notice.remove();
+                graph.setMessage(' Results from ' + file.name + ' were not loaded. ');
+            };
+
+            try {
+                graph.showMenu([
+                    { label: 'Load ' + summary + ' into the workbench', move: () => { }, click: () => { doLoad(); } },
+                    { label: 'Not now', move: () => { }, click: () => { dismiss(); } },
+                ]);
+            } catch (e) {
+                // If no menu is available, fall back to auto-loading so the work isn't lost.
+                doLoad();
+            }
         };
 
         // If the user dismisses the OS picker, resolve quietly (best-effort; not all browsers fire this).
