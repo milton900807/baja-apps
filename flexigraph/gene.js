@@ -9394,10 +9394,12 @@ pattern, GGGG | Required`
                             ctx.restore();
                         }
                     }
-                    // Backend working signal — an animated spinner shown top-right
-                    // while any .py exec is still running on the server.
+                    // Backend working signal is now the DOM "working" badge (a CSS-animated
+                    // ring + a plain-language status line) managed in io-engine — it can't
+                    // freeze if this redraw loop stalls. The old canvas-drawn spinner below is
+                    // disabled to avoid a second (and sometimes static) ring.
                     try {
-                        if (typeof window !== 'undefined' && window.__backendWorkCount > 0) {
+                        if (false && typeof window !== 'undefined' && window.__backendWorkCount > 0) {
                             const _t = Date.now() / 1000;
                             // Center over the tracks: the middle of the graph grid in
                             // screen space (fall back to the canvas center).

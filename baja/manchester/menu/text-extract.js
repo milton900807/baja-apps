@@ -35,6 +35,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             if (!tid) {
                 const sp = ('' + (species || 'human')).toLowerCase();
                 const q = 'canonical ' + symbol + (sp && sp !== 'human' ? ' in ' + sp : '');
+                try { window.__workStatus = 'Looking up the ' + symbol + ' gene structure…'; } catch (e) { }
                 let em = new EngineMonitor(() => { });
                 let res = null;
                 try { res = await exec('/py/sequence/prompt-to-transcript.py', em, q); } catch (e) { return null; }
@@ -179,7 +180,8 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             let li = 0;
             for (const k of gkeys) {
                 const g = toLoad[k];
-                graph.setMessage(' Loading ' + g.symbol + ' (' + (++li) + '/' + gkeys.length + ')… ');
+                graph.setMessage(' Loading the ' + g.symbol + ' gene (' + (++li) + ' of ' + gkeys.length + ')… ');
+                try { window.__workStatus = 'Loading the ' + g.symbol + ' gene…'; } catch (e) { }
                 await loadGene(g.symbol, g.species);
             }
 
@@ -188,6 +190,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
 
             // Map mutations onto their gene track (Ensembl-resolved genomic coordinates),
             // collecting each mapped position so we can zoom-tour them afterwards.
+            if (muts.length) graph.setMessage(' Marking the variants on the genes… ');
             const mappedMuts = [];
             let mMapped = 0, mUnres = 0;
             for (const m of muts) {
@@ -244,7 +247,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 const PAD = 80;   // bp of genomic context on each side of the mutation
                 for (let i = 0; i < mappedMuts.length; i++) {
                     const mm = mappedMuts[i];
-                    graph.setMessage(' Mutation ' + (i + 1) + '/' + mappedMuts.length + ': ' + mm.label + ' ');
+                    graph.setMessage(' Variant ' + (i + 1) + ' of ' + mappedMuts.length + ': ' + mm.label + ' ');
                     await goToLocus(mm.track, mm.gi - PAD, mm.gf + PAD);
                     if (i < mappedMuts.length - 1) await sleep(3000);
                 }
@@ -258,6 +261,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             if (!txt) { resolve(null); return; }
             showEditorCanvas();
             graph.setMessage(' Reading text — finding genes & mutations… ');
+            try { window.__workStatus = 'Reading text — finding genes & mutations…'; } catch (e) { }
             let em = new EngineMonitor(() => { });
             let ex = null;
             try { ex = await exec('/py/sequence/extract-entities.py', em, txt); }

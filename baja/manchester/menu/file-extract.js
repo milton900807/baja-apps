@@ -45,10 +45,14 @@ function (graph, genegraph_panel_layout) {
                 ov.addEventListener('click', swallow, true);
                 ov.addEventListener('wheel', swallow, { capture: true, passive: false });
                 document.body.appendChild(ov);
+                try { window.__bajaBlurActive = true; } catch (e) { }   // hide the top work badge while blurred
             } catch (e) { }
             return {
                 set: (m) => { try { if (txt) txt.textContent = m; } catch (e) { } },
-                remove: () => { try { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); } catch (e) { } ov = null; }
+                remove: () => {
+                    try { window.__bajaBlurActive = false; } catch (e) { }
+                    try { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); } catch (e) { } ov = null;
+                }
             };
         };
 
