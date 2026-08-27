@@ -24,8 +24,19 @@ return new Promise(async (resolve, reject) => {
   const GFONT_SM = '10px ' + GFONT_STACK;
   const GX_INK = '#0a2540'; // text
   const GX_PAPER = '#ffffff'; // background
-  const GX_GUIDE = 'rgba(255, 0, 119, 0.29)'; // faint guide/tick lines
+  const GX_GUIDE = 'rgba(255, 0, 0, 0.29)'; // faint guide/tick lines
   const GX_ARROW = 'rgba(120,130,145,0.22)'; // lighter still — track direction arrows
+  const GX_GTAG = 'rgba(150,160,175,0.85)';  // light gray for the g. genomic-locus tags
+  // Abbreviate a genomic position so the 45deg g. tags aren't a wall of digits:
+  // 77576869 -> 77.58M, 3319 -> 3.3k.
+  const _abbrevPos = (n) => {
+    n = +n;
+    if (!isFinite(n)) return '' + n;
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    if (a >= 1e3) return (n / 1e3).toFixed(1).replace(/\.?0+$/, '') + 'k';
+    return '' + Math.round(n);
+  };
   const GX_RING = '#123049'; // outlines
   const GX_EXON = 'rgba(44,90,160,0.85)'; // exon / cds fill
   const GX_EXON_EDGE = '#1b4a7a'; // exon / cds edge
@@ -6069,8 +6080,13 @@ return new Promise(async (resolve, reject) => {
                       exonIndex = 1;
                     }
 
+                    let _lastPx = null;
                     for (let _i = hi; _i >= lo; _i--) {
-                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_DEL, this.detail_ffont6);
+                      const _px = graph.grid.X(Math.floor(this.tgraph.X(_i)));
+                      if (_lastPx === null || Math.abs(_px - _lastPx) >= 22) {   // hide overlapping numbers
+                        graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_DEL, this.detail_ffont6);
+                        _lastPx = _px;
+                      }
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
                     }
@@ -6082,8 +6098,13 @@ return new Promise(async (resolve, reject) => {
                       exonIndex = 1;
                     }
 
+                    let _lastPx = null;
                     for (let _i = lo; _i <= hi; _i++) {
-                      graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.1), GX_INS, this.detail_ffont6);
+                      const _px = graph.grid.X(Math.floor(this.tgraph.X(_i)));
+                      if (_lastPx === null || Math.abs(_px - _lastPx) >= 22) {   // hide overlapping numbers
+                        graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.1), GX_INS, this.detail_ffont6);
+                        _lastPx = _px;
+                      }
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
                     }
@@ -6412,7 +6433,7 @@ return new Promise(async (resolve, reject) => {
                 if (__fb) {
                   try {
                     graph.drawString(__fb, Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
-                    if (screencell > 30) graph.drawString('g.' + __gp, Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GUIDE, this.detail_ffont6);
+                    if (screencell > 30) graph.drawString('g.' + _abbrevPos(__gp), Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
                   } catch (e) { }
                 } else {
                   graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
@@ -6584,18 +6605,27 @@ return new Promise(async (resolve, reject) => {
           // Small triangle at each tick showing the transcript's direction (strand):
           // points right for + strand, left for - strand.
           {
+            // A clear arrow (shaft + chevron head) instead of a small triangle, so the
+            // track's direction (strand) is obvious. Points right for +, left for -.
             const dir = (this.strand === -1 || this.strand === "-1" || this.strand === '-') ? -1 : 1;
-            const ah = 5;             // arrow length (px)
-            const av = 3;             // arrow half-height (px)
+            const shaft = 12;         // shaft length (px)
+            const head = 5;           // arrowhead length (px)
+            const hh = 4;             // arrowhead half-height (px)
             const ay = syTick + 3;    // vertically centered on the tick
+            const tipx = sx + dir * shaft;
             ctx.save();
-            ctx.fillStyle = GX_INK;
+            ctx.strokeStyle = GX_INK;
+            ctx.lineWidth = 1.6;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.beginPath();
-            ctx.moveTo(sx + dir * ah, ay);   // tip in strand direction
-            ctx.lineTo(sx, ay - av);         // base at the tick line
-            ctx.lineTo(sx, ay + av);
-            ctx.closePath();
-            ctx.fill();
+            ctx.moveTo(sx, ay);                       // shaft outward from the tick
+            ctx.lineTo(tipx, ay);
+            ctx.moveTo(tipx, ay);                     // chevron head at the tip
+            ctx.lineTo(tipx - dir * head, ay - hh);
+            ctx.moveTo(tipx, ay);
+            ctx.lineTo(tipx - dir * head, ay + hh);
+            ctx.stroke();
             ctx.restore();
           }
 
@@ -6604,10 +6634,10 @@ return new Promise(async (resolve, reject) => {
           ctx.translate(sx + 2, syTick - 10);
           ctx.rotate((-45 * Math.PI) / 180);
 
-          ctx.fillStyle = GX_INK;
+          ctx.fillStyle = GX_GTAG;
           ctx.textAlign = "left";
           ctx.textBaseline = "alphabetic";
-          ctx.fillText("g." + genomicPos, 0, 0);
+          ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
 
           ctx.restore();
         }
@@ -6908,8 +6938,8 @@ return new Promise(async (resolve, reject) => {
                   ctx.save();
                   ctx.translate(sx, sy);
                   ctx.rotate(angle);
-                  ctx.fillStyle = GX_INK;
-                  ctx.fillText("g." + String(genomicPos), 0, 0);
+                  ctx.fillStyle = GX_GTAG;
+                  ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
                   ctx.restore();
                 }
 

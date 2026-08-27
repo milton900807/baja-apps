@@ -8463,8 +8463,10 @@ pattern, GGGG | Required`
                             { label: 'Export ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         ];
                     }
+                    const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
                     return [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
+                        { label: 'Mutations (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
                         { label: 'Choose chemistry…', click: () => { close(); try { Promise.resolve(exec('manchester/choose-chemistry.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
