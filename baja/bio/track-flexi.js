@@ -100,7 +100,7 @@ return new Promise(async (resolve, reject) => {
         return out;
     }
 
-    function defaultGridFactory(g ) {
+    function defaultGridFactory(g) {
 
         let grid = Object.assign(new MGrid(), g)
         grid.rescale();
@@ -151,7 +151,7 @@ return new Promise(async (resolve, reject) => {
         showLayers = true;
         showOfftargets = true;
         showOligoMap = false;
-        showArc = true;
+        showArc = false;
         orf;
         orfhash;
         id = uuid();
