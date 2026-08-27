@@ -22,6 +22,7 @@ import base64
 import json
 import os
 import re
+import time
 
 from ion import works  # type: ignore
 
@@ -170,24 +171,69 @@ def resolve_rsid(species, rsid):
         return None
 
 
+def _ensembl_get(url, timeout=30, tries=4):
+    """GET with retry/backoff — Ensembl 429/503-rate-limits bursts, and we make several
+    calls per mutation (rsID, then gene overlap), so the second call must survive a throttle."""
+    if requests is None:
+        return None
+    for i in range(tries):
+        try:
+            r = requests.get(url, headers={"content-type": "application/json"}, timeout=timeout)
+        except Exception:
+            time.sleep(0.6 * (i + 1))
+            continue
+        if r.status_code == 200:
+            return r
+        if r.status_code in (429, 503):
+            wait = 1.0
+            try:
+                wait = float(r.headers.get("Retry-After", "1")) or 1.0
+            except Exception:
+                wait = 1.0
+            time.sleep(min(6.0, wait) + 0.4 * i)
+            continue
+        return None
+    return None
+
+
 def resolve_gene_at(species, chrom, start, end):
     """The authoritative gene symbol overlapping a resolved locus (so the client loads the
     gene that actually contains the mutation, not whatever name the text happened to use)."""
-    if requests is None or not chrom:
+    if not chrom:
         return None
     sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    r = _ensembl_get("%s/overlap/region/%s/%s:%d-%d?feature=gene"
+                     % (ENSEMBL_REST, sp, chrom, int(start), int(end)))
+    if r is None:
+        return None
     try:
-        r = requests.get(
-            "%s/overlap/region/%s/%s:%d-%d?feature=gene" % (ENSEMBL_REST, sp, chrom, int(start), int(end)),
-            headers={"content-type": "application/json"}, timeout=30)
-        if r.status_code != 200:
-            return None
-        for g in (r.json() or []):
-            name = g.get("external_name") or g.get("gene_id")
-            if name:
-                return str(name)
+        genes = r.json() or []
     except Exception:
         return None
+    if not genes:
+        return None
+    pt = int(start)
+
+    def contains(g):
+        try:
+            return int(g.get("start")) <= pt <= int(g.get("end"))
+        except Exception:
+            return False
+
+    def span(g):
+        try:
+            return int(g.get("end")) - int(g.get("start"))
+        except Exception:
+            return 10 ** 12
+
+    # Prefer a protein-coding gene that actually contains the point; then smallest span.
+    pool = [g for g in genes if contains(g)] or genes
+    coding = [g for g in pool if g.get("biotype") == "protein_coding"]
+    pool = sorted(coding or pool, key=span)
+    for g in pool:
+        name = g.get("external_name") or g.get("gene_id")
+        if name:
+            return str(name)
     return None
 
 
