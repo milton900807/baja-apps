@@ -2368,6 +2368,14 @@ function (path, config) {
                                                                 }
                                                             },
                                                             {
+                                                                label: 'Mutations', move: () => { },
+                                                                click: () => {
+                                                                    // Drill-down: tracks -> mutation types -> variants by g. location
+                                                                    // (paged with More…/‹ Back when there are a lot).
+                                                                    exec('baja/manchester/menu/mutations-menu.js', graph, genegraph_panel_layout);
+                                                                }
+                                                            },
+                                                            {
                                                                 label: 'Where do you want to go?', move: () => { },
                                                                 click: async () => {
                                                                     if (graph.hideMenu) graph.hideMenu();
