@@ -28,7 +28,11 @@ except Exception:
     requests = None
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+# Points-of-interest is a quick interactive lookup, so use the FASTEST model Claude
+# offers (Haiku 4.5) by default rather than the slower global default. Override with
+# POINTS_MODEL if ever needed; kept independent of ANTHROPIC_MODEL so a global Sonnet
+# setting can't slow this path down.
+ANTHROPIC_MODEL = os.environ.get("POINTS_MODEL") or "claude-haiku-4-5"
 
 # species -> Ensembl REST species slug
 ENSEMBL_SPECIES = {
