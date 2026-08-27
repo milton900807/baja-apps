@@ -4894,20 +4894,20 @@ function (progress, options) {
 
                 this.touchStart = (event) => {
                     this.initDwn = event;
-                    // One-finger touch → navigate/pan mode, so a single-finger drag pans the
-                    // grid (two-finger pinch is handled by pinchListener). Runs before the
-                    // canvas issues its mouseDown, so the drag begins in navigate mode.
-                    try {
-                        if (event && event.touches && event.touches.length === 1) {
-                            this.clearMouseListeners();
-                            this.setMouseMode('navigate');
-                        }
-                    } catch (e) { }
                 }
                 this.touchEnd = (event) => {
                     this.prev = null;   // reset the pinch baseline so the next pinch starts fresh
                 }
-                this.touchMove = (event) => {
+                this.touchMove = (ct) => {
+                    // Called by the canvas ONCE when a single-finger DRAG is detected (movement
+                    // past the threshold). Switch to navigate/pan and re-anchor the pan at the
+                    // current point so the drag pans smoothly. A stationary tap never triggers
+                    // this, so single-finger tap-to-select still works.
+                    try {
+                        this.clearMouseListeners();
+                        this.setMouseMode('navigate');
+                        if (ct && this.mouseDownListener) this.mouseDownListener(ct.x, ct.y);
+                    } catch (e) { }
                 }
                 this.dblclick = (scx, scy) => {
                 }
