@@ -1,7 +1,7 @@
 function () {
     clear();
 
-    window.history.pushState('', '', `/app/cpd/init`);
+    window.history.pushState('', '', `/app/baja/init`);
     exec('lib/msgraph.js').then(async (MSGraph) => {
         if (!MSGraph.isLoggedIn()) {
 
@@ -63,8 +63,15 @@ function () {
         } else {
 
             if (window['env']['auth'] === 'b2c') {
+
+
                 return exec('cpd/yak.js', '/', true)
+
+
             } else {
+
+
+
                 let icon = await exec('baja/images/lib2.js');
                 let foldericon = await exec('baja/images/folder.js');
                 let users_list = {

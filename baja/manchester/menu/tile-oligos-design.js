@@ -163,16 +163,36 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const _t0 = Date.now();
             let placed = 0, done = 0;
             const _fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + 's' : (Math.floor(s / 60) + 'm ' + (s % 60) + 's'); };
+            const __sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            // Is this oligo so small on-screen (zoomed out) that a magenta glow is needed to
+            // show the user it was just added? Compares its on-screen pixel width to a threshold.
+            const __isTiny = (o) => {
+                try {
+                    const tg = selectedTrack.tgraph, gg = graph.graph;
+                    if (!tg || !gg) return true;
+                    const px = Math.abs(gg.X(tg.X(o.xf)) - gg.X(tg.X(o.xi)));
+                    return px < 30;   // < 30px wide → hard to see → glow it
+                } catch (e) { return true; }
+            };
             for (let i = 0; i < ranked.length; i++) {
                 done++;
-                if (await dropCandidate(ranked[i], ruleset, chemObj, true)) placed++;
+                const _oligo = await dropCandidate(ranked[i], ruleset, chemObj, true);
+                if (_oligo) placed++;
                 prog.set((done / ranked.length) * 100);
                 const _el = Date.now() - _t0;
                 const _eta = done > 0 ? (_el / done) * (ranked.length - done) : 0;
                 graph.setMessage(' Tiling ' + ruleset + '… placed ' + placed +
                     ' — ' + done + '/' + ranked.length + ' (' + Math.round(done / ranked.length * 100) + '%), ETA ' + _fmt(_eta));
-                // Batch the redraw every 10 placements (counter/status stays live).
-                if (done % 10 === 0) {
+                // When zoomed out, glow each newly placed oligo magenta for 2s and redraw
+                // immediately so the user can watch them appear one at a time. When zoomed
+                // in (oligo clearly visible), fall back to the fast batched redraw.
+                if (_oligo && __isTiny(_oligo)) {
+                    try { if (_oligo.highlight) _oligo.highlight(2000, 'magenta'); } catch (e) { }
+                    try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    await __sleep(30);   // brief pause so the glows appear sequentially
+                } else if (done % 10 === 0) {
+                    // Batch the redraw every 10 placements (counter/status stays live).
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                     try { if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
                 }
@@ -180,6 +200,9 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             prog.done();
             try { if (graph.wake) graph.wake(); } catch (e) { }   // final redraw for the remainder
             try { if (graph.fitAllTrackYAxes) graph.fitAllTrackYAxes(); else if (selectedTrack.fitYAxis) selectedTrack.fitYAxis(); } catch (e) { }
+            // The last oligos' 2s magenta glow clears itself internally but leaves no redraw
+            // behind — schedule one so the final glows fade on their own.
+            try { setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 2100); } catch (e) { }
             if (placed === 0) {
                 // Explain why nothing was added.
                 const chemName = (chemObj && (chemObj.name || chemObj.type)) || 'the selected chemistry';
@@ -248,7 +271,7 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
                 selectedTrack.addOligo(compound);
                 if (!quiet) graph.setMessage(' Dropped ' + ruleset + ' oligo (score ' + cand.score + ') at ' + cand.start + '. ');
-                return true;
+                return compound;   // the placed oligo (so the caller can glow it)
             } catch (e) {
                 console.warn('tile-oligos-design: drop failed', e);
                 __lastDropError = 'build error: ' + (e && e.message ? e.message : ('' + e));
