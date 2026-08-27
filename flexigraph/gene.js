@@ -8357,7 +8357,15 @@ pattern, GGGG | Required`
                     }
                 };
                 const openTracks = () => {
-                    const sub = tracks.map((t, i) => ({
+                    const sub = [];
+                    // Same Mutations drilldown as the main menu, available here under Tracks too.
+                    const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
+                    sub.push({
+                        label: 'Mutations (' + mutCount + ') ▸',
+                        click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
+                        move: () => { }
+                    });
+                    tracks.forEach((t, i) => sub.push({
                         label: (t.name || ('track ' + (i + 1))),
                         click: () => { close(); centerTrack(t); },
                         move: () => { }
