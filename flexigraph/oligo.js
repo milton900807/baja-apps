@@ -40,7 +40,12 @@ function () {
             sequence;
             highlight__ = false;
             libID = null;
-            showOfftargets = true;
+            showOfftargets = true;   // track-level show/hide toggle (propagated by the track each draw)
+            // True only once off-targets have actually been RUN for this oligo (set by the
+            // runners, e.g. run-off-targets.js, and by draw() when a result is assigned).
+            // Gates the "0" (searched-but-empty) badge so an oligo that was never searched
+            // shows NO off-target label — letting the user see which oligos have been run.
+            offtargetsRun = false;
             status;
             regid = -1;
             tm = null;
@@ -432,7 +437,7 @@ function () {
                     // assigning an off-target implies it should be displayed, even for
                     // oligos loaded from a saved state with showOfftargets=false.
                     if (this._offtarget != null && this.offtarget == null) this.offtarget = this._offtarget;
-                    if (this.offtarget != null) this.showOfftargets = true;
+                    if (this.offtarget != null) { this.showOfftargets = true; this.offtargetsRun = true; }
 
                     if (this.showOfftargets && this.offtarget != null) {
                         if (Array.isArray(this.offtarget)) {
@@ -479,9 +484,11 @@ function () {
                                 strokeColor: "black",
                             });
                         }
-                    } else if (this.showOfftargets && this.offtarget == null) {
+                    } else if (this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
                         // Searched and found NO off-targets — show a clean "0" so the
-                        // user can see it was checked and is clear.
+                        // user can see it was checked and is clear. Only when off-targets
+                        // were actually RUN (offtargetsRun): an oligo never searched shows
+                        // no label at all.
                         drawCenteredOvalLabel('0', -12, {
                             font: "10px Arial",
                             textColor: "#1aa3bd",

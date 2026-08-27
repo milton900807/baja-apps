@@ -38,6 +38,7 @@ function () {
             fixed = [true];
             showOfftargets = false;
             offtarget = null;
+            offtargetsRun = false;   // true only once off-targets have actually been run (gates the "0" badge)
             font = "12px Arial";
             highlight__ = false;
             shapeFunctionObject = null;
@@ -121,6 +122,7 @@ function () {
                 this.fixed = Array.isArray(data.fixed) ? data.fixed : [true];
                 this.showOfftargets = data.showOfftargets ?? false;
                 this.offtarget = data.offtarget ?? null;
+                this.offtargetsRun = data.offtargetsRun ?? (this.offtarget != null);
                 this.font = data.font ?? "12px Arial";
                 this.highlight__ = data.highlight__ ?? false;
                 this.shapeFunctionObject = null; // do not persist runtime function refs
@@ -199,6 +201,7 @@ function () {
                     fixed: this.fixed,
                     showOfftargets: this.showOfftargets,
                     offtarget: this.offtarget,
+                    offtargetsRun: this.offtargetsRun,
                     font: this.font,
                     highlight__: this.highlight__,
                     show_seed_targets: this.show_seed_targets,
@@ -463,6 +466,7 @@ function () {
 
                         // Off-target count badge + gene-symbol annotations. Works for BOTH
                         // an array of hits and a large-count STRING (>1000 hits).
+                        if (this.offtarget != null) this.offtargetsRun = true;
                         if (this.showOfftargets && this.offtarget != null) {
                             const _off = this.offtarget;
                             // Badge shows the number of distinct off-target GENES (same
@@ -503,8 +507,9 @@ function () {
                                 ctx.fillText(this.offtargetsymbols.slice(0, 30).join(', '), graph.X(tgraph.X(this.xi)), ysc - 30);
                             }
                             ctx.restore();
-                        } else if (this.showOfftargets && this.offtarget == null) {
-                            // Searched and found NO off-targets — show a clean "0".
+                        } else if (this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
+                            // Searched and found NO off-targets — show a clean "0". Only when
+                            // off-targets were actually RUN: an oligo never searched shows none.
                             ctx.save();
                             ctx.font = '10px Arial';
                             ctx.textAlign = 'left';

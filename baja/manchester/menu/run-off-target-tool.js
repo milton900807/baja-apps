@@ -240,6 +240,7 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                                     }
                                 }
                                 o.showOfftargets = true;
+                                o.offtargetsRun = true;   // searched (incl. zero-hit) → allow the "0" badge
                             }
                         }
                     }

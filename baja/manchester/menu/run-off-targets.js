@@ -264,6 +264,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                                     o.offtargetsymbols = off.offtargetsymbols.slice(0, 30);
                                 }
                                 o.showOfftargets = true;
+                                o.offtargetsRun = true;   // searched (incl. zero-hit) → allow the "0" badge
                             }
                         }
                     }
@@ -482,6 +483,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 x.offtargetsymbols = null;
                 x._offtarget = null;
                 x.showOfftargets = false;
+                x.offtargetsRun = false;   // reset "was run" — set true again only on completion
             };
             for (const o of oligos) {
                 if (o && o.type === 'amplicon') { clearOff(o.left); clearOff(o.right); clearOff(o.mid); clearOff(o); }

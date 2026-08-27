@@ -1596,6 +1596,11 @@ function (lib_id, file_id) {
                         {
                             'label': 'File', 'items': [
                                 {
+                                    'label': 'My Files', 'ionfunction': createIonFunction(async () => {
+                                        await exec('manchester/fb.js');
+                                    })
+                                },
+                                {
                                     'label': 'Open', 'ionfunction': createIonFunction(showSavedScreens)
                                 },
                                 {

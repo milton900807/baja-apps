@@ -4795,7 +4795,7 @@ return new Promise(async (resolve, reject) => {
             const mkPart = (part) => {
               if (!part) return null;
               const ol = Object.assign(new Oligo(), part);
-              ol.offtarget = null; ol.showOfftargets = false;
+              ol.offtarget = null; ol.showOfftargets = false; ol.offtargetsRun = false;
               return ol;
             };
             const a = new Amplicon();
