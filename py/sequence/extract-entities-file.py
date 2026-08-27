@@ -3,9 +3,9 @@
 Extract genes, mutations, and ASOs from an UPLOADED FILE (PDF, image, or text).
 
 Same contract/output as extract-entities.py, but the input is a base64 file plus its
-MIME type, sent to Claude as the appropriate content block:
-  - application/pdf  -> a "document" block (Claude reads the PDF natively)
-  - image/*          -> an "image" block (Claude reads the figure/scan/screenshot)
+MIME type, sent to  as the appropriate content block:
+  - application/pdf  -> a "document" block ( reads the PDF natively)
+  - image/*          -> an "image" block ( reads the figure/scan/screenshot)
   - text/*  (or fallthrough) -> the decoded text
 
 Then resolves every dbSNP rsID (and genomic-HGVS where given) through the Ensembl REST
@@ -32,7 +32,10 @@ except Exception:
     requests = None
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+# Document reading uses a small/fast model by default (latency here is dominated by
+# ingesting the file, and the output is a tiny JSON) — override with EXTRACT_MODEL for a
+# more capable model on dense manuscripts.
+EXTRACT_MODEL = os.environ.get("EXTRACT_MODEL") or "claude-haiku-4-5"
 
 ENSEMBL_SPECIES = {
     "human": "homo_sapiens",
@@ -126,7 +129,7 @@ def ask_claude():
                 "content-type": "application/json",
             },
             json={
-                "model": ANTHROPIC_MODEL,
+                "model": EXTRACT_MODEL,
                 "max_tokens": 4000,
                 "system": SYSTEM,
                 "messages": [{"role": "user", "content": content}],
@@ -244,7 +247,7 @@ _TID_CACHE = {}
 
 def resolve_transcript(species, symbol):
     """The REAL canonical Ensembl transcript id for a gene symbol, from Ensembl itself.
-    Claude fabricates plausible-but-wrong stable ids that then fail to load, so the second
+     fabricates plausible-but-wrong stable ids that then fail to load, so the second
     step ('convert genetic info -> Ensembl ids') must be authoritative, not model-generated."""
     if not symbol:
         return None

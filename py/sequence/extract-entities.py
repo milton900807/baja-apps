@@ -2,7 +2,7 @@
 """
 Extract genes, mutations, and ASOs from free text (mutation/ASO mapping mode).
 
-Reads a block of pasted text, asks Claude to extract:
+Reads a block of pasted text, asks  to extract:
   - genes           : {symbol, species}
   - mutations       : {gene, species, id (rsID preferred), hgvs, protein, label, comment}
   - asos            : {name, sequence, target_gene, species, comment}
@@ -28,6 +28,10 @@ except Exception:
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+# Document/text reading uses a small/fast model by default (latency is dominated by
+# ingesting the input, output is a tiny JSON) — override with EXTRACT_MODEL for a more
+# capable model on dense manuscripts.
+EXTRACT_MODEL = os.environ.get("EXTRACT_MODEL") or "claude-haiku-4-5"
 
 ENSEMBL_SPECIES = {
     "human": "homo_sapiens",
@@ -78,7 +82,7 @@ def ask_claude(text):
                 "content-type": "application/json",
             },
             json={
-                "model": ANTHROPIC_MODEL,
+                "model": EXTRACT_MODEL,
                 "max_tokens": 4000,
                 "system": system,
                 "messages": [{"role": "user", "content": text[:120000]}],
@@ -196,7 +200,7 @@ _TID_CACHE = {}
 
 def resolve_transcript(species, symbol):
     """The REAL canonical Ensembl transcript id for a gene symbol, from Ensembl itself.
-    Claude fabricates plausible-but-wrong stable ids that then fail to load, so the second
+     fabricates plausible-but-wrong stable ids that then fail to load, so the second
     step ('convert genetic info -> Ensembl ids') must be authoritative, not model-generated."""
     if not symbol:
         return None
