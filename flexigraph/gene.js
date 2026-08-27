@@ -1564,6 +1564,24 @@ function (progress, options) {
                 this.setMessageCenter(m, fontSize)
             }
 
+            // Show a brand logo/icon centered on an EMPTY canvas (startup) instead of a text
+            // center-message. It renders only while there are no tracks, so it disappears on
+            // its own once a track is loaded. Defaults to the Baja icon.
+            setCenterLogo(url) {
+                if (this.wake) this.wake();
+                const u = ('' + (url || '/assets/logos/baja-icon.svg')).trim();
+                this.centerLogoUrl = u || null;
+                if (this.centerLogoUrl && (!this.__centerLogoImg || this.__centerLogoImgUrl !== this.centerLogoUrl)) {
+                    try {
+                        const img = new Image();
+                        this.__centerLogoImgUrl = this.centerLogoUrl;
+                        img.onload = () => { this.__centerLogoImg = img; if (this.wake) this.wake(); };
+                        img.onerror = () => { this.__centerLogoImg = null; };
+                        img.src = this.centerLogoUrl;
+                    } catch (e) { }
+                }
+            }
+
             // A bold, centered "sunset orange" announcement that stands out far more than
             // setCenterMessage: large heavy letters filled with a warm sunset gradient
             // (amber -> orange -> pink), a dark outline for contrast and a warm glow,
@@ -9394,6 +9412,24 @@ pattern, GGGG | Required`
                             ctx.restore();
                         }
                     }
+                    // Brand icon centered on an empty canvas (startup) — shown instead of a
+                    // text center-message; auto-hides as soon as a track is loaded.
+                    try {
+                        if (this.centerLogoUrl && this.__centerLogoImg && (!this.track || this.track.length === 0)) {
+                            const img = this.__centerLogoImg;
+                            let iw = img.naturalWidth || 64, ih = img.naturalHeight || 64;
+                            if (!iw || !ih) { iw = 64; ih = 64; }
+                            const cw = ctx.canvas.width, ch = ctx.canvas.height;
+                            const target = Math.max(120, Math.min(cw, ch) * 0.26);
+                            const scale = target / Math.max(iw, ih);
+                            const dw = iw * scale, dh = ih * scale;
+                            ctx.save();
+                            this.resetCanvasEffects(ctx);
+                            ctx.globalAlpha = 0.92;
+                            ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+                            ctx.restore();
+                        }
+                    } catch (e) { }
                     // Backend working signal is now the DOM "working" badge (a CSS-animated
                     // ring + a plain-language status line) managed in io-engine — it can't
                     // freeze if this redraw loop stalls. The old canvas-drawn spinner below is

@@ -4,6 +4,10 @@ function (graph, genegraph_panel_layout) {
     // mutation (3s dwell) — all via the shared text-extract processing (presetEntities path).
     // While the file is being read/processed the background is blurred behind a spinner.
     return new Promise((resolve) => {
+
+        graph.setCenterMessage("Uploading...")
+
+
         const guessMime = (name) => {
             const n = ('' + name).toLowerCase();
             if (n.endsWith('.pdf')) return 'application/pdf';
@@ -83,6 +87,11 @@ function (graph, genegraph_panel_layout) {
             try {
                 dataUrl = await new Promise((res, rej) => {
                     const fr = new FileReader();
+
+                    graph.setSunsetMessage(" Uploading...  ")
+
+
+
                     fr.onload = () => res(fr.result);
                     fr.onerror = () => rej(fr.error || new Error('read error'));
                     fr.readAsDataURL(file);

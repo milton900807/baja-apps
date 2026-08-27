@@ -1811,10 +1811,11 @@ function (lib_id, file_id) {
             working.status = 'complete'
 
             let m = window['env']['theme']
-            if (!m) {
-                m = 'bajabio'
+            if (!m || m === 'bajabio') {
+                graph.setCenterLogo('/assets/logos/baja-icon.svg')
+            } else {
+                graph.setMessageCenter(m, 40)
             }
-            graph.setMessageCenter(m, 40)
 
         })
 

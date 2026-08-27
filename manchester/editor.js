@@ -1726,7 +1726,7 @@ function (path, config) {
                                                     label: 'File', ionFunction: createIonFunction(() => {
                                                         graph.showMenu([
                                                             {
-                                                                label: 'Extract from File', move: () => { },
+                                                                label: 'Upload', move: () => { },
                                                                 click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
                                                             },
                                                             {
@@ -1936,7 +1936,7 @@ function (path, config) {
                                                                 label: 'Variant', move: () => { }, click: () => {
                                                                     graph.hideMenu();
                                                                     graph.showSideMenu(null);
-                                                                    // Describe a variant → Claude resolves type & genomic position, place it
+                                                                    // Describe a variant →  resolves type & genomic position, place it
                                                                     // on every track it can live on, and zoom into the last one added.
                                                                     exec('baja/data/prompt-variant.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
                                                                 }
@@ -2850,10 +2850,11 @@ function (path, config) {
                 }
 
                 let m = window['env']['theme']
-                if (!m) {
-                    m = 'bajabio'
+                if (!m || m === 'bajabio') {
+                    graph.setCenterLogo('/assets/logos/baja-icon.svg')
+                } else {
+                    graph.setMessageCenter(m, 40)
                 }
-                graph.setMessageCenter(m, 40)
 
                 setTimeout(() => {
                     graph.isPreviousState().then(r => {
