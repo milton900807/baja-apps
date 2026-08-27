@@ -4443,39 +4443,43 @@ function (progress, options) {
                 this.graphListener = (xwc, ywc) => {
                 }
                 this.pinchListener = (evt) => {
-                    this.clearMouseListeners();
-                    this.setMouseMode('navigate')
+                    // First move of a pinch: switch to navigate + record the baseline finger
+                    // positions. (Only once — not every move.)
                     if (!this.prev) {
-                        this.prev = evt
-                    } else {
-                        let xiw = this.graph.Xwc(evt.xi);
-                        let xfw = this.graph.Xwc(evt.xf);
-                        let diffii = (xfw - xiw);
-                        let xip = this.graph.Xwc(this.prev.xi);
-                        let xfp = this.graph.Xwc(this.prev.xf);
-                        let diffpp = (xfp - xip);
-                        let p = (diffpp - diffii);
-                        if (this.prev.xf - this.prev.xi < 0) {
-                            p = p * (-1)
-                        }
-                        let yiw = this.graph.Ywc(evt.yi);
-                        let yfw = this.graph.Ywc(evt.yf);
-                        let current_dif_y = (yfw - yiw);
-                        let yip = this.graph.Ywc(this.prev.yi);
-                        let yfp = this.graph.Ywc(this.prev.yf);
-                        let prev_dif_y = yfp - yip;
-                        let yv = (current_dif_y - prev_dif_y) * (-2);
-                        let xfactor = p;
-                        let distanceY = yv;
-                        if (this.prev.yi - this.prev.yf < 0) {
-                            distanceY *= (-1)
-                        }
-                        this.graph.setymin(this.graph.getymin() - distanceY);
-                        this.graph.getymax(this.graph.getymax() + distanceY);
-                        this.graph.setxmin(this.graph.getxmin() - xfactor)
-                        this.graph.setxmax(this.graph.getxmax() + xfactor)
+                        this.clearMouseListeners();
+                        this.setMouseMode('navigate');
                         this.prev = evt;
+                        return;
                     }
+                    let xiw = this.graph.Xwc(evt.xi);
+                    let xfw = this.graph.Xwc(evt.xf);
+                    let diffii = (xfw - xiw);
+                    let xip = this.graph.Xwc(this.prev.xi);
+                    let xfp = this.graph.Xwc(this.prev.xf);
+                    let diffpp = (xfp - xip);
+                    let p = (diffpp - diffii);
+                    if (this.prev.xf - this.prev.xi < 0) {
+                        p = p * (-1)
+                    }
+                    let yiw = this.graph.Ywc(evt.yi);
+                    let yfw = this.graph.Ywc(evt.yf);
+                    let current_dif_y = (yfw - yiw);
+                    let yip = this.graph.Ywc(this.prev.yi);
+                    let yfp = this.graph.Ywc(this.prev.yf);
+                    let prev_dif_y = yfp - yip;
+                    let yv = (current_dif_y - prev_dif_y) * (-2);
+                    let xfactor = p;
+                    let distanceY = yv;
+                    if (this.prev.yi - this.prev.yf < 0) {
+                        distanceY *= (-1)
+                    }
+                    this.graph.setymin(this.graph.getymin() - distanceY);
+                    this.graph.setymax(this.graph.getymax() + distanceY);   // was getymax() — y-zoom never applied
+                    this.graph.setxmin(this.graph.getxmin() - xfactor)
+                    this.graph.setxmax(this.graph.getxmax() + xfactor)
+                    this.prev = evt;
+                    if (this.graph.rescale) this.graph.rescale();
+                    if (this.wake) this.wake();
                 }
                 this.slideZoom = (l, ly, duration = 400) => {
                     const startXmin = this.graph.getxmin();
@@ -4892,6 +4896,7 @@ function (progress, options) {
                     this.initDwn = event;
                 }
                 this.touchEnd = (event) => {
+                    this.prev = null;   // reset the pinch baseline so the next pinch starts fresh
                 }
                 this.touchMove = (event) => {
                 }
