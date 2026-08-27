@@ -60,9 +60,11 @@ SYSTEM = (
     'empty","label":"short label e.g. KRAS G12D","comment":"one sentence of context"}],\n'
     '  "asos":      [{"name":"name/id if given else empty","sequence":"the oligo bases '
     '5\'->3\' using only A/C/G/T/U (strip chemistry/modifications)","target_gene":"...",'
-    '"species":"human|mouse|rat","comment":"one sentence of context"}]\n'
+    '"species":"human|mouse|rat","comment":"one sentence of context"}],\n'
+    '  "title":     "the article/manuscript title if this document is a paper, else empty"\n'
     "}\n"
-    "Rules: Default species to human when not stated. For EVERY mutation, if you recognise "
+    "Rules: Default species to human when not stated. Give each mutation its coding HGVS "
+    "(e.g. c.529A>G) and gene so it can be mapped even without an rsID. For EVERY mutation, if you recognise "
     "the variant, ALWAYS fill in its dbSNP rsID in the id field (this is used to look up its "
     "exact coordinates). Include the gene symbol on each mutation and each ASO's target "
     "gene. An ASO (antisense oligonucleotide / gapmer / siRNA guide) is a short (~15-25 nt) "
@@ -237,28 +239,32 @@ def resolve_gene_at(species, chrom, start, end):
     return None
 
 
+_TID_CACHE = {}
+
+
 def resolve_transcript(species, symbol):
     """The REAL canonical Ensembl transcript id for a gene symbol, from Ensembl itself.
     Claude fabricates plausible-but-wrong stable ids that then fail to load, so the second
     step ('convert genetic info -> Ensembl ids') must be authoritative, not model-generated."""
     if not symbol:
         return None
+    key = (("" + species).lower(), ("" + symbol).lower())
+    if key in _TID_CACHE:
+        return _TID_CACHE[key]
     sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
     from urllib.parse import quote
     r = _ensembl_get("%s/lookup/symbol/%s/%s?expand=1" % (ENSEMBL_REST, sp, quote(str(symbol), safe="")))
-    if r is None:
-        return None
-    try:
-        d = r.json() or {}
-    except Exception:
-        return None
-    tx = d.get("Transcript") or []
-    if not tx:
-        return None
-    canon = [t for t in tx if t.get("is_canonical")]
-    t = (canon or tx)[0]
-    tid = str(t.get("id") or "").split(".")[0].strip()
-    return tid or None
+    tid = None
+    if r is not None:
+        try:
+            tx = (r.json() or {}).get("Transcript") or []
+            if tx:
+                canon = [t for t in tx if t.get("is_canonical")]
+                tid = str((canon or tx)[0].get("id") or "").split(".")[0].strip() or None
+        except Exception:
+            tid = None
+    _TID_CACHE[key] = tid
+    return tid
 
 
 def resolve_gene_transcripts(genes, mutations, asos):
@@ -304,17 +310,40 @@ def resolve_hgvs(species, hgvs):
         return None
 
 
+def resolve_hgvs_smart(species, hgvs, gene, tid_by_gene):
+    """Resolve an HGVS string. A bare coding/non-coding change (c./n.###) needs a transcript
+    reference — use the gene's resolved Ensembl transcript (so a manuscript's 'c.529A>G' maps
+    without an rsID). Anything already qualified (ENST/NM_/genomic) goes straight to VEP."""
+    h = ("" + (hgvs or "")).strip()
+    if not h:
+        return None
+    if ":" in h and re.match(r"^(ENS[A-Z]*T\d|NM_|NR_|NC_|chr|\d+|X|Y|MT)[\w.:]*:", h, re.I):
+        return resolve_hgvs(species, h)
+    core = h.split(":")[-1].strip()
+    if re.match(r"^[cn]\.", core, re.I):
+        tid = tid_by_gene.get(("" + (gene or "")).lower())
+        return resolve_hgvs(species, "%s:%s" % (tid, core)) if tid else None
+    return resolve_hgvs(species, h)
+
+
 obj, err = ask_claude()
-works.progress(45)
+works.progress(40)
 if obj is None:
     works.progress(100)
-    works.resolve({"genes": [], "mutations": [], "asos": [], "error": err})
+    works.resolve({"genes": [], "mutations": [], "asos": [], "title": "", "error": err})
 else:
     genes = obj.get("genes", []) or []
     mutations = obj.get("mutations", []) or []
     asos = obj.get("asos", []) or []
+    title = ("" + (obj.get("title") or "")).strip()
 
-    # Resolve mutation coordinates (rsID first, then genomic HGVS).
+    # Resolve transcripts EARLY so a coding HGVS (c.###) can be mapped through the gene's
+    # transcript. Build gene(lower) -> transcript id.
+    gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
+    tid_by_gene = {("" + g["gene"]).lower(): g["id"] for g in gene_transcripts}
+    works.progress(50)
+
+    # Resolve mutation coordinates (rsID first, then coding/genomic HGVS via the transcript).
     total = max(1, len(mutations))
     for i, mut in enumerate(mutations):
         mut["resolved"] = False
@@ -324,7 +353,7 @@ else:
         if rid:
             loc = resolve_rsid(sp, rid.group(0).lower())
         if not loc and mut.get("hgvs"):
-            loc = resolve_hgvs(sp, "" + mut["hgvs"])
+            loc = resolve_hgvs_smart(sp, mut.get("hgvs"), mut.get("gene"), tid_by_gene)
         if loc and loc.get("start"):
             mut["chr"] = loc["chr"]
             mut["start"] = loc["start"]
@@ -335,12 +364,11 @@ else:
             gsym = resolve_gene_at(sp, mut["chr"], mut["start"], mut["end"])
             if gsym:
                 mut["gene"] = gsym
-        works.progress(45 + int(50.0 * (i + 1) / total))
+        works.progress(50 + int(45.0 * (i + 1) / total))
 
-    # Step 2: convert the extracted genes into REAL Ensembl transcript ids to load.
-    works.progress(95)
+    # Recompute transcripts to include any gene backfilled from a locus (cached, so cheap).
     gene_transcripts = resolve_gene_transcripts(genes, mutations, asos)
 
     works.progress(100)
     works.resolve({"genes": genes, "mutations": mutations, "asos": asos,
-                   "geneTranscripts": gene_transcripts, "error": err})
+                   "geneTranscripts": gene_transcripts, "title": title, "error": err})

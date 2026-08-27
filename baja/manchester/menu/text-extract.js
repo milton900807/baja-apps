@@ -166,6 +166,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (t && t.gene && t.id) { const k = ('' + t.gene).toLowerCase(); if (!trMap[k]) trMap[k] = t.id; }
             }
 
+            // Manuscript title -> persistent banner pinned above all the tracks.
+            try { if (ex && ex.title && graph.setTitle) graph.setTitle(ex.title); } catch (e) { }
+
             // Union of genes to load: explicit genes + mutation genes + ASO target genes.
             const toLoad = {};
             for (const g of genes) if (g && g.symbol) toLoad[g.symbol.toLowerCase()] = { symbol: g.symbol, species: g.species || 'human' };

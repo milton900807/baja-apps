@@ -1586,6 +1586,14 @@ function (progress, options) {
                     if (this.wake) this.wake();
                 }, ms);
             }
+
+            // A persistent title banner pinned across the top of the canvas (above all the
+            // tracks) — used e.g. for a manuscript's title when a paper is loaded. Pass a
+            // falsy value to clear it.
+            setTitle(text) {
+                this.titleText = ('' + (text || '')).trim() || null;
+                if (this.wake) this.wake();
+            }
             isConnected() {
                 if (!this.graph) {
                     return false;
@@ -9349,6 +9357,40 @@ pattern, GGGG | Required`
                             ctx.shadowColor = 'transparent';
                             ctx.fillStyle = grad;
                             ctx.fillText(smsg, cx, cy);
+                            ctx.restore();
+                        }
+                    }
+                    // Persistent title banner across the very top of the canvas (above all
+                    // tracks) — e.g. a manuscript's title. Word-wrapped to the canvas width.
+                    if (this.titleText) {
+                        const ttl = ('' + this.titleText).trim();
+                        if (ttl) {
+                            ctx.save();
+                            this.resetCanvasEffects(ctx);
+                            const cw = ctx.canvas.width;
+                            let fs = Math.max(13, Math.min(22, Math.round(cw * 0.015)));
+                            const fam = '"Georgia", "Times New Roman", serif';
+                            ctx.font = '600 ' + fs + 'px ' + fam;
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'top';
+                            const maxW = cw - 40;
+                            const words = ttl.split(/\s+/);
+                            const lines = [];
+                            let cur = '';
+                            for (const w of words) {
+                                const test = cur ? cur + ' ' + w : w;
+                                if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+                                else cur = test;
+                            }
+                            if (cur) lines.push(cur);
+                            const lineH = fs + 5;
+                            const padY = 8;
+                            const boxH = padY * 2 + lines.length * lineH;
+                            ctx.fillStyle = 'rgba(18,26,44,0.86)';
+                            ctx.fillRect(0, 0, cw, boxH);
+                            ctx.fillStyle = '#ffd98a';
+                            let ty = padY;
+                            for (const l of lines) { ctx.fillText(l, cw / 2, ty); ty += lineH; }
                             ctx.restore();
                         }
                     }
