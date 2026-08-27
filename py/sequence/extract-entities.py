@@ -53,26 +53,30 @@ def ask_claude(text):
         return None, "python 'requests' is not available on the server"
 
     system = (
-        "You are a biomedical text-mining expert. Read the user's text and extract three "
-        "kinds of entities. Return ONLY JSON, no prose:\n"
+        "You are a biomedical variant-curation expert. Read the ENTIRE text and extract EVERY "
+        "gene and EVERY sequence variant/mutation you can find. Be exhaustive with mutations: "
+        "do not omit any. Return ONLY JSON, no prose:\n"
         "{\n"
         '  "genes":     [{"symbol":"...","species":"human|mouse|rat"}],\n'
-        '  "mutations": [{"gene":"...","species":"human|mouse|rat","id":"rsID if known (e.g. '
-        'rs121913529), else ClinVar/COSMIC id or empty","hgvs":"full HGVS if given (e.g. '
-        'NM_..:c.35G>A or 12:g.25245350C>T), else empty","protein":"p.XxxNNNYyy if given, else '
-        'empty","label":"short label e.g. KRAS G12D","comment":"one sentence of context"}],\n'
+        '  "mutations": [{"gene":"...","species":"human|mouse|rat","id":"dbSNP rsID if known else '
+        'empty","hgvs":"the CODING or genomic HGVS change if given — e.g. c.575A>G or c.3319-1G>A '
+        'or 12:g.25245350C>T. Put c./n./g. notation HERE (not in protein). Empty only if none '
+        'given","protein":"protein change if given, e.g. p.Tyr192Cys or p.Trp702Ter, else empty",'
+        '"label":"short label e.g. ATL3 Y192C","comment":"one sentence of context"}],\n'
         '  "asos":      [{"name":"name/id if given else empty","sequence":"the oligo bases '
         '5\'->3\' using only A/C/G/T/U (strip chemistry/modifications)","target_gene":"...",'
         '"species":"human|mouse|rat","comment":"one sentence of context"}],\n'
         '  "title":     "the article/manuscript title if this text is a paper, else empty"\n'
         "}\n"
-        "Rules: Default species to human when not stated. Give each mutation its coding HGVS "
-        "(e.g. c.529A>G) and gene so it can be mapped even without an rsID. For EVERY mutation, if you recognise "
-        "the variant, ALWAYS fill in its dbSNP rsID in the id field (this is used to look up its "
-        "exact coordinates). Include the gene symbol on each mutation and each ASO's target "
-        "gene. An ASO (antisense oligonucleotide / gapmer / siRNA guide) is a short (~15-25 nt) "
-        "nucleotide sequence given as a drug/probe; extract its base sequence only. Deduplicate. "
-        "If a category has no entries return an empty array."
+        "MUTATION RULES (important): Find them ALL — substitutions (c.529A>G, p.Asn177Asp), "
+        "nonsense/stop (p.Trp702Ter, c.2908G>T), splice-site (c.3319-1G>A), deletions (del), "
+        "insertions (ins), duplications (dup). A variant is often written as "
+        "'GENE (c.###; p.(Xaa###Yaa))' — create ONE mutation entry per distinct variant, with its "
+        "coding change in hgvs and its protein change in protein. NEVER leave hgvs empty when a "
+        "c./n./g. change is given. Put the gene symbol on every mutation; add the dbSNP rsID if "
+        "you know it. An ASO (antisense oligonucleotide / gapmer / siRNA guide) is a short "
+        "(~15-25 nt) nucleotide drug/probe — extract its base sequence only. Default species to "
+        "human. Deduplicate identical entries. Return an empty array for any empty category."
     )
     try:
         r = requests.post(
