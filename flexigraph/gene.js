@@ -2174,6 +2174,23 @@ function (progress, options) {
                     }
 
                 }, 200)
+
+                // Name-clash fix: if this (the most recently added) track's name already
+                // belongs to an existing track, append an incrementing integer so the new
+                // one is disambiguated — "SCN9A" -> "SCN9A (2)" -> "SCN9A (3)" — leaving the
+                // existing tracks' names untouched. Case-insensitive match.
+                try {
+                    const base = (newTrack.name != null && ('' + newTrack.name).trim().length)
+                        ? ('' + newTrack.name) : 'track';
+                    const taken = (nm) => this.track.some(t =>
+                        t && t !== newTrack && t.name && ('' + t.name).toUpperCase() === ('' + nm).toUpperCase());
+                    if (taken(base)) {
+                        let n = 2, candidate = base + ' (' + n + ')';
+                        while (taken(candidate)) { n++; candidate = base + ' (' + n + ')'; }
+                        newTrack.name = candidate;
+                    }
+                } catch (e) { }
+
                 this.track.push(newTrack);
             }
 
