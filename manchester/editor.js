@@ -173,10 +173,15 @@ function (path, config) {
                 if (path.endsWith('.baja')) {
                     let host_ = window['env']['apiUrl']
                     let index = path.lastIndexOf('/')
-                    if ((config != null && config.user != null) || path.startsWith('/myfiles/')) {
+                    // On reload the URL is /<folder-id>/<file>.baja with no config.user, so use the
+                    // user-context load (key:'user') whenever someone is logged in — /load-file then
+                    // resolves the folder id and grants the owner direct access. Without key it can't
+                    // resolve the user folder and the reload fails.
+                    if ((config != null && config.user != null) || path.startsWith('/myfiles/') || (typeof getUser === 'function' && getUser())) {
 
                         let jsonobj = {
-                            'path': path,
+                            // Decode any %2F etc. from the reload URL so /load-file sees a real path.
+                            'path': (function () { try { return decodeURIComponent(path); } catch (e) { return path; } })(),
                             'key': 'user',
                             'user': getUser()
                         }
