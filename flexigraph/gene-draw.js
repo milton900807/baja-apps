@@ -806,7 +806,8 @@ function () {
 
         }),
         'CDS': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf + 1, y, 'rgb(255, 187, 0)', 3)
+            // The yellow/gold ORF line was removed by request; the CDS/ORF data is kept
+            // (used by translation, protein domains, etc.) but no longer drawn as a line.
             graph.drawVerticalLine(xs, y, 0.08, '#1aa3bd', 1)
             graph.drawVerticalLine(xf + 1, y, 0.08, '#1aa3bd', 1)
 
