@@ -1976,33 +1976,9 @@ function (path, config) {
                                                             {
                                                                 label: 'Data', move: () => { },
                                                                 click: () => {
-                                                                    // Data submenu: load data layers, or Protein tools.
-                                                                    graph.showMenu([
-                                                                        {
-                                                                            label: 'Load data', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                // Show the data-loading toolbar.
-                                                                                exec('baja/data/data-loading-toolbar.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Protein ▸', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showMenu([
-                                                                                    {
-                                                                                        label: 'Protein Domains', move: () => { },
-                                                                                        click: () => {
-                                                                                            graph.showSideMenu(null);
-                                                                                            // Prompt to select a track, then map CDD protein
-                                                                                            // domains onto its protein sequence.
-                                                                                            exec('baja/manchester/menu/protein-domains.js', graph, genegraph_panel_layout);
-                                                                                        }
-                                                                                    }
-                                                                                ]);
-                                                                            }
-                                                                        }
-                                                                    ]);
+                                                                    graph.showSideMenu(null);
+                                                                    // Show the data-loading toolbar.
+                                                                    exec('baja/data/data-loading-toolbar.js', graph, genegraph_panel_layout);
                                                                 }
                                                             },
                                                             {
