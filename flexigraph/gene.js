@@ -2185,8 +2185,8 @@ function (progress, options) {
                     const taken = (nm) => this.track.some(t =>
                         t && t !== newTrack && t.name && ('' + t.name).toUpperCase() === ('' + nm).toUpperCase());
                     if (taken(base)) {
-                        let n = 2, candidate = base + ' (' + n + ')';
-                        while (taken(candidate)) { n++; candidate = base + ' (' + n + ')'; }
+                        let n = 2, candidate = base + n;
+                        while (taken(candidate)) { n++; candidate = base + n; }
                         newTrack.name = candidate;
                     }
                 } catch (e) { }

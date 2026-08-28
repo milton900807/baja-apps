@@ -4,7 +4,8 @@ function () {
     // a specular highlight and a soft drop shadow.
     const drawCodonCylinder = (graph, tgraph, xs, xf, y, kind) => {
         const screencell = graph.screenWidth(tgraph.screenWidth(1));
-        if (screencell < 0.05) return;
+        // No zoom-out cull: the start/stop pillar is a FIXED screen size, so keep it visible
+        // even when zoomed way out (it was previously hidden below 0.05 px/base).
         const isStart = (kind === 'start');
         const base = isStart ? [46, 158, 68] : [209, 52, 47];   // green / red
         const rgb = (a) => 'rgb(' + a[0] + ',' + a[1] + ',' + a[2] + ')';
@@ -782,10 +783,8 @@ function () {
 
         }),
         'Translation': createIon((graph, tgraph, xs, xf, y, color, annotation, strand) => {
-            let screencell = graph.screenWidth(tgraph.screenWidth(1))
-            if (screencell < 0.05) {
-                return;
-            }
+            // No zoom-out cull — the START/STOP pillars are fixed screen size, so keep them
+            // visible even when zoomed way out.
             // Reverse-strand translation runs high->low genomic, so the START is at the
             // high (xf) end and the STOP at the low (xs) end. Draw them as the same
             // START (green) / STOP (red) cylinders, at the correct strand-aware ends.

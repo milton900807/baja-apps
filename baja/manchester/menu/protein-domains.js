@@ -23,12 +23,33 @@ function (graph, genegraph_panel_layout) {
                 for (let as of (t.annotations || [])) { if (as.type === 'NMD') t.removeAnnotation(as); }
                 t.generateORF();
             } catch (e) { }
+            // Decide "protein coding?" as robustly as possible: a track is protein coding iff it
+            // yields a protein sequence. Try the exon-aware CDS first, then the ORF's per-codon
+            // list (t.orf.cdsi, built by generateORF), then the track's own protein-sequence
+            // method. Only if NONE produce a protein do we call it non-coding.
             let cds = null;
             try { cds = t.getCDS(); } catch (e) { }
-            const proteinSeq = ('' + ((cds && cds.protein) || '')).toString();
+            const _hasCds = (o) => o && o.protein && ('' + o.protein).length >= 3 && Array.isArray(o.codonPos) && o.codonPos.length;
+            if (!_hasCds(cds)) {
+                try {
+                    const cdsi = (t.orf && Array.isArray(t.orf.cdsi)) ? t.orf.cdsi : [];
+                    if (cdsi.length) {
+                        const prot = [], cpos = [];
+                        for (const e of cdsi) {
+                            if (e && (e.ci === 0 || e.ci === '0')) { prot.push(e.aa || 'X'); cpos.push(e.index); }
+                        }
+                        if (prot.length >= 3) cds = { protein: prot.join(''), codonPos: cpos };
+                    }
+                } catch (e) { }
+            }
+            let proteinSeq = ('' + ((cds && cds.protein) || '')).toString();
+            if (proteinSeq.length < 3) {
+                try { proteinSeq = ('' + (t.getProteinSequence ? t.getProteinSequence() : '')).toString(); } catch (e) { }
+                if (proteinSeq.length >= 3) cds = { protein: proteinSeq, codonPos: (cds && cds.codonPos) || [] };
+            }
 
-            // No ORF/protein -> this track is not a protein coding transcript.
-            if (!cds || !cds.codonPos || proteinSeq.length < 3) {
+            // Not protein coding only when there is genuinely no protein sequence at all.
+            if (proteinSeq.length < 3) {
                 graph.setMessage(' ' + (t.name || 'This track') + ' is not a protein coding transcript. ');
                 return;
             }
