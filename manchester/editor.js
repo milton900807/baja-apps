@@ -856,6 +856,13 @@ function (path, config) {
                 })
 
                 track_items.push({
+                    'label': 'Select sequence', 'ionfunction': createIonFunction(async () => {
+                        // Same as the canvas "Select sequence" button.
+                        await exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true)
+                    })
+                })
+
+                track_items.push({
                     'label': 'Export', ionfunction: createIonFunction(async () => {
                         graph.setMessage("Click on a track to see available edit options. ")
                         await exec('baja/manchester/menu/export-track.js', graph)
