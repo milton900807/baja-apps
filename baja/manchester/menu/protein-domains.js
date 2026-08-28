@@ -104,7 +104,8 @@ function (graph, genegraph_panel_layout) {
             for (let i = 0; i < proteinSeq.length; i += chunkSize) chunks.push(proteinSeq.substring(i, i + chunkSize));
             for (let chunk of chunks) {
                 try {
-                    const result = await exec('py/cdd/test.py', chunk, 21);
+                    // NCBI CD-Search (hosted) — no local BLAST/CDD install required.
+                    const result = await exec('py/cdd/cdsearch.py', chunk);
                     if (result && result['file'] != null) drawResult(result);
                 } catch (e) { console.warn('protein-domains: CDD chunk failed', e); }
             }

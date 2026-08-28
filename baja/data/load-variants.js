@@ -200,18 +200,18 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection) 
             if (ti < 0) return;
             track = graph.track[ti];
             try { track.select(); } catch (e) { }
-            start = Math.ceil(track.tgraph.Xwc(x) - track.tgraph.xi * 2);
+            start = Math.ceil(track.tgraph.Xwc(x - 2 * track.tgraph.xi));
             end = start; dragging = true;
         });
         graph.addMouseMoveListener((x, y) => {
             if (!dragging || !track || !track.tgraph) return;
-            end = Math.ceil(track.tgraph.Xwc(x) - track.tgraph.xi * 2);
+            end = Math.ceil(track.tgraph.Xwc(x - 2 * track.tgraph.xi));
             try { track.highlight(Math.min(start, end), Math.max(start, end)); } catch (e) { }
         });
         graph.addMouseUpListener(async (x, y) => {
             if (!dragging || !track) return;
             dragging = false;
-            end = Math.ceil(track.tgraph.Xwc(x) - track.tgraph.xi * 2);
+            end = Math.ceil(track.tgraph.Xwc(x - 2 * track.tgraph.xi));
             const a = Math.min(start, end), b = Math.max(start, end);
             if (!(b > a)) { graph.setMessage(' Empty selection — drag to select a region. '); restoreHover(); return; }
             try { track.markstart = a; track.markend = b; track.highlight(a, b); } catch (e) { }

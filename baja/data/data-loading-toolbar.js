@@ -97,6 +97,20 @@ function (graph, genegraph_panel_layout) {
         }
     ];
 
+    // ---- Protein -------------------------------------------------------------
+    const proteinItems = [
+        {
+            'label': 'Protein Domains', 'ionfunction': go(async () => {
+                graph.clearMouseListeners();
+                graph.setMouseMode('navigate');
+                // Prompt to click a track, then map CDD protein domains (via the hosted
+                // NCBI CD-Search) onto the track's protein sequence. Tracks with no ORF are
+                // reported as not protein coding.
+                await exec('baja/manchester/menu/protein-domains.js', graph, genegraph_panel_layout);
+            })
+        }
+    ];
+
     let bpanel = {
         wid: 'card',
         data: {
@@ -113,6 +127,7 @@ function (graph, genegraph_panel_layout) {
                                     { 'label': 'RNASeq', 'items': rnaseqItems },
                                     { 'label': 'Patents', 'items': ipItems },
                                     { 'label': 'Variants', 'items': variantItems },
+                                    { 'label': 'Protein', 'items': proteinItems },
                                     { 'label': 'Edit Layer', 'items': editItems }
                                 ]
                             }
