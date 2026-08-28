@@ -55,14 +55,22 @@ function (graph, genegraph_panel_layout) {
                 layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
                 layer.fillstyle = layer.color;
 
+                let added = 0;
                 for (const s of sites) {
                     if (!s) continue;
                     const sc = Math.max(0, Math.min(1, +s[2] || 0));
+                    // Only include high-confidence sites — those scoring ABOVE 0.95.
+                    if (!(sc > 0.95)) continue;
                     // Block height == score (1.0 fills the track height), anchored at
                     // the baseline. Alpha also scales so stronger sites read darker.
                     const a = +(0.3 + 0.6 * sc).toFixed(2);
                     const col = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')';
                     layer.addInterval(+s[0], +s[1], sc, rbp + ' ' + sc.toFixed(2), col);
+                    added++;
+                }
+                if (!added) {
+                    graph.setMessage(' No ' + rbp + ' binding sites scoring above 0.95 for that track. ');
+                    restoreHover(); return;
                 }
                 track.addLayer(layer);
 
@@ -71,7 +79,7 @@ function (graph, genegraph_panel_layout) {
                 setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 10100);
 
                 if (graph.wake) graph.wake();
-                graph.setMessage(' ' + name + ': ' + sites.length + ' binding site' + (sites.length === 1 ? '' : 's') + ' added to ' + (track.name || 'track') + '. ');
+                graph.setMessage(' ' + name + ': ' + added + ' binding site' + (added === 1 ? '' : 's') + ' (score > 0.95) added to ' + (track.name || 'track') + '. ');
                 resetModelsToolbar();
             } catch (e) {
                 graph.setMessage(' RBP error: ' + e + ' ');
