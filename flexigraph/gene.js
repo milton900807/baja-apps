@@ -7440,15 +7440,24 @@ pattern, GGGG | Required`
                     case 'expand_vertical': {
                         this.bclick = 'expand_vertical';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                        let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
-                        await this.zoomXY(this.graph.getxmin(), this.graph.getxmax(), this.graph.getymin() - ly, this.graph.getymax() + ly);
+                        // Set the Y range directly rather than via animateTo — when zoomed in the
+                        // y-range is small, and animateTo's `<1` reset + aspect-ratio clamp discard
+                        // the change, so the vertical buttons appeared to do nothing.
+                        let ly = (Math.abs(this.graph.getymax() - this.graph.getymin()) / 10) || 0.1;
+                        this.graph.setymin(this.graph.getymin() - ly);
+                        this.graph.setymax(this.graph.getymax() + ly);
+                        try { this.graph.rescale(); } catch (e) { }
+                        if (this.wake) this.wake();
                         return;
                     }
                     case 'contract_vertical': {
                         this.bclick = 'contract_vertical';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
-                        let ly = Math.abs(this.graph.getymax() - this.graph.getymin()) / 10;
-                        await this.zoomXY(this.graph.getxmin(), this.graph.getxmax(), this.graph.getymin() + ly, this.graph.getymax() - ly);
+                        let ly = (Math.abs(this.graph.getymax() - this.graph.getymin()) / 10) || 0.1;
+                        this.graph.setymin(this.graph.getymin() + ly);
+                        this.graph.setymax(this.graph.getymax() - ly);
+                        try { this.graph.rescale(); } catch (e) { }
+                        if (this.wake) this.wake();
                         return;
                     }
                     case 'expand_horizontal': {
