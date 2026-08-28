@@ -7541,6 +7541,25 @@ pattern, GGGG | Required`
                         const sel = [];   // labels of selected items, for the info panel
                         for (const t of (this.track || [])) {
                             if (!t.tgraph) continue;
+
+                            // If the lasso encloses this track's ENTIRE on-screen box, select
+                            // the track itself too (in addition to any items inside it). Box +
+                            // corner projection mirror getTrack()'s hit-box.
+                            try {
+                                const _scx = this.graph.X(t.tgraph.xi);
+                                const _scy = this.graph.Y(t.tgraph.yi);
+                                const _scw = this.graph.screenWidth(t.tgraph.width);
+                                const _sch = -1 * this.graph.screenHeight(t.tgraph.height);
+                                const _xR = _scx + _scw, _yB = _scy + _sch;
+                                if (isFinite(_scx) && isFinite(_scy) && isFinite(_xR) && isFinite(_yB) &&
+                                    inside(_scx, _scy) && inside(_xR, _scy) &&
+                                    inside(_scx, _yB) && inside(_xR, _yB)) {
+                                    try { if (t.select) t.select(); } catch (e) { }
+                                    sel.push({ kind: 'track', label: (t.name || 'track'), track: t, chr: t.chr, xi: t.xi, xf: t.xf, ref: t });
+                                    n++;
+                                }
+                            } catch (e) { }
+
                             for (const a of (t.annotations || [])) {
                                 if (trackHit(t, (a.xi + a.xf) / 2, a.y != null ? a.y : 0)) {
                                     if (a.select) a.select();
