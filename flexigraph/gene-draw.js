@@ -55,8 +55,6 @@ function () {
             graph.drawLine(xs, y, xf, y, color, 13, 'butt')
 
         }),
-
-        // A highlighted region with a title + commentary (from the Points-of-interest tool).
         'PointOfInterest': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             const col = annotation.color || 'rgba(255,140,26,0.85)';
             graph.drawLine(xs, y, xf, y, col, 14, 'butt');
@@ -338,9 +336,11 @@ function () {
                     // track.js resets graph.__exonBadgeLastX before each track's
                     // exon-draw loop, so the anchor never carries across frames.
                     const minGap = 2 * radius + 3;   // circle diameter + a little pad
-                    const prevX = (typeof graph.__exonBadgeLastX === 'number') ? graph.__exonBadgeLastX : null;
-                    if (!isFinite(x) || (prevX !== null && Math.abs(x - prevX) < minGap)) {
-                        // too close (or invalid) -> drop this badge; keep prev as anchor
+                    // Drop this badge if its circle would collide with ANY badge already kept
+                    // on this track/frame (not just the previous one). track.js resets the list.
+                    const _badgeXs = Array.isArray(graph.__exonBadgeXs) ? graph.__exonBadgeXs : [];
+                    if (!isFinite(x) || _badgeXs.some((px) => Math.abs(x - px) < minGap)) {
+                        // too close (or invalid) -> drop this badge
                     } else {
                         ctx.save();
                         ctx.setLineDash([]);
@@ -363,7 +363,7 @@ function () {
                         ctx.fillText('' + annotation.index, x, y);
                         ctx.restore();
 
-                        graph.__exonBadgeLastX = x;  // this badge becomes the anchor
+                        if (Array.isArray(graph.__exonBadgeXs)) graph.__exonBadgeXs.push(x);  // remember this badge on the track
                     }
                 }
             }
@@ -745,17 +745,40 @@ function () {
 
         }),
         'ProteinDomain': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            graph.drawLine(xs, y + 1, xf, y + 1, '#9fe0e8', 20, 'butt')
-            graph.drawLine(xs, y + 1, xf, y + 1, '#a86b3e', 5, 'butt')
-            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + 1, '#1aa3bd', 4, 'butt')
+            const FONT = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
+            graph.drawLine(xs, y + 1, xf, y + 1, '#0099ff2f', 10, 'butt')
 
-            graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y + annotation.labelY - 2, '#a86b3e', 1, 'butt')
-            graph.drawString(annotation.name, (xs + xf) / 2, y + annotation.labelY - 2, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            const cx = (xs + xf) / 2;
+            const name = annotation.name || '';
+            // Stagger labels vertically so neighbouring domains' horizontal labels don't overlap:
+            // measure the label's screen width and place it on the lowest "row" (leader length)
+            // at this track's y that has no horizontal collision with a label already placed this
+            // frame. Each extra row lengthens the leader by ~one text height, keeping them readable.
+            const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+            let sx = graph.X(cx), halfW = 24;
+            if (ctx) { ctx.font = FONT; halfW = ctx.measureText(name).width / 2 + 6; }
+            const spans = (graph.__domainLabelSpans = graph.__domainLabelSpans || []);
+            let row = 0;
+            while (spans.some(s => s.row === row && Math.abs(s.y - y) < 1e-6 && !(sx + halfW < s.x0 || sx - halfW > s.x1))) row++;
+            spans.push({ row, y, x0: sx - halfW, x1: sx + halfW });
+
+            // Stagger the label UPWARD on screen (away from the track), whatever the track's
+            // world-Y orientation. An mRNA track runs its world Y the other way, so keying the
+            // direction off labelY's sign fanned the labels DOWNWARD and let them overlap. Derive
+            // the direction from the actual screen mapping, and separate rows by a consistent
+            // per-row SCREEN gap so they never collide regardless of track type.
+            const upSign = (graph.Y(y + 1) <= graph.Y(y)) ? 1 : -1;   // world sign that moves the label UP on screen
+            let step = 0.02, baseGap = 0.03;
+            try { if (graph.worldHeight) { step = Math.abs(graph.worldHeight(13)); baseGap = Math.abs(graph.worldHeight(18)); } } catch (e) { }
+            const labelY = y + upSign * (baseGap + row * step);   // further up for higher rows
+
+            // Leader from the domain bar up to its (staggered) label so it stays associated.
+            graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
+            graph.drawString(name, cx, labelY, '#0a2540', FONT)
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
             if (screencell < 1.5 && screencell > 0.1) {
                 if (annotation.description != null && annotation.description.length > 0) {
-                    graph.drawLine((xs + xf) / 2, y, (xs + xf) / 2, y, '#0a2540', 1, 'butt')
-                    graph.drawString(annotation.description, (xs + xf) / 2, y + annotation.labelY - 2, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+                    graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
                 }
 
             }

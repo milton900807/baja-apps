@@ -75,7 +75,9 @@ SYSTEM = (
     "insertions (ins), duplications (dup). A variant is often written as "
     "'GENE (c.###; p.(Xaa###Yaa))' — create ONE mutation entry per distinct variant, with its "
     "coding change in hgvs and its protein change in protein. NEVER leave hgvs empty when a "
-    "c./n./g. change is given. Put the gene symbol on every mutation; add the dbSNP rsID if "
+    "c./n./g. change is given. A synonymous coding change does NOT change the protein — there is "
+    "no such thing as a protein-level synonymous variant, so leave protein EMPTY for a synonymous "
+    "change (its c. change still goes in hgvs). Put the gene symbol on every mutation; add the dbSNP rsID if "
     "you know it. An ASO (antisense oligonucleotide / gapmer / siRNA guide) is a short "
     "(~15-25 nt) nucleotide drug/probe — extract its base sequence only. Default species to "
     "human. Deduplicate identical entries. Return an empty array for any empty category."
@@ -127,6 +129,10 @@ def ask_claude():
     if content is None:
         return None, err
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("extract-entities-file")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -390,6 +396,112 @@ def resolve_hgvs_smart(species, hgvs, gene, tid_by_gene):
     return resolve_hgvs(species, h)
 
 
+# --- Protein-variant resolution ------------------------------------------------------------
+# A missense/nonsense change given ONLY at the protein level (p.Arg521Cys / R521C) carries no
+# genomic coordinate, so rsID + coding-HGVS resolution above leaves it unmapped. Recode it to a
+# genomic variant (and a dbSNP rsID when one exists) via the Ensembl Variant Recoder, which
+# translates a protein HGVS against the transcript's actual reference codon — so the degeneracy
+# of the amino-acid change collapses to the single correct nucleotide variant.
+_AA1_TO_3 = {
+    "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys", "Q": "Gln", "E": "Glu",
+    "G": "Gly", "H": "His", "I": "Ile", "L": "Leu", "K": "Lys", "M": "Met", "F": "Phe",
+    "P": "Pro", "S": "Ser", "T": "Thr", "W": "Trp", "Y": "Tyr", "V": "Val", "*": "Ter", "X": "Ter",
+}
+
+
+def _protein_to_hgvs3(protein):
+    """Normalize a protein substitution/nonsense change to 3-letter HGVS 'p.Arg521Cys'. Accepts
+    'p.Arg521Cys', 'Arg521Cys', 'R521C', 'p.R521C', 'R521*'. Returns None for anything that is
+    not a simple single-residue substitution (frameshift / del / ins / dup / unparseable)."""
+    p = ("" + (protein or "")).strip()
+    if not p:
+        return None
+    p = re.sub(r"^p\.?", "", p, flags=re.I).strip().replace("(", "").replace(")", "")
+    if re.search(r"fs|del|ins|dup|ext|=", p, re.I):
+        return None
+    m3 = re.match(r"^([A-Za-z]{3})(\d{1,6})([A-Za-z]{3}|\*)$", p)
+    if m3:
+        ref = m3.group(1).capitalize()
+        alt = "Ter" if m3.group(3) == "*" else m3.group(3).capitalize()
+        # A protein-level synonymous variant is impossible (same residue = no protein change),
+        # so ref == alt is a mis-parse / coding-only synonymous change — never resolve it here.
+        if ref == alt:
+            return None
+        return "p.%s%s%s" % (ref, m3.group(2), alt)
+    m1 = re.match(r"^([A-Za-z])(\d{1,6})([A-Za-z]|\*)$", p)
+    if m1:
+        r1, a1 = m1.group(1).upper(), m1.group(3).upper()
+        ref = _AA1_TO_3.get(r1)
+        alt = _AA1_TO_3.get(a1)
+        if ref and alt and r1 != a1:   # reject impossible protein-level synonymous (ref == alt)
+            return "p.%s%s%s" % (ref, m1.group(2), alt)
+    return None
+
+
+def _vep_hgvs_full(species, hgvs):
+    """VEP HGVS -> {chr, start, end, rsid} including a colocated dbSNP rsID. Used for protein
+    HGVS, which must be qualified with a TRANSCRIPT reference (a bare gene symbol makes the VEP
+    protein-HGVS lookup hang)."""
+    if requests is None:
+        return None
+    sp = ENSEMBL_SPECIES.get(("" + species).lower(), ("" + species).lower())
+    from urllib.parse import quote
+    r = _ensembl_get("%s/vep/%s/hgvs/%s" % (ENSEMBL_REST, sp, quote(hgvs, safe="")))
+    if r is None:
+        return None
+    try:
+        arr = r.json() or []
+    except Exception:
+        return None
+    if not arr:
+        return None
+    o = arr[0]
+    try:
+        start = int(o.get("start"))
+    except Exception:
+        return None
+    try:
+        end = int(o.get("end")) or start
+    except Exception:
+        end = start
+    rsid = ""
+    for c in (o.get("colocated_variants") or []):
+        mm = re.search(r"rs\d+", "" + (c.get("id") or ""), re.I)
+        if mm:
+            rsid = mm.group(0).lower()
+            break
+    return {"chr": str(o.get("seq_region_name", "")), "start": start,
+            "end": end if end >= start else start, "rsid": rsid}
+
+
+def resolve_protein_variant(species, gene, protein, tid_by_gene=None):
+    """Protein change (p.Arg521Cys / R521C) -> {chr, start, end, rsid} via VEP HGVS. Protein HGVS
+    must be qualified with a TRANSCRIPT reference, so try the gene's transcripts (the resolved one
+    first, then canonical/protein-coding). VEP returns the genomic locus AND colocated dbSNP
+    rsIDs, so a protein-only variant is both placed and given its rs number."""
+    if requests is None or not gene:
+        return None
+    p3 = _protein_to_hgvs3(protein)
+    if not p3:
+        return None
+    tids = []
+    if tid_by_gene:
+        t0 = tid_by_gene.get(("" + gene).lower())
+        if t0:
+            tids.append(t0)
+    try:
+        for t in _gene_transcripts(species, gene):
+            if t and t not in tids:
+                tids.append(t)
+    except Exception:
+        pass
+    for tid in tids[:5]:
+        loc = _vep_hgvs_full(species, "%s:%s" % (tid, p3))
+        if loc and loc.get("start"):
+            return loc
+    return None
+
+
 obj, err = ask_claude()
 works.progress(40)
 if obj is None:
@@ -419,6 +531,14 @@ else:
             loc = resolve_rsid(sp, rid.group(0).lower())
         if not loc and mut.get("hgvs"):
             loc = resolve_hgvs_smart(sp, mut.get("hgvs"), mut.get("gene"), tid_by_gene)
+        # Protein-only variant (e.g. p.Arg521Cys / R521C): recode to a genomic variant + rsID.
+        if not loc and mut.get("protein"):
+            ploc = resolve_protein_variant(sp, mut.get("gene"), mut.get("protein"), tid_by_gene)
+            if ploc and ploc.get("start"):
+                loc = ploc
+                # Backfill the discovered dbSNP rs number when the source gave none.
+                if ploc.get("rsid") and not re.search(r"rs\d+", "" + (mut.get("id") or ""), re.I):
+                    mut["id"] = ploc["rsid"]
         if loc and loc.get("start"):
             mut["chr"] = loc["chr"]
             mut["start"] = loc["start"]

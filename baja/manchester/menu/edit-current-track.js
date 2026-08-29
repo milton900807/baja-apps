@@ -104,33 +104,30 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             {
                 label: 'Create mRNA',
                 click: async (xwc, ywc) => {
-                    let confirm = await exec('baja/lib/confirm.js', 'Create mRNA track...', () => {
-                        if (selectedTrack) {
-                            let seq = selectedTrack.sequence;
-                            if (!seq) {
-                                prompt(" No sequence found ")
-                            } else {
-                                let track = selectedTrack.createTrackFromAnnotation('CDNA')
-                                track.targetPhase = selectedTrack.targetPhase;
-                                graph.track.push(track);
-                                // Data is mirrored from the parent by the per-draw diff sync.
-                                try { track.syncFromParent(); } catch (e) { }
-                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                graph.deselectAllTracks()
-                                track.select();
-                                graph.animateTo(track.tgraph.xi - 100,
-                                    track.tgraph.xi + track.tgraph.width + 100,
-                                    track.tgraph.Y(-3), track.tgraph.Y(3))
+                    if (selectedTrack) {
+                        let seq = selectedTrack.sequence;
+                        if (!seq) {
+                            prompt(" No sequence found ")
+                        } else {
+                            let track = selectedTrack.createTrackFromAnnotation('CDNA')
+                            track.targetPhase = selectedTrack.targetPhase;
+                            graph.track.push(track);
+                            // Data is mirrored from the parent by the per-draw diff sync.
+                            try { track.syncFromParent(); } catch (e) { }
+                            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                            graph.deselectAllTracks()
+                            track.select();
+                            graph.animateTo(track.tgraph.xi - 100,
+                                track.tgraph.xi + track.tgraph.width + 100,
+                                track.tgraph.Y(-3), track.tgraph.Y(3))
 
-                                if (isMobile()) {
-                                    CurrentLayout.clearComponent('mainPanel')
-                                    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                            if (isMobile()) {
+                                CurrentLayout.clearComponent('mainPanel')
+                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
-                                }
                             }
                         }
-                    })
-                    showModal(confirm)
+                    }
 
                 }
                 ,

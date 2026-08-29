@@ -339,6 +339,17 @@ function () {
 
                 let ysc = graph.Y(tgraph.Y(y))
 
+                // Don't draw anything off-screen: skip the whole siRNA if its span (plus a
+                // margin for the off-target badge / labels) is entirely outside the canvas.
+                {
+                    const _c = graph.canvas ? graph.canvas.getCTX() : null;
+                    if (_c && _c.canvas) {
+                        const _x1 = graph.X(tgraph.X(this.xi)), _x2 = graph.X(tgraph.X(this.xf));
+                        const _lo = Math.min(_x1, _x2), _hi = Math.max(_x1, _x2), _m = 140;
+                        if (_hi < -_m || _lo > _c.canvas.width + _m || ysc < -_m || ysc > _c.canvas.height + _m) return;
+                    }
+                }
+
                 if (!this.shapeFunctionObject)
                     this.shapeFunctionObject = getIon(chem_draw[this.type])
                 if (!this.detailedShapeFunction)
@@ -392,39 +403,212 @@ function () {
                     const _li = (p) => (this.strand >= 0 ? (_n - 1 - p) : p);   // guide position -> local base index
                     const _liP = (i) => (this.strand >= 0 ? i : (_n - 1 - i));  // passenger position -> local base index
 
-                    const passY = ysc - 16;   // upper lane: passenger
-                    const guideY = ysc - 2;    // lower lane: guide
-                    this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.95)', 9, 'round');
-                    this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'navy', 11, 'round');
-
-                    // Seed highlight (guide positions 2-8) on the GUIDE lane.
-                    if (_ctx && _n >= 8) {
-                        const a = graph.X(tgraph.X(this.xi + Math.min(_li(1), _li(7))));
-                        const b = graph.X(tgraph.X(this.xi + Math.max(_li(1), _li(7)) + 1));
+                    // At max zoom each residue is drawn as a furanose sugar ring (sugar chemistry),
+                    // which needs more vertical room, so spread the two lanes apart in that mode.
+                    // Motion LOD: simple beads while panning (no sugar rings / phosphate glyphs).
+                    const _lowDetail = !!(graph && graph.__lowDetail);
+                    const sugarMode = screencell >= 34 && !_lowDetail;
+                    const passY = ysc - (sugarMode ? 26 : 16);   // upper lane: passenger
+                    const guideY = ysc + (sugarMode ? 6 : -2);   // lower lane: guide
+                    // ── 3D beaded duplex (same polymer treatment as the ASO) ──────────────
+                    // Each base is a shaded bead (radial-gradient highlight + drop shadow + specular
+                    // dot), colored by base; the guide seed (positions 2-8) is tinted orange. Vertical
+                    // rungs between the lanes represent the base pairs. When zoomed out (beads would be
+                    // too tight) it collapses to the compact two-line duplex.
+                    const BASE_COL = { A: '#2ca25f', C: '#2b7bba', G: '#d9a441', U: '#d1495b', T: '#d1495b', N: '#8894a5' };
+                    const _cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
+                    const _hx = (v) => _cl(v).toString(16).padStart(2, '0');
+                    const _rgb = (hex) => { let h = ('' + hex).replace('#', ''); if (h.length === 3) h = h.split('').map((c) => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+                    const _lit = (hex, a) => { try { const c = _rgb(hex); return '#' + _hx(c[0] + (255 - c[0]) * a) + _hx(c[1] + (255 - c[1]) * a) + _hx(c[2] + (255 - c[2]) * a); } catch (e) { return hex; } };
+                    const _drk = (hex, a) => { try { const c = _rgb(hex); return '#' + _hx(c[0] * (1 - a)) + _hx(c[1] * (1 - a)) + _hx(c[2] * (1 - a)); } catch (e) { return hex; } };
+                    const _per = Math.max(1, screencell);
+                    const _R = Math.max(2.3, Math.min(sugarMode ? 8.5 : 7, _per * 0.42));
+                    // Perf: cull residues off-screen, and cache the bead radial-gradient per color
+                    // (built at the origin, positioned by translating the context).
+                    const _CW = (_ctx && _ctx.canvas && _ctx.canvas.width) || 1e9;
+                    const _visMin = -_R * 3, _visMax = _CW + _R * 3;
+                    const _bgCache = {};
+                    const _beadGrad = (col) => {
+                        let gg = _bgCache[col];
+                        if (!gg) { gg = _ctx.createRadialGradient(-_R * 0.35, -_R * 0.4, _R * 0.12, 0, 0, _R); gg.addColorStop(0, '#ffffff'); gg.addColorStop(0.28, _lit(col, 0.5)); gg.addColorStop(1, col); _bgCache[col] = gg; }
+                        return gg;
+                    };
+                    const _bead = (cx, cy, col, letter, letterCol) => {
+                        if (!_ctx) return;
                         _ctx.save();
-                        _ctx.fillStyle = 'rgba(255,140,66,0.65)';   // tropical-orange seed highlight
-                        _ctx.fillRect(Math.min(a, b), guideY - 6, Math.abs(b - a), 12);
+                        _ctx.translate(cx, cy);
+                        _ctx.beginPath(); _ctx.arc(0, 0, _R, 0, Math.PI * 2); _ctx.fillStyle = _beadGrad(col); _ctx.fill();
+                        _ctx.lineWidth = 1; _ctx.strokeStyle = _drk(col, 0.28); _ctx.stroke();
+                        _ctx.beginPath(); _ctx.arc(-_R * 0.32, -_R * 0.36, Math.max(0.7, _R * 0.22), 0, Math.PI * 2); _ctx.fillStyle = 'rgba(255,255,255,0.75)'; _ctx.fill();
+                        if (letter && _R >= 4.2) { _ctx.font = 'bold ' + Math.max(7, Math.min(12, Math.round(_R * 1.2))) + 'px "Segoe UI", Arial, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle'; _ctx.fillStyle = letterCol || '#0a2540'; _ctx.fillText(letter, 0, 0); }
                         _ctx.restore();
-                    }
+                    };
 
-                    // Strand letters when zoomed in.
-                    if (_ctx && screencell > 5) {
+                    // ── Sugar chemistry (furanose rings) — the same treatment as the ASO/gapmer ──
+                    const SI_SUGAR_COL = { moe: '#e0a83c', mo: '#e0a83c', ome: '#3aa39b', m: '#3aa39b', lna: '#8e5cc0', bna: '#8e5cc0', cet: '#5c9dc0', dna: '#8894a5', d: '#8894a5', rna: '#1aa3bd', r: '#1aa3bd', fana: '#c07a3c', f: '#c07a3c', '2f': '#c07a3c' };
+                    const SI_SUGAR_2P = { moe: 'MOE', mo: 'MOE', ome: 'OMe', m: 'OMe', dna: 'H', d: 'H', rna: 'OH', r: 'OH', fana: 'F', f: 'F', '2f': 'F', lna: 'LNA', bna: 'LNA', cet: 'cEt' };
+                    const SI_BRIDGED = { lna: 1, bna: 1, cet: 1 };
+                    // Draw one residue as a furanose pentagon colored by its 2'-modification, with the
+                    // ring oxygen, base letter, and the 2'-substituent label on the OUTER side of the
+                    // duplex (side = -1 passenger/up, +1 guide/down) so it stays clear of the rungs.
+                    const _sugarRing = (cx, cy, RR, sugarCode, side, letter, letterCol) => {
+                        if (!_ctx) return;
+                        const sc = ('' + (sugarCode || '')).toLowerCase();
+                        const col = SI_SUGAR_COL[sc] || '#1aa3bd';
+                        const flip = side < 0 ? 1 : -1;   // passenger apex up, guide apex down
+                        const A = [-90, -18, 54, 126, 198].map((d) => d * Math.PI / 180);
+                        const vx = A.map((a) => cx + RR * Math.cos(a)), vy = A.map((a) => cy + RR * Math.sin(a) * flip);
                         _ctx.save();
-                        _ctx.font = Math.max(8, Math.min(14, Math.floor(screencell))) + 'px monospace';
-                        _ctx.textAlign = 'center';
-                        _ctx.textBaseline = 'middle';
-                        for (let i = 0; i < _pass.length; i++) {   // passenger (sense)
-                            const cx = graph.X(tgraph.X(this.xi + _liP(i))) + Math.max(1, screencell) / 2;
-                            _ctx.fillStyle = '#e8eef4';
-                            _ctx.fillText(_pass[i], cx, passY);
+                        const g = _ctx.createRadialGradient(cx - RR * 0.3, cy - RR * 0.35, RR * 0.1, cx, cy, RR);
+                        g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, _lit(col, 0.5)); g.addColorStop(1, col);
+                        _ctx.beginPath(); _ctx.moveTo(vx[0], vy[0]); for (let k = 1; k < 5; k++) _ctx.lineTo(vx[k], vy[k]); _ctx.closePath();
+                        _ctx.fillStyle = g; _ctx.fill();
+                        _ctx.lineWidth = 1.2; _ctx.strokeStyle = _drk(col, 0.3); _ctx.stroke();
+                        if (SI_BRIDGED[sc]) { _ctx.strokeStyle = _drk(col, 0.15); _ctx.lineWidth = Math.max(1.4, RR * 0.18); _ctx.beginPath(); _ctx.moveTo(vx[2], vy[2]); _ctx.lineTo(vx[4], vy[4]); _ctx.stroke(); }   // locked LNA/cEt bridge
+                        // ring oxygen at the apex
+                        const oR = Math.max(2, RR * 0.28);
+                        _ctx.beginPath(); _ctx.arc(vx[0], vy[0], oR, 0, Math.PI * 2); _ctx.fillStyle = '#ffffff'; _ctx.fill(); _ctx.lineWidth = 1; _ctx.strokeStyle = '#c0392b'; _ctx.stroke();
+                        _ctx.font = 'bold ' + Math.max(6, Math.round(oR * 1.4)) + 'px "Segoe UI", Arial, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle'; _ctx.fillStyle = '#c0392b'; _ctx.fillText('O', vx[0], vy[0] + 0.5);
+                        if (letter && RR >= 5) {
+                            _ctx.font = 'bold ' + Math.max(7, Math.round(RR * 0.95)) + 'px "Segoe UI", Arial, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
+                            _ctx.fillStyle = letterCol || '#0a2540'; _ctx.fillText(letter, cx, cy);
                         }
-                        for (let p = 0; p < _guide.length; p++) {   // guide (seed dark on orange, rest white)
-                            const cx = graph.X(tgraph.X(this.xi + _li(p))) + Math.max(1, screencell) / 2;
-                            const isSeed = (p >= 1 && p <= 7);
-                            _ctx.fillStyle = isSeed ? '#3a1500' : '#ffffff';
-                            _ctx.fillText(_guide[p], cx, guideY);
+                        const lbl = SI_SUGAR_2P[sc];
+                        if (lbl) {
+                            const ly = cy + side * (RR + Math.max(6, RR * 0.7));
+                            const lc = lbl === 'F' ? '#2e8b57' : lbl === 'OH' ? '#c0392b' : lbl === 'H' ? '#6b7a8c' : _drk(col, 0.15);
+                            _ctx.font = 'bold ' + Math.max(7, Math.round(RR * 0.7)) + 'px "Segoe UI", Arial, sans-serif'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
+                            _ctx.fillStyle = lc; _ctx.fillText(lbl, cx, ly);
                         }
                         _ctx.restore();
+                    };
+                    // Per-strand 2'-sugar codes from the HELM (RNA1 = passenger, RNA2 = guide).
+                    const _grabSugars = (label) => {
+                        const m = ('' + (this.structure || '')).match(new RegExp(label + '\\{([^}]*)\\}'));
+                        if (!m) return [];
+                        return m[1].split('.').map((u) => { const mm = u.match(/\[([^\]]*)\]\(([^)]*)\)/); return mm ? ('' + (mm[1] || '')).toLowerCase() : ''; });
+                    };
+                    // Sugars for a strand: parsed HELM when present, else the DEFAULT siRNA chemistry —
+                    // alternating 2'-F / 2'-OMe (the common metabolic-stabilization pattern).
+                    const _strandSugars = (label, len) => {
+                        let s = _grabSugars(label);
+                        if (!s.length || s.every((x) => !x)) { s = []; for (let i = 0; i < len; i++) s.push(i % 2 === 0 ? 'f' : 'ome'); }
+                        return s;
+                    };
+                    // Linkages for a strand: parsed HELM when present, else the DEFAULT siRNA backbone —
+                    // phosphorothioate (PS) at the two terminal linkages each end, phosphodiester (PO) core.
+                    const _strandLinks = (label, len) => {
+                        const parsed = _parseStrandLinks(this.structure)[label === 'RNA1' ? 'rna1' : 'rna2'];
+                        if (parsed && parsed.length && parsed.some((x) => x)) return parsed;
+                        const out = []; for (let i = 0; i < len; i++) out.push((i < 2 || i >= len - 3) ? 'sp' : 'po');
+                        return out;
+                    };
+
+                    // Per-strand internucleoside linkage codes from the HELM structure
+                    // (RNA1 = sense/passenger, RNA2 = antisense/guide). Each entry is the
+                    // linkage FOLLOWING that residue ('' = unknown / 3' terminal).
+                    const _parseStrandLinks = (structure) => {
+                        const out = { rna1: [], rna2: [] };
+                        if (!structure) return out;
+                        const grab = (label) => {
+                            const m = ('' + structure).match(new RegExp(label + '\\{([^}]*)\\}'));
+                            if (!m) return [];
+                            return m[1].split('.').map((u) => {
+                                const mm = u.match(/\[([^\]]*)\]\(([^)]*)\)(?:\[([^\]]*)\])?/);
+                                return mm ? ('' + (mm[3] || '')).toLowerCase() : '';
+                            });
+                        };
+                        out.rna1 = grab('RNA1');
+                        out.rna2 = grab('RNA2');
+                        return out;
+                    };
+                    // The phosphate glyph between two adjacent beads on a lane: P raised off the
+                    // lane (side = -1 above for the passenger, +1 below for the guide), O–P–O
+                    // bridging bonds to each sugar, a non-bridging =O, and the linkage-defining
+                    // substituent — =S in gold for phosphorothioate (PS), O⁻ for phosphodiester (PO).
+                    const _linkGlyph = (cx, nx, laneY, R, isPS, side) => {
+                        if (!_ctx) return;
+                        const mx = (cx + nx) / 2, Py = laneY + side * R * 0.85;
+                        const bond = '#4b5560', red = '#c0392b', gold = '#d9a520';
+                        const bw = Math.max(1.4, R * 0.16), oR = Math.max(3, R * 0.36);
+                        const lsx = cx + R * 0.9, rsx = nx - R * 0.9;
+                        _ctx.save(); _ctx.lineCap = 'round'; _ctx.lineJoin = 'round';
+                        const _bond = (x1, y1, x2, y2, col, w, dbl) => {
+                            _ctx.strokeStyle = col; _ctx.lineWidth = w;
+                            if (!dbl) { _ctx.beginPath(); _ctx.moveTo(x1, y1); _ctx.lineTo(x2, y2); _ctx.stroke(); return; }
+                            const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1;
+                            const ox = -dy / L * Math.max(1.4, w * 0.9), oy = dx / L * Math.max(1.4, w * 0.9);
+                            _ctx.beginPath(); _ctx.moveTo(x1 + ox, y1 + oy); _ctx.lineTo(x2 + ox, y2 + oy);
+                            _ctx.moveTo(x1 - ox, y1 - oy); _ctx.lineTo(x2 - ox, y2 - oy); _ctx.stroke();
+                        };
+                        const _atom = (ax, ay, sym, col, ar) => {
+                            _ctx.beginPath(); _ctx.arc(ax, ay, ar, 0, Math.PI * 2); _ctx.fillStyle = '#ffffff'; _ctx.fill();
+                            _ctx.lineWidth = 1.2; _ctx.strokeStyle = col; _ctx.stroke();
+                            _ctx.font = 'bold ' + Math.max(7, Math.round(ar * 1.5)) + 'px "Segoe UI", Arial, sans-serif';
+                            _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle'; _ctx.fillStyle = col; _ctx.fillText(sym, ax, ay + 0.5);
+                        };
+                        _bond(lsx, laneY, mx, Py, bond, bw, false);
+                        _bond(rsx, laneY, mx, Py, bond, bw, false);
+                        _atom((lsx + mx) / 2, (laneY + Py) / 2, 'O', red, oR);
+                        _atom((rsx + mx) / 2, (laneY + Py) / 2, 'O', red, oR);
+                        const upY = Py + side * R * 1.15, dxo = R * 0.62;
+                        _bond(mx, Py, mx - dxo, upY, red, bw, true);
+                        _atom(mx - dxo, upY, 'O', red, oR);
+                        if (isPS) { _bond(mx, Py, mx + dxo, upY, gold, bw + 0.4, true); _atom(mx + dxo, upY, 'S', gold, oR + 0.6); }
+                        else {
+                            _bond(mx, Py, mx + dxo, upY, red, bw, false); _atom(mx + dxo, upY, 'O', red, oR);
+                            _ctx.font = 'bold ' + Math.max(7, Math.round(oR)) + 'px Arial'; _ctx.textAlign = 'left'; _ctx.textBaseline = 'middle';
+                            _ctx.fillStyle = red; _ctx.fillText('–', mx + dxo + oR * 0.7, upY - oR * 0.6);
+                        }
+                        _atom(mx, Py, 'P', isPS ? '#b8860b' : '#6b4fbb', oR + 1);
+                        _ctx.restore();
+                    };
+                    // Draw the phosphate chemistry along one strand between adjacent beads,
+                    // only where the linkage is a known PS/PO (mirrors the ASO's honest behavior).
+                    const _drawStrandChem = (seqLen, mapIndex, links, laneY, side) => {
+                        for (let q = 0; q < seqLen - 1; q++) {
+                            const lk = ('' + (links[q] || '')).toLowerCase();
+                            const isPS = (lk === 'sp' || lk === 'ps'), isPO = (lk === 'po' || lk === 'p');
+                            if (!isPS && !isPO) continue;
+                            const cxA = graph.X(tgraph.X(this.xi + mapIndex(q))) + _per / 2;
+                            const cxB = graph.X(tgraph.X(this.xi + mapIndex(q + 1))) + _per / 2;
+                            if (Math.max(cxA, cxB) < _visMin || Math.min(cxA, cxB) > _visMax) continue;   // off-screen
+                            _linkGlyph(Math.min(cxA, cxB), Math.max(cxA, cxB), laneY, _R, isPS, side);
+                        }
+                    };
+
+                    if (_ctx && screencell >= 3.2) {
+                        // thin backbone behind each lane's beads
+                        this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.55)', 3, 'round');
+                        this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'rgba(10,37,64,0.55)', 3, 'round');
+                        // base-pair rungs between the two lanes
+                        _ctx.save(); _ctx.strokeStyle = 'rgba(120,140,160,0.45)'; _ctx.lineWidth = Math.max(1, _R * 0.28);
+                        for (let i = 0; i < _n; i++) { const cx = graph.X(tgraph.X(this.xi + i)) + _per / 2; if (cx < _visMin || cx > _visMax) continue; _ctx.beginPath(); _ctx.moveTo(cx, passY + _R); _ctx.lineTo(cx, guideY - _R); _ctx.stroke(); }
+                        _ctx.restore();
+                        if (sugarMode) {
+                            // Max zoom: furanose sugar rings per residue (sugar chemistry), colored by
+                            // 2'-modification with 2' labels — HELM-driven, or the default siRNA pattern.
+                            const _pSug = _strandSugars('RNA1', _pass.length);
+                            const _gSug = _strandSugars('RNA2', _guide.length);
+                            for (let i = 0; i < _pass.length; i++) { const cx = graph.X(tgraph.X(this.xi + _liP(i))) + _per / 2; if (cx < _visMin || cx > _visMax) continue; _sugarRing(cx, passY, _R, _pSug[i], -1, _pass[i], '#0a2540'); }
+                            for (let p = 0; p < _guide.length; p++) { const cx = graph.X(tgraph.X(this.xi + _li(p))) + _per / 2; if (cx < _visMin || cx > _visMax) continue; const isSeed = (p >= 1 && p <= 7); _sugarRing(cx, guideY, _R, _gSug[p], 1, _guide[p], isSeed ? '#b5480a' : '#0a2540'); }
+                        } else {
+                            // passenger (sense) beads on the upper lane
+                            for (let i = 0; i < _pass.length; i++) { const cx = graph.X(tgraph.X(this.xi + _liP(i))) + _per / 2; if (cx < _visMin || cx > _visMax) continue; _bead(cx, passY, BASE_COL[_pass[i]] || BASE_COL.N, _pass[i], '#ffffff'); }
+                            // guide (antisense) beads on the lower lane — seed (2-8) tinted orange
+                            for (let p = 0; p < _guide.length; p++) { const cx = graph.X(tgraph.X(this.xi + _li(p))) + _per / 2; if (cx < _visMin || cx > _visMax) continue; const isSeed = (p >= 1 && p <= 7); _bead(cx, guideY, isSeed ? '#ff8c42' : (BASE_COL[_guide[p]] || BASE_COL.N), _guide[p], isSeed ? '#3a1500' : '#ffffff'); }
+                        }
+                        // Zoomed all the way in: draw the PS/PO backbone chemistry on BOTH strands —
+                        // passenger phosphates above its lane, guide phosphates below its lane. Uses the
+                        // parsed HELM linkages, or the default siRNA backbone (PS termini / PO core).
+                        if (screencell >= 30 && !_lowDetail) {
+                            _drawStrandChem(_pass.length, _liP, _strandLinks('RNA1', _pass.length), passY, -1);   // passenger, above
+                            _drawStrandChem(_guide.length, _li, _strandLinks('RNA2', _guide.length), guideY, 1);   // guide, below
+                        }
+                    } else {
+                        // Zoomed out: compact two-line duplex (passenger over guide).
+                        this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.95)', 9, 'round');
+                        this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'navy', 11, 'round');
                     }
 
                     // 3' overhangs (e.g. dTdT), each drawn hanging off its strand's 3' end.

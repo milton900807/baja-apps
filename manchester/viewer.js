@@ -57,6 +57,8 @@ function (path, config) {
 
         const graph = await exec('flexigraph/gene.js', progressBar);
         graph.readonly = true;              // signal read-only to any component that checks it
+        graph.viewer = true;                // this is the VIEWER (not the editor): gates editor-only
+                                            // actions such as running off-targets (run-off-targets.js)
         try { CurrentLayout.stash('graph', graph); } catch (e) { }
 
         // ---- Load the shared file (public first for a bare share link, else the user's) ----

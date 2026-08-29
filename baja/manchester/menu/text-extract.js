@@ -79,6 +79,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
             }
             loaded[key] = track;
             try { if (track.select) track.select(); if (graph.addTrackToSelection) graph.addTrackToSelection(track); } catch (e) { }
+            try { if (graph._autoLoadDomains) graph._autoLoadDomains(track); } catch (e) { }   // auto protein domains for coding tracks
             return track;
         };
 
@@ -171,9 +172,17 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (g.rescale) g.rescale();
                 const gi = tg.X(xi), gf = tg.X(xf);
                 const wx = 5;
-                g.setxmin(gi - wx); g.setxmax(gf + wx);
-                if (tg.yi != null && tg.height != null) {
-                    g.setymin(tg.yi + tg.height); g.setymax(tg.yi);
+                // Reserve generous vertical room (biased up) so the SNP lollipop — a fixed
+                // ~30–150px stem/head/label that pops UP from the track — stays on screen.
+                const cy = (tg.yi + (tg.yi + (tg.height || 0))) / 2;
+                const span = Math.abs(tg.height || 0) || 0.1;
+                const topExt = span * 3.6, botExt = span * 2.2;
+                if (graph.zoomRect) {
+                    // Smooth animated zoom to each mutation (gene-view method).
+                    await graph.zoomRect(gi - wx, gf + wx, cy + topExt, cy - botExt, 500);
+                } else {
+                    g.setxmin(gi - wx); g.setxmax(gf + wx);
+                    g.setymin(cy + topExt); g.setymax(cy - botExt);
                 }
                 if (graph.wake) graph.wake();
             } catch (e) { }
@@ -182,6 +191,9 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
         // Shared processing: given the extracted entities, load tracks, map mutations + ASOs,
         // then tour each mapped mutation (zoom in, dwell 3s, until the last one).
         const process = async (ex) => {
+            // Defer per-track protein-domain auto-load until AFTER all genes + mutations are in,
+            // so the CDD lookups don't compete with / slow the primary loading. Fired at the end.
+            try { graph.__suppressAutoDomains = true; } catch (e) { }
             const genes = (ex && ex.genes) || [];
             const muts = (ex && ex.mutations) || [];
             const asos = (ex && ex.asos) || [];
@@ -229,14 +241,85 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 if (/INS|DUP/.test(h)) return { type: 'ins', ref: '-', sequence: 'N' };
                 return { type: 'snp', ref: (m.ref || 'N'), sequence: (m.sequence || 'N') };
             };
+            // Map each loaded track back to its gene symbol so we can report how many mutations
+            // landed on which genes.
+            const trackSym = new Map();
+            for (const k of gkeys) if (loaded[k]) trackSym.set(loaded[k], toLoad[k].symbol);
+            const perGene = new Map();   // gene symbol -> mutations added
+
+            // A CDS (protein + per-residue genomic codon positions) for each loaded track, cached
+            // and shared across the genomic + protein passes below.
+            const cdsCache = new Map();
+            const getTrackCds = (t) => {
+                if (cdsCache.has(t)) return cdsCache.get(t);
+                let cds = null;
+                try { t.generateORF(); cds = t.getCDS(); } catch (e) { }
+                if (!(cds && cds.protein && Array.isArray(cds.codonPos) && cds.codonPos.length)) cds = null;
+                cdsCache.set(t, cds);
+                return cds;
+            };
+            // Is this an amino-acid (PEPTIDE) mutation — a protein substitution like p.Arg521Cys
+            // / R521C (NOT a frameshift / indel / splice change)?
+            const isPeptideMut = (m) => {
+                const s = ('' + (m.protein || '')).replace(/^p\.?/i, '').replace(/[()]/g, '').trim();
+                if (!s) return false;
+                if (/fs|del|ins|dup|frameshift|splice|ext/i.test(s)) return false;
+                return /(^|[^A-Za-z])([A-Za-z]{3}|[A-Za-z])\s*\d{1,6}\s*([A-Za-z]{3}|[A-Za-z]|\*)([^A-Za-z]|$)/.test(s);
+            };
+            // The 3 genomic bases of the codon that contains genomic position `g` on track `t`,
+            // so a peptide mutation can HIGHLIGHT THE WHOLE CODON. Returns {lo, codon} or null.
+            const codonSpanAt = (t, g) => {
+                try {
+                    const cds = getTrackCds(t);
+                    if (!cds || !Array.isArray(cds.cdsi)) return null;
+                    let ci = null;
+                    for (const e of cds.cdsi) { if (e && Math.round(e.index) === Math.round(g)) { ci = e.codon_index; break; } }
+                    if (ci == null) return null;
+                    const idxs = []; let codon = '';
+                    for (const e of cds.cdsi) { if (e && e.codon_index === ci) { idxs.push(e.index); if (!codon) codon = ('' + (e.codon || '')).toUpperCase(); } }
+                    if (idxs.length !== 3) return null;
+                    codon = codon.replace(/[^ACGTUN]/g, '').replace(/U/g, 'T').slice(0, 3);
+                    return { lo: Math.min.apply(null, idxs), codon: (codon.length === 3 ? codon : 'NNN') };
+                } catch (e) { return null; }
+            };
+            // Standard genetic code (codon -> 1-letter AA) + the reference amino acid parsed from a
+            // peptide nomenclature (the FIRST residue, e.g. G for "G93A" / Gly93Ala). Used to VERIFY
+            // that the codon a peptide mutation lands on actually codes for that reference residue —
+            // if it does not, the placement is wrong and the mutation must NOT be plotted there.
+            const _CODON2AA = {
+                TTT: 'F', TTC: 'F', TTA: 'L', TTG: 'L', CTT: 'L', CTC: 'L', CTA: 'L', CTG: 'L',
+                ATT: 'I', ATC: 'I', ATA: 'I', ATG: 'M', GTT: 'V', GTC: 'V', GTA: 'V', GTG: 'V',
+                TCT: 'S', TCC: 'S', TCA: 'S', TCG: 'S', CCT: 'P', CCC: 'P', CCA: 'P', CCG: 'P',
+                ACT: 'T', ACC: 'T', ACA: 'T', ACG: 'T', GCT: 'A', GCC: 'A', GCA: 'A', GCG: 'A',
+                TAT: 'Y', TAC: 'Y', TAA: '*', TAG: '*', CAT: 'H', CAC: 'H', CAA: 'Q', CAG: 'Q',
+                AAT: 'N', AAC: 'N', AAA: 'K', AAG: 'K', GAT: 'D', GAC: 'D', GAA: 'E', GAG: 'E',
+                TGT: 'C', TGC: 'C', TGA: '*', TGG: 'W', CGT: 'R', CGC: 'R', CGA: 'R', CGG: 'R',
+                AGT: 'S', AGC: 'S', AGA: 'R', AGG: 'R', GGT: 'G', GGC: 'G', GGA: 'G', GGG: 'G'
+            };
+            const _AA3to1 = {
+                ALA: 'A', ARG: 'R', ASN: 'N', ASP: 'D', CYS: 'C', GLN: 'Q', GLU: 'E', GLY: 'G',
+                HIS: 'H', ILE: 'I', LEU: 'L', LYS: 'K', MET: 'M', PHE: 'F', PRO: 'P', SER: 'S',
+                THR: 'T', TRP: 'W', TYR: 'Y', VAL: 'V', TER: '*', STOP: '*'
+            };
+            const translateCodon = (c) => _CODON2AA[('' + (c || '')).toUpperCase().replace(/U/g, 'T')] || '';
+            // The reference (wildtype) amino acid — the FIRST residue in the nomenclature.
+            const peptideRefAA = (m) => {
+                const s = ('' + (m.protein || m.hgvs || m.label || '')).replace(/^p\.?/i, '').replace(/[()]/g, '').trim();
+                let mm = s.match(/([A-Za-z]{3})\s*\d{1,6}\s*([A-Za-z]{3}|\*)/);
+                if (mm && _AA3to1[mm[1].toUpperCase()]) return _AA3to1[mm[1].toUpperCase()];
+                mm = s.match(/\b([A-Za-z])\s*\d{1,6}\s*[A-Za-z\*]\b/);
+                return mm ? mm[1].toUpperCase() : '';
+            };
+
             const mappedSnps = [];
+            const unresolved = [];   // variants with no usable genomic position -> 3rd-pass (protein->track)
             let mMapped = 0, mUnres = 0;
             for (const m of muts) {
-                if (!(m.resolved && +m.start > 0)) { mUnres++; continue; }
+                if (!(m.resolved && +m.start > 0)) { mUnres++; unresolved.push(m); continue; }
                 const g0 = Math.floor(+m.start);
                 const mp = parseAllele(m);          // { type, ref, sequence }
                 const ref = mp.ref;
-                let placed = false;
+                let placed = false, placedGene = null;
                 for (const k of gkeys) {
                     const t = loaded[k];
                     if (!t || !t.variantWorldX) continue;
@@ -249,20 +332,87 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                         && ('' + (x.reference || '')).toUpperCase() === ('' + ref).toUpperCase());
                     if (dupe) {
                         t.showSnpIndels = true;
-                        mappedSnps.push({ track: t, snp: dupe });
+                        mappedSnps.push({ track: t, snp: dupe, mut: m });
                         placed = true;
+                        if (!placedGene) placedGene = trackSym.get(t) || t.name;
                         continue;
                     }
-                    const snp = new SnpIndel(mp.type, gi, ref, mp.sequence, 0, t.strand, SNP_COLOR);
+                    // Amino-acid (peptide) mutation → HIGHLIGHT THE WHOLE CODON (span 3 nt) and mark
+                    // it a peptide mutation; snpindel.js then never shows a nucleotide change for it
+                    // (the exact base is degenerate / just one of 3).
+                    let sxi = gi, sref = ref, salt = mp.sequence, stype = mp.type, isPep = false;
+                    if (isPeptideMut(m)) {
+                        isPep = true; stype = 'AA';   // amino-acid mutation type (NOT a deletion)
+                        const cs = codonSpanAt(t, gi);
+                        // CORRECTNESS: only reject when we can CONFIRM the codon codes for a DIFFERENT
+                        // amino acid than the reference (first) residue in the nomenclature (e.g. the
+                        // codon translates to Ala for a "G93A"). If the codon can't be confirmed, still
+                        // create the amino-acid mutation (unknown nucleotide) as before.
+                        const refAA = peptideRefAA(m);
+                        const codonAA = (cs && cs.codon && cs.codon !== 'NNN') ? translateCodon(cs.codon) : '';
+                        if (refAA && codonAA && codonAA !== refAA) continue;
+                        // Span the WHOLE codon (3 nt) at the frame-aligned codon start.
+                        if (cs) { sxi = cs.lo; sref = cs.codon; salt = cs.codon; }
+                        else { sref = 'NNN'; salt = 'NNN'; }
+                    }
+                    const snp = new SnpIndel(stype, sxi, sref, salt, 0, t.strand, SNP_COLOR);
                     try { snp.color = SNP_COLOR; } catch (e) { }
-                    try { snp.name = m.label || m.id || 'variant'; } catch (e) { }
+                    try { if (isPep) snp.peptide = true; } catch (e) { }
+                    try {
+                        let nm = m.label || m.id || 'variant';
+                        if (isPep) {
+                            // Peptide mutations: label with the protein change ONLY — strip the
+                            // leading gene symbol from a "GENE X###Y" style label.
+                            let pn = ('' + (m.label || '')).trim();
+                            if (m.gene) pn = pn.replace(new RegExp('^\\s*' + ('' + m.gene).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s:_.\\-]*', 'i'), '').trim();
+                            if (!pn) pn = ('' + (m.protein || '')).replace(/^p\.?/i, '').replace(/[()]/g, '').trim();
+                            nm = pn || m.id || 'variant';
+                        }
+                        snp.name = nm;
+                    } catch (e) { }
                     try { snp.comment = (m.id ? m.id + ' — ' : '') + (m.comment || ''); } catch (e) { }
                     t.addsnpindel(snp);
                     t.showSnpIndels = true;
-                    mappedSnps.push({ track: t, snp: snp });
+                    mappedSnps.push({ track: t, snp: snp, mut: m });
                     placed = true;
+                    if (!placedGene) placedGene = trackSym.get(t) || t.name;
                 }
-                if (placed) mMapped++; else mUnres++;
+                if (placed) { mMapped++; if (placedGene) perGene.set(placedGene, (perGene.get(placedGene) || 0) + 1); }
+                else { mUnres++; unresolved.push(m); }
+            }
+
+            // PROTEIN-SEQUENCE PASS — any variant still unresolved (no rs number / genomic hit)
+            // that is a PROTEIN MISSENSE change is placed as an AMINO-ACID mutation: find the
+            // transcript whose translated protein carries the reference amino acid at the stated
+            // position and drop it on that codon. Runs whenever variants remain unresolved (NOT
+            // only when nothing mapped), so peptide mutations are created whenever there is no rsID.
+            if (unresolved.length && Object.keys(loaded).length) {
+                graph.setMessage(' Locating variants by protein sequence… ');
+                // Search order: the mutation's own gene first (if it names one loaded), then the rest.
+                const orderedTracks = (geneHint) => {
+                    const g = ('' + (geneHint || '')).toLowerCase().trim();
+                    const list = [];
+                    if (g && loaded[g]) list.push(loaded[g]);
+                    for (const k of gkeys) { const t = loaded[k]; if (t && list.indexOf(t) < 0) list.push(t); }
+                    return list;
+                };
+                for (const m of unresolved) {
+                    try {
+                        // Delegate to the reusable protein-mutation -> track PROCESS: it parses the
+                        // missense change, finds the track whose WILDTYPE peptide matches at that
+                        // residue (the "correct peptide at 521"), and drops a degenerate SnpIndel.
+                        const r = await exec('baja/manchester/menu/protein-mutation-to-track.js',
+                            graph, genegraph_panel_layout,
+                            { protein: m.protein, hgvs: m.hgvs, label: m.label, gene: m.gene, id: m.id, comment: m.comment },
+                            { tracks: orderedTracks(m.gene), gene: m.gene, color: SNP_COLOR });
+                        if (!r || !r.snp) continue;
+                        mappedSnps.push({ track: r.track, snp: r.snp, mut: m });
+                        mMapped++; mUnres = Math.max(0, mUnres - 1);
+                        const gname = trackSym.get(r.track) || r.track.name;
+                        if (gname) perGene.set(gname, (perGene.get(gname) || 0) + 1);
+                    } catch (e) { }
+                }
+                if (mMapped > 0) { for (const k of gkeys) { const tr = loaded[k]; try { if (tr && tr.fitYAxis) tr.fitYAxis(); } catch (e) { } } }
             }
 
             // Map ASOs onto their target gene track by sequence search.
@@ -296,9 +446,31 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
 
             for (const k of gkeys) { const tr = loaded[k]; try { if (tr && tr.fitYAxis) tr.fitYAxis(); } catch (e) { } }
             try { if (graph.wake) graph.wake(); } catch (e) { }
-            graph.setMessage(' Loaded ' + gkeys.length + ' gene(s); mapped ' + mMapped + ' mutation(s)'
-                + (mUnres ? ' (' + mUnres + ' unresolved)' : '') + ' and ' + aMapped + ' ASO(s)'
-                + (aUnmapped ? ' (' + aUnmapped + ' unmapped)' : '') + '. ');
+            // Report what ACTUALLY loaded (not just what was attempted), and name any gene that
+            // could not be resolved/loaded — otherwise a gene that Ensembl can't resolve makes the
+            // whole load silently "do nothing" while the message still claims success.
+            const nLoaded = Object.keys(loaded).length;
+            const failedGenes = gkeys.filter((k) => !loaded[k]).map((k) => toLoad[k].symbol);
+            // Per-gene mutation breakdown, e.g. "3 on SMN1, 1 on TP53".
+            const perGeneStr = Array.from(perGene.entries()).map(([g, n]) => n + ' on ' + g).join(', ');
+            const _showResult = (m) => { try { (graph.setResultMessage ? graph.setResultMessage : graph.setMessage).call(graph, m); } catch (e) { try { graph.setMessage(m); } catch (e2) { } } };
+            if (nLoaded === 0 && gkeys.length > 0) {
+                graph.setError && graph.setError(' Could not load ' + (gkeys.length === 1 ? 'the gene' : 'any gene')
+                    + ' (' + failedGenes.join(', ') + ') — no Ensembl transcript was found for it. ');
+            } else if (mMapped > 0) {
+                // A clear, professional summary of what was actually added to the workbench.
+                _showResult(' Added ' + mMapped + ' mutation' + (mMapped === 1 ? '' : 's')
+                    + (perGeneStr ? ' (' + perGeneStr + ')' : '')
+                    + ' across ' + nLoaded + ' gene' + (nLoaded === 1 ? '' : 's')
+                    + (aMapped ? ' and ' + aMapped + ' ASO' + (aMapped === 1 ? '' : 's') : '')
+                    + (mUnres ? '; ' + mUnres + ' variant' + (mUnres === 1 ? '' : 's') + ' could not be mapped' : '')
+                    + (failedGenes.length ? '; could not load: ' + failedGenes.join(', ') : '') + '. ');
+            } else {
+                _showResult(' Loaded ' + nLoaded + ' gene' + (nLoaded === 1 ? '' : 's')
+                    + (mUnres ? '; ' + mUnres + ' variant' + (mUnres === 1 ? '' : 's') + ' could not be mapped' : '')
+                    + (aMapped ? '; ' + aMapped + ' ASO' + (aMapped === 1 ? '' : 's') + ' mapped' : '')
+                    + (failedGenes.length ? '; could not load: ' + failedGenes.join(', ') : '') + '. ');
+            }
 
             // Title of the paper: a RectangleText added ABOVE all the tracks and added LAST
             // (so it renders on top). World coords: span the tracks' x-extent and sit just
@@ -330,11 +502,6 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                 } catch (e) { }
             }
 
-            // Everything is loaded: hold on the loaded tracks ~3s, then zoom out to view all.
-            try { if (graph.wake) graph.wake(); } catch (e) { }
-            await sleep(3000);
-            try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
-            for (const s of mappedSnps) { try { if (s && s.snp) s.snp.highlight = true; } catch (e) { } }
 
             // Added at the very end: a fixed-screen-size arrow above each variant so the SNP
             // locations stay visible even when the whole gene is zoomed out to fit. The arrow
@@ -373,6 +540,136 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
 
             try { if (graph.wake) graph.wake(); } catch (e) { }
 
+            // Everything is in — genes, mutations (genomic pass + the protein->track 3rd pass)
+            // and ASOs — so wait ~1s then zoom OUT to view ALL tracks. This runs at the top level
+            // (NOT inside the background clinical-enrichment loop) so it fires immediately, rather
+            // than after every per-variant  clinical call has resolved.
+            await sleep(1000);
+            try { if (graph.viewAllTracks) await graph.viewAllTracks(); else alert(' why ') } catch (e) {
+            }
+            for (const s of mappedSnps) { try { if (s && s.snp) s.snp.highlight = true; } catch (e) { } }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+
+            // Build the list of zoom targets — one per mutation actually placed on a track.
+            // Prefer the SnpIndels we added; fall back to re-deriving each resolved mutation's
+            // position on a loaded track (so the menu still appears if placement was skipped).
+            const zoomTargets = [];
+            const _seen = new Set();
+            const _pushTarget = (track, xi, label, snp) => {
+                if (!track || xi == null) return;
+                const ti = (graph.track ? graph.track.indexOf(track) : 0);
+                const key = ti + ':' + Math.round(xi);
+                if (_seen.has(key)) return; _seen.add(key);
+                zoomTargets.push({ track, xi, label, snp: snp || null });
+            };
+            for (const s of mappedSnps) {
+                if (!s || !s.snp || s.snp.xi == null) continue;
+                const g = (s.track && (trackSym.get(s.track) || s.track.name)) || '';
+                const nm = (s.snp.name || s.snp.comment) || 'variant';
+                _pushTarget(s.track, s.snp.xi, (g ? g + ' — ' : '') + nm, s.snp);
+            }
+            if (!zoomTargets.length) {
+                for (const m of muts) {
+                    if (!(m.resolved && +m.start > 0)) continue;
+                    const g0 = Math.floor(+m.start);
+                    for (const k of gkeys) {
+                        const t = loaded[k]; if (!t || !t.variantWorldX) continue;
+                        const gi = t.variantWorldX(m.chr, g0); if (gi == null) continue;
+                        _pushTarget(t, gi, toLoad[k].symbol + ' — ' + (m.label || m.id || 'variant'));
+                        break;
+                    }
+                }
+            }
+
+            // Prompt the user (side menu) to jump to / tour the mutations that were just added.
+            const zoomTo = async (tg) => {
+                try { if (tg && tg.xi != null) { const w = 30; await goToLocus(tg.track, tg.xi - w, tg.xi + w); if (tg.snp) { try { exec('baja/manchester/menu/focus-mutation.js', graph, tg.snp, 10000); } catch (e) { } } } } catch (e) { }
+            };
+            // Interactive tour: zoom to each mutation, dwell ~10s (auto-advance), with a side
+            // menu of Previous / Next / Done so the user can step through at their own pace.
+            const runTour = () => {
+                let i = 0, cancelled = false, timer = null;
+                const clearT = () => { if (timer) { clearTimeout(timer); timer = null; } };
+                const finish = () => { cancelled = true; clearT(); try { graph.showSideMenu(null); } catch (e) { } };
+                const go = async () => {
+                    clearT();
+                    if (cancelled) return;
+                    if (i < 0) i = 0;
+                    if (i >= zoomTargets.length) { finish(); return; }
+                    const tg = zoomTargets[i];
+                    try { await zoomTo(tg); } catch (e) { }
+                    if (cancelled) return;
+                    const menu = [
+                        { label: 'Tour  ' + (i + 1) + ' / ' + zoomTargets.length + ':  ' + (tg.label || ''), move: () => { }, click: () => { clearT(); go(); } },
+                        { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
+                        { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
+                        { label: '✓ Done', move: () => { }, click: () => { finish(); } },
+                    ];
+                    try { graph.showSideMenu(menu); } catch (e) { }
+                    timer = setTimeout(() => { i++; go(); }, 10000);   // auto-advance after 10s
+                };
+                go();
+            };
+            const buildTourMenu = () => {
+                const gotoItems = zoomTargets.map((tg) => ({ label: tg.label, click: () => { zoomTo(tg); } }));
+                return [
+                    { label: 'Go to  ▸', click: () => { try { graph.showSideMenu(gotoItems); } catch (e) { } } },
+                    { label: 'Tour…', click: () => { runTour(); } },
+                ];
+            };
+            if (zoomTargets.length && graph.showSideMenu) {
+                // Show AFTER the load flow's async re-init of the navigate handlers (line ~216
+                // re-execs mouse-over-highlight, which reinstalls listeners) — otherwise this
+                // menu can be torn down right after it opens. Re-assert once for robustness.
+                const _openTourMenu = () => { try { graph.showSideMenu(buildTourMenu()); if (graph.wake) graph.wake(); } catch (e) { } };
+                setTimeout(_openTourMenu, 3000);
+                setTimeout(_openTourMenu, 3500);   // re-assert in case the load flow tore it down
+            } else if (graph.setResultMessage) {
+                graph.setResultMessage(' No mutations could be placed on a track to navigate to. ');
+            }
+
+            // Genes + mutations are in and the view is settled — NOW load protein domains for the
+            // coding tracks, in the background (fire-and-forget, one CDD lookup per track). This
+            // deliberately runs last so it never slows the gene/mutation loading above.
+            try {
+                graph.__suppressAutoDomains = false;
+                setTimeout(() => {
+                    for (const k of gkeys) {
+                        const t = loaded[k];
+                        try { if (t && graph._autoLoadDomains) graph._autoLoadDomains(t); } catch (e) { }
+                    }
+                }, 600);
+            } catch (e) { }
+
+            // Enrich each placed variant with CLINICAL detail (in the BACKGROUND, one per variant,
+            // so it never slows the load). The summary is stored on the SnpIndel's `annotation`
+            // field and rendered as a leader-line + text on the marker (snpindel.js).
+            setTimeout(() => {
+                (async () => {
+                    for (const ms of mappedSnps) {
+                        try {
+                            const snp = ms.snp, t = ms.track, m = ms.mut || {};
+                            if (!snp || snp.__clinFetched) continue;
+                            snp.__clinFetched = true;
+                            const gsym = (trackSym.get(t) || (t && t.name) || m.gene || '');
+                            const chr = ('' + (m.chr != null ? m.chr : (t && t.chr != null ? t.chr : ''))).replace('chr', '');
+                            const pos = ('' + (m.start != null ? Math.floor(+m.start) : ''));
+                            let r = null;
+                            try { r = await exec('py/snps/snp_info_claude.py', JSON.stringify(snp), gsym, chr, pos); } catch (e) { }
+                            const para = r && (r.mutation_paragraph || r.paragraph || r.summary);
+                            let ptxt = ('' + (para || '')).trim();
+                            // Never show the phrase "corresponds to the" (also handled in the prompt).
+                            ptxt = ptxt.replace(/\bcorresponds to the\b/gi, 'is the').replace(/\s{2,}/g, ' ').trim();
+                            if (ptxt && !/^no (additional|specific)/i.test(ptxt)) {
+                                snp.annotation = ptxt;
+                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                            }
+                        } catch (e) { }
+                    }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                })();
+            }, 900);
+
             resolve({ genes: gkeys.length, mutations: mMapped, asos: aMapped });
         };
 
@@ -397,7 +694,13 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
 
         // A caller can hand us already-extracted entities (e.g. from a file upload) — skip the
         //  text call and the paste modal and go straight to loading + mapping + touring.
-        if (presetEntities) { showEditorCanvas(); await process(presetEntities); return; }
+        if (presetEntities) {
+            showEditorCanvas();
+            try { await process(presetEntities); }
+            catch (e) { try { graph.setMessage(' Load failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } }
+            finally { try { if (graph.wake) graph.wake(); } catch (e) { } resolve(null); }
+            return;
+        }
 
         // A preset text (from a caller) skips the modal.
         if (presetText && ('' + presetText).trim()) { await run(presetText); return; }

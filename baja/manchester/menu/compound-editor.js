@@ -463,28 +463,19 @@ function (graph, genegraph_panel_layout) {
                                             },
                                             {
                                                 'label': 'Design by rules (tile & score)', 'ionfunction': createIonFunction(() => {
-                                                    // Center menu for the scope of the rule-based design. The design
-                                                    // scripts derive their rules from the selected chemistry.
-                                                    const showDesignScopeMenu = () => {
-                                                        graph.showMenu([
-                                                            {
-                                                                label: 'Design on all tracks', move: () => { },
-                                                                click: () => { graph.hideMenu(); exec('baja/manchester/menu/design-all-transcripts.js', graph, genegraph_panel_layout); }
-                                                            },
-                                                            {
-                                                                label: 'Let me select the track', move: () => { },
-                                                                click: () => { graph.hideMenu(); exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout); }
-                                                            },
-                                                        ], 0, 0, 320);
-                                                    };
+                                                    // Design by rules runs ONLY on the selected sequence (tile-oligos-design.js
+                                                    // requires a selection and designs just the marked region). The "Design on all
+                                                    // tracks" scope was removed; ensure a chemistry is chosen, then design across the
+                                                    // current selection.
+                                                    const __runDesign = () => { exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout); };
                                                     if (!graph.props.selected_chemistry) {
-                                                        // No chemistry yet: show the chemistry selection list first, then
-                                                        // design using the rules of whichever chemistry is chosen.
+                                                        // No chemistry yet: show the chemistry selection list first, then design
+                                                        // using the rules of whichever chemistry is chosen.
                                                         graph.setMessage('Select a chemistry to design with...');
-                                                        exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { showDesignScopeMenu(); });
+                                                        exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { __runDesign(); });
                                                         return;
                                                     }
-                                                    showDesignScopeMenu();
+                                                    __runDesign();
                                                 })
                                             }
 

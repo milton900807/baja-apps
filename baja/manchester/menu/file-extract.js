@@ -37,7 +37,7 @@ function (graph, genegraph_panel_layout) {
                     document.head.appendChild(st);
                 }
                 box = document.createElement('div');
-                box.style.cssText = 'position:fixed;top:14px;left:14px;z-index:2147483000;'
+                box.style.cssText = 'position:fixed;top:104px;left:14px;z-index:2147483000;'
                     + 'display:flex;align-items:center;gap:10px;padding:9px 14px 9px 11px;'
                     + 'border-radius:12px;background:rgba(10,25,40,0.88);'
                     + 'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);'
@@ -52,6 +52,18 @@ function (graph, genegraph_panel_layout) {
                 txt.textContent = label || 'Working…';
                 box.appendChild(ring); box.appendChild(txt);
                 document.body.appendChild(box);
+                // Sit the notice directly UNDER the top row of round buttons (the 'button-canvas'
+                // toolbar) rather than overlapping it. Measure the lowest button row near the top of
+                // the window and drop the notice just below it; fall back to the fixed top otherwise.
+                try {
+                    let lowest = 0;
+                    const bcs = document.querySelectorAll('button-canvas');
+                    for (const bc of bcs) {
+                        const r = bc.getBoundingClientRect();
+                        if (r.top < 160 && r.width > 40 && r.height > 8 && r.bottom > lowest) lowest = r.bottom;
+                    }
+                    if (lowest > 0) box.style.top = Math.round(lowest + 10) + 'px';
+                } catch (e) { }
             } catch (e) { }
             return {
                 set: (m) => { try { if (txt) txt.textContent = m; } catch (e) { } },
@@ -69,6 +81,7 @@ function (graph, genegraph_panel_layout) {
         input.accept = '.pdf,.txt,.text,.md,.csv,.tsv,application/pdf,text/plain,image/*';
         input.style.display = 'none';
         document.body.appendChild(input);
+
 
         input.onchange = async () => {
             const file = input.files && input.files[0];
@@ -178,7 +191,6 @@ function (graph, genegraph_panel_layout) {
             try {
                 graph.showMenu([
                     { label: 'Load ' + summary + ' into the workbench', move: () => { }, click: () => { doLoad(); } },
-                    { label: 'Not now', move: () => { }, click: () => { dismiss(); } },
                 ]);
             } catch (e) {
                 // If no menu is available, fall back to auto-loading so the work isn't lost.

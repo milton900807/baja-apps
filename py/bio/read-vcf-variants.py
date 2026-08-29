@@ -1,6 +1,8 @@
 import os
 import sys
 import json
+import shutil
+import subprocess
 
 # Query a bgzip+tabix-indexed VCF by genomic region and return normalized variants.
 # Designed to be invoked with the lionscript exec(), e.g.
@@ -21,6 +23,46 @@ try:
     import pysam
 except Exception:
     pysam = None
+
+# The exec venv on production does not ship pysam (it needs htslib compiled in), but the
+# `tabix`/`bgzip` command-line tools ARE installed. When pysam is missing we shell out to the
+# tabix CLI, which yields the exact same VCF rows for a region query.
+_TABIX_BIN = shutil.which("tabix") or ("/usr/bin/tabix" if os.path.exists("/usr/bin/tabix") else None)
+
+
+def list_contigs(path):
+    """Set of contig names indexed in the .tbi, via pysam or `tabix -l`."""
+    if pysam:
+        try:
+            return set(pysam.TabixFile(path).contigs)
+        except Exception:
+            pass
+    if _TABIX_BIN:
+        try:
+            out = subprocess.run([_TABIX_BIN, "-l", path],
+                                 capture_output=True, text=True, timeout=30)
+            return set(x.strip() for x in out.stdout.splitlines() if x.strip())
+        except Exception:
+            pass
+    return set()
+
+
+def fetch_region(path, contig, start1, end1):
+    """Yield raw VCF/TSV lines overlapping [start1, end1] (1-based inclusive)."""
+    if pysam:
+        tb = pysam.TabixFile(path)
+        for row in tb.fetch(contig, max(0, start1 - 1), end1):
+            yield row
+        return
+    if _TABIX_BIN:
+        region = "%s:%d-%d" % (contig, max(1, start1), end1)
+        proc = subprocess.run([_TABIX_BIN, path, region],
+                              capture_output=True, text=True, timeout=180)
+        for line in proc.stdout.splitlines():
+            if line and not line.startswith("#"):
+                yield line
+        return
+    raise RuntimeError("neither pysam nor the tabix CLI is available")
 
 MAX_ROWS = 5000
 # Skip structural variants: alleles longer than this (bp) aren't point variants and
@@ -75,8 +117,8 @@ path = resolve_vcf(token)
 variants = []
 err = None
 
-if not pysam:
-    err = "pysam is not available on this server's python3"
+if not pysam and not _TABIX_BIN:
+    err = "neither pysam nor the tabix CLI is available on this server's python3"
 elif not chrom or end <= 0:
     err = "missing chrom/start/end"
 elif not os.path.exists(path):
@@ -84,10 +126,9 @@ elif not os.path.exists(path):
 else:
     try:
         chrom_q = chrom.replace("chr", "")
-        tb = pysam.TabixFile(path)
-        contigs = set(tb.contigs)
+        contigs = list_contigs(path)
         cand = chrom_q if chrom_q in contigs else ("chr" + chrom_q if ("chr" + chrom_q) in contigs else chrom_q)
-        for row in tb.fetch(cand, max(0, start - 1), end):
+        for row in fetch_region(path, cand, start, end):
             f = row.split("\t")
             if len(f) < 8:
                 continue
@@ -103,6 +144,9 @@ else:
             gene = (info.get("GENEINFO", "").split(":")[0] or None)
             rid = ("rs" + info["RS"]) if info.get("RS") else (f[2] if (f[2] and f[2] != ".") else db)
             consequence = info["MC"].split("|")[-1] if info.get("MC") else None
+            disease = None
+            if info.get("CLNDN"):
+                disease = info["CLNDN"].replace("_", " ").replace("|", "; ").strip()
             for alt in str(f[4] or "").split(","):
                 if len(alt) > MAX_ALLELE:
                     continue   # structural alt allele
@@ -120,6 +164,7 @@ else:
                     "source": ("ClinVar" if db == "clinvar" else db),
                     "af": None,
                     "gene": gene,
+                    "disease": disease,
                 })
                 if len(variants) >= MAX_ROWS:
                     break

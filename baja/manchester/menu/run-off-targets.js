@@ -1,5 +1,13 @@
 function (graph, genegraph_panel_layout, oligos, options) {
 
+    // Off-targets are an EDITOR-only capability. The read-only VIEWER (manchester/viewer.js sets
+    // graph.viewer = true) must NOT run off-targets — block every entry point here in one place.
+    if (graph && graph.viewer) {
+        try { graph.setMessage(' Off-target scanning is only available in the editor, not in the viewer. '); } catch (e) { }
+        try { if (options && typeof options.onDone === 'function') options.onDone(); } catch (e) { }
+        return;
+    }
+
     // Seed-sequence mode: for siRNA, query the off-target index with just the
     // guide seed region (positions 2-9, an 8-mer that meets the index minimum)
     // instead of the full strand.
@@ -152,8 +160,18 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     const HALF = 60;   // bases of context on each side (shows the trailing + leading oligo)
                     const a = t.tgraph.X(Math.min(o.xi, o.xf) - HALF), b = t.tgraph.X(Math.max(o.xi, o.xf) + HALF);
                     const txMin = Math.min(a, b), txMax = Math.max(a, b);
-                    const ht = -1 * t.tgraph.height, yi = t.tgraph.yi - ht, band = 0.5 * 0.9;
-                    const tyMin = yi - band, tyMax = yi + band;
+                    // Center vertically on the OLIGO itself (it's drawn in a lane above the track baseline),
+                    // not on the track baseline — otherwise the oligo lands off the bottom of the
+                    // view. The oligo's world y is t.tgraph.Y(o.y); fall back to the track baseline.
+                    // Vertical framing: use gene.js's proven track-centering (the y-axis is INVERTED, so
+                    // ymin = yi+height and ymax = yi). A symmetric band around the oligo's world y
+                    // produced a non-inverted range that silently broke the y pan. The track band
+                    // includes the oligo's lane, so it stays in view. Pad ~15% of the height so
+                    // oligos in the top lanes aren't clipped at the edge.
+                    const __h = t.tgraph.height;
+                    const __pad = 0.15 * Math.abs(__h || 1);
+                    const tyMin = t.tgraph.yi + __h + (__h >= 0 ? __pad : -__pad);
+                    const tyMax = t.tgraph.yi - (__h >= 0 ? __pad : -__pad);
                     const sxMin = grid.getxmin(), sxMax = grid.getxmax(), syMin = grid.getymin(), syMax = grid.getymax();
                     const DUR = 320, ease = (p) => 1 - Math.pow(1 - p, 3), t0 = Date.now();
                     const step = () => {
@@ -249,18 +267,26 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     for (let o of oligos) {
                         for (let off of oq) {
                             if (String(o.id) == String(off.id)) {
-                                if (off.offtarget.length > 1000) {
+                                if (off.offtarget == null) {
+                                    // The server returned NO off-target result for this oligo — it could
+                                    // not be searched (e.g. its genome/strand isn't indexed, or a
+                                    // per-oligo search failure). This is "not determined", NOT a genuine
+                                    // zero; the badge shows N/A for it (null + offtargetsRun → see oligo.js).
+                                    o.offtarget = null;
+                                } else if (off.offtarget.length > 1000) {
                                     o.offtarget = off.offtarget.length + ''
+                                } else if (off.offtarget.length === 0) {
+                                    o.offtarget = "0";   // genuinely zero off-targets → show "0", not N/A
                                 } else {
                                     o.offtarget = off.offtarget;
-                                    if (o.offtarget.length === 0) {
-                                        o.offtarget = null;
-                                    }
                                 }
                                 // Gene symbols of the off-target hits come straight from
                                 // the search result (each index carries per-transcript
                                 // gene_symbol). Distinct list, capped for the on-canvas arc.
                                 if (Array.isArray(off.offtargetsymbols) && off.offtargetsymbols.length) {
+                                    // Keep the TRUE distinct-gene count before capping the display list —
+                                    // the badge shows this, so it stays accurate even past 30 genes.
+                                    o.offtargetGeneCount = new Set(off.offtargetsymbols.map((s) => ('' + s).trim()).filter(Boolean)).size;
                                     o.offtargetsymbols = off.offtargetsymbols.slice(0, 30);
                                 }
                                 o.showOfftargets = true;

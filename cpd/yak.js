@@ -729,6 +729,17 @@ function (path, filebrowserplease) {
                     data: {
                         menus: [
                             {
+                                label: 'Apps',
+                                items: [
+                                    {
+                                        'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
+                                            await exec('manchester/editor');
+
+                                        })
+                                    },
+                                ]
+                            },
+                            {
                                 label: 'Files & Folders',
                                 items: [
 

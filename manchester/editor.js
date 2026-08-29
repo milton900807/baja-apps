@@ -1,5 +1,12 @@
 function (path, config) {
 
+    // Browser-reload entry (dash.component → engine.run with the URL argument_map) binds
+    // `path` as an ARRAY like ["/<folder>/<file>.baja", "undefined"] rather than a string,
+    // whereas the fb click entry (exec('manchester/editor', path, …)) passes a plain string.
+    // Normalize to the first element so every downstream path check (decodeURIComponent,
+    // .endsWith('.baja'), etc.) sees a real string on reload. Leaves the string case untouched.
+    if (Array.isArray(path)) path = path[0];
+
     // Async IIFE wrapper so top-level `await` compiles on BOTH engine paths: exec()/
     // getFunction (AsyncFunction) and run() (plain Function). An early `return` inside
     // resolves the returned promise cleanly, so `await exec('manchester/editor')` callers
@@ -15,14 +22,23 @@ function (path, config) {
             paste_to_graph = true;
         }
         let eeditor_state = new EditorState();
+        // Recognize a transcript id AGNOSTIC to species/source: Ensembl transcript ids for any
+        // organism (ENST human, ENSMUST mouse, ENSRNOT rat, ENSCAFT dog, … = ENS[species]T#####),
+        // and RefSeq transcripts (NM_/NR_/XM_/XR_########). The loader (graph.add / Ensembl proxy)
+        // resolves any of these; anything else (gene names, free text) still flows to the AI
+        // transcript resolver.
+        function isTranscriptId(word) {
+            const w = ('' + (word || '')).toUpperCase();
+            return /^ENS[A-Z]*T\d{3,}(\.\d+)?$/.test(w) || /^(NM|NR|XM|XR)_\d+(\.\d+)?$/.test(w);
+        }
         function parseENSTWords(str) {
             const words = str.split(/\s+/);
-            const enstWords = words.filter(word => word.toUpperCase().startsWith('ENST'));
+            const enstWords = words.filter(isTranscriptId);
             return enstWords;
         }
         function hasMultipleENSTWords(str) {
             const words = str.split(/\s+/);
-            const enstWords = words.filter(word => word.toUpperCase().startsWith('ENST'));
+            const enstWords = words.filter(isTranscriptId);
             return enstWords.length > 1;
         }
         let user = getUser();
@@ -203,6 +219,7 @@ function (path, config) {
                         } else {
                             await graph.update(rs);
                             graph.file = p;
+                            graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
                         }
                     } else {
                         let jsonobj = {
@@ -231,6 +248,7 @@ function (path, config) {
                         } else {
                             await graph.update(rs);
                             graph.file = p;
+                            graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
                         }
                     }
 
@@ -598,7 +616,7 @@ function (path, config) {
                                                 }
 
                                             }
-                                            else if (s.startsWith('ENST')) {
+                                            else if (isTranscriptId(s.trim().split(/\s+/)[0])) {
                                                 if (hasMultipleENSTWords(s.trim())) {
                                                     let t = parseENSTWords(s.trim());
                                                     let index = 0;
@@ -1274,6 +1292,65 @@ function (path, config) {
                 }
 
                 let autosave = false;
+
+                // ---- Background autosave (every 60s) -----------------------------------------
+                // Serialize the working graph (same replacer the share/save uses — proven
+                // loadable), write it to the signed-in user's `autosave` folder, then repoint the
+                // browser URL at that save. So if the user accidentally reloads, the editor reopens
+                // the MOST RECENT background save instead of losing in-progress work. Silent; gated
+                // on graph.autosave (File-menu toggle), on by default for signed-in users.
+                try {
+                    const __asHost = window['env']['apiUrl'];
+                    const __asUser = (typeof getUser === 'function') ? getUser() : null;
+                    if (__asUser) {
+                        if (graph.autosave == null) graph.autosave = true;   // default on
+                        const __asSerialize = () => {
+                            const seen = new WeakSet();
+                            return JSON.stringify(graph, function (key, value) {
+                                if (key === 'canvas') return;
+                                if (typeof value === 'object' && value !== null) {
+                                    if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
+                                    else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
+                                    else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
+                                }
+                                return value;
+                            });
+                        };
+                        // A stable per-file autosave name (kept separate from the real file), so
+                        // each successive autosave OVERWRITES the previous — always the latest.
+                        const __asName = () => {
+                            let base = ('' + (graph.file || 'untitled')).replace(/\.baja$/i, '')
+                                .replace(/\.autosave$/i, '').replace(/[^A-Za-z0-9_\- ]+/g, '_').trim() || 'untitled';
+                            return base + '.autosave.baja';
+                        };
+                        let __asBusy = false, __asSig = null;
+                        const __doAutosave = async () => {
+                            if (!graph.autosave || __asBusy) return;
+                            try { if (!graph.track || graph.track.length === 0) return; } catch (e) { return; }   // nothing to save yet
+                            __asBusy = true;
+                            try {
+                                let gs = null;
+                                try { gs = __asSerialize(); } catch (e) { gs = null; }
+                                if (gs && gs.length > 2) {
+                                    // Only write when something actually changed since the last save.
+                                    const sig = gs.length + ':' + gs.slice(0, 160);
+                                    if (sig !== __asSig) {
+                                        const rs = await POSTJSON({ name: __asName(), key: 'user', user: __asUser, spath: 'autosave', value: gs }, __asHost + '/save-user-data');
+                                        const p = rs && rs.path;
+                                        if (p) {
+                                            __asSig = sig;
+                                            // Repoint the URL (folder-id path hides the email) so a reload reopens this save.
+                                            try { window.history.replaceState({ autosave: true }, 'editor', '/app/manchester/editor' + p); } catch (e) { }
+                                        }
+                                    }
+                                }
+                            } catch (e) { }
+                            __asBusy = false;
+                        };
+                        try { if (graph.__autosaveTimer) clearInterval(graph.__autosaveTimer); } catch (e) { }
+                        graph.__autosaveTimer = setInterval(__doAutosave, 60000);
+                    }
+                } catch (e) { }
 
                 let file_items = []
 
@@ -2849,6 +2926,45 @@ function (path, config) {
                 working.status = 'complete'
 
                 CurrentLayout.stash('mainPanel', main_layout)
+
+                // Reload-path fix: on a browser reload the file is loaded (graph.update) during the
+                // initial app boot — BEFORE this canvas is mounted and sized — so tracks get laid out
+                // against a zero-size grid and don't paint (opening the same file from My Files works
+                // because the canvas is already sized when update runs). Now that the canvas is in the
+                // DOM, nudge a resize + rescale + redraw so the graph re-fits to real dimensions. This
+                // is a harmless no-op on the already-sized My Files path. Repeated at a few delays to
+                // ride out the async component mount.
+                // Reload-path track render: on a browser reload the file is loaded (graph.update) during
+                // initial boot — before this canvas is mounted/sized — so tracks lay out against a
+                // zero-size grid and don't paint (opening from My Files works because the canvas is
+                // already sized). Once the canvas has real pixel dimensions, re-apply the loaded file
+                // once so tracks lay out against real dimensions. Harmless no-op on the My Files path.
+                let __reapplied = false;
+                let __refitTries = 0;
+                const __biggestCanvasSize = () => {
+                    let w = 0, h = 0;
+                    try {
+                        const cs = document.querySelectorAll('canvas');
+                        for (const c of cs) { if (c.width * c.height > w * h) { w = c.width; h = c.height; } }
+                    } catch (e) { }
+                    return { w, h };
+                };
+                const __refitAfterMount = async () => {
+                    __refitTries++;
+                    try { window.dispatchEvent(new Event('resize')); } catch (e) { }
+                    const sz = __biggestCanvasSize();
+                    if (sz.w > 2 && sz.h > 2 && !__reapplied && graph.__reloadedRs && graph.update) {
+                        __reapplied = true;
+                        try { await graph.update(graph.__reloadedRs); } catch (e) { }
+                        try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
+                        try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                        try { if (graph.fitYAxis) graph.fitYAxis(); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        return;
+                    }
+                    if (!__reapplied && __refitTries < 30) setTimeout(__refitAfterMount, 200);
+                };
+                setTimeout(__refitAfterMount, 150);
 
                 // Show the installed news as a newspaper overlay at startup (click / auto-dismiss),
                 // keeping full screen space for the graph.

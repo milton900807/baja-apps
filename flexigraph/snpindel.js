@@ -161,7 +161,7 @@ function () {
                     this.alternate0 = alternate.replace(/[A,C,T,G,N]/gi, m => complement[m]);
                 }
 
-                if (this.type === 'snp') {
+                if (this.type === 'snp' || this.type === 'AA') {
                     this.xi = xi;
                 } else if (this.type === 'ins') {
                     this.xi = xi;
@@ -399,6 +399,62 @@ function () {
 
                 graph.drawString(text, x + padX, y, fg);
                 return rw;
+            }
+
+            // Clinical annotation (the SnpIndel's `annotation` text) shown as a LEADER LINE from
+            // the marker head out to a wrapped text description — a callout, not a bubble.
+            // Positioned above the marker and bumped up to avoid overlapping other annotations
+            // placed this frame (graph.__annoBoxes, reset per frame in graph.js drawBackdrop).
+            static _drawAnnotationLeader(graph, hx, hy, text) {
+                const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+                if (!ctx || !text) return;
+                const cw = ctx.canvas.width, ch = ctx.canvas.height;
+                if (!(hx > -60 && hx < cw + 60 && hy > -60 && hy < ch + 60)) return;
+                ctx.save();
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                const FS = 11, lineH = 14, maxW = 220, pad = 5;
+                ctx.font = FS + 'px system-ui, -apple-system, Roboto, Arial, sans-serif';
+                ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+                // word-wrap
+                const words = ('' + text).replace(/\s+/g, ' ').trim().split(' ');
+                const lines = []; let cur = '';
+                for (const w of words) {
+                    const test = cur ? cur + ' ' + w : w;
+                    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+                    else cur = test;
+                }
+                if (cur) lines.push(cur);
+                const maxLines = 7;
+                if (lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, '') + '…'; }
+                let tw = 0; for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
+                const bw = tw + pad * 2, bh = lines.length * lineH + pad * 2;
+                // Block above the marker, offset to a side; bump up to clear earlier annotations.
+                const side = (hx < cw * 0.62) ? 1 : -1;
+                let bx = (side >= 0) ? (hx + 16) : (hx - 16 - bw);
+                // Sit well ABOVE the marker so the callout clears the transcript / protein
+                // sequence rows drawn near the track.
+                let by = hy - 64 - bh;
+                const used = (graph.__annoBoxes = graph.__annoBoxes || []);
+                let guard = 0;
+                while (guard++ < 40 && used.some(r => !(bx + bw < r.x - 4 || bx > r.x + r.w + 4 || by + bh < r.y - 4 || by > r.y + r.h + 4))) {
+                    by -= (bh + 6);
+                }
+                bx = Math.max(6, Math.min(bx, cw - bw - 6));
+                by = Math.max(6, Math.min(by, ch - bh - 6));
+                used.push({ x: bx, y: by, w: bw, h: bh });
+                // Leader line from the marker head to the block edge facing it.
+                const ax = Math.max(bx, Math.min(hx, bx + bw));
+                const ay = (by + bh <= hy) ? (by + bh) : (by >= hy ? by : hy);
+                ctx.strokeStyle = 'rgba(20,45,72,0.55)'; ctx.lineWidth = 1; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ax, ay); ctx.stroke();
+                ctx.fillStyle = 'rgba(20,45,72,0.75)'; ctx.beginPath(); ctx.arc(hx, hy, 1.7, 0, Math.PI * 2); ctx.fill();
+                // Plain translucent panel (NOT a bubble) so the text reads over features, + text.
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.fillRect(bx, by, bw, bh);
+                ctx.fillStyle = 'rgba(20,45,72,0.5)'; ctx.fillRect(bx, by, 2.5, bh);   // slim accent on the leader side
+                ctx.fillStyle = '#12304a';
+                for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + pad, by + pad + i * lineH);
+                ctx.restore();
             }
 
             static _drawSnpMarker(instance, graph, x1, x2, yPix, y0, cellPx, highlightColor, neutralStroke, phaseColor) {
@@ -774,10 +830,23 @@ function () {
                 const drawY = phase1 ? y : -y;
                 this.y = drawY;
 
-                // Color by clinical significance (grey / light-blue / red+glow).
-                const phaseColor = this.clinsigStyle().color;
-                const neutralStroke = '#334155';
-                const highlightColor = '#2563EB';
+                // Spotlight mode: when a mutation is SELECTED on a track (click), toured, or picked
+                // from a menu, EVERY OTHER mutation is grayed out and its annotation hidden — so the
+                // selected/focused mutation(s) POP OUT. Selection = highlighted snps while a snp
+                // selection is active (graph.__snpSelectionActive); focus = the timed single snp from
+                // a tour / Go-to (graph.__focusSnp / __focusUntil).
+                // Spotlight state lives on the GENE; draw() receives the GRID as `graph` — resolve
+                // the gene via its back-reference (set in gene.js) so selection/focus is seen.
+                const __G = graph.__gene || graph;
+                const __focusOn = !!(__G.__focusSnp && __G.__focusUntil && Date.now() < __G.__focusUntil);
+                const __selOn = !!__G.__snpSelectionActive;
+                const __inSpot = (__focusOn && __G.__focusSnp === this) || (__selOn && this.highlight);
+                const __dimmed = (__focusOn || __selOn) && !__inSpot;
+
+                // Color by clinical significance (grey / light-blue / red+glow) — or gray when dimmed.
+                const phaseColor = __dimmed ? 'rgba(148,163,184,0.32)' : this.clinsigStyle().color;
+                const neutralStroke = __dimmed ? 'rgba(148,163,184,0.35)' : '#334155';
+                const highlightColor = __dimmed ? 'rgba(148,163,184,0.28)' : '#2563EB';
 
                 // Reference footprint [this.xi, this.xf]: the base cells this variant covers.
                 // Same origin the snp marker and the sequence letters use (base P => cell
@@ -824,27 +893,45 @@ function () {
                 this._screenY = graph.Y(yPix);
                 const cellPx = graph.screenWidth(tgraph.screenWidth(1));
 
+                // A non-selected mutation while a spotlight (selection/focus) is active is faded to
+                // ~40% opacity (relatively transparent) on top of the gray colors — reset before
+                // every exit so it never bleeds into the next marker. No globalAlpha is used inside
+                // the marker helpers, so this holds across their save()/restore().
+                const __dimCtx = __dimmed ? ((graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null) : null;
+                if (__dimCtx) __dimCtx.globalAlpha = 0.4;
+
                 const isSnp = this.type === 'snp';
                 const isIns = this.type === 'ins';
                 const isDel = this.type === 'del';
-                const isKnownType = isSnp || isIns || isDel;
+                // 'AA' = an amino-acid (peptide) mutation: a missense substitution whose exact
+                // nucleotide within the codon is unknown/ambiguous. Its own type (not 'del') so it
+                // is never confused with a deletion, but it DRAWS with the same codon-spanning
+                // marker. (Legacy peptide markers may still be type 'snp' with a peptide flag.)
+                const isAA = this.type === 'AA' || (isSnp && this.peptide);
+                const isKnownType = isSnp || isIns || isDel || isAA;
 
-                if (isSnp) {
+                if (isSnp && !this.peptide) {
                     // A single SNP impacts ONE nucleotide — center the lollipop on that base's
-                    // column. Use the same FLOORED world origin the sequence letters
-                    // (Math.floor(tgraph.X(index))) and the highlight box use; the old unfloored
-                    // tgraph.X(this.xi + 0.5) drifted off the letter by the fractional part of
-                    // tgraph.X — up to a whole cell when zoomed in.
-                    const sx1 = Math.floor(tgraph.X(this.xi));
-                    const sx2 = Math.floor(tgraph.X(this.xi + 1));
+                    // column. Use the same ROUNDED world origin the sequence letters
+                    // (Math.round(tgraph.X(index))) and the highlight box use. Rounding (not
+                    // flooring) the world coordinate avoids the -1 drift: float noise could leave
+                    // tgraph.X just under the integer base position, and floor then dropped a whole
+                    // world unit — many pixels to the left when zoomed in.
+                    const sx1 = Math.round(tgraph.X(this.xi));
+                    const sx2 = Math.round(tgraph.X(this.xi + 1));
                     SnpIndel._drawSnpMarker(this, graph, sx1, sx2, y0, yPix, cellPx, highlightColor, neutralStroke, phaseColor);
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) SnpIndel._drawAnnotationLeader(graph, screenX, this._screenY, this.annotation);
+                    if (__dimCtx) __dimCtx.globalAlpha = 1;
                     return;
                 }
 
-                if (isIns || isDel) {
-                    // Zoomed-in insertion/deletion: a 3D cylinder marker, sitting just beyond
-                    // the snps (see the type-dependent stem cap above) so it doesn't hide them.
+                if (isIns || isDel || isAA) {
+                    // Zoomed-in insertion/deletion — OR an 'AA' (amino-acid / peptide) mutation: a
+                    // missense SUBSTITUTION whose exact nucleotide within the codon is unknown, so we
+                    // highlight the WHOLE CODON (xi..xf spans 3 nt) with the same spanning marker.
+                    // Type 'AA' keeps it clearly a substitution, not a deletion.
                     SnpIndel._drawIndel3D(this, graph, x1, x2, yPix, y0, phaseColor, isIns);
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) SnpIndel._drawAnnotationLeader(graph, screenX, this._screenY, this.annotation);
                 } else {
                     let drew = false;
                     const isCoarse = cellPx > 5;
@@ -874,6 +961,7 @@ function () {
                 const iLo = Math.min(syP, sy0b) - hpad;
                 const iHi = Math.max(syP, sy0b) + hpad;
                 this._hitScreen = { x: Math.min(sMinX, sMaxX) - hpad, y: iLo, w: Math.abs(sMaxX - sMinX) + hpad * 2, h: (iHi - iLo) };
+                if (__dimCtx) __dimCtx.globalAlpha = 1;
             }
 
             over(x, y, graph, tgraph) {
@@ -900,6 +988,16 @@ function () {
                     const __h = (graph.canvas ? graph.canvas.height : (graph.grid ? graph.grid.height : 0));
                     if (__h && (__b < -80 || __b > __h + 80)) return;
                 } catch (e) { }
+
+                // Spotlight fade (same as draw()): a non-selected mutation's label is faded to ~40%
+                // while a selection/focus is active — reset before every exit below.
+                const __ddG = graph.__gene || graph;
+                const __ddFocusOn = !!(__ddG.__focusSnp && __ddG.__focusUntil && Date.now() < __ddG.__focusUntil);
+                const __ddSelOn = !!__ddG.__snpSelectionActive;
+                const __ddInSpot = (__ddFocusOn && __ddG.__focusSnp === this) || (__ddSelOn && this.highlight);
+                const __ddDimmed = (__ddFocusOn || __ddSelOn) && !__ddInSpot;
+                const __ddCtx = __ddDimmed ? ((graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null) : null;
+                if (__ddCtx) __ddCtx.globalAlpha = 0.4;
 
                 const phase = this.phase;
                 const highlight = this.highlight;
@@ -941,14 +1039,21 @@ function () {
                 graph._ui = graph._ui || {};
                 graph._ui.detailBoxes = graph._ui.detailBoxes || [];
 
-                // Just the ref→alt nomenclature (e.g. "A>G", "AGT>A", "A>AGT").
-                const changeStr = `${reference0}>${alternate0}`;
+                // An amino-acid mutation (type 'AA' or a legacy peptide-flagged snp): never show a
+                // nucleotide change for it (the exact base is degenerate / one of several).
+                const isPeptide = !!this.peptide || this.type === 'AA';
+                // Just the ref→alt nomenclature (e.g. "A>G", "AGT>A", "A>AGT"). Only show it when
+                // it is a REAL change — a placeholder/degenerate "N>N" (or any X>X, i.e. no change)
+                // is impossible, so fall back to the variant name in that case.
+                const _r0 = ('' + (reference0 == null ? '' : reference0)).toUpperCase();
+                const _a0 = ('' + (alternate0 == null ? '' : alternate0)).toUpperCase();
+                const changeStr = (!isPeptide && _r0 && _a0 && _r0 !== _a0) ? `${reference0}>${alternate0}` : '';
                 const title = (phase === 1) ? `${id}: ${name}` : `${name}`;
-                const mainLabel = ` ${changeStr} `;
+                const mainLabel = changeStr ? ` ${changeStr} ` : ` ${name || 'variant'} `;
 
                 const labelBg = highlight
-                    ? `rgba(255,255,255,${0.90 + pulse * 0.06})`
-                    : 'rgba(255,255,255,0.96)';
+                    ? `rgba(255,255,255,${0.52 + pulse * 0.05})`
+                    : 'rgba(255,255,255,0.55)';
 
                 SnpIndel._drawTextOnBackdrop(
                     graph,
@@ -958,12 +1063,13 @@ function () {
                     (phase === 1) ? '#111827' : '#1D4ED8',
                     {
                         bg: labelBg,
-                        shadow: highlight ? `rgba(59,130,246,${0.20 + pulse * 0.25})` : 'rgba(0,0,0,0.22)',
-                        border: highlight ? `rgba(59,130,246,${0.18 + pulse * 0.22})` : 'rgba(0,0,0,0.18)'
+                        // No border; a faint soft shadow only, so the text still reads over features.
+                        shadow: highlight ? `rgba(59,130,246,${0.08 + pulse * 0.10})` : 'rgba(0,0,0,0.10)',
+                        border: 'rgba(0,0,0,0)'
                     }
                 );
 
-                if (!highlight) return;
+                if (!highlight) { if (__ddCtx) __ddCtx.globalAlpha = 1; return; }
 
                 const detailLine = clinsig
                     ? `ClinSig: ${String(clinsig)}`
@@ -972,7 +1078,7 @@ function () {
                 const showDetail = Boolean(detailLine);
 
                 const line1 = ` ${title}`;
-                const line2 = `Δ ${changeStr}`;
+                const line2 = changeStr ? `Δ ${changeStr}` : '';
 
                 const w = Math.max(
                     SnpIndel._measure(graph, line1),
@@ -1067,6 +1173,7 @@ function () {
                         fg: '#065F46',
                         stroke: '#A7F3D0'
                     });
+                    if (__ddCtx) __ddCtx.globalAlpha = 1;
                     return;
                 }
 
@@ -1080,6 +1187,7 @@ function () {
                         stroke: '#BFDBFE'
                     });
                 }
+                if (__ddCtx) __ddCtx.globalAlpha = 1;
             }
         };
         resolve(snpindel)

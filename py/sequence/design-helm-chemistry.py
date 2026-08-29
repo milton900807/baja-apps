@@ -30,7 +30,7 @@ prompt_text = works.param(2)
 monomers_json = works.param(3)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
 
 
 def parse_monomers(txt):
@@ -103,6 +103,10 @@ def design(helm, prompt, mons):
     )
 
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("design-helm-chemistry")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={

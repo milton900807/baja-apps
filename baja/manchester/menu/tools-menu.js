@@ -156,13 +156,6 @@ function (graph, genegraph_panel_layout) {
 
             })
         },
-
-        {
-            'label': 'Points-of-interest', click: (async () => {
-                await exec('baja/manchester/menu/points-of-interest.js', graph, genegraph_panel_layout);
-            })
-        },
-
         {
             'label': 'Compounds', click: (async () => {
                 await exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout)

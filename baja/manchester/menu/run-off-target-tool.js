@@ -111,8 +111,18 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                     const HALF = 60;
                     const a = t.tgraph.X(Math.min(o.xi, o.xf) - HALF), b = t.tgraph.X(Math.max(o.xi, o.xf) + HALF);
                     const txMin = Math.min(a, b), txMax = Math.max(a, b);
-                    const ht = -1 * t.tgraph.height, yi = t.tgraph.yi - ht, band = 0.5 * 0.9;
-                    const tyMin = yi - band, tyMax = yi + band;
+                    // Center vertically on the OLIGO itself (it's drawn in a lane above the track baseline),
+                    // not on the track baseline — otherwise the oligo lands off the bottom of the
+                    // view. The oligo's world y is t.tgraph.Y(o.y); fall back to the track baseline.
+                    // Vertical framing: use gene.js's proven track-centering (the y-axis is INVERTED, so
+                    // ymin = yi+height and ymax = yi). A symmetric band around the oligo's world y
+                    // produced a non-inverted range that silently broke the y pan. The track band
+                    // includes the oligo's lane, so it stays in view. Pad ~15% of the height so
+                    // oligos in the top lanes aren't clipped at the edge.
+                    const __h = t.tgraph.height;
+                    const __pad = 0.15 * Math.abs(__h || 1);
+                    const tyMin = t.tgraph.yi + __h + (__h >= 0 ? __pad : -__pad);
+                    const tyMax = t.tgraph.yi - (__h >= 0 ? __pad : -__pad);
                     const sxMin = grid.getxmin(), sxMax = grid.getxmax(), syMin = grid.getymin(), syMax = grid.getymax();
                     const DUR = 320, ease = (p) => 1 - Math.pow(1 - p, 3), t0 = Date.now();
                     const step = () => {
@@ -203,15 +213,17 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                     for (let o of ot_oligos) {
                         for (let off of oq) {
                             if (String(o.id) == String(off.id)) {
-                                if (off.offtarget.length > 1000) {
+                                if (off.offtarget == null) {
+                                    o.offtarget = null;   // server returned no result → not determined → N/A badge
+                                } else if (off.offtarget.length > 1000) {
                                     o.offtarget = off.offtarget.length + ''
+                                } else if (off.offtarget.length === 0) {
+                                    o.offtarget = "0";    // genuinely zero off-targets → "0" badge
                                 } else {
 
                                     o.offtarget = off.offtarget;
 
-                                    if (o.offtarget.length === 0) {
-                                        o.offtarget = null;
-                                    } else if (o.offtarget.length < 30) {
+                                    if (o.offtarget.length < 30) {
 
                                         setTimeout(() => {
                                             exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', JSON.stringify(o.offtarget)).then(rs => {

@@ -468,14 +468,14 @@ function () {
                 ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 1)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 1)),
-                '#9fe0e8', 20, 'butt'
+                '#9fe0e82a', 20, 'butt'
             );
 
             drawLine(
                 ctx,
                 graph.X(tgraph.X(xs)), graph.Y(tgraph.Y(y + 1)),
                 graph.X(tgraph.X(xf)), graph.Y(tgraph.Y(y + 1)),
-                '#a86b3e', 5, 'butt'
+                '#ed63ff', 2, 'butt'
             );
 
             drawLine(
@@ -489,7 +489,7 @@ function () {
                 ctx,
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
                 (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y + annotation.labelY - 2)),
-                '#a86b3e', 1, 'butt'
+                '#42a83e9f', 1, 'butt'
             );
 
             drawString(ctx,

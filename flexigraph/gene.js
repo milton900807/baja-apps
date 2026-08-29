@@ -482,7 +482,7 @@ function (progress, options) {
                 this.badgeFill = String(badgeFill);
                 this.badgeStroke = String(badgeStroke);
                 this.badgeStrokeWidth = Number(badgeStrokeWidth) || 1;
-                this.badgeText = String(badgeText || 'LJ');
+                this.badgeText = String(badgeText || '');
                 this.badgeTextColor = String(badgeTextColor || '#fff');
                 this.badgeFont = String(badgeFont);
 
@@ -1507,6 +1507,7 @@ function (progress, options) {
                 this.centerMessage = false;
                 this.message = m;
                 this.messageIsError = true;
+                this.messageIsResult = false;
                 this.messagex = 150;
                 this.messagey = 25;
                 if (this.timeout) clearTimeout(this.timeout);
@@ -1519,10 +1520,30 @@ function (progress, options) {
                 }, ms);
             }
 
+            // A RESULT/summary toast (cyan) that IS shown even though ordinary working/status
+            // messages are suppressed — used for "added N mutations on genes …" style outcomes.
+            setResultMessage(m, seconds) {
+                if (this.wake) this.wake();
+                this.centerMessage = false;
+                this.message = m;
+                this.messageIsError = false;
+                this.messageIsResult = true;
+                this.messagex = 150;
+                this.messagey = 25;
+                if (this.timeout) clearTimeout(this.timeout);
+                const ms = Math.max(7000, (seconds || 9) * 1000);
+                this.timeout = setTimeout(() => {
+                    this.message = null;
+                    this.messageIsResult = false;
+                    this.messagex = 150;
+                    this.messagey = 25;
+                }, ms);
+            }
+
             setMessage(m, messagex, messagey) {
-                // While an error message is showing, don't let ordinary messages
-                // overwrite it — it stays until its own timeout clears it.
-                if (this.messageIsError) return;
+                // While an error OR result message is showing, don't let ordinary (suppressed)
+                // status messages overwrite it — it stays until its own timeout clears it.
+                if (this.messageIsError || this.messageIsResult) return;
                 if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
@@ -1562,6 +1583,50 @@ function (progress, options) {
             setCenterMessage(m, fontSize) {
                 if (this.wake) this.wake();
                 this.setMessageCenter(m, fontSize)
+            }
+
+            // Upper-left "window message" spinner: a fixed DOM notice (spinning ring + text) pinned
+            // to the top-left, matching the app's other upper-left status spinners. Used in place of
+            // the old center-canvas "crunching" sprite. Idempotent (singleton per graph).
+            _showWorkSpinner(text) {
+                try {
+                    if (!document.getElementById('baja-work-spin-kf')) {
+                        const st = document.createElement('style'); st.id = 'baja-work-spin-kf';
+                        st.textContent = '@keyframes bajaWorkSpin{to{transform:rotate(360deg)}}';
+                        document.head.appendChild(st);
+                    }
+                    let box = this.__workSpinner;
+                    if (!box || !box.parentNode) {
+                        box = document.createElement('div');
+                        box.style.cssText = 'position:fixed;top:104px;left:14px;z-index:2147483000;'
+                            + 'display:flex;align-items:center;gap:10px;padding:9px 14px 9px 11px;'
+                            + 'border-radius:12px;background:rgba(10,25,40,0.88);'
+                            + 'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);'
+                            + 'box-shadow:0 8px 24px rgba(0,0,0,0.42);border:1px solid rgba(18,194,224,0.35);'
+                            + 'font:600 13px "Segoe UI",Arial,sans-serif;color:#eaf6f9;max-width:46vw;pointer-events:none;';
+                        const ring = document.createElement('div');
+                        ring.style.cssText = 'flex:0 0 auto;width:18px;height:18px;border-radius:50%;'
+                            + 'border:3px solid rgba(255,255,255,0.22);border-top-color:#ffd98a;'
+                            + 'animation:bajaWorkSpin 0.8s linear infinite;';
+                        const txt = document.createElement('div');
+                        box.__txt = txt;
+                        box.appendChild(ring); box.appendChild(txt);
+                        document.body.appendChild(box);
+                        // Sit just below any button-canvas toolbar in the upper-left.
+                        try {
+                            let lowest = 0;
+                            const bcs = document.querySelectorAll('button-canvas');
+                            for (const bc of bcs) { const r = bc.getBoundingClientRect(); if (r.top < 160 && r.width > 40 && r.height > 8 && r.bottom > lowest) lowest = r.bottom; }
+                            if (lowest > 0) box.style.top = Math.round(lowest + 10) + 'px';
+                        } catch (e) { }
+                        this.__workSpinner = box;
+                    }
+                    try { if (box.__txt) box.__txt.textContent = text || 'Working…'; } catch (e) { }
+                } catch (e) { }
+            }
+            _hideWorkSpinner() {
+                try { const b = this.__workSpinner; if (b && b.parentNode) b.parentNode.removeChild(b); } catch (e) { }
+                this.__workSpinner = null;
             }
 
             // Show a brand logo/icon centered on an EMPTY canvas (startup) instead of a text
@@ -2192,6 +2257,30 @@ function (progress, options) {
                 } catch (e) { }
 
                 this.track.push(newTrack);
+                this._autoLoadDomains(newTrack);
+            }
+
+            // When a coding track is loaded, automatically map its protein domains (CDD) onto it.
+            // Fire-and-forget + once-per-track; skips tracks with no ORF/CDS and ones that already
+            // carry protein-domain annotations. protein-domains.js re-verifies coding and no-ops
+            // on non-coding transcripts, so this only ever adds domains where they belong.
+            _autoLoadDomains(t) {
+                try {
+                    if (!t || t.__domainsAutoTried) return;
+                    // Deferred during a bulk load (e.g. a file import) so the CDD lookups don't
+                    // compete with / slow the gene + mutation loading — the loader fires them in
+                    // the background once everything else is in. Don't mark as tried while deferred.
+                    if (this.__suppressAutoDomains) return;
+                    t.__domainsAutoTried = true;
+                    const anns = Array.isArray(t.annotations) ? t.annotations : [];
+                    if (anns.some(a => a && ('' + a.type) === 'ProteinDomain')) return;   // already has domains
+                    const codingish = anns.some(a => a && (('' + a.type) === 'Exon' || ('' + a.type) === 'CDS'))
+                        || (typeof t.getCDS === 'function') || (typeof t.generateORF === 'function');
+                    if (!codingish) return;
+                    setTimeout(() => {
+                        try { exec('baja/manchester/menu/protein-domains.js', this, this.genegraph_panel_layout, t); } catch (e) { }
+                    }, 400);
+                } catch (e) { }
             }
 
             trackExists(name) {
@@ -2235,6 +2324,13 @@ function (progress, options) {
             }
 
             dehighlightAllSnps() {
+                // Deselecting drops any single-mutation focus (see focus-mutation.js): the grayed-out
+                // other mutations come back and their annotations reappear.
+                try {
+                    this.__focusSnp = null;
+                    this.__focusUntil = 0;
+                    if (this.__focusTimer) { clearTimeout(this.__focusTimer); this.__focusTimer = null; }
+                } catch (e) { }
                 for (let t of this.track) {
 
                 }
@@ -3031,11 +3127,27 @@ function (progress, options) {
 
 
 
+                                // Pick the transcript-level feature AGNOSTICALLY. Ensembl GFF3 labels
+                                // it 'transcript' for some biotypes but 'mRNA' for protein-coding and
+                                // 'lnc_RNA' / '*RNA' / 'processed_transcript' for others (e.g. mouse
+                                // ENSMUST uses 'mRNA', not 'transcript'). The old exact 'transcript'
+                                // check missed those and fell back to annotations[0] (the first EXON),
+                                // so the track's end (xf) became the first exon's end and the track
+                                // rendered/selected only a small left-to-right portion.
+                                const __isTxFeature = (f) => {
+                                    f = ('' + (f || '')).toLowerCase();
+                                    return f === 'transcript' || f === 'mrna' || f === 'processed_transcript'
+                                        || f === 'primary_transcript' || f === 'pseudogenic_transcript'
+                                        || f.endsWith('rna');
+                                };
                                 let jsm = localJs[0];
-                                for (let jl of localJs) {
-                                    if (jl.feature === 'transcript') {
-                                        jsm = jl;
-                                        break;
+                                {
+                                    let bestSpan = -1;
+                                    for (let jl of localJs) {
+                                        if (!__isTxFeature(jl.feature)) continue;
+                                        const s = parseInt(jl.start), e = parseInt(jl.end);
+                                        const span = (isNaN(s) || isNaN(e)) ? -1 : (e - s);
+                                        if (span > bestSpan) { bestSpan = span; jsm = jl; }
                                     }
                                 }
 
@@ -3045,8 +3157,23 @@ function (progress, options) {
                                     ((jsm.attributes && jsm.attributes.transcript_name) || '');
 
                                 let geneID = jsm.attributes?.ID || ensembleId;
+                                // Track coordinates span the FULL extent across every feature (exons,
+                                // UTRs, CDS, the transcript feature). This is robust even if a
+                                // transcript-level feature is absent, mislabeled, or clipped, and it
+                                // matches the length of the sequence the server returns for the track.
                                 let start = parseInt(jsm['start']);
                                 let end = parseInt(jsm['end']);
+                                for (let jl of localJs) {
+                                    // Skip gene/region-level features that could over-extend the span
+                                    // beyond this transcript (a /transcript payload is normally scoped
+                                    // to the one transcript, but be defensive).
+                                    const f = ('' + (jl.feature || '')).toLowerCase();
+                                    if (f === 'gene' || f === 'region' || f === 'chromosome'
+                                        || f === 'biological_region' || f === 'supercontig') continue;
+                                    const s = parseInt(jl['start']), e = parseInt(jl['end']);
+                                    if (!isNaN(s)) start = isNaN(start) ? s : Math.min(start, s);
+                                    if (!isNaN(e)) end = isNaN(end) ? e : Math.max(end, e);
+                                }
 
                                 let strand = jsm['strand'];
                                 let chr = jsm['seqname'];
@@ -3215,6 +3342,16 @@ function (progress, options) {
                     if (this.setMessage) {
                         this.setMessage('Could not reach Ensembl for ' + ensembleId + ' — loaded without remote annotations.');
                     }
+                    return null;
+                }
+
+                // The server answers 200 with { notFound:true } for a retired/invalid Ensembl id
+                // (rather than a 502) — surface that clearly instead of building a broken track
+                // from the empty body.
+                if (js.notFound) {
+                    const __msg = 'Transcript "' + ensembleId + '" was not found on Ensembl — it may be a retired or invalid ID.';
+                    if (this.setMessage) this.setMessage(__msg);
+                    try { if (typeof infoPrompt === 'function') infoPrompt(__msg); } catch (e) { }
                     return null;
                 }
 
@@ -4672,8 +4809,13 @@ function (progress, options) {
                     this.prev = null;
                     this.xwc = xwc;
                     this.ywc = ywc;
-                    let xs = this.graph.X(xwc);
-                    let ys = this.graph.Y(ywc);
+                    // Screen-space coords for on-canvas UI hit-testing. Prefer the RAW screen
+                    // coords captured at dispatch (exact in pixel space at any zoom); fall back to
+                    // the world round-trip only if they're unavailable. The world round-trip loses
+                    // precision at extreme zoom, which made the fixed nav buttons hard to click.
+                    const __ds = this.graph.__downScreen;
+                    let xs = (__ds && Number.isFinite(__ds.x)) ? __ds.x : this.graph.X(xwc);
+                    let ys = (__ds && Number.isFinite(__ds.y)) ? __ds.y : this.graph.Y(ywc);
                     this.graph.mousex = xwc
                     if (!isMobile()) {
                         if (this.side_menu && this.side_menu.isIn(this.graph, xwc, ywc)) {
@@ -4808,8 +4950,11 @@ function (progress, options) {
                 this.mouseMoveListener = (xwc, ywc) => {
 
                     this.graph.mousex = xwc
-                    let xs = this.graph.X(xwc);
-                    let ys = this.graph.Y(ywc);
+                    // Raw screen coords for the button hover hit-test — pixel-exact at any zoom
+                    // (the world round-trip loses precision when zoomed all the way in).
+                    const __ms = this.graph.__moveScreen;
+                    let xs = (__ms && Number.isFinite(__ms.x)) ? __ms.x : this.graph.X(xwc);
+                    let ys = (__ms && Number.isFinite(__ms.y)) ? __ms.y : this.graph.Y(ywc);
 
                     // Track which on-canvas navigation control (if any) is hovered so
                     // the draw loop can highlight it and show its tooltip.
@@ -4975,6 +5120,10 @@ function (progress, options) {
 
                 this.graph = new FlexiGraph();
                 await this.graph.init();
+                // Back-reference so the SNP renderers (snpindel.js draw / track.js
+                // drawSnpLollipopsWide) — which receive the GRID as `graph` — can reach the gene's
+                // selection/focus state (__snpSelectionActive, __focusSnp, __lassoSelection).
+                this.graph.__gene = this;
                 this.graph.resizeWithCanvas = this.elastic;
                 this.graph.setymin(0);
                 this.graph.setymin(-1.5)
@@ -7160,8 +7309,8 @@ pattern, GGGG | Required`
                 const grad = ctx.createLinearGradient(0, y, 0, y + size);
                 if (invert) {
                     // Tropical INVERTED: navy -> cyan fill (glyph drawn light by caller).
-                    if (pressed) { grad.addColorStop(0, "#08304a"); grad.addColorStop(1, "#127c92"); }
-                    else { grad.addColorStop(0, "#0a2540"); grad.addColorStop(1, "#1aa3bd"); }
+                    if (pressed) { grad.addColorStop(0, "#08304a"); grad.addColorStop(1, "#001b20"); }
+                    else { grad.addColorStop(0, "#0a2540"); grad.addColorStop(1, "#010353"); }
                 } else if (pressed) {
                     grad.addColorStop(0, "#eef2f8");
                     grad.addColorStop(1, "#e2e8f2");
@@ -7292,7 +7441,7 @@ pattern, GGGG | Required`
 
                 this.drawButtonGlyph(ctx, "B", cx, cy, {
                     font: "700 12px Arial",
-                    color: "#475467",
+                    color: "#000000",
                 });
 
                 if (this.showHelp) {
@@ -7311,21 +7460,31 @@ pattern, GGGG | Required`
                     // Navigation / view controls (left)
                     { id: 'zoom_in', info: 'Zoom in' },
                     { id: 'zoom_out', info: 'Zoom out' },
-                    { id: 'navigate', info: 'Move / pan the graph' },
-                    { id: 'bpx', info: 'Box zoom — drag a rectangle' },
-                    { id: 'expand_vertical', info: 'Contract vertically' },
-                    { id: 'contract_vertical', info: 'Expand vertically' },
-                    { id: 'expand_horizontal', info: 'Contract horizontally' },
-                    { id: 'contract_horizontal', info: 'Expand horizontally' },
+                    { id: 'navigate', info: 'Pan' },
+                    { id: 'bpx', info: 'Box zoom' },
+                    { id: 'expand_vertical', info: 'Expand vertically' },
+                    { id: 'contract_vertical', info: 'Contract vertically' },
+                    { id: 'expand_horizontal', info: 'Expand horizontally' },
+                    { id: 'contract_horizontal', info: 'Contract horizontally' },
                     // Selection tools (right)
-                    { id: 'lasso', info: 'Lasso select — draw a loop around items' },
-                    { id: 'select_seq', info: 'Select sequence — genomic range, track sequence, motifs…' },
+                    { id: 'lasso', info: 'Lasso select' },
+                    { id: 'select_seq', info: 'Select sequence' },
                     // Selection / info panel toggle (last, far right)
-                    { id: 'info', info: 'Show / hide the info panel (tracks, oligos)' },
+                    { id: 'info', info: 'Info' },
                 ];
                 const spacing = 34, r = 11, cy = 22;
+                // Lay the buttons out in ROOT CANVAS (the DOM canvas element's backing-store) pixel
+                // coordinates — the exact space the ctx draws into AND the space mouse events are
+                // scaled into (canvasEl.width / rect.width). Reading the width straight off the
+                // drawing context's own canvas guarantees draw and hit-test share one space,
+                // independent of any stale component/grid width, world transform, or CSS scaling.
                 let cw = 800;
-                try { cw = (this.graph && this.graph.grid && this.graph.grid.width) || (this.graph && this.graph.canvas && this.graph.canvas.width) || 800; } catch (e) { }
+                try {
+                    const _ctx = this.graph && this.graph.canvas && this.graph.canvas.getCTX && this.graph.canvas.getCTX();
+                    cw = (_ctx && _ctx.canvas && _ctx.canvas.width)
+                        || (this.graph && this.graph.canvas && this.graph.canvas.width)
+                        || (this.graph && this.graph.grid && this.graph.grid.width) || 800;
+                } catch (e) { }
                 const totalW = (list.length - 1) * spacing;
                 const startX = Math.max(24, Math.round((cw - totalW) / 2));
                 return list.map((b, i) => {
@@ -7343,7 +7502,7 @@ pattern, GGGG | Required`
             // Returns the id of the control button under the given screen point.
             hitControlButton(xs, ys) {
                 if (!this.showNavigationControl) return null;
-                const b = this.controlButtonDefs().find(d => xs >= d.x0 && xs < d.x1 && ys >= d.y0 && ys < d.y1);
+                const b = this.controlButtonDefs().find(d => xs >= d.x0 && xs <= d.x1 && ys >= d.y0 && ys <= d.y1);
                 return b ? b.id : null;
             }
 
@@ -7437,8 +7596,8 @@ pattern, GGGG | Required`
                         this.setMessage(this.showDisplay ? ' Info panel shown ' : ' Info panel hidden ');
                         if (this.wake) this.wake();
                         return;
-                    case 'expand_vertical': {
-                        this.bclick = 'expand_vertical';
+                    case 'contract_vertical': {
+                        this.bclick = 'contract_vertical';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
                         // Set the Y range directly rather than via animateTo — when zoomed in the
                         // y-range is small, and animateTo's `<1` reset + aspect-ratio clamp discard
@@ -7450,8 +7609,8 @@ pattern, GGGG | Required`
                         if (this.wake) this.wake();
                         return;
                     }
-                    case 'contract_vertical': {
-                        this.bclick = 'contract_vertical';
+                    case 'expand_vertical': {
+                        this.bclick = 'expand_vertical';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
                         let ly = (Math.abs(this.graph.getymax() - this.graph.getymin()) / 10) || 0.1;
                         this.graph.setymin(this.graph.getymin() + ly);
@@ -7577,7 +7736,20 @@ pattern, GGGG | Required`
                                 }
                             }
                             for (const s of (t.snpindels || [])) {
-                                if (trackHit(t, s.xi, s.y != null ? s.y : 0)) {
+                                // SNPs draw as lollipops whose head sits on a tall stem far from the
+                                // world point (s.xi, s.y) at the track baseline. Test the drawn head's
+                                // SCREEN rect (set by snpindel.js draw() / drawSnpLollipopsWide) so the
+                                // lasso catches the visible marker; fall back to the world projection.
+                                let __snpHit = false;
+                                const __hs = s._hitScreen;
+                                if (__hs && isFinite(__hs.x) && isFinite(__hs.y)) {
+                                    const __cx = __hs.x + (__hs.w || 0) / 2, __cy = __hs.y + (__hs.h || 0) / 2;
+                                    __snpHit = inside(__cx, __cy)
+                                        || inside(__hs.x, __hs.y) || inside(__hs.x + (__hs.w || 0), __hs.y)
+                                        || inside(__hs.x, __hs.y + (__hs.h || 0)) || inside(__hs.x + (__hs.w || 0), __hs.y + (__hs.h || 0));
+                                }
+                                if (!__snpHit) __snpHit = trackHit(t, s.xi, s.y != null ? s.y : 0);
+                                if (__snpHit) {
                                     s.highlight = true;
                                     sel.push({ kind: 'snp', label: (s.id || s.name || ('snp@' + s.xi)) + (s.clinsig ? ' · ' + s.clinsig : ''), track: t, chr: t.chr, xi: s.xi, xf: (s.xf != null ? s.xf : s.xi), ref: s, clinsig: s.clinsig });
                                     n++;
@@ -7655,6 +7827,10 @@ pattern, GGGG | Required`
                             }
                         }
                         this.__lassoSelection = sel;   // rendered under the info panel
+                        // Spotlight: if the lasso caught any SNP, activate the spotlight so the
+                        // selected mutations pop and every other mutation goes transparent (read by
+                        // snpindel.js draw() / drawSnpLollipopsWide). No SNPs → leave it off.
+                        this.__snpSelectionActive = sel.some((e) => e && e.kind === 'snp');
                         // Auto-open the info/selection window so the new selection is
                         // visible without having to toggle the info button first.
                         if (sel.length) this.showDisplay = true;
@@ -7729,18 +7905,79 @@ pattern, GGGG | Required`
                 ctx.restore();
             }
 
+            // ---- Control-button icon primitives (vector, drawn on the canvas) ----------------
+            _iconStroke(ctx, color) {
+                this.resetCanvasEffects(ctx);
+                ctx.strokeStyle = color || '#475467';
+                ctx.fillStyle = color || '#475467';
+                ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            }
+            // Magnifying glass with a + (sign>0) or – (sign<=0) inside — zoom in / out.
+            _iconMagnifier(ctx, cx, cy, sign, color) {
+                ctx.save(); this._iconStroke(ctx, color);
+                const gr = 4.3, gx = cx - 1.6, gy = cy - 1.8;
+                ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI * 2); ctx.stroke();     // glass
+                ctx.beginPath(); ctx.moveTo(gx + gr * 0.72, gy + gr * 0.72); ctx.lineTo(cx + 5, cy + 4.6); ctx.stroke();   // handle
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(gx - 2.1, gy); ctx.lineTo(gx + 2.1, gy);                     // – always
+                if (sign > 0) { ctx.moveTo(gx, gy - 2.1); ctx.lineTo(gx, gy + 2.1); }   // + adds vertical
+                ctx.stroke();
+                ctx.restore();
+            }
+            // 4-way arrows — pan / move.
+            _iconMove(ctx, cx, cy, color) {
+                ctx.save(); this._iconStroke(ctx, color);
+                const a = 6.5, h = 2.6;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy - a); ctx.lineTo(cx, cy + a);
+                ctx.moveTo(cx - a, cy); ctx.lineTo(cx + a, cy);
+                ctx.moveTo(cx - h, cy - a + h); ctx.lineTo(cx, cy - a); ctx.lineTo(cx + h, cy - a + h);   // up
+                ctx.moveTo(cx - h, cy + a - h); ctx.lineTo(cx, cy + a); ctx.lineTo(cx + h, cy + a - h);   // down
+                ctx.moveTo(cx - a + h, cy - h); ctx.lineTo(cx - a, cy); ctx.lineTo(cx - a + h, cy + h);   // left
+                ctx.moveTo(cx + a - h, cy - h); ctx.lineTo(cx + a, cy); ctx.lineTo(cx + a - h, cy + h);   // right
+                ctx.stroke();
+                ctx.restore();
+            }
+            // Paired arrows along an axis, pointing OUT (expand) or IN (contract).
+            _iconResize(ctx, cx, cy, axis, outward, color) {
+                ctx.save(); this._iconStroke(ctx, color);
+                const far = 6.5, near = 2.2, h = 2.6;
+                ctx.beginPath();
+                if (axis === 'v') {
+                    ctx.moveTo(cx, cy - far); ctx.lineTo(cx, cy - near);
+                    ctx.moveTo(cx, cy + far); ctx.lineTo(cx, cy + near);
+                    if (outward) {
+                        ctx.moveTo(cx - h, cy - far + h); ctx.lineTo(cx, cy - far); ctx.lineTo(cx + h, cy - far + h);
+                        ctx.moveTo(cx - h, cy + far - h); ctx.lineTo(cx, cy + far); ctx.lineTo(cx + h, cy + far - h);
+                    } else {
+                        ctx.moveTo(cx - h, cy - near - h); ctx.lineTo(cx, cy - near); ctx.lineTo(cx + h, cy - near - h);
+                        ctx.moveTo(cx - h, cy + near + h); ctx.lineTo(cx, cy + near); ctx.lineTo(cx + h, cy + near + h);
+                    }
+                } else {
+                    ctx.moveTo(cx - far, cy); ctx.lineTo(cx - near, cy);
+                    ctx.moveTo(cx + far, cy); ctx.lineTo(cx + near, cy);
+                    if (outward) {
+                        ctx.moveTo(cx - far + h, cy - h); ctx.lineTo(cx - far, cy); ctx.lineTo(cx - far + h, cy + h);
+                        ctx.moveTo(cx + far - h, cy - h); ctx.lineTo(cx + far, cy); ctx.lineTo(cx + far - h, cy + h);
+                    } else {
+                        ctx.moveTo(cx - near - h, cy - h); ctx.lineTo(cx - near, cy); ctx.lineTo(cx - near - h, cy + h);
+                        ctx.moveTo(cx + near + h, cy - h); ctx.lineTo(cx + near, cy); ctx.lineTo(cx + near + h, cy + h);
+                    }
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+
             drawZoomButton(ctx) {
                 if (this.bclick === "zoom_in") return;
 
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('zoom_in');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "+", cx, cy, {
-                    font: "700 16px Arial",
-                    color: "#475467",
-                });
+                this._iconMagnifier(ctx, cx, cy, 1, "#ffffff");   // magnifier with +
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Zoom In", cx + 20, cy, { font: "11px Arial" });
@@ -7753,12 +7990,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('zoom_out');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "–", cx, cy, {
-                    font: "700 18px Arial",
-                    color: "#475467",
-                });
+                this._iconMagnifier(ctx, cx, cy, -1, "#ffffff");   // magnifier with –
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Zoom Out", cx + 20, cy, { font: "11px Arial" });
@@ -7774,22 +8008,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('navigate');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                ctx.save();
-                this.resetCanvasEffects(ctx);
-
-                if (this.move_img) {
-                    ctx.drawImage(this.move_img, cx - 8, cy - 8);
-                } else {
-                    this.move_img = new Image();
-                    this.move_img.src = this.move_icon;
-                    this.move_img.onload = () => {
-
-                        ctx.drawImage(this.move_img, cx - 8, cy - 8);
-                    };
-                }
-                ctx.restore();
+                this._iconMove(ctx, cx, cy, "#ffffff");   // 4-way pan arrows
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Move the graph", cx + 20, cy, {
@@ -7806,7 +8027,7 @@ pattern, GGGG | Required`
 
                 const { cx, cy } = this._ctrlPos('bpx');
                 const r = 11;
-                this.drawCircleButton(ctx, cx, cy, r);
+                this.drawCircleButton(ctx, cx, cy, r, { invert: true });
 
                 const scale = 0.62;
                 const side = r * Math.sqrt(2) * scale;
@@ -7814,11 +8035,13 @@ pattern, GGGG | Required`
 
                 ctx.save();
                 this.resetCanvasEffects(ctx);
+                ctx.setLineDash([2.5, 2]);
                 ctx.beginPath();
                 ctx.rect(cx - halfSide, cy - halfSide, side, side);
-                ctx.strokeStyle = "#475467";
+                ctx.strokeStyle = "#ffffff";
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
+                ctx.setLineDash([]);
                 ctx.restore();
 
                 if (this.showHelp) {
@@ -7834,9 +8057,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('expand_vertical');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "⇕", cx, cy, { font: "700 14px Arial" });
+                this._iconResize(ctx, cx, cy, 'v', true, "#ffffff");   // vertical arrows OUT
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Expand Vertical", cx + 20, cy, { font: "11px Arial" });
@@ -7849,9 +8072,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('contract_vertical');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "↕", cx, cy, { font: "700 14px Arial" });
+                this._iconResize(ctx, cx, cy, 'v', false, "#ffffff");   // vertical arrows IN
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Contract Vertical", cx + 20, cy, { font: "11px Arial" });
@@ -7864,9 +8087,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('expand_horizontal');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "⇔", cx, cy, { font: "700 14px Arial" });
+                this._iconResize(ctx, cx, cy, 'h', true, "#ffffff");   // horizontal arrows OUT
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Expand Horizontal", cx + 20, cy, { font: "11px Arial" });
@@ -7879,9 +8102,9 @@ pattern, GGGG | Required`
                 this.setButtonStyle(ctx, { font: "600 12px Arial" });
 
                 const { cx, cy } = this._ctrlPos('contract_horizontal');
-                this.drawCircleButton(ctx, cx, cy, 11);
+                this.drawCircleButton(ctx, cx, cy, 11, { invert: true });
 
-                this.drawButtonGlyph(ctx, "↔", cx, cy, { font: "700 14px Arial" });
+                this._iconResize(ctx, cx, cy, 'h', false, "#ffffff");   // horizontal arrows IN
 
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Contract Horizontal", cx + 20, cy, { font: "11px Arial" });
@@ -8577,6 +8800,8 @@ pattern, GGGG | Required`
                         }
                     } catch (e) { }
                 }
+                // Selection is gone → turn off the SNP spotlight so nothing stays dimmed.
+                this.__snpSelectionActive = false;
             }
 
             // Add a clicked oligo (or amplicon) to the selection box. Its menu is the
@@ -8945,7 +9170,7 @@ pattern, GGGG | Required`
                     // Whole-selection actions below the per-type groups.
                     menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
                     menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });
-                    menu.push({ label: 'Remove all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
+                    menu.push({ label: 'Delete all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
                     menu.push({ label: 'Keep only selected (delete others)', click: () => { close(); this.removeSelection(true); }, move: () => { } });
                     menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; this.showDisplay = false; if (this.wake) this.wake(); }, move: () => { } });
                     return menu;
@@ -9055,6 +9280,9 @@ pattern, GGGG | Required`
 
             // Remove the selected items, or (keepOnly) remove everything BUT them.
             removeSelection(keepOnly) {
+
+
+
                 const sel = this.__lassoSelection || [];
                 if (!sel.length) return;
                 try { this.pushOntoHistory(); } catch (e) { }
@@ -9245,12 +9473,6 @@ pattern, GGGG | Required`
                         ctx.fillStyle = 'lightGray';
                         let ocount = 0;
                         let i = 1;
-                        for (let t of this.track) {
-                            if (t.oligos)
-                                ocount += t.oligos.length;
-                            ctx.fillText(t.name + ': ' + Math.round(t.tgraph.Xwc(this.graph.mousex - t.tgraph.xi * 2)), 102, i * 140);
-                            i++;
-                        }
 
                         if (this.folder && this.folder != undefined && this.folder.name != undefined) {
                             ctx.fillText('Folder: ' + this.folder.name, 20, 75);
@@ -9332,7 +9554,9 @@ pattern, GGGG | Required`
                         await this.drawMoleculeFoldFrame(ctx);
                         await this.drawMoleculeFoldFrame(ctx);
                     }
-                    if (this.message) {
+                    // Surface ERROR (orange) and RESULT/summary (cyan) messages as the on-canvas
+                    // toast; transient working/status ("Loading…", "Uploading…") are not drawn.
+                    if (this.message && (this.messageIsError || this.messageIsResult)) {
                         // Production-quality toast: a rounded navy card with a cyan
                         // accent bar and white text that WRAPS to stay on screen.
                         const msg = ('' + this.message).trim();
@@ -9381,9 +9605,10 @@ pattern, GGGG | Required`
                             const cardH = padY * 2 + lineH * shown.length;
 
                             let cardX = Math.round((cw - cardW) / 2);
-                            // Sit just below the top control-button row (cy=22, r=11)
-                            // instead of vertically centered.
-                            let cardY = (22 + 11 + 3) + 12;
+                            // Sit at the BOTTOM-center, clear of the top control-button row —
+                            // a status toast under the buttons looks unprofessional and can hide
+                            // them, so keep it out of the way at the foot of the canvas.
+                            let cardY = ch - cardH - 16;
                             cardX = Math.max(8, Math.min(cardX, cw - cardW - 8));
                             cardY = Math.max(8, Math.min(cardY, ch - cardH - 8));
 
@@ -9618,6 +9843,12 @@ pattern, GGGG | Required`
                     if (this.showNavigationControl) {
                         ctx.strokeStyle = 'black'
 
+                        // The nav buttons live at fixed SCREEN coordinates and are hit-tested in
+                        // raw screen space. Force an identity transform here so no transform left
+                        // over from track/scene drawing can shift them away from where the mouse
+                        // expects them (the reported "buttons drift left at high zoom" desync).
+                        ctx.save();
+                        try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { }
                         this.drawZoomButton(ctx);
                         this.drawZoomOutButton(ctx);
                         this.drawMoveButton(ctx);
@@ -9631,6 +9862,7 @@ pattern, GGGG | Required`
                         this.drawExpandHorizontalButton(ctx);
                         this.drawExpandVerticalButton(ctx);
                         this.drawControlButtonHover(ctx);
+                        ctx.restore();
                     }
                     ctx.fillStyle = "white";
                     ctx.lineWidth = 0;
@@ -9649,7 +9881,9 @@ pattern, GGGG | Required`
                     // Selection window is drawn here — above the tracks but BELOW the
                     // menus, so the side menu / center menu render on top of it.
                     try { this.drawHoverCrosshair(ctx); } catch (e) { }
-                    try { this.drawInfoPanel(ctx); } catch (e) { }
+                    // Info + selection panels are fixed-screen-coordinate overlays (hit-tested in
+                    // raw screen space); draw them under an identity transform so nothing shifts them.
+                    try { ctx.save(); try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { } this.drawInfoPanel(ctx); ctx.restore(); } catch (e) { try { ctx.restore(); } catch (e2) { } }
 
                     // First track on a blank canvas → one-time "click here to see options"
                     // hint for ~10s. Detected as a 0→1 track transition seen by the draw
@@ -9733,29 +9967,14 @@ pattern, GGGG | Required`
                         ctx.restore();
                     }
 
-                    if (!this.showSprite) {
-                        this.showSprite = false;
-                        spriteObject = null;
-                    }
-                    if (!spriteObject && this.showSprite) {
-                        const centerX = 0 + ctx.canvas.width / 2;
-                        const centerY = 0 + ctx.canvas.height / 2;
-                        spriteObject = new FinancialCalcSpriteWithStatus(centerX - 18, centerY - 18, 1, {
-                            messages: [
-                            ]
-                            ,
-                            showTimer: true,
-                            timerPrefix: 'Elapsed',
-                            timerOffsetY: 36,
-                            messageMinDelay: 1,
-                            messageMaxDelay: 45,
-                            onAllMessagesShown: () => console.log("All status messages displayed.")
-                        });
-                    }
-                    if (spriteObject && spriteObject.update) {
-                        spriteObject.update(0.05);
-                        spriteObject.draw(ctx);
-                    }
+                    // The center-canvas "hold on… crunching" spinner is replaced by the upper-left
+                    // window message spinner (a fixed DOM notice with a spinning ring). Show/hide it
+                    // from the same showSprite flag; it animates via CSS (no per-frame canvas draw).
+                    spriteObject = null;
+                    try {
+                        if (this.showSprite) this._showWorkSpinner(window.__workStatus || 'Working…');
+                        else this._hideWorkSpinner();
+                    } catch (e) { }
 
                 }
 

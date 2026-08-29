@@ -20,6 +20,13 @@ function () {
 
         yscale = 1;
 
+        // When true, X()/Y() snap their result to the nearest whole pixel. Set ONLY on the
+        // main (screen) grid — NOT on a track's tgraph, whose X()/Y() return intermediate
+        // WORLD coordinates (rounding those would snap to whole bases = huge error at zoom).
+        // This keeps drawn content on the pixel lattice so it aligns crisply with the
+        // fixed-pixel on-canvas buttons instead of landing on half-pixels.
+        snapPixels = false;
+
         xshift = 0;
 
         yshift = 0;
@@ -316,22 +323,24 @@ function () {
 
         X(xwc) {
             xwc = parseFloat(xwc);
-            let xLength = this.xmax - this.xmin;
-            let xsc = (((xwc + this.xshift)) * this.xscale + this.xinset) + this.xi;
-            if (!xsc || xsc == NaN) {
-                let t = (((xwc + this.xshift)))
-
-                t = t * this.xscale + this.xinset;
-
-            }
-
-            return xsc;
+            // Lift over into the local frame first (subtract the big genomic chunk while the
+            // numbers are still large), so every term below is small and sharp at deep zoom.
+            const wo = this.worldOffset || 0;
+            const lxmin = this.xmin - wo, lxmax = this.xmax - wo;
+            const lcenter = (lxmin + lxmax) / 2;   // exact local view centre; its screen pos is width/2 + xi
+            let originScreen = (lcenter - lxmin) * this.xscale + this.xinset + this.xi;
+            // Pixel-snap the FRAME ORIGIN only (not each coordinate): the per-element delta is
+            // added UNROUNDED, so spacing between elements stays exact (no ±1px pan wiggle),
+            // while the pinned centre keeps content aligned to the whole-pixel grid.
+            if (this.snapPixels) originScreen = Math.round(originScreen);
+            return originScreen + ((xwc - wo) - lcenter) * this.xscale;
         }
 
         Y(ywc) {
-            let ysc = ((this.yLength - (ywc + this.yshift)) * this.yscale + this.yinset) + this.yi;
-
-            return (ysc);
+            const oy = (this.__oy != null && isFinite(this.__oy)) ? this.__oy : this.ymin;
+            let originScreen = (this.yLength - (oy + this.yshift)) * this.yscale + this.yinset + this.yi;
+            if (this.snapPixels) originScreen = Math.round(originScreen);
+            return originScreen - (ywc - oy) * this.yscale;
         }
          getWorldCenter() {
             const xCenter = (this.getxmin() + this.getxmax()) / 2;
@@ -471,7 +480,19 @@ function () {
             this.xscale = (this.width - (2 * this.xinset)) / (xAxisLength);
             this.xshift = -this.xmin;
             this.yshift = -this.ymin;
-
+            this.__oy = (this.ymin + this.ymax) / 2;
+            // REGRID / lift-over: once the genomic bounds run past ±100, work the X conversion
+            // in a LOCAL frame offset by a stable 100-unit chunk near the view. The bounds and
+            // all stored data stay in genomic coords (so annotation loading / labels / off-target
+            // lookups are unaffected); only X() subtracts this offset early so its arithmetic
+            // stays on small numbers. The chunk is stable (only re-anchors when the view center
+            // crosses a 100 boundary), and the value is algebraically canceled in X()'s result
+            // — changing it never shifts anything on screen, it only keeps precision sharp.
+            if (Math.abs(this.xmin) > 100 || Math.abs(this.xmax) > 100) {
+                this.worldOffset = Math.round(((this.xmin + this.xmax) / 2) / 100) * 100;
+            } else {
+                this.worldOffset = 0;
+            }
         }
 
         rescaleY(ymin, ymax) {

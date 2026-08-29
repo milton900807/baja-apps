@@ -51,7 +51,11 @@ function (graph, genegraph_panel_layout, __path) {
                             silent: true,
                             user: getUser()
                         }
-                        exec('manchester/editor', replaceFirstNode(element.path), config)
+                        // Pass element.path AS-IS: the file browser roots at the user's folder-id,
+                        // and /load-file (key:'user') grants access only when the path contains that
+                        // folder id (encodeEmail(user)). replaceFirstNode() rewrote it to the raw
+                        // email, which no longer matches folder-id storage → "You do not have access".
+                        exec('manchester/editor', element.path, config)
                         let iconlist = [{
                             x: 7, y: 0, label: element.name, ionFunction: createIonFunction(() => {
                             }), islabel: true
@@ -426,7 +430,10 @@ function (graph, genegraph_panel_layout, __path) {
                                         "ionfunction.fileClick": createIonFunction(async (element) => {
                                             clear();
                                             window.history.replaceState('', 'editor', `/app/manchester/editor?path=${element.path}`);
-                                            exec('manchester/editor', replaceFirstNode(element.path));
+                                            // Pass element.path AS-IS (folder-id rooted). Rewriting the
+                                            // first segment to the email (replaceFirstNode) breaks
+                                            // /load-file access, which needs the folder id in the path.
+                                            exec('manchester/editor', element.path);
                                         }),
                                         "ionfunction.openfile": createIonFunction(async (file, text) => {
                                         }),

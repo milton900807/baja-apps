@@ -16,6 +16,7 @@ function (graph, track, snp) {
                 click: async (scx, scy) => {
                     setTimeout(async () => {
                         await graph.animateTo(track.tgraph.X(snp.xi) - 10, track.tgraph.X(snp.xf) + 10, track.tgraph.yi - 5, track.tgraph.yi + 1, 1000);
+                        try { exec('baja/manchester/menu/focus-mutation.js', graph, snp, 10000); } catch (e) { }
                     }, 200)
                     graph.showSideMenu(null)
                 },
@@ -41,8 +42,57 @@ function (graph, track, snp) {
                         }
                     } catch (e) { }
                     let r = await exec('py/snps/snp_info_claude.py', JSON.stringify(snp), geneSymbol, ('' + (track.chr || '')), ('' + pos));
-                    graph.setCenterParagraph(r['mutation_paragraph']);
+                    // If the variant datastructure carried an rs number, re-key the SnpIndel to it
+                    // ("convert the snpindel using this rs number").
+                    try { if (r && r.rsid) { snp.name = r.rsid; snp.id = r.rsid; } } catch (e) { }
+                    // Store the clinical summary AS THE VARIANT'S ANNOTATION (rendered on-canvas as
+                    // a leader-line callout by snpindel.js). Never show the phrase "corresponds to the".
+                    let para = r && (r['mutation_paragraph'] || r['paragraph'] || r['summary']);
+                    let ptxt = ('' + (para || '')).replace(/\bcorresponds to the\b/gi, 'is the').replace(/\s{2,}/g, ' ').trim();
+                    // If the model had nothing specific but the rs lookup returned ClinVar/dbSNP
+                    // clinical data, surface that raw clinical info instead.
+                    if (!(ptxt && !/^no (additional|specific)/i.test(ptxt))) {
+                        const cs = ((r && r.clinsig) || []).join(', ');
+                        const ph = ((r && r.phenotypes) || []).join('; ');
+                        const fb = [cs, ph].filter(Boolean).join(' — ');
+                        if (fb) ptxt = fb;
+                    }
+                    if (ptxt && !/^no (additional|specific)/i.test(ptxt)) {
+                        snp.annotation = ptxt;
+                        snp.showAnnotation = true;
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                    } else {
+                        graph.setMessage(' No additional information available for this variant. ');
+                    }
                     graph.showSprite = false;
+                    graph.showSideMenu(null)
+                },
+                move: () => {
+                }
+            });
+
+        menuList.push(
+            {
+                label: "Toggle annotations on selected variants",
+                click: async (scx, scy) => {
+                    // The "selected" variants are the highlighted ones (select() sets .highlight);
+                    // gather them across every track, falling back to just this variant. If ANY are
+                    // currently showing their annotation, hide them all; otherwise show them all.
+                    let targets = [];
+                    try {
+                        for (const t of (graph.track || [])) {
+                            for (const s of (t.snpindels || [])) {
+                                if (s && s.highlight) targets.push(s);
+                            }
+                        }
+                    } catch (e) { }
+                    if (!targets.length && snp) targets = [snp];
+                    let anyShown = false;
+                    for (const s of targets) { if (s && s.annotation && s.showAnnotation !== false) { anyShown = true; break; } }
+                    const show = !anyShown;
+                    for (const s of targets) { if (s) s.showAnnotation = show; }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    try { graph.setMessage(' ' + (show ? 'Showing' : 'Hiding') + ' annotations on ' + targets.length + ' selected variant' + (targets.length === 1 ? '' : 's') + '. '); } catch (e) { }
                     graph.showSideMenu(null)
                 },
                 move: () => {

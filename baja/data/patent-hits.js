@@ -109,10 +109,46 @@ function (graph, genegraph_panel_layout, patentSet) {
                 if (!segs.length) continue;
                 let lo = Infinity, hi = -Infinity;
                 for (const g of segs) { lo = Math.min(lo, g[0]); hi = Math.max(hi, g[1]); }
+                // Col 4 is either a patent number / assignee label (when an assignees TSV was
+                // joined server-side) or the raw index id ("N|N|"); keep the human part.
                 const nm = ('' + (v[2] || '')).split('|')[0] || ('' + (v[2] || ''));
-                hits.push({ lo: lo, hi: hi, name: nm, segs: segs });
+                hits.push({ lo: lo, hi: hi, name: nm, segs: segs, ts: +v[0], te: +v[1] });
             }
             hits.sort((a, b) => a.lo - b.lo);
+
+            // Rich metadata label for a hit — ALL the metadata the app has for this patent:
+            // its number/assignee, the gene/transcript it hits, the genomic locus, the
+            // transcript-relative window + length, and the strand. Shown (multi-line) only when
+            // zoomed in enough to see the sequence (layer.labelZoomThreshold below).
+            const chrLabel = (track.chr != null && ('' + track.chr).length) ? ('chr' + track.chr) : ('' + tid);
+            const strandLabel = (track.strand >= 0) ? '+' : '-';
+            // A metadata TSV (read-bed-region.py join) can replace the id with a packed label
+            // 'number‖title‖filing_date‖assignee‖inventors[‖abstract]' (built by the patent
+            // pipeline in py/sequence/patent-pipeline). Expand it into labeled lines; otherwise
+            // the name is just the patent id/number.
+            const SEP = '‖';   // ‖
+            const buildLabel = (p) => {
+                const txLen = Math.max(0, p.te - p.ts);
+                const head = [];
+                if (('' + p.name).indexOf(SEP) >= 0) {
+                    const f = ('' + p.name).split(SEP);
+                    if (f[0]) head.push('Patent: ' + f[0]);
+                    if (f[1]) head.push('Title: ' + f[1]);
+                    if (f[2]) head.push('Filed: ' + f[2]);
+                    if (f[3]) head.push('Assignee: ' + f[3]);
+                    if (f[4]) head.push('Inventors: ' + f[4]);
+                    if (f[5]) head.push('Abstract: ' + f[5]);
+                } else {
+                    head.push('Patent: ' + (p.name || '—'));
+                }
+                return head.concat([
+                    LAYER_LABEL,
+                    'Gene: ' + (track.name || tid),
+                    chrLabel + ':' + Math.round(p.lo) + '-' + Math.round(p.hi),
+                    'tx ' + p.ts + '-' + p.te + ' (' + txLen + ' nt)',
+                    'strand ' + strandLabel
+                ]).join('\n');
+            };
 
             const laneEnd = [];
             const laneFor = (s, e) => {
@@ -131,8 +167,15 @@ function (graph, genegraph_panel_layout, patentSet) {
                 const lane = laneFor(p.lo, p.hi);
                 let yv = 0.03125 + (0.03125 * lane);
                 if (boost) yv = Math.min(0.98, 0.5 + (0.03125 * lane));
-                for (const g of p.segs) layer.addInterval(g[0], g[1], yv, p.name);
+                // Full metadata on the first (5'-most) segment; other exonic segments of the same
+                // patent carry just the number so a multi-exon hit doesn't repeat the whole block.
+                const full = buildLabel(p);
+                p.segs.forEach((g, i) => layer.addInterval(g[0], g[1], yv, i === 0 ? full : p.name));
             }
+            // Only reveal the full metadata labels once the view is zoomed in enough to SEE THE
+            // SEQUENCE (≈>5 px/base, the same threshold track.js uses to draw bases) — so at gene
+            // scale you see colored patent bars, and up close each one shows all its metadata.
+            layer.labelZoomThreshold = 5;
             track.addLayer(layer);
 
             // Flash the intervals for ~10s so they're easy to spot when zoomed out.

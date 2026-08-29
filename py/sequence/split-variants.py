@@ -20,7 +20,7 @@ except Exception:
     requests = None
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
 
 text = works.param(1) or ""
 works.progress(15)
@@ -41,6 +41,10 @@ def split(text):
         "Respond with ONLY JSON, no prose: {\"variants\":[\"...\",\"...\"]}. Return at most 100."
     )
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("split-variants")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={

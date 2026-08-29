@@ -8,6 +8,11 @@ function (graph, genegraph_panel_layout) {
         };
     } catch (e) { }
 
+    // Paste-an-image → tracks is now an EXPLICIT action ("Parse mutations from image" in the
+    // paste panel, manchester/controls/paste-panel.js) rather than an automatic global paste
+    // listener, so the one-time listener installer is intentionally not wired up here.
+    // try { exec('baja/manchester/menu/paste-image-extract.js', graph, genegraph_panel_layout); } catch (e) { }
+
     return new Promise(async (resolve, reject) => {
         let move = null;
         let md = false;
@@ -1873,6 +1878,20 @@ function (graph, genegraph_panel_layout) {
 
                                 ,
                                 {
+                                    'label': 'Design by rules (tile & score)', click: (async () => {
+                                        // Tile + score oligos by the selected chemistry's rules across the CURRENT
+                                        // selection (tile-oligos-design.js requires and restricts to the marked region).
+                                        const __runDesignRules = () => { exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout); };
+                                        if (!graph.props.selected_chemistry) {
+                                            graph.setMessage('Select a chemistry to design with...');
+                                            exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout, () => { __runDesignRules(); });
+                                            return;
+                                        }
+                                        __runDesignRules();
+                                    }),
+                                    move: () => { log('') }
+                                },
+                                {
                                     'label': 'Design Assay', click: (async () => {
                                         const lll = [
                                             {
@@ -2749,559 +2768,533 @@ function (graph, genegraph_panel_layout) {
 
 
                 // --- promoted from the former "Edit track" submenu ---
-                            const golist = [
-                                {
-                                    label: 'Properties',
-                                    click: async (scx, scy) => {
-                                        graph.setMessage("Click on a track to see available edit options. ")
-                                        await exec('baja/manchester/menu/edit-current-track.js', graph, genegraph_panel_layout, selectedTrack)
-                                    },
-                                },
+                const golist = [
+                    {
+                        label: 'Properties',
+                        click: async (scx, scy) => {
+                            graph.setMessage("Click on a track to see available edit options. ")
+                            await exec('baja/manchester/menu/edit-current-track.js', graph, genegraph_panel_layout, selectedTrack)
+                        },
+                    },
 
-                                {
-                                    label: 'Highlight sequence motif',
-                                    click: async () => {
+                    {
+                        label: 'Highlight sequence motif',
+                        click: async () => {
 
-                                        CurrentLayout.clearComponent('mainPanel')
-                                        CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                            CurrentLayout.clearComponent('mainPanel')
+                            CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
-                                        setTimeout(async () => {
+                            setTimeout(async () => {
 
-                                            let Annotation = await exec('flexigraph/annotation.js')
+                                let Annotation = await exec('flexigraph/annotation.js')
 
-                                            const buildLPSArray = (pattern) => {
-                                                let length = 0;
-                                                let lps = [0];
-                                                let i = 1;
+                                const buildLPSArray = (pattern) => {
+                                    let length = 0;
+                                    let lps = [0];
+                                    let i = 1;
 
-                                                while (i < pattern.length) {
-                                                    if (pattern[i] === pattern[length]) {
-                                                        length++;
-                                                        lps[i] = length;
-                                                        i++;
-                                                    } else {
-                                                        if (length !== 0) {
-                                                            length = lps[length - 1];
-                                                        } else {
-                                                            lps[i] = 0;
-                                                            i++;
-                                                        }
-                                                    }
-                                                }
-
-                                                return lps;
+                                    while (i < pattern.length) {
+                                        if (pattern[i] === pattern[length]) {
+                                            length++;
+                                            lps[i] = length;
+                                            i++;
+                                        } else {
+                                            if (length !== 0) {
+                                                length = lps[length - 1];
+                                            } else {
+                                                lps[i] = 0;
+                                                i++;
                                             }
+                                        }
+                                    }
 
-                                            const KMPsearch = (text, pattern) => {
-                                                let m = pattern.length;
-                                                let n = text.length;
-                                                let lps = buildLPSArray(pattern);
-                                                let i = 0;
-                                                let j = 0;
-                                                let results = [];
+                                    return lps;
+                                }
 
-                                                while (i < n) {
-                                                    if (pattern[j] === text[i]) {
-                                                        j++;
-                                                        i++;
-                                                    }
+                                const KMPsearch = (text, pattern) => {
+                                    let m = pattern.length;
+                                    let n = text.length;
+                                    let lps = buildLPSArray(pattern);
+                                    let i = 0;
+                                    let j = 0;
+                                    let results = [];
 
-                                                    if (j === m) {
-                                                        results.push(i - j);
-                                                        j = lps[j - 1];
-                                                    } else if (i < n && pattern[j] !== text[i]) {
-                                                        if (j !== 0) {
-                                                            j = lps[j - 1];
-                                                        } else {
-                                                            i = i + 1;
-                                                        }
-                                                    }
-                                                }
+                                    while (i < n) {
+                                        if (pattern[j] === text[i]) {
+                                            j++;
+                                            i++;
+                                        }
 
-                                                return results;
+                                        if (j === m) {
+                                            results.push(i - j);
+                                            j = lps[j - 1];
+                                        } else if (i < n && pattern[j] !== text[i]) {
+                                            if (j !== 0) {
+                                                j = lps[j - 1];
+                                            } else {
+                                                i = i + 1;
                                             }
+                                        }
+                                    }
 
-                                            let panel = null;
-                                            let descHook = createIonFunction((_panel) => {
-                                                panel = _panel;
-                                            })
+                                    return results;
+                                }
 
-                                            let color = 'magenta'
+                                let panel = null;
+                                let descHook = createIonFunction((_panel) => {
+                                    panel = _panel;
+                                })
 
-                                            let list = [
-                                                {
-                                                    label: 'Find motif...', click: () => {
+                                let color = 'magenta'
 
-                                                        let sequence_input = {
-                                                            wid: 'card',
-                                                            "height": "500px",
-                                                            data: {
-                                                                "style.padding-top": '1px',
-                                                                "style.border": '1px',
-                                                                "style.height": "500px",
-                                                                cards: [
-                                                                    [
-                                                                        {
-                                                                            'width': '100%',
-                                                                            'component': {
-                                                                                wid: 'html',
-                                                                                data: ' Enter a sequence motif'
-                                                                            }
-                                                                        },
-                                                                        {
+                                let list = [
+                                    {
+                                        label: 'Find motif...', click: () => {
 
-                                                                            'width': '100%',
-                                                                            'component': {
-                                                                                wid: 'card',
-                                                                                data: {
-                                                                                    cards: [
-                                                                                        [
-
-                                                                                            {
-                                                                                                'width': '100%',
-                                                                                                'height': "100px",
-                                                                                                "style.padding-top": '4px',
-                                                                                                "style.border": '1px',
-                                                                                                'component':
-                                                                                                {
-                                                                                                    'wid': 'color-chooser',
-                                                                                                    'width': '100%',
-
-                                                                                                    "data": {
-                                                                                                        "selectionListener": createIonFunction((_color) => {
-                                                                                                            color = _color;
-                                                                                                        })
-                                                                                                    }
-                                                                                                }
-                                                                                            },
-                                                                                        ]
-                                                                                    ]
-                                                                                }
-                                                                            }
-
-                                                                        },
-
-                                                                        {
-                                                                            'width': '100%',
-                                                                            'component': {
-                                                                                wid: 'text-editor',
-                                                                                refCallback: descHook,
-                                                                                data: {
-                                                                                    height: "250px",
-                                                                                    showButton: false,
-                                                                                    editorOptions: { language: 'text', automaticLayout: true },
-                                                                                    keybinding: {
-                                                                                        'Ctrl+Enter': createIonFunction((content, lineNumber, col) => {
-                                                                                        })
-                                                                                    },
-                                                                                }
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            'component': {
-                                                                                wid: 'mt-button', data: {
-                                                                                    buttons: [
-                                                                                        {
-                                                                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
-                                                                                                CurrentLayout.reset('mainPanel')
-                                                                                            })
-                                                                                        },
-                                                                                        {
-                                                                                            label: 'Search all tracks', ionFunction: createIonFunction(async () => {
-                                                                                                let motif = panel.getActiveTabContent();
-                                                                                                for (let t of graph.track) {
-                                                                                                    let seq = t.sequence;
-                                                                                                    let result = KMPsearch(seq, motif)
-                                                                                                    for (let r of result) {
-                                                                                                        let annotation = new Annotation("UserAnnotation", '' + r, t.xi + r, t.xi + r + motif.length);
-                                                                                                        annotation.color = color;
-                                                                                                        t.add(annotation)
-                                                                                                    }
-                                                                                                }
-                                                                                                CurrentLayout.reset('mainPanel');
-                                                                                            })
-                                                                                        },
-                                                                                    ]
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    ]]
-                                                            }
-                                                        }
-
-                                                        CurrentLayout.clearComponent('mainPanel')
-                                                        CurrentLayout.setComponent('mainPanel', sequence_input);
-
-                                                    }
-                                                },
-                                                {
-                                                    label: 'Find triplet repeats', click: () => {
-
-                                                    }
-                                                },
-                                                {
-                                                    label: 'Find quad repeats', click: () => {
-
-                                                    }
-                                                },
-                                            ]
-                                            let names = list.map(obj => obj.label);
-                                            let t = {
-                                                wid: 'selection-list',
-                                                data: {
-                                                    single_selection: true,
-                                                    show_button: false,
-                                                    singleSelect: true,
-                                                    listItems: names,
-                                                    button_function: createIonFunction(async (items) => {
-
-                                                        let name = items[0]
-                                                        for (let l of list) {
-                                                            if (l.label === name) {
-                                                                l.click()
-                                                            }
-                                                        }
-
-                                                    })
-                                                }
-                                            }
-
-                                            let design_params_panel_layout = {
+                                            let sequence_input = {
                                                 wid: 'card',
+                                                "height": "500px",
                                                 data: {
+                                                    "style.padding-top": '1px',
+                                                    "style.border": '1px',
+                                                    "style.height": "500px",
                                                     cards: [
                                                         [
                                                             {
                                                                 'width': '100%',
-                                                                'component': t
+                                                                'component': {
+                                                                    wid: 'html',
+                                                                    data: ' Enter a sequence motif'
+                                                                }
                                                             },
                                                             {
-                                                                'title': '',
+
                                                                 'width': '100%',
+                                                                'component': {
+                                                                    wid: 'card',
+                                                                    data: {
+                                                                        cards: [
+                                                                            [
+
+                                                                                {
+                                                                                    'width': '100%',
+                                                                                    'height': "100px",
+                                                                                    "style.padding-top": '4px',
+                                                                                    "style.border": '1px',
+                                                                                    'component':
+                                                                                    {
+                                                                                        'wid': 'color-chooser',
+                                                                                        'width': '100%',
+
+                                                                                        "data": {
+                                                                                            "selectionListener": createIonFunction((_color) => {
+                                                                                                color = _color;
+                                                                                            })
+                                                                                        }
+                                                                                    }
+                                                                                },
+                                                                            ]
+                                                                        ]
+                                                                    }
+                                                                }
+
+                                                            },
+
+                                                            {
+                                                                'width': '100%',
+                                                                'component': {
+                                                                    wid: 'text-editor',
+                                                                    refCallback: descHook,
+                                                                    data: {
+                                                                        height: "250px",
+                                                                        showButton: false,
+                                                                        editorOptions: { language: 'text', automaticLayout: true },
+                                                                        keybinding: {
+                                                                            'Ctrl+Enter': createIonFunction((content, lineNumber, col) => {
+                                                                            })
+                                                                        },
+                                                                    }
+                                                                }
+                                                            },
+                                                            {
                                                                 'component': {
                                                                     wid: 'mt-button', data: {
                                                                         buttons: [
                                                                             {
-                                                                                label: 'Close', ionFunction: createIonFunction(() => {
+                                                                                label: 'Cancel', ionFunction: createIonFunction(async () => {
                                                                                     CurrentLayout.reset('mainPanel')
                                                                                 })
-                                                                            }
+                                                                            },
+                                                                            {
+                                                                                label: 'Search all tracks', ionFunction: createIonFunction(async () => {
+                                                                                    let motif = panel.getActiveTabContent();
+                                                                                    for (let t of graph.track) {
+                                                                                        let seq = t.sequence;
+                                                                                        let result = KMPsearch(seq, motif)
+                                                                                        for (let r of result) {
+                                                                                            let annotation = new Annotation("UserAnnotation", '' + r, t.xi + r, t.xi + r + motif.length);
+                                                                                            annotation.color = color;
+                                                                                            t.add(annotation)
+                                                                                        }
+                                                                                    }
+                                                                                    CurrentLayout.reset('mainPanel');
+                                                                                })
+                                                                            },
                                                                         ]
                                                                     }
                                                                 }
                                                             }
-
-                                                        ]
-                                                    ]
+                                                        ]]
                                                 }
                                             }
+
                                             CurrentLayout.clearComponent('mainPanel')
-                                            CurrentLayout.setComponent('mainPanel', design_params_panel_layout);
+                                            CurrentLayout.setComponent('mainPanel', sequence_input);
 
-                                        }, 1000);
-
-                                    }
-                                },
-                                {
-                                    label: 'Protein',
-                                    click: async () => {
-                                        graph.showSideMenu(null)
-                                        let orf = null;
-                                        try { selectedTrack.generateORF(); orf = selectedTrack.getProteinSequence(); } catch (e) { console.warn('protein', e); }
-                                        if (!orf) { graph.setCenterMessage(" This does not appear to create a protein "); return; }
-                                        {
-                                                const protein_list = [
-                                                    {
-                                                        label: 'Peptide sequence',
-                                                        click: async (scx, scy) => {
-                                                            showModal({
-                                                                wid: 'text-editor',
-                                                                data: {
-                                                                    'code': orf
-                                                                }
-                                                            })
-
-
-                                                        },
-                                                    },
-                                                    {
-                                                        label: 'Peptide properties',
-                                                        click: async (scx, scy) => {
-                                                            graph.showSideMenu(null)
-
-                                                            let engineMonitor = new EngineMonitor((msg) => {
-                                                            });
-                                                            let pepseq = await exec('py/bio/protein/properties.py', engineMonitor, orf)
-                                                            showModal({
-                                                                wid: 'text-editor',
-                                                                data: { 'code': (jsonToNameValue(pepseq)) }
-                                                            }, 600, 400)
-
-
-                                                        },
-                                                    }, {
-                                                        label: 'bajabio-Solubility Score',
-                                                        click: async (scx, scy) => {
-                                                            graph.showSideMenu(null)
-
-
-                                                            graph.setCenterMessage(" Running bajabio-Solubility")
-
-                                                            setTimeout(async () => {
-
-
-                                                                let engineMonitor = new EngineMonitor((msg) => {
-                                                                });
-                                                                let pepseq = await exec('py/bio/protein/predict_solubility.py', engineMonitor, orf)
-                                                                showModal({
-                                                                    wid: 'text-editor',
-                                                                    data: { 'code': (jsonToNameValue(pepseq)) }
-                                                                }, 600, 400)
-
-
-                                                            }, 100)
-
-                                                        },
-                                                    }
-                                                ]
-                                                showSideMenuDelayed(protein_list)
-                                        }
-                                    }
-                                },
-                                {
-                                    label: 'Data Layers',
-                                    click: async () => {
-                                        graph.showSideMenu(null)
-
-                                        const golist = [
-                                            {
-                                                label: 'Edit',
-                                                click: async (scx, scy) => {
-                                                    if (!selectedTrack) return;
-
-                                                    graph.showSideMenu(null);
-
-                                                    let track_layers_panel = selectedTrack.track_layers;
-
-                                                    let zoom_to = {
-                                                        wid: 'card',
-                                                        componentRef: 'bottomPanel',
-                                                        height: '240px',
-                                                        data: {
-                                                            height: '240px',
-                                                            cards: [[
-                                                                {
-                                                                    title: ' ',
-                                                                    body: ``,
-                                                                    width: '90%',
-                                                                    component: {
-                                                                        wid: 'html',
-                                                                        data: `<font color=red> Edit track layers for: ${selectedTrack.name || 'Track'} </font>`
-                                                                    }
-                                                                },
-                                                                {
-                                                                    title: 'Current Layers',
-                                                                    width: '100%',
-                                                                    component: {
-                                                                        wid: 'html',
-                                                                        data: `
-                                            <div style="padding:8px;">
-                                                ${Array.isArray(track_layers_panel)
-                                                                                ? track_layers_panel.map((l, i) => `<div>${i + 1}. ${l.name || JSON.stringify(l)}</div>`).join('')
-                                                                                : `<pre>${JSON.stringify(track_layers_panel, null, 2)}</pre>`
-                                                                            }
-                                            </div>
-                                        `
-                                                                    }
-                                                                },
-                                                                {
-                                                                    title: '',
-                                                                    width: '100%',
-                                                                    component: {
-                                                                        wid: 'mt-button',
-                                                                        data: {
-                                                                            buttons: [
-                                                                                {
-                                                                                    label: 'Edit',
-                                                                                    ionFunction: createIonFunction(() => {
-                                                                                        // Put your real layer editor launch here
-                                                                                        // Example:
-                                                                                        // graph.currentTrack = selectedTrack;
-                                                                                        // openTrackLayersEditor(selectedTrack);
-
-                                                                                        hideAllModal();
-                                                                                        graph.showSideMenu(null);
-                                                                                    })
-                                                                                },
-                                                                                {
-                                                                                    label: 'Cancel',
-                                                                                    ionFunction: createIonFunction(() => {
-                                                                                        hideAllModal();
-                                                                                        graph.showSideMenu(null);
-                                                                                    })
-                                                                                }
-                                                                            ]
-                                                                        }
-                                                                    }
-                                                                }
-                                                            ]]
-                                                        }
-                                                    };
-
-                                                    showModal(zoom_to);
-                                                },
-                                            },
-                                        ];
-
-                                        golist.push({
-                                            label: selectedTrack.showLayers ? 'Hide' : 'Show',
-                                            click: () => {
-                                                selectedTrack.showLayers = !selectedTrack.showLayers;
-                                                graph.rescale();
-                                            }
-                                        });
-
-                                        showSideMenuDelayed(golist);
-                                    }
-                                }
-
-
-                            ]
-
-                            if (selectedTrack.containsIntrons()) {
-                                golist.push({
-                                    label: 'Create mRNA',
-                                    click: async (xwc, ywc) => {
-
-                                        let confirm = await exec('baja/lib/confirm.js', 'Create mRNA track...', () => {
-
-                                            setTimeout(async () => {
-
-                                                if (selectedTrack) {
-                                                    let seq = selectedTrack.sequence;
-                                                    if (!seq) {
-                                                        prompt(" No sequence found ")
-                                                    } else {
-                                                        let track = selectedTrack.createTrackFromAnnotation('CDNA')
-                                                        if (selectedTrack.snpindels.length > 0) {
-                                                            track.liftSnpindels();
-                                                            track.targetPhase = selectedTrack.targetPhase;
-                                                        }
-                                                        if (selectedTrack.oligos && selectedTrack.oligos.length > 0) {
-                                                            track.liftCompounds();
-                                                        }
-                                                        if (selectedTrack.plots && selectedTrack.plots.length > 0) {
-                                                            track.liftPlots();
-                                                        }
-                                                        graph.track.push(track);
-                                                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                        graph.deselectAllTracks()
-                                                        track.select();
-                                                        graph.animateTo(track.tgraph.xi - 100,
-                                                            track.tgraph.xi + track.tgraph.width + 100,
-                                                            track.tgraph.Y(-3), track.tgraph.Y(3))
-
-                                                        if (isMobile()) {
-                                                            CurrentLayout.clearComponent('mainPanel')
-                                                            CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
-                                                        }
-                                                    }
-                                                }
-
-                                            }, 1000)
-
-                                        })
-                                        showModal(confirm)
-
-                                    }
-                                    ,
-                                    move: () => {
-                                        log('move running offtargets....')
-                                    }
-                                }
-                                    ,
-                                    {
-                                        label: `Copy to new track`,
-                                        click: async (xwc, ywc) => {
-                                            let { Track } = await exec('baja/bio/track.js')
-                                            graph.pushOntoHistory();
-                                            start = -1;
-                                            end = -1;
-                                            var foo = Object.assign(new Track(), selectedTrack);
-                                            foo.track_layers = selectedTrack.copyLayers()
-                                            foo.name = selectedTrack.name + '**'
-                                            let t = await graph.addTrackJSON(foo);
-                                            t.tgraph.yi = selectedTrack.tgraph.yi + 2;
-                                        },
-                                        move: () => {
                                         }
                                     },
+                                    {
+                                        label: 'Find triplet repeats', click: () => {
+
+                                        }
+                                    },
+                                    {
+                                        label: 'Find quad repeats', click: () => {
+
+                                        }
+                                    },
+                                ]
+                                let names = list.map(obj => obj.label);
+                                let t = {
+                                    wid: 'selection-list',
+                                    data: {
+                                        single_selection: true,
+                                        show_button: false,
+                                        singleSelect: true,
+                                        listItems: names,
+                                        button_function: createIonFunction(async (items) => {
+
+                                            let name = items[0]
+                                            for (let l of list) {
+                                                if (l.label === name) {
+                                                    l.click()
+                                                }
+                                            }
+
+                                        })
+                                    }
+                                }
+
+                                let design_params_panel_layout = {
+                                    wid: 'card',
+                                    data: {
+                                        cards: [
+                                            [
+                                                {
+                                                    'width': '100%',
+                                                    'component': t
+                                                },
+                                                {
+                                                    'title': '',
+                                                    'width': '100%',
+                                                    'component': {
+                                                        wid: 'mt-button', data: {
+                                                            buttons: [
+                                                                {
+                                                                    label: 'Close', ionFunction: createIonFunction(() => {
+                                                                        CurrentLayout.reset('mainPanel')
+                                                                    })
+                                                                }
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+
+                                            ]
+                                        ]
+                                    }
+                                }
+                                CurrentLayout.clearComponent('mainPanel')
+                                CurrentLayout.setComponent('mainPanel', design_params_panel_layout);
+
+                            }, 1000);
+
+                        }
+                    },
+                    {
+                        label: 'Protein',
+                        click: async () => {
+                            graph.showSideMenu(null)
+                            let orf = null;
+                            try { selectedTrack.generateORF(); orf = selectedTrack.getProteinSequence(); } catch (e) { console.warn('protein', e); }
+                            if (!orf) { graph.setCenterMessage(" This does not appear to create a protein "); return; }
+                            {
+                                const protein_list = [
+                                    {
+                                        label: 'Peptide sequence',
+                                        click: async (scx, scy) => {
+                                            showModal({
+                                                wid: 'text-editor',
+                                                data: {
+                                                    'code': orf
+                                                }
+                                            })
 
 
-                                )
-                            } else {
+                                        },
+                                    },
+                                    {
+                                        label: 'Peptide properties',
+                                        click: async (scx, scy) => {
+                                            graph.showSideMenu(null)
 
+                                            let engineMonitor = new EngineMonitor((msg) => {
+                                            });
+                                            let pepseq = await exec('py/bio/protein/properties.py', engineMonitor, orf)
+                                            showModal({
+                                                wid: 'text-editor',
+                                                data: { 'code': (jsonToNameValue(pepseq)) }
+                                            }, 600, 400)
+
+
+                                        },
+                                    }
+                                ]
+                                showSideMenuDelayed(protein_list)
                             }
+                        }
+                    },
+                    {
+                        label: 'Data Layers',
+                        click: async () => {
+                            graph.showSideMenu(null)
+
+                            const golist = [
+                                {
+                                    label: 'Edit',
+                                    click: async (scx, scy) => {
+                                        if (!selectedTrack) return;
+
+                                        graph.showSideMenu(null);
+
+                                        let track_layers_panel = selectedTrack.track_layers;
+
+                                        let zoom_to = {
+                                            wid: 'card',
+                                            componentRef: 'bottomPanel',
+                                            height: '240px',
+                                            data: {
+                                                height: '240px',
+                                                cards: [[
+                                                    {
+                                                        title: ' ',
+                                                        body: ``,
+                                                        width: '90%',
+                                                        component: {
+                                                            wid: 'html',
+                                                            data: `<font color=red> Edit track layers for: ${selectedTrack.name || 'Track'} </font>`
+                                                        }
+                                                    },
+                                                    {
+                                                        title: 'Current Layers',
+                                                        width: '100%',
+                                                        component: {
+                                                            wid: 'html',
+                                                            data: `
+                                            <div style="padding:8px;">
+                                                ${Array.isArray(track_layers_panel)
+                                                                    ? track_layers_panel.map((l, i) => `<div>${i + 1}. ${l.name || JSON.stringify(l)}</div>`).join('')
+                                                                    : `<pre>${JSON.stringify(track_layers_panel, null, 2)}</pre>`
+                                                                }
+                                            </div>
+                                        `
+                                                        }
+                                                    },
+                                                    {
+                                                        title: '',
+                                                        width: '100%',
+                                                        component: {
+                                                            wid: 'mt-button',
+                                                            data: {
+                                                                buttons: [
+                                                                    {
+                                                                        label: 'Edit',
+                                                                        ionFunction: createIonFunction(() => {
+                                                                            // Put your real layer editor launch here
+                                                                            // Example:
+                                                                            // graph.currentTrack = selectedTrack;
+                                                                            // openTrackLayersEditor(selectedTrack);
+
+                                                                            hideAllModal();
+                                                                            graph.showSideMenu(null);
+                                                                        })
+                                                                    },
+                                                                    {
+                                                                        label: 'Cancel',
+                                                                        ionFunction: createIonFunction(() => {
+                                                                            hideAllModal();
+                                                                            graph.showSideMenu(null);
+                                                                        })
+                                                                    }
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                ]]
+                                            }
+                                        };
+
+                                        showModal(zoom_to);
+                                    },
+                                },
+                            ];
 
                             golist.push({
-                                'label': 'Design Assay', click: (async () => {
-                                    const lll = [
-                                        {
-                                            'label': 'Primers', click: (async () => {
-                                                graph.pushOntoHistory();
-                                                graph.clearMouseListeners();
-                                                graph.showSideMenu(null)
-                                                if (!selectedTrack) {
-                                                    infoPrompt("No track selected")
-                                                    return;
-                                                }
-                                                graph.___folder_calculation = true;
-                                                graph.___folder_calculation_status = 'Designing assay';
+                                label: selectedTrack.showLayers ? 'Hide' : 'Show',
+                                click: () => {
+                                    selectedTrack.showLayers = !selectedTrack.showLayers;
+                                    graph.rescale();
+                                }
+                            });
 
-                                                let sequence = selectedTrack.sequence
-                                                const p = 'py/ppsets/models/find-primer-amplicons.py'
-                                                let r = await exec(p, sequence)
-                                                selectedTrack.ampliconResults = r;
-                                                graph.___folder_calculation = false;
-                                                graph.___folder_calculation_status = null;
-                                                showModal({
-                                                    wid: 'json',
-                                                    data: JSON.stringify(r)
-                                                })
-                                                showSideMenuDelayed(lll)
+                            showSideMenuDelayed(golist);
+                        }
+                    }
 
-                                            })
-                                        }, {
-                                            'label': 'Exon/exon Primers', click: (async () => {
-                                                graph.pushOntoHistory();
-                                                graph.showSideMenu(null)
 
-                                                graph.clearMouseListeners();
+                ]
 
-                                                if (!selectedTrack) {
-                                                    infoPrompt("No track selected")
-                                                    return;
-                                                }
-                                                graph.___folder_calculation = true;
-                                                graph.___folder_calculation_status = 'Designing assay';
+                if (selectedTrack.containsIntrons()) {
+                    golist.push({
+                        label: 'Create mRNA',
+                        click: async (xwc, ywc) => {
 
-                                                const p = 'py/ppsets/models/find-primer-amplicons-exon-exon.py'
-                                                let r = await exec(p, selectedTrack)
-                                                selectedTrack.ampliconResults = r;
 
-                                                graph.___folder_calculation = false;
-                                                graph.___folder_calculation_status = null;
+                            setTimeout(async () => {
 
-                                                showModal({
-                                                    wid: 'json',
-                                                    data: JSON.stringify(r)
-                                                })
-                                            })
-                                        }]
+                                if (selectedTrack) {
+                                    let seq = selectedTrack.sequence;
+                                    if (!seq) {
+                                        prompt(" No sequence found ")
+                                    } else {
+                                        let track = selectedTrack.createTrackFromAnnotation('CDNA')
+                                        if (selectedTrack.snpindels.length > 0) {
+                                            track.liftSnpindels();
+                                            track.targetPhase = selectedTrack.targetPhase;
+                                        }
+                                        if (selectedTrack.oligos && selectedTrack.oligos.length > 0) {
+                                            track.liftCompounds();
+                                        }
+                                        if (selectedTrack.plots && selectedTrack.plots.length > 0) {
+                                            track.liftPlots();
+                                        }
+                                        graph.track.push(track);
+                                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+                                        graph.deselectAllTracks()
+                                        track.select();
+                                        graph.animateTo(track.tgraph.xi - 100,
+                                            track.tgraph.xi + track.tgraph.width + 100,
+                                            track.tgraph.Y(-3), track.tgraph.Y(3))
+
+                                        if (isMobile()) {
+                                            CurrentLayout.clearComponent('mainPanel')
+                                            CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+
+                                        }
+                                    }
+                                }
+
+                            }, 1000)
+
+
+                        }
+                        ,
+                        move: () => {
+                            log('move running offtargets....')
+                        }
+                    }
+                        ,
+                        {
+                            label: `Copy to new track`,
+                            click: async (xwc, ywc) => {
+                                let { Track } = await exec('baja/bio/track.js')
+                                graph.pushOntoHistory();
+                                start = -1;
+                                end = -1;
+                                var foo = Object.assign(new Track(), selectedTrack);
+                                foo.track_layers = selectedTrack.copyLayers()
+                                foo.name = selectedTrack.name + '**'
+                                let t = await graph.addTrackJSON(foo);
+                                t.tgraph.yi = selectedTrack.tgraph.yi + 2;
+                            },
+                            move: () => {
+                            }
+                        },
+
+
+                    )
+                } else {
+
+                }
+
+                golist.push({
+                    'label': 'Design Assay', click: (async () => {
+                        const lll = [
+                            {
+                                'label': 'Primers', click: (async () => {
+                                    graph.pushOntoHistory();
+                                    graph.clearMouseListeners();
+                                    graph.showSideMenu(null)
+                                    if (!selectedTrack) {
+                                        infoPrompt("No track selected")
+                                        return;
+                                    }
+                                    graph.___folder_calculation = true;
+                                    graph.___folder_calculation_status = 'Designing assay';
+
+                                    let sequence = selectedTrack.sequence
+                                    const p = 'py/ppsets/models/find-primer-amplicons.py'
+                                    let r = await exec(p, sequence)
+                                    selectedTrack.ampliconResults = r;
+                                    graph.___folder_calculation = false;
+                                    graph.___folder_calculation_status = null;
+                                    showModal({
+                                        wid: 'json',
+                                        data: JSON.stringify(r)
+                                    })
                                     showSideMenuDelayed(lll)
+
                                 })
-                            },)
+                            }, {
+                                'label': 'Exon/exon Primers', click: (async () => {
+                                    graph.pushOntoHistory();
+                                    graph.showSideMenu(null)
+
+                                    graph.clearMouseListeners();
+
+                                    if (!selectedTrack) {
+                                        infoPrompt("No track selected")
+                                        return;
+                                    }
+                                    graph.___folder_calculation = true;
+                                    graph.___folder_calculation_status = 'Designing assay';
+
+                                    const p = 'py/ppsets/models/find-primer-amplicons-exon-exon.py'
+                                    let r = await exec(p, selectedTrack)
+                                    selectedTrack.ampliconResults = r;
+
+                                    graph.___folder_calculation = false;
+                                    graph.___folder_calculation_status = null;
+
+                                    showModal({
+                                        wid: 'json',
+                                        data: JSON.stringify(r)
+                                    })
+                                })
+                            }]
+                        showSideMenuDelayed(lll)
+                    })
+                },)
 
                 let track_list = [
                     {
@@ -3427,6 +3420,38 @@ function (graph, genegraph_panel_layout) {
                                 }
                             ]);
                         }
+                    },
+                    {
+                        // Variants ▸ (significance) ▸ ClinVar — load ClinVar variants of the chosen
+                        // clinical significance for this track (points-of-interest.js).
+                        label: 'Variants ▸',
+                        move: () => { },
+                        click: async (scx, scy) => {
+                            const loadSig = async (sigKey) => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                try { await exec('baja/manchester/menu/points-of-interest.js', graph, genegraph_panel_layout, selectedTrack, sigKey); }
+                                catch (e) { try { graph.setMessage(' Variant load failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                            };
+                            const sigList = [
+                                { label: 'Pathogenic / likely-pathogenic ▸', key: 'pathogenic' },
+                                { label: 'Non-pathogenic (benign) ▸', key: 'benign' },
+                                { label: 'Uncertain / conflicting ▸', key: 'uncertain' },
+                                { label: 'All ▸', key: 'all' },
+                            ];
+                            let openSig;
+                            const openSource = (s) => {
+                                try {
+                                    graph.showSideMenu([
+                                        { label: 'ClinVar', move: () => { }, click: () => { loadSig(s.key); } },
+                                        { label: '‹ Back', move: () => { }, click: () => { openSig(); } },
+                                    ]);
+                                } catch (e) { }
+                            };
+                            openSig = () => {
+                                try { graph.showSideMenu(sigList.map((s) => ({ label: s.label, move: () => { }, click: () => { openSource(s); } }))); } catch (e) { }
+                            };
+                            openSig();
+                        },
                     },
                     {
                         label: 'Go to...',
@@ -4985,9 +5010,16 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
-                const __trackItemLabels = ['Move track', 'Edit track', 'Create mRNA', 'Layers', 'Go to...', 'Delete track'];
+                // Selected-track menu order: group related actions together — structure/edit,
+                // then layers, then analysis/navigation (SNPs, points of interest, Go to), then
+                // Properties, with Delete last. Items not listed keep their original order after.
+                const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
+                    'Layers', 'Data Layers', 'SNPs', 'Variants ▸', 'Go to...',
+                    'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
-                track_list = track_list.filter(__isTrackItem).concat(track_list.filter((m) => !__isTrackItem(m)));
+                const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
+                track_list = track_list.filter(__isTrackItem).sort((a, b) => __ti(a) - __ti(b))
+                    .concat(track_list.filter((m) => !__isTrackItem(m)));
                 const __trackMenu = mergePendingSnp(track_list);
                 // The track menu is no longer popped up on click. Instead the track is
                 // added to the selection box as its own object type; the menu is shown
@@ -5059,6 +5091,11 @@ function (graph, genegraph_panel_layout) {
                     if (s && s.deselect) s.deselect();
                 }
             }
+            // No mutation selected yet on this press → clear the "selected mutations pop out" mode
+            // (turned back on below if the press lands on a mutation). See snpindel.js draw().
+            const __wasSel = graph.__snpSelectionActive;
+            graph.__snpSelectionActive = false;
+            if (__wasSel) { try { if (graph.wake) graph.wake(); } catch (e) { } }   // ungray on deselect
             // Prefer the screen-space lollipop hit region (getSNPs -> over() -> _hitScreen),
             // which spans the WHOLE lollipop and works even when the stem/head overhangs off
             // the track (zoomed in). Fall back to the proximity model for the zoomed-out view.
@@ -5082,6 +5119,9 @@ function (graph, genegraph_panel_layout) {
             }
             if (clickSnp && clickTrack) {
                 clickSnp.select();
+                // Selected mutation POPS OUT — gray every other mutation (snpindel.js draw()).
+                graph.__snpSelectionActive = true;
+                try { if (graph.wake) graph.wake(); } catch (e) { }
                 // Stash the snp menu; mouse-up folds it into the context menu.
                 const snpMenu = await exec('baja/manchester/menu/snp-menu', graph, clickTrack, clickSnp);
                 graph.__pendingSnp = { label: '' + (clickSnp.name || clickSnp.id || 'SNP'), snpMenu };

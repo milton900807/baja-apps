@@ -15,6 +15,14 @@ function (graph, genegraph_panel_layout) {
                                 style: 'sub-container',
                                 menus: [
                                     {
+                                        // Save the CURRENT view (zoom/pan) onto the bookmark/view stack under a name.
+                                        'label': 'Bookmark', 'ionfunction': createIonFunction(async () => {
+                                            let res = await prompt('Bookmark', ['Name'], { 'Name': '' }, 400, 200);
+                                            let nm = res && res.Name != null ? ('' + res.Name).trim() : '';
+                                            if (nm && graph.setBookmark) graph.setBookmark(nm);
+                                        })
+                                    },
+                                    {
                                         'label': 'Go to...', 'items': [
                                             {
                                                 'label': 'Coordinate', 'ionfunction': createIonFunction(async () => {

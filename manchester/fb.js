@@ -488,6 +488,17 @@ function (__path) {
                 data: {
                     menus: [
                         {
+                            label: 'Apps',
+                            items: [
+                                {
+                                    'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
+                                        await exec('manchester/editor');
+
+                                    })
+                                },
+                            ]
+                        },
+                        {
                             label: 'Files & Folder',
                             items: [
                                 {

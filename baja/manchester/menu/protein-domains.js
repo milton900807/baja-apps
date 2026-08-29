@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, presetTrack) {
     // Protein Domains: prompt the user to SELECT A TRACK, then derive the ORF/CDS of that
     // track, run a CDD domain search on the translated protein, and draw the protein-domain
     // graphic (ProteinDomain + functional-site AA annotations) mapped back onto the track's
@@ -141,6 +141,13 @@ function (graph, genegraph_panel_layout) {
                 graph.setMessage(' Added ' + nDomains + ' protein domain(s)' + (nSites ? ' and ' + nSites + ' functional site(s)' : '') + ' to ' + (t.name || 'the track') + '. ');
             }
         };
+
+        // Auto path: a caller handed us a track directly (e.g. auto-load on track add) — map
+        // its domains without the click prompt. runDomains() no-ops on non-coding tracks.
+        if (presetTrack) {
+            try { await runDomains(presetTrack); } catch (e) { }
+            return;
+        }
 
         if (!graph.track || graph.track.length === 0) {
             graph.setMessage(' Load a track first, then choose Protein Domains. ');

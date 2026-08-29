@@ -28,7 +28,7 @@ prompt_text = works.param(1)
 species_override = works.param(2)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
 
 # Ensembl transcript stable id, any species prefix: ENST / ENSMUST / ENSRNOT ...
 TRANSCRIPT_RE = re.compile(r"^ENS[A-Z]*T\d+$", re.I)
@@ -86,6 +86,10 @@ def anthropic_transcripts(text, species_hint):
         user += "\n\n(Species: %s)" % species_hint
 
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("prompt-to-transcript")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={

@@ -54,11 +54,13 @@ try:
     anchor_hi = int(float(works.param(5) or 0))
 except Exception:
     anchor_hi = 0
+gene_id = works.param(6) or ""       # Ensembl gene/transcript id (extra context)
+description = works.param(7) or ""   # the track's description line (extra context)
 
 works.progress(10)
 
 
-def ask_claude(gene, species, chrom, alo, ahi):
+def ask_claude(gene, species, chrom, alo, ahi, gene_id="", description=""):
     if not ANTHROPIC_API_KEY:
         return [], "ANTHROPIC_API_KEY is not set on the server"
     if requests is None:
@@ -94,11 +96,21 @@ def ask_claude(gene, species, chrom, alo, ahi):
         "give a real database id AND a coordinate estimate."
     )
     user = (
-        "Gene symbol: %s\nSpecies: %s%s\n"
-        "List the important, identifiable mutations for this gene."
-        % (gene, species, anchor)
+        "Gene symbol: %s\n"
+        "Gene id: %s\n"
+        "Species: %s\n"
+        "Track description: %s%s\n"
+        "List the important, identifiable, CLINICALLY SIGNIFICANT mutations for this gene. "
+        "Make each 'comment' a self-contained clinical annotation (1-2 sentences: the variant's "
+        "clinical significance, associated disease/phenotype, and effect) suitable to display on "
+        "the variant."
+        % (gene, (gene_id or "(none)"), species, ((description or "(none)")[:600]), anchor)
     )
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("points-of-interest")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -180,17 +192,25 @@ def resolve_rsid(species, rsid):
     if best is None:
         return None
     try:
+        ref, alt = "", ""
+        alleles = str(best.get("allele_string", ""))   # e.g. "C/T" or "A/G/T"
+        if "/" in alleles:
+            parts = [a for a in alleles.split("/") if a]
+            if len(parts) >= 2:
+                ref, alt = parts[0][:1] or "N", parts[1][:1] or "N"
         return {
             "chr": str(best.get("seq_region_name", "")),
             "start": int(best.get("start")),
             "end": int(best.get("end")),
             "assembly": str(best.get("assembly_name", "")),
+            "ref": ref,
+            "alt": alt,
         }
     except Exception:
         return None
 
 
-points, err = ask_claude(gene, species, chrom, anchor_lo, anchor_hi)
+points, err = ask_claude(gene, species, chrom, anchor_lo, anchor_hi, gene_id, description)
 works.progress(55)
 
 # Resolve any dbSNP rsID to authoritative Ensembl coordinates, overriding the estimate.
@@ -208,6 +228,10 @@ if points:
                 p["end"] = loc["end"] if loc["end"] and loc["end"] >= loc["start"] else loc["start"] + 1
                 if p["end"] <= p["start"]:
                     p["end"] = p["start"] + 1
+                if loc.get("ref"):
+                    p["ref"] = loc["ref"]
+                if loc.get("alt"):
+                    p["alt"] = loc["alt"]
                 p["resolved"] = True
                 resolved_n += 1
         works.progress(55 + int(40.0 * (i + 1) / max(1, total)))

@@ -24,7 +24,7 @@ function (graph, io) {
             wid: 'card',
             componentRef: 'bottomPanel',
             data: {
-                height: '800px',
+                height: '500px',
                 cards: [
                     [
                         {

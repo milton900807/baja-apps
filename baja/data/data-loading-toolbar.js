@@ -27,12 +27,16 @@ function (graph, genegraph_panel_layout) {
     const asoBase = {
         key: 'aso_sirna_gt',
         label: 'ASO / siRNA / gene therapy',
-        assignees: '/bd/aso_sirna_gt_assignees.tsv',
+        // Dedicated ASO/siRNA/gene-therapy index + packed metadata, built by the pipeline in
+        // py/sequence/patent-pipeline (see its README) and deployed to /bd/. `assignees` is the
+        // metadata TSV whose packed label (number‖title‖date‖assignee‖inventors) read-bed-region.py
+        // joins in — patent-hits.js renders it on-zoom.
+        assignees: '/bd/aso_sirna_gt_2020_2026_meta.tsv',
         color: 'rgba(160,80,160,0.55)',
         noun: 'ASO/siRNA/gene-therapy hit',
     };
     const asoYears = [
-        { year: '2026', bed: '/bd/aso_sirna_gt_hg38_transcript_hits.bed.gz' },
+        { year: '2020–2026', bed: '/bd/aso_sirna_gt_2020_2026_hg38_transcript_hits.bed.gz' },
     ];
 
     const ipItems = [
@@ -54,6 +58,21 @@ function (graph, genegraph_panel_layout) {
                     }
                 }));
                 graph.showSideMenu(items);
+            })
+        },
+        {
+            // 2020–2025 patents — the comprehensive transcript-keyed patent index. Click a
+            // track to drop its patent hits in as an interval layer (shared patent-hits.js).
+            'label': 'Patents 2020–2025', 'ionfunction': go(async () => {
+                graph.clearMouseListeners();
+                graph.setMouseMode('navigate');
+                exec('baja/data/patent-hits.js', graph, genegraph_panel_layout, {
+                    key: 'patents_2020_2025',
+                    label: 'Patents 2020–2025',
+                    bed: '/bd/patent_hg38_transcript_hits.bed.gz',
+                    color: 'rgba(70,130,180,0.55)',
+                    noun: 'patent hit',
+                });
             })
         },
     ];

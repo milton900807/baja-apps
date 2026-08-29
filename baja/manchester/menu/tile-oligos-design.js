@@ -56,49 +56,23 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
         // Sequence-index offset when designing only across a marked selection.
         let __designOffset = 0;
 
-        // Design DIRECTLY (no interactive track pick) when a track was supplied OR a
-        // sequence is already selected on a track. Captured BEFORE selectOff() below
-        // so the selection isn't wiped.
-        let __target = (presetTrack && presetTrack.sequence && presetTrack.sequence.length >= 8) ? presetTrack : null;
-        if (!__target) {
-            __target = (graph.track || []).find((t) => t && t.markend > t.markstart && t.sequence && t.sequence.length >= 8) || null;
+        // REQUIRE a selected sequence. Design by rules runs ONLY across a marked selection
+        // (markstart..markend) on a track — never the whole track, and never via an interactive
+        // whole-track pick. A supplied presetTrack is used only if it carries a selection. Find a
+        // track that currently has one; if none, tell the user to select a region first and stop.
+        let __target = null;
+        if (presetTrack && presetTrack.markend > presetTrack.markstart
+            && presetTrack.sequence && presetTrack.sequence.length >= 8) {
+            __target = presetTrack;
         }
-
         if (!__target) {
-            // Pick the target track by clicking it (mirrors primer-probe-action.js).
-            const __pickMsg = preset
-                ? ('Click on a track to design ' + preset + ' oligos against its sequence.')
-                : 'Click on a track to design oligos against its sequence.';
-            graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-            graph.selectOff();
-            // Mouse-tracking prompt that follows the cursor until a track is clicked.
-            try { graph.setMouseMode('msg: ' + __pickMsg); } catch (e) { }
-            graph.setMessage(' ' + __pickMsg + ' ');
-
-            graph.addMouseMoveListener((x, y) => {
-                const ti = graph.getTrack(x, y);
-                if (ti >= 0) {
-                    const t = graph.track[ti];
-                    if (t && selectedTrack !== t && selectedTrack) selectedTrack.showResizeBar = false;
-                    selectedTrack = t;
-                    if (selectedTrack) selectedTrack.showResizeBar = true;
-                }
-            });
-
-            graph.addMouseDownListener((x, y) => {
-                const ti = graph.getTrack(x, y);
-                if (ti < 0) { graph.selectOff(); return; }
-                selectedTrack = graph.track[ti];
-                if (!selectedTrack || !selectedTrack.sequence || selectedTrack.sequence.length < 8) {
-                    graph.setMessage(' That track has no usable sequence. '); return;
-                }
-                // A chemistry is always chosen by this point, so derive the design
-                // ruleset from it and skip the ruleset picker. (An explicit preset,
-                // if supplied, still wins.)
-                const chemObj = graph.props.selected_chemistry;
-                const ruleset = preset || chemTypeToRuleset(chemObj);
-                runDesign(ruleset, x, y);
-            });
+            __target = (graph.track || []).find((t) => t && t.markend > t.markstart
+                && t.sequence && t.sequence.length >= 8) || null;
+        }
+        if (!__target) {
+            graph.setMessage(' Select a sequence first: highlight a region on a track, then choose Design by rules — it designs only across the selected sequence. ');
+            resolve();
+            return;
         }
 
         // ---- step 1: choose the ruleset (molecule type) ----------------------
@@ -127,19 +101,47 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
         // ---- step 2: tile + score + drop all designed oligos onto the track --
         async function runDesign(ruleset, x, y) {
+            // Ask for the maximum number of oligos to design/place BEFORE doing any work, so the
+            // user bounds the run (the scorer keeps only the top-N candidates by rule score).
+            let maxOligos = 500;
+            try {
+                const vap = await prompt("Maximum number of oligos:", ["Count"], { "Count": 500 }, 500, 300);
+                if (!vap) { graph.setMessage(' Design cancelled. '); return; }   // prompt closed / cancelled
+                const n = Number(vap["Count"]);
+                if (!Number.isFinite(n) || Math.floor(n) < 1) {
+                    graph.setMessage(' Enter a whole number of 1 or more for the maximum — design cancelled. ');
+                    return;
+                }
+                maxOligos = Math.min(100000, Math.floor(n));
+            } catch (e) { }
+
             const chemObj = graph.props.selected_chemistry;
             let L = 0;
             try { L = Biopolymer.countBases(chemObj); } catch (e) { L = 0; }
             if (!L || L < 8) L = Rules.DEFAULT_LEN[ruleset] || 20;
 
             let seq = String(selectedTrack.sequence);
-            // Design ACROSS the selected sequence (the marked region) when one is set;
-            // otherwise design across the whole track.
+            // Design ONLY across the SELECTED sequence (the marked region). Never the whole track.
             __designOffset = 0;
-            if (selectedTrack.markend > selectedTrack.markstart) {
-                const ms = Math.max(0, Math.floor(selectedTrack.markstart));
-                const me = Math.min(seq.length, Math.floor(selectedTrack.markend));
-                if (me - ms >= L) { seq = seq.substring(ms, me); __designOffset = ms; }
+            if (!(selectedTrack.markend > selectedTrack.markstart)) {
+                graph.setMessage(' No sequence selected on ' + (selectedTrack.name || 'the track') + ' — highlight a region first. Design by rules runs only on the selection. ');
+                return;
+            }
+            // markstart/markend may be stored as WORLD coordinates (>= the track's xi, e.g. genomic
+            // coords) OR as 0-based offsets from the track start (< xi). Normalize both to 0-based
+            // SEQUENCE indices. __designOffset stays a 0-based index, so the world coord below
+            // (xi + __designOffset + cand.start) starts exactly at track start + selection offset.
+            {
+                const xi = selectedTrack.xi || 0;
+                const toIdx = (m) => { m = Math.floor(m); return (m >= xi) ? (m - xi) : m; };
+                const ms = Math.max(0, toIdx(selectedTrack.markstart));
+                const me = Math.min(seq.length, toIdx(selectedTrack.markend));
+                if (me - ms < L) {
+                    graph.setMessage(' The selected region is shorter than the oligo length (' + L + ' nt) — select a longer sequence. ');
+                    return;
+                }
+                seq = seq.substring(ms, me);
+                __designOffset = ms;
             }
             // Score every position (step 1) up to the 100,000,000 candidate ceiling;
             // only a sequence longer than that gets subsampled.
@@ -147,8 +149,8 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const step = Math.max(1, Math.floor(span / 100000000));
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
-            // Design the top 500 candidates by rule score.
-            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: 500 });
+            // Design the top-N candidates by rule score (N = the user-supplied maximum).
+            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: maxOligos });
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
 
             // Design has started: hand the mouse back to hover/highlight mode so the user

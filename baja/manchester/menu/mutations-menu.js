@@ -55,16 +55,60 @@ function (graph, genegraph_panel_layout) {
                 const xMin = centerW - halfWorld, xMax = centerW + halfWorld;
                 const yA = tg.yi, yB = tg.yi + (tg.height || 0);
                 const cy = (yA + yB) / 2;
-                const yhalf = (Math.abs(yB - yA) || 1) * 2.2;   // extra vertical room for the label
+                const span = (Math.abs(yB - yA) || 0.1);
+                // The SNP lollipop pops a FIXED ~30–150px (stem + head + label) UP from the track
+                // and can fan to either side. Reserve generous vertical room — biased toward the
+                // top (lollipop side) so it never clips off-screen — while staying zoomed in enough
+                // for the sequence. Keep room below too so a down-fanned marker also stays visible.
+                const topExt = span * 3.6;   // toward screen top (the ymin side)
+                const botExt = span * 2.2;   // toward screen bottom
                 try { s.highlight = true; } catch (e) { }
                 if (graph.zoomRect) {
-                    await graph.zoomRect(xMin, xMax, cy + yhalf, cy - yhalf, 500);   // smooth animated
+                    await graph.zoomRect(xMin, xMax, cy + topExt, cy - botExt, 500);   // smooth animated
                 } else if (graph.graph && graph.graph.setxmin) {
                     graph.graph.setxmin(xMin); graph.graph.setxmax(xMax);
-                    graph.graph.setymin(cy + yhalf); graph.graph.setymax(cy - yhalf);
+                    graph.graph.setymin(cy + topExt); graph.graph.setymax(cy - botExt);
                 }
+                try { exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000); } catch (e) { }
                 if (graph.wake) graph.wake();
             } catch (e) { }
+        };
+
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        // "Tour mutations": animate a zoom to every variant on every track. At each stop it
+        // dwells ~10s (auto-advancing) but also shows a side menu with Previous / Next / Done so
+        // the user can step through at their own pace.
+        const tourMutations = async () => {
+            const stops = [];
+            for (const t of withMuts) {
+                const sorted = (t.snpindels || []).slice().sort((a, b) => (a.xi || 0) - (b.xi || 0));
+                for (const s of sorted) stops.push({ t, s });
+            }
+            if (!stops.length) { closeMenu(); return; }
+
+            let i = 0, cancelled = false, timer = null;
+            const clearT = () => { if (timer) { clearTimeout(timer); timer = null; } };
+            const finish = () => { cancelled = true; clearT(); closeMenu(); };
+            const go = async () => {
+                clearT();
+                if (cancelled) return;
+                if (i < 0) i = 0;
+                if (i >= stops.length) { finish(); return; }
+                const st = stops[i];
+                try { await zoomToSnp(st.t, st.s); } catch (e) { }
+                if (cancelled) return;
+                const nm = (st.s && (st.s.name || st.s.comment)) || ('Variant ' + (i + 1));
+                const menu = [
+                    { label: 'Tour  ' + (i + 1) + ' / ' + stops.length + ':  ' + nm, move: () => { }, click: () => { clearT(); go(); } },
+                    { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
+                    { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
+                    { label: '✓ Done', move: () => { }, click: () => { finish(); } },
+                ];
+                try { graph.showSideMenu(menu); } catch (e) { }
+                timer = setTimeout(() => { i++; go(); }, 10000);   // auto-advance after 10s
+            };
+            go();
         };
 
         // Level 3: variants of a given type on a track, sorted by genomic (g.) location.
@@ -75,8 +119,10 @@ function (graph, genegraph_panel_layout) {
                 const ref = s.reference || s.reference0 || '';
                 const alt = s.alternate || s.alternate0 || s.sequence || '';
                 const nm = (s.name && s.name !== 'variant') ? ('  ' + s.name) : '';
+                // Only show ref>alt when it is a REAL change ("N>N" / any X>X is impossible).
+                const change = (ref && alt && ('' + ref).toUpperCase() !== ('' + alt).toUpperCase()) ? ('  ' + ref + '>' + alt) : '';
                 return {
-                    label: chr + 'g.' + Math.round(s.xi) + (ref || alt ? ('  ' + ref + '>' + alt) : '') + nm,
+                    label: chr + 'g.' + Math.round(s.xi) + change + nm,
                     onClick: async () => { closeMenu(); await zoomToSnp(t, s); }
                 };
             });
@@ -101,10 +147,13 @@ function (graph, genegraph_panel_layout) {
         // Level 1: tracks that carry any mutations.
         const withMuts = (graph.track || []).filter((t) => t && ((t.snpindels || []).length > 0));
         const showTracks = () => {
-            const items = withMuts.map((t) => ({
-                label: (t.name || 'track') + '  (' + (t.snpindels || []).length + ')',
-                onClick: () => showTypes(t)
-            }));
+            const items = [
+                { label: '▶ Tour mutations', onClick: () => { tourMutations(); } },
+                ...withMuts.map((t) => ({
+                    label: (t.name || 'track') + '  (' + (t.snpindels || []).length + ')',
+                    onClick: () => showTypes(t)
+                }))
+            ];
             showPaged(items, 0, null);
         };
 

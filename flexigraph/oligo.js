@@ -250,6 +250,15 @@ function () {
                 const screenY = graph.Y(tgraph.Y(y));
                 const screenMidX = (screenX1 + screenX2) / 2;
 
+                // Don't draw anything that isn't on the screen: if this oligo's whole span
+                // (plus a margin for badges/labels that extend past the body) is off-canvas,
+                // skip it entirely — a huge saving when zoomed in with many oligos loaded.
+                const _cw = (ctx.canvas && ctx.canvas.width) || 1e9;
+                const _ch = (ctx.canvas && ctx.canvas.height) || 1e9;
+                const _loX = Math.min(screenX1, screenX2), _hiX = Math.max(screenX1, screenX2);
+                const _mgn = 140;
+                if (_hiX < -_mgn || _loX > _cw + _mgn || screenY < -_mgn || screenY > _ch + _mgn) return;
+
                 // Selected oligos get a pulsing background glow. The pulse (0..1) is
                 // computed by the genegraph redraw loop (graph.__pulse) at 1 cycle/sec
                 // for its 100ms/10fps refresh; the loop is kept awake while selected.
@@ -439,7 +448,11 @@ function () {
                     if (this._offtarget != null && this.offtarget == null) this.offtarget = this._offtarget;
                     if (this.offtarget != null) { this.showOfftargets = true; this.offtargetsRun = true; }
 
-                    if (this.showOfftargets && this.offtarget != null) {
+                    // Only surface off-targets once the oligo is actually drawn as a polymer.
+                    // When zoomed out it renders as a plain line (per/screencell < 3.2), and the
+                    // off-target badge/labels are suppressed at that scale.
+                    const _offtargetVisible = screencell >= 3.2;
+                    if (_offtargetVisible && this.showOfftargets && this.offtarget != null) {
                         if (Array.isArray(this.offtarget)) {
                             // Gene-name annotations only draw once the track is zoomed in
                             // enough to render the sequence target (screencell > 5, the
@@ -463,12 +476,15 @@ function () {
                                 }
                             }
 
-                            // Badge shows the number of distinct off-target GENES (the
-                            // same gene across many transcript isoforms counts once),
-                            // not the raw per-transcript hit count.
-                            const geneN = new Set(this.offtarget.map((h) => h && h.symbol).filter(Boolean)).size
-                                || (this.offtargetsymbols ? this.offtargetsymbols.length : 0)
-                                || this.offtarget.length;
+                            // Badge shows the number of distinct off-target GENES (the same gene
+                            // across many transcript isoforms counts once). IMPORTANT: never use
+                            // offtargetsymbols.length here — that list is CAPPED at 30 for the arc, so
+                            // it maxes out at "30" and misrepresents oligos with many off-targets.
+                            // Prefer the stored true distinct-gene count, then the distinct genes from
+                            // the hit array, then the raw hit count.
+                            const geneN = (this.offtargetGeneCount != null) ? this.offtargetGeneCount
+                                : (new Set(this.offtarget.map((h) => h && h.symbol).filter(Boolean)).size
+                                    || this.offtarget.length);
                             drawCenteredOvalLabel(geneN, -12, {
                                 font: "10px Arial",
                                 textColor: "navy",
@@ -476,7 +492,12 @@ function () {
                                 strokeColor: "black",
                             });
                         } else if (typeof this.offtarget === "string") {
-                            const strN = (this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : this.offtarget;
+                            // offtargetsymbols is capped at 30 (arc display), so its length is a
+                            // misleading badge number. Show the real count: the stored true gene count
+                            // if present, else the raw off-target count string (this.offtarget).
+                            const strN = (this.offtargetGeneCount != null) ? this.offtargetGeneCount
+                                : ((this.offtarget != null && ('' + this.offtarget).length) ? this.offtarget
+                                    : ((this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : 0));
                             drawCenteredOvalLabel(strN, -12, {
                                 font: "10px Arial",
                                 textColor: "navy",
@@ -484,16 +505,17 @@ function () {
                                 strokeColor: "black",
                             });
                         }
-                    } else if (this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
-                        // Searched and found NO off-targets — show a clean "0" so the
-                        // user can see it was checked and is clear. Only when off-targets
-                        // were actually RUN (offtargetsRun): an oligo never searched shows
-                        // no label at all.
-                        drawCenteredOvalLabel('0', -12, {
+                    } else if (_offtargetVisible && this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
+                        // Searched, but the off-target result came back NULL — the oligo could not be
+                        // searched (genome/strand not indexed, or a per-oligo failure). This is "not
+                        // determined", NOT a genuine zero (a real 0-hit result is stored as "0" and
+                        // draws "0" via the string branch above), so show N/A. Only when off-targets
+                        // were actually RUN (offtargetsRun); an oligo never searched shows no label.
+                        drawCenteredOvalLabel('NA', -12, {
                             font: "10px Arial",
-                            textColor: "#1aa3bd",
+                            textColor: "#b45309",
                             fillColor: "white",
-                            strokeColor: "#1aa3bd",
+                            strokeColor: "#b45309",
                         });
                     }
                 } else {
@@ -549,6 +571,11 @@ function () {
                 if (this.y) {
                     y = this.y;
                 }
+
+                // The 3D polymer schematic (chem-draw beads) already renders the base letters for
+                // these types, so skip this older per-base green overlay to avoid drawing the oligo
+                // sequence twice. Other types (amplicon, primer-probe, …) still use it.
+                if (this.type === 'aso' || this.type === 'gapmer' || this.type === 'siRNA' || this.type === 'sirna') return;
 
                 let font = "11px Arial";
                 let seq_index = Math.round(x - this.xi);

@@ -27,7 +27,7 @@ variant_text = works.param(1)
 context_hint = works.param(2)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5"
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
 
 
 def parse_json_blob(txt):
@@ -90,6 +90,10 @@ def anthropic_variant(text, hint):
         user += "\n\n(Context: %s)" % hint
 
     try:
+        try:
+            import claude_usage as _cu; _cu.bump("prompt-to-variant")
+        except Exception:
+            pass
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={

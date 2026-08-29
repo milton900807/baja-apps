@@ -201,9 +201,9 @@ return new Promise(async (resolve, reject) => {
 
 
 
-  const drawExonMajorTickAt = (ctx, graph, tgraph, pos, exonIndex, color, font, lastLabelX = null, minimumSpacing = 55) => {
+  const drawExonMajorTickAt = (ctx, graph, tgraph, pos, exonIndex, color, font, drawnXs = null, minimumSpacing = 55) => {
     const label = "c." + exonIndex;
-    const xWorld = Math.floor(tgraph.X(pos));
+    const xWorld = Math.round(tgraph.X(pos));
 
     const yLabelWorld = tgraph.Y(-0.07);
     const yTickWorld0 = tgraph.Y(-0.05);
@@ -247,11 +247,13 @@ return new Promise(async (resolve, reject) => {
       rotatedWidth
     );
 
-    const labelDrawn =
-      lastLabelX === null ||
-      Math.abs(screenX - lastLabelX) >= requiredSpacing;
+    // Suppress this "c." coordinate if it would collide with ANY coordinate already
+    // drawn on this same track this frame (drawnXs), not just the previous one.
+    const _drawn = Array.isArray(drawnXs) ? drawnXs : (drawnXs == null ? [] : [drawnXs]);
+    const labelDrawn = !_drawn.some((px) => Math.abs(screenX - px) < requiredSpacing);
 
     if (labelDrawn) {
+      if (Array.isArray(drawnXs)) drawnXs.push(screenX);
       ctx.translate(screenX, screenLabelY);
       ctx.rotate((-45 * Math.PI) / 180);
       ctx.textAlign = "left";
@@ -269,7 +271,7 @@ return new Promise(async (resolve, reject) => {
 
 
   function underlineAtWorld(ctx, graph, xWorld, yWorld, text, color, font, offsetPx = 2) {
-    const xScreen = Math.floor(graph.grid.X(xWorld));
+    const xScreen = Math.round(graph.grid.X(xWorld));
     const yScreen = Math.floor(graph.grid.Y(yWorld)) + offsetPx;
 
     ctx.save();
@@ -411,7 +413,7 @@ return new Promise(async (resolve, reject) => {
         if (runColor === col) {
         } else {
           if (runColor) {
-            graph.drawLine(Math.floor(tgraph.X(runStartWorld)), y, Math.floor(tgraph.X(index)), y, runColor, linePx);
+            graph.drawLine(Math.round(tgraph.X(runStartWorld)), y, Math.round(tgraph.X(index)), y, runColor, linePx);
           }
 
           runColor = col;
@@ -419,7 +421,7 @@ return new Promise(async (resolve, reject) => {
         }
       } else {
         if (runColor) {
-          graph.drawLine(Math.floor(tgraph.X(runStartWorld)), y, Math.floor(tgraph.X(index)), y, runColor, linePx);
+          graph.drawLine(Math.round(tgraph.X(runStartWorld)), y, Math.round(tgraph.X(index)), y, runColor, linePx);
           runColor = null;
           runStartWorld = null;
         }
@@ -427,7 +429,7 @@ return new Promise(async (resolve, reject) => {
     }
 
     if (runColor) {
-      graph.drawLine(Math.floor(tgraph.X(runStartWorld)), y, Math.floor(tgraph.X(endW)), y, runColor, linePx);
+      graph.drawLine(Math.round(tgraph.X(runStartWorld)), y, Math.round(tgraph.X(endW)), y, runColor, linePx);
     }
   }
 
@@ -901,17 +903,33 @@ return new Promise(async (resolve, reject) => {
     ctx.strokeStyle = STYLE.stroke;
     ctx.fillStyle = STYLE.fillFallback;
 
+    // Selection / focus spotlight: when a variant is selected (click / lasso) or focused
+    // (tour/menu), fade + gray every OTHER variant so the chosen one pops out. Mirrors
+    // snpindel.js draw(). The spotlight state lives on the GENE, but this renderer receives the
+    // GRID as `graph` — resolve the gene via its back-reference (set in gene.js).
+    const __G = graph.__gene || graph;
+    const __focusOn = !!(__G.__focusSnp && __G.__focusUntil && Date.now() < __G.__focusUntil);
+    const __selOn = !!__G.__snpSelectionActive;
+    const __spotAny = __focusOn || __selOn;
+
     for (const s of snpsv) {
-      // Zoomed-out uses a different lollipop geometry than the zoomed-in marker, so drop any
-      // stale screen hit region — selection here falls back to getClosestSnpindel2D.
+      // Zoomed-out uses a different lollipop geometry than the zoomed-in marker. Rebuild the
+      // screen hit region from the ACTUAL drawn lollipop head(s) below so both click-select
+      // (getSNPs -> over -> _hitScreen) and the freehand lasso hit the visible marker, not the
+      // world point down at the track baseline (which is nowhere near the raised head).
       s._hitScreen = null;
       // Color by clinical significance (grey / blue / red+glow), same as the zoomed-in
       // marker; fall back to the type color when there's no clinsigStyle.
       const csStyle = (typeof s.clinsigStyle === 'function') ? s.clinsigStyle() : null;
       const baseColor = csStyle ? csStyle.color : getTypeColor(s);
 
+      // Spotlight state for this marker: is it the chosen one, or dimmed background?
+      const __inSpot = (__focusOn && __G.__focusSnp === s) || (__selOn && s.highlight);
+      const __dimmed = __spotAny && !__inSpot;
+      const effColor = __dimmed ? 'rgba(148,163,184,0.85)' : baseColor;
+
       ctx.strokeStyle = STYLE.stroke;
-      ctx.fillStyle = baseColor;
+      ctx.fillStyle = effColor;
 
       ctx.setLineDash(s.type === "ins" || s.type === "del" ? STYLE.dashIndel : STYLE.dashDefault);
 
@@ -934,6 +952,9 @@ return new Promise(async (resolve, reject) => {
 
       for (const dir of dirs) {
         ctx.save();
+
+        // Background variants fade back; the selected/focused one stays fully opaque.
+        if (__dimmed) ctx.globalAlpha = 0.3;
 
         const edir = -dir;
         const cy = trackYminScreen;
@@ -1005,7 +1026,19 @@ return new Promise(async (resolve, reject) => {
         ctx.setLineDash(STYLE.dashDefault);
         ctx.strokeStyle = "rgba(0,0,0,0.35)";
 
-        if (csStyle && csStyle.glow) {
+        if (__dimmed) {
+          // Dimmed background variant: no glow, it should recede.
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        } else if (__inSpot) {
+          // Selected/focused variant pops with a bright accent halo.
+          ctx.shadowColor = (csStyle && csStyle.glow) ? csStyle.glow : GX_ACCENT;
+          ctx.shadowBlur = 20;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        } else if (csStyle && csStyle.glow) {
           // Pathogenic red glow.
           ctx.shadowColor = csStyle.glow;
           ctx.shadowBlur = 12;
@@ -1028,22 +1061,38 @@ return new Promise(async (resolve, reject) => {
           ctx.shadowOffsetY = 0;
         }
 
-        ctx.fillStyle = baseColor;
-        drawGlyphForType(s, bx, by, r);
+        ctx.fillStyle = effColor;
+        // The chosen variant draws a touch larger so it reads as raised above the rest.
+        drawGlyphForType(s, bx, by, __inSpot ? r + 1.5 : r);
 
-        if (s.highlight) {
+        if (s.highlight || __inSpot) {
           ctx.shadowColor = "transparent";
           ctx.shadowBlur = 0;
+          ctx.globalAlpha = 1;
           ctx.strokeStyle = STYLE.highlightStroke;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = __inSpot ? 3 : 2;
           ctx.beginPath();
-          ctx.arc(bx, by, r + 2, 0, Math.PI * 2);
+          ctx.arc(bx, by, r + (__inSpot ? 4 : 2), 0, Math.PI * 2);
           ctx.stroke();
           ctx.lineWidth = STYLE.lineWidth;
         }
 
         ctx.restore();
         placedBalls.push({ x: bx, y: by, r });
+
+        // Record the drawn head as this SNP's screen hit region (union across phase dirs), so
+        // click-selection and lasso test the visible lollipop head. Includes the highlight ring.
+        const __hr = r + 3;
+        const __hx0 = bx - __hr, __hy0 = by - __hr, __hx1 = bx + __hr, __hy1 = by + __hr;
+        if (!s._hitScreen) {
+          s._hitScreen = { x: __hx0, y: __hy0, w: __hr * 2, h: __hr * 2 };
+        } else {
+          const _x0 = Math.min(s._hitScreen.x, __hx0);
+          const _y0 = Math.min(s._hitScreen.y, __hy0);
+          const _x1 = Math.max(s._hitScreen.x + s._hitScreen.w, __hx1);
+          const _y1 = Math.max(s._hitScreen.y + s._hitScreen.h, __hy1);
+          s._hitScreen = { x: _x0, y: _y0, w: _x1 - _x0, h: _y1 - _y0 };
+        }
       }
     }
 
@@ -1166,7 +1215,7 @@ return new Promise(async (resolve, reject) => {
     showLayers = true;
     showOfftargets = true;
     showOligoMap = false;
-    showArc = true;
+    showArc = false;
     orf;
     orfhash;
     id = uuid();
@@ -1191,6 +1240,7 @@ return new Promise(async (resolve, reject) => {
       this.tgraph.setymin(0);
       this.tgraph.setSize(xf - xi, -1);
       this.tgraph.setInset(0, 0);
+      this.tgraph.snapPixels = false;   // tgraph.X returns WORLD coords (intermediate) — never snap these
       this.tgraph.height = this.default_track_height;
       this.tgraph.rescale();
       this.structure = null;
@@ -2873,8 +2923,8 @@ return new Promise(async (resolve, reject) => {
 
           const yRow = this.tgraph.Y(0.1 + i * 0.075);
 
-          const x0 = Math.floor(this.tgraph.X(a0));
-          const x1 = Math.floor(this.tgraph.X(a1));
+          const x0 = Math.round(this.tgraph.X(a0));
+          const x1 = Math.round(this.tgraph.X(a1));
 
           const fwdSeq = (h.forward_primer || "").toString();
           const revSeq = (h.reverse_primer || "").toString();
@@ -2886,8 +2936,8 @@ return new Promise(async (resolve, reject) => {
             const f0 = a0;
             const f1 = Math.min(a1, a0 + fLen);
             if (f1 > f0) {
-              const fx0 = Math.floor(this.tgraph.X(f0));
-              const fx1 = Math.floor(this.tgraph.X(f1));
+              const fx0 = Math.round(this.tgraph.X(f0));
+              const fx1 = Math.round(this.tgraph.X(f1));
               boxes.push({
                 x1: fx0,
                 y1: yRow - 10,
@@ -2907,8 +2957,8 @@ return new Promise(async (resolve, reject) => {
             const r1 = a1;
             const r0 = Math.max(a0, a1 - rLen);
             if (r1 > r0) {
-              const rx0 = Math.floor(this.tgraph.X(r0));
-              const rx1 = Math.floor(this.tgraph.X(r1));
+              const rx0 = Math.round(this.tgraph.X(r0));
+              const rx1 = Math.round(this.tgraph.X(r1));
               boxes.push({
                 x1: rx0,
                 y1: yRow - 10,
@@ -2941,8 +2991,8 @@ return new Promise(async (resolve, reject) => {
             }
 
             if (pr1 > pr0) {
-              const px0 = Math.floor(this.tgraph.X(pr0));
-              const px1 = Math.floor(this.tgraph.X(pr1));
+              const px0 = Math.round(this.tgraph.X(pr0));
+              const px1 = Math.round(this.tgraph.X(pr1));
               boxes.push({
                 x1: px0,
                 y1: yRow - 10,
@@ -3772,8 +3822,11 @@ return new Promise(async (resolve, reject) => {
 
     getHighlightedSequence() {
       if (this.markstart != null && this.markstart >= 0) {
-        let startindex = Math.floor(this.markstart - this.xi);
-        let endindex = Math.floor(this.markend - this.xi);
+        // markstart/markend may be WORLD coords (>= xi) or 0-based offsets (< xi) — normalize both
+        // to 0-based sequence indices.
+        const toIdx = (m) => { m = Math.floor(m); return (m >= this.xi) ? (m - this.xi) : m; };
+        let startindex = toIdx(this.markstart);
+        let endindex = toIdx(this.markend);
 
         if (this.sequence) {
           return this.sequence.substring(startindex, endindex);
@@ -6048,6 +6101,23 @@ return new Promise(async (resolve, reject) => {
             // Exon shape (gene-draw.js) can drop badges whose circles/numbers would
             // overlap the previous one, without the anchor leaking across frames.
             graph.__exonBadgeLastX = null;
+            graph.__exonBadgeXs = [];   // exon-index badges kept on THIS track this frame (collision list)
+            // Track-level coordinate-label declutter: a "c." tick or exon-index number is
+            // suppressed if it would collide with ANY coordinate already drawn on this SAME
+            // track this frame — the anchor must span all exon annotations, not reset per exon.
+            const _trackNumXs = [];
+            const _trackMajorXs = [];
+            // Visible track-world range (screen edges → this track's local coords). Zoomed in,
+            // an exon can span thousands of bases while only a handful are on screen — skip the
+            // off-screen ones so we don't compute an X()/draw per base across the whole exon.
+            let _viewLo = -Infinity, _viewHi = Infinity;
+            try {
+              const _gL = graph.Xwc(0), _gR = graph.Xwc(graph.grid.width);
+              const _tL = this.tgraph.Xwc(_gL - 2 * this.tgraph.xi);
+              const _tR = this.tgraph.Xwc(_gR - 2 * this.tgraph.xi);
+              _viewLo = Math.min(_tL, _tR) - 2;
+              _viewHi = Math.max(_tL, _tR) + 2;
+            } catch (e) { }
             for (let a of this.annotations) {
               a.gxi = Math.floor(a.gxi);
               a.gxf = Math.floor(a.gxf);
@@ -6084,12 +6154,12 @@ return new Promise(async (resolve, reject) => {
                       exonIndex = 1;
                     }
 
-                    let _lastPx = null;
                     for (let _i = hi; _i >= lo; _i--) {
-                      const _px = graph.grid.X(Math.floor(this.tgraph.X(_i)));
-                      if (_lastPx === null || Math.abs(_px - _lastPx) >= 22) {   // hide overlapping numbers
-                        graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_DEL, this.detail_ffont6);
-                        _lastPx = _px;
+                      if (_i < _viewLo || _i > _viewHi) { exonIndex++; if (exonIndex > stopIndex) break; continue; }   // off-screen: advance c-index, skip draw
+                      const _px = graph.grid.X(Math.round(this.tgraph.X(_i)));
+                      if (!_trackNumXs.some((px) => Math.abs(_px - px) < 22)) {   // hide numbers overlapping any on this track
+                        graph.drawString("  " + exonIndex + "  ", Math.round(this.tgraph.X(_i)), this.tgraph.Y(-0.05), GX_DEL, this.detail_ffont6);
+                        _trackNumXs.push(_px);
                       }
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
@@ -6102,12 +6172,12 @@ return new Promise(async (resolve, reject) => {
                       exonIndex = 1;
                     }
 
-                    let _lastPx = null;
                     for (let _i = lo; _i <= hi; _i++) {
-                      const _px = graph.grid.X(Math.floor(this.tgraph.X(_i)));
-                      if (_lastPx === null || Math.abs(_px - _lastPx) >= 22) {   // hide overlapping numbers
-                        graph.drawString("  " + exonIndex + "  ", Math.floor(this.tgraph.X(_i)), this.tgraph.Y(-0.1), GX_INS, this.detail_ffont6);
-                        _lastPx = _px;
+                      if (_i < _viewLo || _i > _viewHi) { exonIndex++; if (exonIndex > stopIndex) break; continue; }   // off-screen: advance c-index, skip draw
+                      const _px = graph.grid.X(Math.round(this.tgraph.X(_i)));
+                      if (!_trackNumXs.some((px) => Math.abs(_px - px) < 22)) {   // hide numbers overlapping any on this track
+                        graph.drawString("  " + exonIndex + "  ", Math.round(this.tgraph.X(_i)), this.tgraph.Y(-0.1), GX_INS, this.detail_ffont6);
+                        _trackNumXs.push(_px);
                       }
                       exonIndex++;
                       if (exonIndex > stopIndex) break;
@@ -6119,7 +6189,6 @@ return new Promise(async (resolve, reject) => {
                   const lo = Math.min(start, end);
                   const hi = Math.max(start, end);
 
-                  let lastMajorLabelX = null;
                   const minimumLabelSpacing = 55; // pixels between labels
 
                   if (this.strand < 0) {
@@ -6129,8 +6198,8 @@ return new Promise(async (resolve, reject) => {
                     }
 
                     for (let _i = hi; _i >= lo; _i--) {
-                      if (exonIndex % 200 === 0) {
-                        const result = drawExonMajorTickAt(
+                      if (exonIndex % 200 === 0 && _i >= _viewLo && _i <= _viewHi) {
+                        drawExonMajorTickAt(
                           ctx,
                           graph,
                           this.tgraph,
@@ -6138,13 +6207,9 @@ return new Promise(async (resolve, reject) => {
                           exonIndex,
                           GX_INK,
                           this.detail_ffont6,
-                          lastMajorLabelX,
+                          _trackMajorXs,
                           minimumLabelSpacing
                         );
-
-                        if (result.labelDrawn) {
-                          lastMajorLabelX = result.screenX;
-                        }
                       }
 
                       exonIndex++;
@@ -6160,8 +6225,8 @@ return new Promise(async (resolve, reject) => {
                     }
 
                     for (let _i = lo; _i <= hi; _i++) {
-                      if (exonIndex % 200 === 0) {
-                        const result = drawExonMajorTickAt(
+                      if (exonIndex % 200 === 0 && _i >= _viewLo && _i <= _viewHi) {
+                        drawExonMajorTickAt(
                           ctx,
                           graph,
                           this.tgraph,
@@ -6169,13 +6234,9 @@ return new Promise(async (resolve, reject) => {
                           exonIndex,
                           GX_INK,
                           this.detail_ffont6,
-                          lastMajorLabelX,
+                          _trackMajorXs,
                           minimumLabelSpacing
                         );
-
-                        if (result.labelDrawn) {
-                          lastMajorLabelX = result.screenX;
-                        }
                       }
 
                       exonIndex++;
@@ -6380,14 +6441,14 @@ return new Promise(async (resolve, reject) => {
               let seq_index = Math.floor(index - Math.floor(this.xi));
               if (seq_index < this.sequence.length && this.sequence[seq_index]) {
                 if (screencell > 30 && screencell > 0.05) {
-                  graph.drawString(this.genomicAt(seq_index), Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
+                  graph.drawString(this.genomicAt(seq_index), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
                   graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
                       if (oor.index === index && oor.ci === 1) {
                         let color = codon_colors(oor.aa);
                         // Codon center = middle of the 3-base cell span [cellX-1, cellX+2].
-                        const cellX = Math.floor(this.tgraph.X(index));
+                        const cellX = Math.round(this.tgraph.X(index));
                         // Peptide letter CENTERED over its codon, just above the nucleotide row.
                         drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.detail_ffont4);
                         // Codon bracket: a line under the residue spanning the codon's 3 bases
@@ -6399,9 +6460,9 @@ return new Promise(async (resolve, reject) => {
                     }
                   }
                   if (this.highlightIndex > 0 && this.highlightIndex === index) {
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFontLarge);
+                    graph.drawString(this.sequence[seq_index], Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFontLarge);
                   } else {
-                    graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
+                    graph.drawString(this.sequence[seq_index], Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                   }
 
                   let deg = 0;
@@ -6414,7 +6475,7 @@ return new Promise(async (resolve, reject) => {
                       if (oor.index === index && oor.ci === 1) {
                         let color = codon_colors(oor.aa);
                         // Peptide centered over its codon, just above the nucleotides (see above).
-                        const cellX = Math.floor(this.tgraph.X(index));
+                        const cellX = Math.round(this.tgraph.X(index));
                         drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.font);
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
                         drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
@@ -6427,7 +6488,7 @@ return new Promise(async (resolve, reject) => {
                   }
                   if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
 
-                  graph.drawString(this.sequence[seq_index], Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
+                  graph.drawString(this.sequence[seq_index], Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                 }
               } else {
                 // Outside the track: draw flanking GENOMIC sequence for visual reference
@@ -6436,8 +6497,8 @@ return new Promise(async (resolve, reject) => {
                 try { __gp = this.flankGenomicAt(seq_index); __fb = this.flankBaseAt(__gp); } catch (e) { }
                 if (__fb) {
                   try {
-                    graph.drawString(__fb, Math.floor(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
-                    if (screencell > 30) graph.drawString('g.' + _abbrevPos(__gp), Math.floor(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
+                    graph.drawString(__fb, Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
+                    if (screencell > 30) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
                   } catch (e) { }
                 } else {
                   graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
@@ -6507,8 +6568,8 @@ return new Promise(async (resolve, reject) => {
                 const vxf = (sid.xf != null ? sid.xf : sid.xi + 1);
                 const vlo = Math.min(vxi, vxf), vhi = Math.max(vxi, vxf);
                 if (vhi < tx_world_start || vlo > tx_world_end) continue;   // out of view
-                const hx0 = graph.X(Math.floor(this.tgraph.X(vxi)));
-                const hx1 = graph.X(Math.floor(this.tgraph.X(vxf)));
+                const hx0 = graph.X(Math.round(this.tgraph.X(vxi)));
+                const hx1 = graph.X(Math.round(this.tgraph.X(vxf)));
                 const hrx = Math.min(hx0, hx1) - 2;
                 const hrw = Math.abs(hx1 - hx0) + 4;
                 if (hrw > 1 && hrh > 1) {
@@ -6529,7 +6590,7 @@ return new Promise(async (resolve, reject) => {
           if (trackScreenWidth > 40 && screencell > 0.05) {
             let increment = (this.tgraph.xmax - this.tgraph.xmin) / 4;
             for (let idx = this.tgraph.xmin; idx < this.tgraph.xmax; idx += increment) {
-              graph.drawVerticalLine(Math.floor(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, GX_GUIDE, 1);
+              graph.drawVerticalLine(Math.round(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, GX_GUIDE, 1);
               graph.drawString(Math.floor(idx) + "", this.tgraph.X(idx), this.tgraph.Y(this.tgraph.ymin), GX_INTRON);
             }
 
@@ -6594,10 +6655,13 @@ return new Promise(async (resolve, reject) => {
         // Non-linear genomic mapping for cDNA/derived children (introns removed / region
         // cut out) via trackRef.genomeMap; linear fallback for a plain genomic track.
         for (let index = first; index <= tx_world_end; index += step) {
+          // Don't draw genomic indexes / direction arrows past the ends of the track — only
+          // between the track's own start and end (in track-world coords).
+          if (index < this.xi || index > this.xf) continue;
           const seq_index = Math.floor(index - xiInt);
           const genomicPos = this.genomicAt(seq_index);
 
-          const sx = Math.floor(graph.grid.X(this.tgraph.X(index)));
+          const sx = Math.round(graph.grid.X(this.tgraph.X(index)));
           const syTick = graph.grid.Y(this.tgraph.Y(y + this.tgraph.ymax)) + 15;
 
           ctx.strokeStyle = GX_RING;
@@ -6641,7 +6705,11 @@ return new Promise(async (resolve, reject) => {
           ctx.fillStyle = GX_GTAG;
           ctx.textAlign = "left";
           ctx.textBaseline = "alphabetic";
-          ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
+          if (screencell > 5 && graph.canvas) {
+            ctx.fillText("g." + (genomicPos), 0, 0);
+
+          } else
+            ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
 
           ctx.restore();
         }
@@ -6712,8 +6780,8 @@ return new Promise(async (resolve, reject) => {
 
               const yRow = this.tgraph.Y(0.1 + i * 0.075);
 
-              const x0 = Math.floor(this.tgraph.X(a0));
-              const x1 = Math.floor(this.tgraph.X(a1));
+              const x0 = Math.round(this.tgraph.X(a0));
+              const x1 = Math.round(this.tgraph.X(a1));
 
               drawSegmentWithHalo(x0, x1, yRow, color, halo, 6, 14);
 
@@ -6743,8 +6811,8 @@ return new Promise(async (resolve, reject) => {
               const r0 = Math.max(a0, a1 - rLen);
 
               if (fLen > 0 && f1 > f0) {
-                const fx0 = Math.floor(this.tgraph.X(f0));
-                const fx1 = Math.floor(this.tgraph.X(f1));
+                const fx0 = Math.round(this.tgraph.X(f0));
+                const fx1 = Math.round(this.tgraph.X(f1));
                 drawSegmentWithHalo(fx0, fx1, yRow, fwdColor, fwdHalo, 10, 18);
                 drawBox(fx0, fx1, yRow, 0.01, fwdColor, 2);
 
@@ -6764,8 +6832,8 @@ return new Promise(async (resolve, reject) => {
               }
 
               if (rLen > 0 && r1 > r0) {
-                const rx0 = Math.floor(this.tgraph.X(r0));
-                const rx1 = Math.floor(this.tgraph.X(r1));
+                const rx0 = Math.round(this.tgraph.X(r0));
+                const rx1 = Math.round(this.tgraph.X(r1));
                 drawSegmentWithHalo(rx0, rx1, yRow, revColor, revHalo, 10, 18);
                 drawBox(rx0, rx1, yRow, 0.01, revColor, 2);
 
@@ -6801,8 +6869,8 @@ return new Promise(async (resolve, reject) => {
                 }
 
                 if (pr1 > pr0) {
-                  const px0 = Math.floor(this.tgraph.X(pr0));
-                  const px1 = Math.floor(this.tgraph.X(pr1));
+                  const px0 = Math.round(this.tgraph.X(pr0));
+                  const px1 = Math.round(this.tgraph.X(pr1));
                   drawSegmentWithHalo(px0, px1, yRow, probeColor, probeHalo, 10, 18);
                   drawBox(px0, px1, yRow, 0.01, probeColor, 2);
 
@@ -6838,14 +6906,14 @@ return new Promise(async (resolve, reject) => {
               }
               if (showPrimerText) {
                 if (fwd && Number.isFinite(f0) && Number.isFinite(f1) && f1 > f0) {
-                  const fx0 = Math.floor(this.tgraph.X(f0));
-                  const fx1 = Math.floor(this.tgraph.X(f1));
+                  const fx0 = Math.round(this.tgraph.X(f0));
+                  const fx1 = Math.round(this.tgraph.X(f1));
                   graph.drawString(`F: ${truncSeq(fwd)}`, fx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
                 if (rev && Number.isFinite(r0) && Number.isFinite(r1) && r1 > r0) {
-                  const rx0 = Math.floor(this.tgraph.X(r0));
-                  const rx1 = Math.floor(this.tgraph.X(r1));
+                  const rx0 = Math.round(this.tgraph.X(r0));
+                  const rx1 = Math.round(this.tgraph.X(r1));
                   graph.drawString(`R: ${truncSeq(rev)}`, rx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
@@ -6895,7 +6963,7 @@ return new Promise(async (resolve, reject) => {
             let colorMap = null;
             if (this.potential_motifds_in_selected_space) {
               let res = generateColorMapFromDiscoveries(seqq, 0, seqq.length, this.potential_motifds_in_selected_space, {
-                indexToScreenX: (i) => Math.floor(graph.grid.X(this.tgraph.X(i + this.markstart))),
+                indexToScreenX: (i) => Math.round(graph.grid.X(this.tgraph.X(i + this.markstart))),
                 baseYPixel: graph.grid.Y(this.tgraph.Y(y)) + 15,
                 segmentWidthPx: 10,
                 hitboxPadY: 6,
@@ -6937,7 +7005,7 @@ return new Promise(async (resolve, reject) => {
                 if (genomicPos % 100 !== 0) continue;
 
                 {
-                  const sx = graph.grid.X(Math.floor(this.tgraph.X(index)));
+                  const sx = graph.grid.X(Math.round(this.tgraph.X(index)));
                   const sy = 100 + graph.grid.Y(this.tgraph.Y(-0.09)) - 5;
                   ctx.save();
                   ctx.translate(sx, sy);
@@ -6960,11 +7028,13 @@ return new Promise(async (resolve, reject) => {
               }
 
               for (let seq_index = 0; seq_index < end_select_index - start_select_index; seq_index++) {
+                const _w = seq_index + seq_index_start;
+                if (_w < tx_world_start || _w > tx_world_end) continue;   // off-screen selected base — skip
                 if (colorMap && seq_index < seqq.length && seqq[seq_index]) {
                   const col = colorMap[seq_index] || GX_INTRON;
-                  graph.drawString(seqq[seq_index], Math.floor(this.tgraph.X(seq_index + seq_index_start)) + 0.2, this.tgraph.Y(0.012), col, seq_font);
+                  graph.drawString(seqq[seq_index], Math.round(this.tgraph.X(seq_index + seq_index_start)) + 0.2, this.tgraph.Y(0.012), col, seq_font);
 
-                  const sx = Math.floor(graph.grid.X(this.tgraph.X(seq_index + this.markstart)));
+                  const sx = Math.round(graph.grid.X(this.tgraph.X(seq_index + this.markstart)));
                   const sy = graph.grid.Y(this.tgraph.Y(y)) + 15;
 
                   ctx.fillStyle = col;
@@ -7018,8 +7088,13 @@ return new Promise(async (resolve, reject) => {
           const yMax = this.tgraph.getymax();
           const yMid = (yMax + yMin) / 2;
 
-          const xStart = Math.floor(this.tgraph.X(this.markstart));
-          const xEnd = Math.floor(this.tgraph.X(this.markend));
+          // markstart/markend may be WORLD coords (>= xi) or 0-based offsets from track start
+          // (< xi). tgraph.X() maps a WORLD coord to screen, so normalize offsets to world first —
+          // otherwise a small offset (e.g. 100) maps far to the left of a genomic track (xi ≈ 1e7)
+          // and the selection window is drawn off-screen.
+          const __toWorld = (m) => (m != null && m < this.xi) ? (this.xi + m) : m;
+          const xStart = Math.round(this.tgraph.X(__toWorld(this.markstart)));
+          const xEnd = Math.round(this.tgraph.X(__toWorld(this.markend)));
 
           const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -7232,6 +7307,36 @@ return new Promise(async (resolve, reject) => {
         const nameY = this.tgraph.Y(this.tgraph.ymax - (this.tgraph.ymax - this.tgraph.ymin) / 2);
 
         graph.drawString(this.name, nameX, nameY, GX_INK, this.detail_ffont7);
+
+        // Persistent track-name watermark: a faint label pinned to the LEFT edge of the visible
+        // track at its vertical centre, drawn in SCREEN space so it stays on screen no matter how
+        // far you pan / zoom into a feature — as long as the track is in view, its name is too.
+        try {
+          const _wctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+          if (_wctx && this.name) {
+            const _cw = _wctx.canvas.width, _ch = _wctx.canvas.height;
+            const _l = graph.grid.X(this.tgraph.X(this.xi));
+            const _r = graph.grid.X(this.tgraph.X(this.xf));
+            const _lo = Math.min(_l, _r), _hi = Math.max(_l, _r);
+            const _scy = graph.grid.Y(nameY);
+            // Only when the track band is on screen (vertically) and any of it is visible (horizontally).
+            if (_scy > -30 && _scy < _ch + 30 && _hi > 0 && _lo < _cw) {
+              _wctx.save();
+              _wctx.shadowColor = 'transparent'; _wctx.shadowBlur = 0;
+              _wctx.font = 'bold 20px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+              _wctx.textAlign = 'left';
+              _wctx.textBaseline = 'middle';
+              const _tw = _wctx.measureText(this.name).width;
+              // Pin to the left edge of the VISIBLE portion of the track (canvas margin if the
+              // track's start is off-screen left), but never let it run past the track's right end.
+              let _nx = Math.max(8, _lo);
+              _nx = Math.min(_nx, Math.max(8, _hi - _tw - 8));
+              _wctx.fillStyle = 'rgba(10,37,64,0.14)';   // faint navy watermark
+              _wctx.fillText(this.name, _nx, _scy);
+              _wctx.restore();
+            }
+          }
+        } catch (e) { }
 
         let headerText;
 

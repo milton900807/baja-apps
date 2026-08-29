@@ -84,6 +84,15 @@ function (graph, genegraph_panel_layout, selectedTrack) {
     const showMain = () => {
         const items = [
             {
+                // Tile + score oligos by the current chemistry's rules — restricted to the SELECTED
+                // region (tile-oligos-design.js designs only across markstart..markend when set).
+                label: 'Design by rules (tile & score)', move: () => { log(''); }, click: () => {
+                    graph.showSideMenu(null);
+                    if (!st) { graph.setMessage(' Select a sequence on a track first. '); return; }
+                    exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout);
+                }
+            },
+            {
                 label: 'Sequence Details', move: () => { log(''); }, click: () => {
                     graph.showSideMenu(null);
                     if (st) exec('baja/manchester/menu/show-selected-sequence-details.js', st, graph, genegraph_panel_layout);

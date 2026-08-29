@@ -95,6 +95,11 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                             }
                             if (mouseDownListener) {
                                 this.grid.rescale();
+                                // Stash the RAW screen coords so on-canvas UI (nav buttons,
+                                // info/selection panels) can hit-test in pixel space without a
+                                // world round-trip — that round-trip loses precision at very high
+                                // zoom and makes fixed-position buttons hard to click.
+                                this.__downScreen = { x: scx, y: scy };
                                 mouseDownListener(this.grid.Xwc(scx), this.grid.Ywc(scy));
                             }
 
@@ -218,6 +223,13 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                                     return;
                             }
                             if (this.mode == 'navigate' && mouse_down) {
+                                // Motion LOD: while actively panning, drop the chemistry to simple
+                                // beads (skip sugar rings / phosphate glyphs / labels) so dragging
+                                // stays smooth; restore full detail ~180ms after motion stops, and
+                                // repaint once so the detailed frame renders.
+                                this.__lowDetail = true;
+                                try { if (this.__lodTimer) clearTimeout(this.__lodTimer); } catch (e) { }
+                                try { this.__lodTimer = setTimeout(() => { this.__lowDetail = false; if (mdel && mdel.wake) mdel.wake(); }, 180); } catch (e) { }
                                 let xd = px - this.grid.Xwc(scx);
                                 let yd = py - this.grid.Ywc(scy);
                                 this.grid.setxmin(this.grid.getxmin() + xd);
@@ -229,6 +241,7 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
 
                             if (mouseMoveListener) {
                                 this.grid.rescale();
+                                this.__moveScreen = { x: scx, y: scy };   // raw screen coords for pixel-space UI hit-testing (see mouseDown)
                                 mouseMoveListener(this.grid.Xwc(scx), this.grid.Ywc(scy));
                             }
                             if (this.menu)
@@ -1410,6 +1423,9 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                 }
                 this.grid.setWidth(w)
                 this.grid.setHeight(h)
+                this.grid.snapPixels = true;   // main grid: snap world→screen output to whole pixels
+                this.__domainLabelSpans = [];  // per-frame: protein-domain label collision spans (stagger)
+                this.__annoBoxes = [];         // per-frame: SnpIndel annotation callout boxes (anti-overlap)
                 this.grid.rescale();
 
                 var ctx = this.canvas.getCTX();

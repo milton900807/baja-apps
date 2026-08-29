@@ -608,21 +608,26 @@ return new Promise(async (resolve, reject) => {
         }
 
         wrapText(context, text, maxWidth) {
-            const words = text.split(' ');
+            // Honor EXPLICIT line breaks ('\n') first — e.g. a multi-field metadata label — then
+            // word-wrap each line to maxWidth. Plain strings (no '\n') behave exactly as before.
             let lines = [];
-            let currentLine = words[0];
-            if (!words || words.length === 0) return lines
-            for (let i = 1; i < words.length; i++) {
-                const word = words[i];
-                const width = context.measureText(currentLine + " " + word).width;
-                if (width < maxWidth) {
-                    currentLine += " " + word;
-                } else {
-                    lines.push(currentLine);
-                    currentLine = word;
+            const paragraphs = ('' + (text == null ? '' : text)).split('\n');
+            for (const para of paragraphs) {
+                const words = para.split(' ');
+                if (!words.length) { lines.push(''); continue; }
+                let currentLine = words[0];
+                for (let i = 1; i < words.length; i++) {
+                    const word = words[i];
+                    const width = context.measureText(currentLine + " " + word).width;
+                    if (width < maxWidth) {
+                        currentLine += " " + word;
+                    } else {
+                        lines.push(currentLine);
+                        currentLine = word;
+                    }
                 }
+                lines.push(currentLine);
             }
-            lines.push(currentLine);
             return lines;
         }
 
@@ -899,7 +904,7 @@ return new Promise(async (resolve, reject) => {
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > 0.4) {
+                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) {
                         let text;
                         if (int.t) {
                             text = int.t;
@@ -1143,7 +1148,7 @@ return new Promise(async (resolve, reject) => {
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > 0.4) {
+                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) {
                         let text;
                         if (int.t) {
                             text = int.t;
