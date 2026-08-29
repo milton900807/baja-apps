@@ -54,20 +54,20 @@ function () {
     // kinds are visually distinguishable at a glance. Nearby sites stack by their label lane
     // (assigned in track.add) so their icons/labels don't collide on the X axis.
     const CDD_SITE_STYLES = {
-        active:       { color: '#e11d48', icon: 'circledot',    tag: 'active site' },
-        catalytic:    { color: '#ea580c', icon: 'star',         tag: 'catalytic' },
-        substrate:    { color: '#0d9488', icon: 'triangle',     tag: 'substrate binding' },
-        nucleotide:   { color: '#7c3aed', icon: 'diamond',      tag: 'nucleotide binding' },
-        metal:        { color: '#ca8a04', icon: 'hexagon',      tag: 'metal binding' },
-        dna:          { color: '#2563eb', icon: 'square',       tag: 'nucleic-acid binding' },
-        interface:    { color: '#475569', icon: 'doublecircle', tag: 'interface' },
-        inhibitor:    { color: '#9f1239', icon: 'triangledown', tag: 'inhibitor binding' },
-        cofactor:     { color: '#c026d3', icon: 'pentagon',     tag: 'cofactor binding' },
-        modification: { color: '#d97706', icon: 'cross',        tag: 'modification site' },
-        cleavage:     { color: '#1f2937', icon: 'notch',        tag: 'cleavage site' },
-        ion:          { color: '#0891b2', icon: 'smallsquare',  tag: 'ion binding' },
-        peptide:      { color: '#16a34a', icon: 'chevron',      tag: 'peptide binding' },
-        other:        { color: '#6b7280', icon: 'circle',       tag: 'site' },
+        active:       { color: '#e11d48', icon: 'circledot',    tag: 'AS' },
+        catalytic:    { color: '#ea580c', icon: 'star',         tag: 'CAT' },
+        substrate:    { color: '#0d9488', icon: 'triangle',     tag: 'SUB' },
+        nucleotide:   { color: '#7c3aed', icon: 'diamond',      tag: 'NTP' },
+        metal:        { color: '#ca8a04', icon: 'hexagon',      tag: 'M' },
+        dna:          { color: '#2563eb', icon: 'square',       tag: 'NA' },
+        interface:    { color: '#475569', icon: 'doublecircle', tag: 'IF' },
+        inhibitor:    { color: '#9f1239', icon: 'triangledown', tag: 'INH' },
+        cofactor:     { color: '#c026d3', icon: 'pentagon',     tag: 'COF' },
+        modification: { color: '#d97706', icon: 'cross',        tag: 'MOD' },
+        cleavage:     { color: '#1f2937', icon: 'notch',        tag: 'CLV' },
+        ion:          { color: '#0891b2', icon: 'smallsquare',  tag: 'ION' },
+        peptide:      { color: '#16a34a', icon: 'chevron',      tag: 'PEP' },
+        other:        { color: '#6b7280', icon: 'circle',       tag: '' },
     };
 
     const drawCddGlyph = (ctx, kind, cx, cy, r, color) => {
@@ -113,38 +113,60 @@ function () {
         ctx.restore();
     };
 
-    // Draw one CDD functional site: a stem from the track up to the category glyph, plus the
-    // site's name when zoomed in enough to read it. `catKey` is a CDD_SITE_STYLES key.
+    // Draw one CDD functional site: a stem from the track up to its glyph, a short TAG code
+    // (so the many site kinds stay distinguishable even where icons repeat — GEF / Mg / PLP / …),
+    // and the full site name when zoomed in. The full style ({color,icon,tag,label}) is resolved
+    // from the CDD vocabulary at creation and stored on the annotation as `__cdd`
+    // (protein-domains.js); `catKey` is only a legacy fallback into CDD_SITE_STYLES.
     const drawCddSite = (graph, tgraph, xs, xf, y, annotation, catKey) => {
-        const st = CDD_SITE_STYLES[catKey] || CDD_SITE_STYLES.other;
+        const st = (annotation && annotation.__cdd) || CDD_SITE_STYLES[catKey] || CDD_SITE_STYLES.other;
         const cx = graph.X((xs + xf) / 2);
         const cyTrack = graph.Y(y);
-        const screencell = graph.screenWidth(tgraph.screenWidth(1));
         const lane = Math.max(0, (annotation.__labelLane | 0));
-        const r = 5.5;
-        const gy = cyTrack - (15 + lane * 15);   // glyph sits above the track; lanes stack upward
+        const r = 4.5;
+        // Sit the glyph ABOVE the peptide/amino-acid sequence row so it never overlaps the
+        // residue letters. track.js draws that row ~ (seqPx + gap) px above the track baseline,
+        // with seqPx ≈ min(screencell*0.8, 44) once the sequence is visible (screencell > 5).
+        const screencell = graph.screenWidth(tgraph.screenWidth(1));
+        let pepClear = 6;
+        if (screencell > 5) { pepClear = Math.max(11, Math.min(Math.round(screencell * 0.8), 44)) + 12; }
+        const anchorY = cyTrack - pepClear;
+        // Keep the whole glyph + label stack WITHIN the track's screen height so it never spills
+        // into the neighbouring track. The per-track recheck (track.js) scales __laneStepPx so all
+        // lanes fit; clamp here as a failsafe against the track shrinking between rechecks.
+        const trackHpx = Math.abs(graph.screenHeight ? graph.screenHeight(tgraph.height) : 46) || 46;
+        const base = (annotation.__laneBasePx != null) ? annotation.__laneBasePx : 12;
+        const step = (annotation.__laneStepPx != null) ? annotation.__laneStepPx : 16;
+        let up = base + lane * step;
+        const maxUp = Math.max(8, trackHpx - pepClear - 4);
+        if (up > maxUp) up = maxUp;
+        const gy = anchorY - up;
         const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
         if (!ctx) {
             try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
             return;
         }
         ctx.save();
-        // Stem from the residue on the track up to the glyph.
-        ctx.strokeStyle = 'rgba(100,116,139,0.55)'; ctx.lineWidth = 1;
+        // Stem from the residue on the track up to the glyph (the sequence row, drawn after the
+        // annotations, paints over the thin stem so it never obscures a letter).
+        ctx.strokeStyle = 'rgba(100,116,139,0.5)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx, cyTrack); ctx.lineTo(cx, gy + r); ctx.stroke();
-        ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 2; ctx.shadowOffsetY = 1;
         ctx.restore();
         drawCddGlyph(ctx, st.icon, cx, gy, r, st.color);
-        if (screencell > 2.5) {
-            const label = annotation.name || st.tag;
-            try { graph.drawScreenText(('' + label).slice(0, 42), cx + r + 3, gy + 3, '#0a2540', 9, 'left'); } catch (e) { }
-        }
+        // Always show the site's NAME next to its glyph (with a short colour tag prefix so the
+        // family is still obvious). Drawn to the right at the glyph's height, so it adds no extra
+        // vertical height beyond the glyph and stays inside the track band.
+        const name = ('' + (annotation.name || st.label || st.tag || 'site'));
+        const label = st.tag ? (st.tag + ' ' + name) : name;
+        try { graph.drawScreenText(label.slice(0, 46), cx + r + 3, gy + 3, st.color, 8.5, 'left'); } catch (e) { }
     };
 
-    // One shape entry per CDD site category, all sharing drawCddSite.
+    // Single shared CDD-site shape (style read from annotation.__cdd) plus legacy per-category
+    // aliases, all routed through drawCddSite.
     const cddShape = (catKey) => createIon((graph, tgraph, xs, xf, y, color, annotation) => drawCddSite(graph, tgraph, xs, xf, y, annotation, catKey));
 
     return {
+        'cdd-site': cddShape(null),
         'cdd-active': cddShape('active'),
         'cdd-catalytic': cddShape('catalytic'),
         'cdd-substrate': cddShape('substrate'),

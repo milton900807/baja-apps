@@ -4873,6 +4873,24 @@ function (progress, options) {
                         for (let mdl of this.mouseDownListeners) {
                             mdl(xwc, ywc);
                         }
+                        // No canvas interaction is installed (a tool finished and cleared its
+                        // listeners) — a click on the bare canvas re-arms the default mouse-over
+                        // hover highlight so the user isn't left with a dead canvas.
+                        if (this.mouseDownListeners.length === 0 && this.mouseMoveListeners.length === 0
+                            && this.mouseUpListeners.length === 0 && !this.side_menu && !this.menuVisible()
+                            && !this.__hoverRearming) {
+                            this.__hoverRearming = true;
+                            setTimeout(() => { this.__hoverRearming = false; }, 60);
+                            try {
+                                if (typeof this.__hoverRearm === 'function') {
+                                    this.__hoverRearm();
+                                } else {
+                                    const gpl = this.genegraph_panel_layout
+                                        || (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed ? CurrentLayout.getStashed('genegraph_panel_layout') : null);
+                                    exec('baja/manchester/menu/mouse-over-highlight.js', this, gpl);
+                                }
+                            } catch (e) { }
+                        }
                     }
                 }
                 this.mouseUpListener = async (xwc, ywc) => {

@@ -126,16 +126,16 @@ function () {
                 }
                 if (this.shapeFunction) {
                     this.shapeFunction(graph, tgrid, tgrid.X(this.xi), tgrid.X(this.xf), tgrid.Y(this.y), this.color, this, strand);
-                } else {
-
-                    if (this.name.length > 4) {
-                        let n = this.name.substring(0, 5) + '';
-                        graph.drawString45('' + n, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), 'black', "9px Arial");
+                    // Also show the annotation's NAME. Shapes that render their own label (or are
+                    // point markers with their own text) are skipped so the name isn't drawn twice.
+                    const ty = '' + (this.type || '');
+                    const SELF = { 'PointOfInterest': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1 };
+                    if (this.name && !SELF[ty] && ty.indexOf('cdd-') !== 0) {
+                        graph.drawString45('' + this.name, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), '#0a2540', "9px system-ui, -apple-system, Roboto, Arial, sans-serif");
                     }
-                    else {
-                        graph.drawString45('' + this.name, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), 'black', "9px Arial");
-                    }
-
+                } else if (this.name) {
+                    // No shape function → draw the FULL name (was truncated to 5 chars before).
+                    graph.drawString45('' + this.name, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), '#0a2540', "9px system-ui, -apple-system, Roboto, Arial, sans-serif");
                 }
 
                 if (this.highlighted)

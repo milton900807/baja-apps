@@ -5101,6 +5101,21 @@ return new Promise(async (resolve, reject) => {
         it.a.__labelLane = lane;
         it.a.labelY = lane * STEP;
       }
+      // Fit every lane's glyph/label WITHIN this track's screen height: derive a per-lane pixel
+      // step from the track height and the lane count, so stacked site markers never overflow
+      // into the neighbouring track (drawCddSite reads __laneBasePx/__laneStepPx).
+      const nLanes = laneRight.length;
+      let trackHpx = 46;
+      try { trackHpx = Math.abs(graph.screenHeight(this.tgraph.height)) || 46; } catch (e) { }
+      const baseMargin = 12, topMargin = 8;
+      const usable = Math.max(10, trackHpx - baseMargin - topMargin);
+      let stepPx = 18;
+      if (nLanes > 1) stepPx = Math.max(7, Math.min(18, usable / (nLanes - 1)));
+      for (const it of items) {
+        it.a.__laneCount = nLanes;
+        it.a.__laneBasePx = baseMargin;
+        it.a.__laneStepPx = stepPx;
+      }
     }
     setAnnotation(annotation) {
       for (let a of this.annotations) {

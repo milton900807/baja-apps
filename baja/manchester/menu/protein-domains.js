@@ -80,24 +80,141 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 return sites;
             };
 
-            // Classify a CDD functional-site title into one of the visual categories drawn by
-            // gene-draw.js (each maps to a distinct icon/colour). Order = most specific first.
-            const cddSiteCategory = (raw) => {
-                const n = ('' + (raw || '')).toLowerCase();
-                if (/cleav/.test(n)) return 'cleavage';
-                if (/inhibitor/.test(n)) return 'inhibitor';
-                if (/(phosphor|glycosyl|acetyl|methyl|myristoyl|palmitoyl|sumoyl|ubiquitin|lipid attach|modif)/.test(n)) return 'modification';
-                if (/(dimer|trimer|tetramer|oligomer|interface|subunit interact)/.test(n)) return 'interface';
-                if (/(heme|haem|cofactor|pyridoxal|flavin|\bfad\b|\bnad\b|nadp|biotin|thiamine|cobalamin|molybdopterin|pyrophosphate cofactor)/.test(n)) return 'cofactor';
-                if (/(dna|rna|nucleic)/.test(n)) return 'dna';
-                if (/(\batp\b|\bgtp\b|\badp\b|\bgdp\b|\bamp\b|nucleotide|nucleoside|purine|pyrimidine)/.test(n)) return 'nucleotide';
-                if (/(metal|zinc|\bzn\b|copper|\bcu\b|manganese|\bmn\b|magnesium|\bmg\b|calcium|\bca\b|cobalt|nickel|\bni\b|iron|\bfe\b)/.test(n)) return 'metal';
-                if (/ion.?bind/.test(n)) return 'ion';
-                if (/(substrate|ligand)/.test(n)) return 'substrate';
-                if (/(catalyt|catalysis)/.test(n)) return 'catalytic';
-                if (/active/.test(n)) return 'active';
-                if (/(peptide|polypeptide|protein.?bind|dimerization)/.test(n)) return 'peptide';
-                return 'other';
+            // --- CDD functional-site vocabulary -------------------------------------------------
+            // Resolve a CDD site title (e.g. "GEF interaction site", "GTP/Mg2+ binding site",
+            // "pyridoxal 5'-phosphate binding site") to a drawing style {color, icon, tag, label}.
+            // Each entry gets a family colour+icon and a short TAG code so even same-icon families
+            // stay distinguishable on the canvas. Rules are tested top→bottom (specific first).
+            const CDD_FAM = {
+                active:       ['#e11d48', 'circledot'],
+                catalytic:    ['#ea580c', 'star'],
+                substrate:    ['#0d9488', 'triangle'],
+                nucleotide:   ['#7c3aed', 'diamond'],
+                gtpase:       ['#4f46e5', 'chevron'],
+                metal:        ['#ca8a04', 'hexagon'],
+                cofactor:     ['#c026d3', 'pentagon'],
+                nucleic:      ['#2563eb', 'square'],
+                interface:    ['#475569', 'doublecircle'],
+                modification: ['#d97706', 'cross'],
+                structural:   ['#0f766e', 'smallsquare'],
+                inhibitor:    ['#9f1239', 'triangledown'],
+                cleavage:     ['#1f2937', 'notch'],
+                transport:    ['#0891b2', 'smallsquare'],
+                other:        ['#6b7280', 'circle'],
+            };
+            const CDD_RULES = [
+                // GTPase regulatory / interaction sites (small-GTPase feature vocabulary)
+                [/\bgef\b|guanine.?nucleotide exchange/, 'gtpase', 'GEF'],
+                [/\bgap\b|gtpase[- ]activating/, 'gtpase', 'GAP'],
+                [/\bgdi\b|dissociation inhibitor/, 'gtpase', 'GDI'],
+                [/switch\s*(i\b|1\b|one)/, 'gtpase', 'SwI'],
+                [/switch\s*(ii|2|two)/, 'gtpase', 'SwII'],
+                [/\bg1\b|g-?1 box|\bp-?loop\b|walker[- ]?a|phosphate[- ]binding loop/, 'gtpase', 'G1'],
+                [/\bg2\b|g-?2 box/, 'gtpase', 'G2'],
+                [/\bg3\b|g-?3 box|\bdxxg\b/, 'gtpase', 'G3'],
+                [/\bg4\b|g-?4 box|\bnkxd\b/, 'gtpase', 'G4'],
+                [/\bg5\b|g-?5 box|\bsak\b/, 'gtpase', 'G5'],
+                // Post-translational modification sites
+                [/phosphoryl/, 'modification', 'P'],
+                [/n-?linked|n-?glycosyl/, 'modification', 'NGly'],
+                [/o-?linked|o-?glycosyl/, 'modification', 'OGly'],
+                [/glycosyl/, 'modification', 'Gly'],
+                [/acetyl/, 'modification', 'Ac'],
+                [/methyl/, 'modification', 'Me'],
+                [/ubiquitin/, 'modification', 'Ub'],
+                [/sumoyl/, 'modification', 'SUMO'],
+                [/myristoyl/, 'modification', 'Myr'],
+                [/palmitoyl/, 'modification', 'Palm'],
+                [/prenyl|farnesyl|geranylgeranyl/, 'modification', 'Pren'],
+                [/hydroxyl/, 'modification', 'OH'],
+                [/lipid[- ](attach|bind|anchor)/, 'modification', 'Lip'],
+                // Cleavage / processing
+                [/autocleav|autolytic|autoprocess/, 'cleavage', 'aCLV'],
+                [/cleav|proteolytic|processing site|scissile/, 'cleavage', 'CLV'],
+                // Structural
+                [/disulf|cystine|cys.*(bond|bridge)/, 'structural', 'S-S'],
+                [/salt bridge/, 'structural', 'SB'],
+                [/zinc finger|\bznf\b|zn[- ]?finger|ring finger/, 'structural', 'ZnF'],
+                [/iron.?sulfur|iron-?sulphur|\d?fe-?\d?s|\bfes\b cluster/, 'structural', 'FeS'],
+                // Cofactors
+                [/heme|haem|porphyrin/, 'cofactor', 'HEME'],
+                [/\bfad\b|flavin adenine/, 'cofactor', 'FAD'],
+                [/\bfmn\b|flavin mononucleotide/, 'cofactor', 'FMN'],
+                [/nadp/, 'cofactor', 'NADP'],
+                [/\bnad\b|nicotinamide/, 'cofactor', 'NAD'],
+                [/pyridoxal|\bplp\b/, 'cofactor', 'PLP'],
+                [/biotin/, 'cofactor', 'BIO'],
+                [/thiamine|\btpp\b/, 'cofactor', 'TPP'],
+                [/cobalamin|\bb12\b/, 'cofactor', 'B12'],
+                [/molybdopterin|\bmoco\b|molybdenum cofactor/, 'cofactor', 'MPT'],
+                [/s-?adenosyl|\bsam\b/, 'cofactor', 'SAM'],
+                [/coenzyme a|\bcoa\b/, 'cofactor', 'CoA'],
+                [/cofactor/, 'cofactor', 'COF'],
+                // Nucleotides (GTP wins over Mg for "GTP/Mg2+ binding")
+                [/\bgtp\b/, 'nucleotide', 'GTP'],
+                [/\batp\b/, 'nucleotide', 'ATP'],
+                [/\badp\b/, 'nucleotide', 'ADP'],
+                [/\bgdp\b/, 'nucleotide', 'GDP'],
+                [/\bc?amp\b/, 'nucleotide', 'AMP'],
+                [/walker[- ]?b/, 'nucleotide', 'WkB'],
+                [/nucleotide|nucleoside|\bntp\b|purine|pyrimidine/, 'nucleotide', 'NTP'],
+                // Metals / ions
+                [/magnesium|\bmg2?\+?\b/, 'metal', 'Mg'],
+                [/manganese|\bmn2?\+?\b/, 'metal', 'Mn'],
+                [/\bzinc\b|\bzn2?\+?\b/, 'metal', 'Zn'],
+                [/calcium|\bca2?\+?\b/, 'metal', 'Ca'],
+                [/\biron\b|\bfe2?\+?\b/, 'metal', 'Fe'],
+                [/copper|\bcu2?\+?\b/, 'metal', 'Cu'],
+                [/nickel|\bni2?\+?\b/, 'metal', 'Ni'],
+                [/cobalt|\bco2?\+?\b/, 'metal', 'Co'],
+                [/potassium|\bk\+/, 'metal', 'K'],
+                [/sodium|\bna\+/, 'metal', 'Na'],
+                [/metal/, 'metal', 'M'],
+                // Nucleic-acid binding
+                [/dna[- ]?bind|dna binding|major groove|minor groove/, 'nucleic', 'DNA'],
+                [/rna[- ]?bind|rna binding/, 'nucleic', 'RNA'],
+                [/nucleic acid/, 'nucleic', 'NA'],
+                // Transport / channels
+                [/selectivity filter/, 'transport', 'FIL'],
+                [/\bpore\b/, 'transport', 'POR'],
+                [/\bgate\b|gating/, 'transport', 'GATE'],
+                [/ion[- ]?(bind|channel|coordinat)/, 'transport', 'ION'],
+                // Oligomer interfaces
+                [/homodimer/, 'interface', 'HD'],
+                [/heterodimer/, 'interface', 'HTD'],
+                [/tetramer/, 'interface', 'TET'],
+                [/trimer/, 'interface', 'TRI'],
+                [/oligomer|multimer/, 'interface', 'OLG'],
+                [/dimer|dimeriz/, 'interface', 'DIM'],
+                [/interface|subunit/, 'interface', 'IF'],
+                // Inhibitor
+                [/inhibitor/, 'inhibitor', 'INH'],
+                // Binding pockets: substrate / ligand / effector / allosteric / peptide
+                [/substrate/, 'substrate', 'SUB'],
+                [/allosteric/, 'substrate', 'ALL'],
+                [/effector/, 'gtpase', 'EFF'],
+                [/product bind/, 'substrate', 'PRD'],
+                [/ligand/, 'substrate', 'LIG'],
+                [/peptide bind|polypeptide|protein[- ]?bind/, 'substrate', 'PEP'],
+                // Catalytic / active-site residues
+                [/oxyanion/, 'catalytic', 'OXH'],
+                [/proton accept/, 'catalytic', 'H+A'],
+                [/proton donor/, 'catalytic', 'H+D'],
+                [/nucleophile/, 'catalytic', 'NUC'],
+                [/catalytic triad|charge relay/, 'catalytic', 'TRI3'],
+                [/catalyt/, 'catalytic', 'CAT'],
+                [/active/, 'active', 'AS'],
+                // Generic interaction / binding fallbacks (kept last)
+                [/interact/, 'gtpase', 'INT'],
+                [/binding/, 'substrate', 'BND'],
+            ];
+            const cddSiteStyle = (raw) => {
+                const title = ('' + (raw || '')).trim();
+                const n = title.toLowerCase();
+                let fam = 'other', tag = '';
+                for (const [re, f, t] of CDD_RULES) { if (re.test(n)) { fam = f; tag = t; break; } }
+                const [color, icon] = CDD_FAM[fam] || CDD_FAM.other;
+                return { color, icon, tag, label: title || 'site', family: fam };
             };
 
             let nDomains = 0, nSites = 0;
@@ -130,8 +247,12 @@ function (graph, genegraph_panel_layout, presetTrack) {
                         const aa = +('' + p).substring(1).trim();
                         const start = getNucleotideIndex(aa);
                         if (start >= 0) {
-                            // Give each CDD functional site its category-specific glyph (gene-draw.js).
-                            const an = new Annotation('cdd-' + cddSiteCategory(name), name, start - 2, start + 1);
+                            // Resolve the site's CDD title to its glyph style and attach it, so
+                            // gene-draw.js's 'cdd-site' shape draws the right icon/colour/tag.
+                            const style = cddSiteStyle(name);
+                            const an = new Annotation('cdd-site', name, start - 2, start + 1);
+                            an.__cdd = style;
+                            an.color = style.color;
                             t.add(an);   // add() assigns a label lane so nearby sites don't collide
                             nSites++;
                         }
