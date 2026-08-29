@@ -7637,14 +7637,14 @@ pattern, GGGG | Required`
                         if (this.wake) this.wake();
                         return;
                     }
-                    case 'expand_horizontal': {
+                    case 'contract_horizontal': {
                         this.bclick = 'expand_horizontal';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
                         let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;
                         await this.zoomXY(this.graph.getxmin() - lx, this.graph.getxmax() + lx, this.graph.getymin(), this.graph.getymax());
                         return;
                     }
-                    case 'contract_horizontal': {
+                    case 'expand_horizontal': {
                         this.bclick = 'contract_horizontal';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 100);
                         let lx = Math.abs(this.graph.getxmax() - this.graph.getxmin()) / 10;

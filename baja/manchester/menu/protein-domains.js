@@ -272,6 +272,10 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 } catch (e) { console.warn('protein-domains: CDD chunk failed', e); }
             }
 
+            // Collapse runs of the same functional site sitting next to each other into a single
+            // region annotation (e.g. consecutive "active site" residues → one "active site").
+            try { if (t.mergeAdjacentAnnotations) t.mergeAdjacentAnnotations('cdd-site'); } catch (e) { }
+
             try { if (t.fitYAxis) t.fitYAxis(); } catch (e) { }
             try { if (graph.wake) graph.wake(); } catch (e) { }
 

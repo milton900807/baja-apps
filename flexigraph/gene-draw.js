@@ -54,20 +54,20 @@ function () {
     // kinds are visually distinguishable at a glance. Nearby sites stack by their label lane
     // (assigned in track.add) so their icons/labels don't collide on the X axis.
     const CDD_SITE_STYLES = {
-        active:       { color: '#e11d48', icon: 'circledot',    tag: 'AS' },
-        catalytic:    { color: '#ea580c', icon: 'star',         tag: 'CAT' },
-        substrate:    { color: '#0d9488', icon: 'triangle',     tag: 'SUB' },
-        nucleotide:   { color: '#7c3aed', icon: 'diamond',      tag: 'NTP' },
-        metal:        { color: '#ca8a04', icon: 'hexagon',      tag: 'M' },
-        dna:          { color: '#2563eb', icon: 'square',       tag: 'NA' },
-        interface:    { color: '#475569', icon: 'doublecircle', tag: 'IF' },
-        inhibitor:    { color: '#9f1239', icon: 'triangledown', tag: 'INH' },
-        cofactor:     { color: '#c026d3', icon: 'pentagon',     tag: 'COF' },
-        modification: { color: '#d97706', icon: 'cross',        tag: 'MOD' },
-        cleavage:     { color: '#1f2937', icon: 'notch',        tag: 'CLV' },
-        ion:          { color: '#0891b2', icon: 'smallsquare',  tag: 'ION' },
-        peptide:      { color: '#16a34a', icon: 'chevron',      tag: 'PEP' },
-        other:        { color: '#6b7280', icon: 'circle',       tag: '' },
+        active: { color: '#e11d48', icon: 'circledot', tag: 'AS' },
+        catalytic: { color: '#ea580c', icon: 'star', tag: 'CAT' },
+        substrate: { color: '#0d9488', icon: 'triangle', tag: 'SUB' },
+        nucleotide: { color: '#7c3aed', icon: 'diamond', tag: 'NTP' },
+        metal: { color: '#ca8a04', icon: 'hexagon', tag: 'M' },
+        dna: { color: '#2563eb', icon: 'square', tag: 'NA' },
+        interface: { color: '#475569', icon: 'doublecircle', tag: 'IF' },
+        inhibitor: { color: '#9f1239', icon: 'triangledown', tag: 'INH' },
+        cofactor: { color: '#c026d3', icon: 'pentagon', tag: 'COF' },
+        modification: { color: '#d97706', icon: 'cross', tag: 'MOD' },
+        cleavage: { color: '#1f2937', icon: 'notch', tag: 'CLV' },
+        ion: { color: '#0891b2', icon: 'smallsquare', tag: 'ION' },
+        peptide: { color: '#16a34a', icon: 'chevron', tag: 'PEP' },
+        other: { color: '#6b7280', icon: 'circle', tag: '' },
     };
 
     const drawCddGlyph = (ctx, kind, cx, cy, r, color) => {
@@ -119,17 +119,19 @@ function () {
     // from the CDD vocabulary at creation and stored on the annotation as `__cdd`
     // (protein-domains.js); `catKey` is only a legacy fallback into CDD_SITE_STYLES.
     const drawCddSite = (graph, tgraph, xs, xf, y, annotation, catKey) => {
+        // Don't draw CDD sites that sit below track y-position 0.25 (lower part of the track).
+        if ((+(annotation && annotation.y) || 0) > 0.25) return;
         const st = (annotation && annotation.__cdd) || CDD_SITE_STYLES[catKey] || CDD_SITE_STYLES.other;
         const cx = graph.X((xs + xf) / 2);
-        const cyTrack = graph.Y(y);
+        const cyTrack = graph.Y(tgraph.Y(0.03));
         const lane = Math.max(0, (annotation.__labelLane | 0));
         const r = 4.5;
         // Sit the glyph ABOVE the peptide/amino-acid sequence row so it never overlaps the
         // residue letters. track.js draws that row ~ (seqPx + gap) px above the track baseline,
         // with seqPx ≈ min(screencell*0.8, 44) once the sequence is visible (screencell > 5).
         const screencell = graph.screenWidth(tgraph.screenWidth(1));
-        let pepClear = 6;
-        if (screencell > 5) { pepClear = Math.max(11, Math.min(Math.round(screencell * 0.8), 44)) + 12; }
+        let pepClear = 0;
+        // if (screencell > 5) { pepClear = Math.max(11, Math.min(Math.round(screencell * 0.8), 44)) + 12; }
         const anchorY = cyTrack - pepClear;
         // Keep the whole glyph + label stack WITHIN the track's screen height so it never spills
         // into the neighbouring track. The per-track recheck (track.js) scales __laneStepPx so all
@@ -146,19 +148,69 @@ function () {
             try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
             return;
         }
+        // Transparent, category-coloured box capturing the NUCLEOTIDE span [xs, xf] this annotation
+        // covers — drawn first (behind the glyph/letters), no border, so it just tints the region.
+        try {
+            const __bx0 = Math.min(graph.X(xs), graph.X(xf));
+            const __bx1 = Math.max(graph.X(xs), graph.X(xf));
+            let __byT = graph.Y(tgraph.Y(tgraph.getymax()));
+            let __byB = graph.Y(tgraph.Y(tgraph.getymin()));
+            if (isFinite(__byT) && isFinite(__byB)) {
+                const __ry = Math.min(__byT, __byB), __rh = Math.abs(__byB - __byT);
+                const __rw = Math.max(1, __bx1 - __bx0);
+                ctx.save();
+                ctx.globalAlpha = 0.12;
+                ctx.fillStyle = st.color;
+                ctx.fillRect(__bx0, __ry, __rw, __rh);
+                ctx.restore();
+            }
+        } catch (e) { }
         ctx.save();
-        // Stem from the residue on the track up to the glyph (the sequence row, drawn after the
-        // annotations, paints over the thin stem so it never obscures a letter).
-        ctx.strokeStyle = 'rgba(100,116,139,0.5)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(cx, cyTrack); ctx.lineTo(cx, gy + r); ctx.stroke();
+        // Dashed, very thin, faint light-gray leader from the glyph DOWN to the amino-acid letter
+        // it refers to (the peptide row, published by track.js) — not all the way to the track
+        // baseline. Falls back to the baseline when the sequence isn't visible.
+        let footY = cyTrack;
+        if (screencell > 5 && tgraph && tgraph.__pepTopPx != null) footY = tgraph.__pepTopPx;
+        ctx.strokeStyle = 'rgba(148,163,184,0.35)'; ctx.lineWidth = 1.0;
+        try { ctx.setLineDash([2, 2]); } catch (e) { }
+        ctx.beginPath(); ctx.moveTo(cx, footY); ctx.lineTo(cx, gy + r); ctx.stroke();
+        try { ctx.setLineDash([]); } catch (e) { }
         ctx.restore();
+        // If this site spans a REGION (e.g. a merged run of residues), draw a solid bracket across
+        // its FULL sequence extent [xs, xf] so the annotation visibly covers the entire space its
+        // originals occupied. It sits at anchorY — ABOVE the peptide/AA row (by pepClear), so it
+        // stays clear of and visible above the residue letters, especially zoomed in (detail mode).
+        const __sx0 = Math.min(graph.X(xs), graph.X(xf));
+        const __sx1 = Math.max(graph.X(xs), graph.X(xf));
+        if (__sx1 - __sx0 > 4) {
+            const __bracketY = anchorY;
+            ctx.save();
+            try { ctx.setLineDash([]); } catch (e) { }
+            ctx.strokeStyle = st.color; ctx.globalAlpha = 0.85; ctx.lineWidth = 2; ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(__sx0, __bracketY); ctx.lineTo(__sx1, __bracketY);
+            ctx.moveTo(__sx0, __bracketY - 3.5); ctx.lineTo(__sx0, __bracketY + 3.5);
+            ctx.moveTo(__sx1, __bracketY - 3.5); ctx.lineTo(__sx1, __bracketY + 3.5);
+            ctx.stroke();
+            ctx.restore();
+        }
         drawCddGlyph(ctx, st.icon, cx, gy, r, st.color);
-        // Always show the site's NAME next to its glyph (with a short colour tag prefix so the
-        // family is still obvious). Drawn to the right at the glyph's height, so it adds no extra
-        // vertical height beyond the glyph and stays inside the track band.
+        // The site NAME sits at the TOP END of the dashed leader, centered above the glyph (with
+        // a short colour tag prefix so the family is still obvious). Skipped if its box would
+        // overlap a name already drawn this frame (shared list on the tgraph).
         const name = ('' + (annotation.name || st.label || st.tag || 'site'));
-        const label = st.tag ? (st.tag + ' ' + name) : name;
-        try { graph.drawScreenText(label.slice(0, 46), cx + r + 3, gy + 3, st.color, 8.5, 'left'); } catch (e) { }
+        const label = (name).slice(0, 46);
+        const lyName = gy - r - 6;
+        let lw = label.length * 4.8;
+        try { ctx.font = '8.5px system-ui, -apple-system, Roboto, Arial, sans-serif'; lw = ctx.measureText(label).width; } catch (e) { }
+        const nrects = (tgraph.__labelRects = tgraph.__labelRects || []);
+        const nx0 = cx - lw / 2 - 1, nx1 = cx + lw / 2 + 1, ny0 = lyName - 6, ny1 = lyName + 6;
+        let nov = false;
+        for (const rr of nrects) { if (nx0 < rr.x1 && nx1 > rr.x0 && ny0 < rr.y1 && ny1 > rr.y0) { nov = true; break; } }
+        if (!nov) {
+            nrects.push({ x0: nx0, y0: ny0, x1: nx1, y1: ny1 });
+            try { graph.drawScreenText(label, cx, lyName, st.color, 8.5, 'center'); } catch (e) { }
+        }
     };
 
     // Single shared CDD-site shape (style read from annotation.__cdd) plus legacy per-category
@@ -880,43 +932,43 @@ function () {
 
         }),
         'ProteinDomain': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
-            const FONT = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
+            // const FONT = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
             graph.drawLine(xs, y + 1, xf, y + 1, '#0099ff2f', 10, 'butt')
 
-            const cx = (xs + xf) / 2;
-            const name = annotation.name || '';
-            // Stagger labels vertically so neighbouring domains' horizontal labels don't overlap:
-            // measure the label's screen width and place it on the lowest "row" (leader length)
-            // at this track's y that has no horizontal collision with a label already placed this
-            // frame. Each extra row lengthens the leader by ~one text height, keeping them readable.
-            const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
-            let sx = graph.X(cx), halfW = 24;
-            if (ctx) { ctx.font = FONT; halfW = ctx.measureText(name).width / 2 + 6; }
-            const spans = (graph.__domainLabelSpans = graph.__domainLabelSpans || []);
-            let row = 0;
-            while (spans.some(s => s.row === row && Math.abs(s.y - y) < 1e-6 && !(sx + halfW < s.x0 || sx - halfW > s.x1))) row++;
-            spans.push({ row, y, x0: sx - halfW, x1: sx + halfW });
+            // const cx = (xs + xf) / 2;
+            // const name = annotation.name || '';
+            // // Stagger labels vertically so neighbouring domains' horizontal labels don't overlap:
+            // // measure the label's screen width and place it on the lowest "row" (leader length)
+            // // at this track's y that has no horizontal collision with a label already placed this
+            // // frame. Each extra row lengthens the leader by ~one text height, keeping them readable.
+            // const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+            // let sx = graph.X(cx), halfW = 24;
+            // if (ctx) { ctx.font = FONT; halfW = ctx.measureText(name).width / 2 + 6; }
+            // const spans = (graph.__domainLabelSpans = graph.__domainLabelSpans || []);
+            // let row = 0;
+            // while (spans.some(s => s.row === row && Math.abs(s.y - y) < 1e-6 && !(sx + halfW < s.x0 || sx - halfW > s.x1))) row++;
+            // spans.push({ row, y, x0: sx - halfW, x1: sx + halfW });
 
-            // Stagger the label UPWARD on screen (away from the track), whatever the track's
-            // world-Y orientation. An mRNA track runs its world Y the other way, so keying the
-            // direction off labelY's sign fanned the labels DOWNWARD and let them overlap. Derive
-            // the direction from the actual screen mapping, and separate rows by a consistent
-            // per-row SCREEN gap so they never collide regardless of track type.
-            const upSign = (graph.Y(y + 1) <= graph.Y(y)) ? 1 : -1;   // world sign that moves the label UP on screen
-            let step = 0.02, baseGap = 0.03;
-            try { if (graph.worldHeight) { step = Math.abs(graph.worldHeight(13)); baseGap = Math.abs(graph.worldHeight(18)); } } catch (e) { }
-            const labelY = Math.abs(y + upSign * (baseGap + row * step));   // further up for higher rows
+            // // Stagger the label UPWARD on screen (away from the track), whatever the track's
+            // // world-Y orientation. An mRNA track runs its world Y the other way, so keying the
+            // // direction off labelY's sign fanned the labels DOWNWARD and let them overlap. Derive
+            // // the direction from the actual screen mapping, and separate rows by a consistent
+            // // per-row SCREEN gap so they never collide regardless of track type.
+            // const upSign = (graph.Y(y + 1) <= graph.Y(y)) ? 1 : -1;   // world sign that moves the label UP on screen
+            // let step = 0.02, baseGap = 0.03;
+            // try { if (graph.worldHeight) { step = Math.abs(graph.worldHeight(13)); baseGap = Math.abs(graph.worldHeight(18)); } } catch (e) { }
+            // const labelY = Math.abs(y + upSign * (baseGap + row * step));   // further up for higher rows
 
-            // Leader from the domain bar up to its (staggered) label so it stays associated.
-            // graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
-            // graph.drawString(name, cx, labelY, '#0a2540', FONT)
-            let screencell = graph.screenWidth(tgraph.screenWidth(1))
-            if (screencell < 1.5 && screencell > 0.1) {
-                if (annotation.description != null && annotation.description.length > 0) {
-                    // graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
-                }
+            // // Leader from the domain bar up to its (staggered) label so it stays associated.
+            // // graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
+            // // graph.drawString(name, cx, labelY, '#0a2540', FONT)
+            // let screencell = graph.screenWidth(tgraph.screenWidth(1))
+            // if (screencell < 1.5 && screencell > 0.1) {
+            //     if (annotation.description != null && annotation.description.length > 0) {
+            //         // graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
+            //     }
 
-            }
+            // }
         }),
         'amplicon': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
 

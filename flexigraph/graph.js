@@ -935,6 +935,23 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
             }
         }
 
+        // Draw text at raw SCREEN pixel coords (no world projection). size in px, align =
+        // 'left' | 'center' | 'right'. Used for fixed-size on-canvas labels (annotation names,
+        // codon START/STOP, protein-domain / CDD-site glyph labels).
+        drawScreenText = (text, sx, sy, color, size, align) => {
+            if (!this.canvas) return;
+            const ctx = this.canvas.getCTX();
+            if (!ctx) return;
+            ctx.save();
+            ctx.shadowBlur = 0;
+            ctx.font = (size || 10) + 'px system-ui, -apple-system, Roboto, Arial, sans-serif';
+            ctx.fillStyle = color || '#0a2540';
+            ctx.textAlign = align || 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('' + text, sx, sy);
+            ctx.restore();
+        }
+
         drawScreenLine = (xi, yi, xf, yf, color, lineSize, lineCap) => {
             if (this.canvas) {
                 var ctx = this.canvas.getCTX();
@@ -962,63 +979,52 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
         }
 
         drawSimpleArrowhead = (locx, locy, angle, sizex, sizey, color) => {
-            if (this.canvas) {
-                var ctx = this.canvas.getCTX();
-                var hx = sizex / 2;
-                var hy = sizey / 2;
-                ctx.strokeStyle = color;
-                ctx.lineWidth = sizex;
-                ctx.fillStyle = color;
-                ctx.shadowBlur = 2;
-                ctx.shadowColor = 'black';
-                ctx.rotate(0);
-
-                ctx.translate((locx), (locy));
-                ctx.rotate(angle);
-                ctx.translate(-hx, -hy);
-
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(0, 1 * sizey);
-                ctx.lineTo(1 * sizex, 1 * hy);
-                ctx.closePath();
-
-                ctx.translate(hx, hy);
-                ctx.rotate(-angle);
-                ctx.translate(-locx, -locy);
-                ctx.stroke();
-            }
+            if (!this.canvas) return;
+            const ctx = this.canvas.getCTX();
+            const hx = sizex / 2, hy = sizey / 2;
+            // save/restore isolates the transform, shadow AND line-dash so a dashed leader/bridge
+            // drawn before this can't bleed into the arrow (and this can't leak state onward).
+            ctx.save();
+            try { ctx.setLineDash([]); } catch (e) { }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = sizex;
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 2;
+            ctx.shadowColor = 'black';
+            ctx.translate(locx, locy);
+            ctx.rotate(angle);
+            ctx.translate(-hx, -hy);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, sizey);
+            ctx.lineTo(sizex, hy);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
         }
 
         drawArrowhead = (locx, locy, angle, sizex, sizey, color) => {
-            if (this.canvas) {
-                var ctx = this.canvas.getCTX();
-                var hx = sizex / 2;
-                var hy = sizey / 2;
-                ctx.strokeStyle = color;
-                ctx.lineWidth = sizex;
-                ctx.fillStyle = color;
-                ctx.shadowBlur = 2;
-                ctx.shadowColor = 'black';
-                ctx.rotate(0);
-
-                ctx.translate((locx), (locy));
-                ctx.rotate(angle);
-                ctx.translate(-hx, -hy);
-
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(0, 1 * sizey);
-                ctx.lineTo(1 * sizex, 1 * hy);
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.translate(hx, hy);
-                ctx.rotate(-angle);
-                ctx.translate(-locx, -locy);
-                ctx.stroke();
-            }
-
+            if (!this.canvas) return;
+            const ctx = this.canvas.getCTX();
+            const hx = sizex / 2, hy = sizey / 2;
+            ctx.save();
+            try { ctx.setLineDash([]); } catch (e) { }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = sizex;
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 2;
+            ctx.shadowColor = 'black';
+            ctx.translate(locx, locy);
+            ctx.rotate(angle);
+            ctx.translate(-hx, -hy);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, sizey);
+            ctx.lineTo(sizex, hy);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
         }
 
         drawSimpleLine = (xi, yi, xf, yf, color, lineSize, lineCap) => {

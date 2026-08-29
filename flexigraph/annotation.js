@@ -126,16 +126,55 @@ function () {
                 }
                 if (this.shapeFunction) {
                     this.shapeFunction(graph, tgrid, tgrid.X(this.xi), tgrid.X(this.xf), tgrid.Y(this.y), this.color, this, strand);
-                    // Also show the annotation's NAME. Shapes that render their own label (or are
-                    // point markers with their own text) are skipped so the name isn't drawn twice.
-                    const ty = '' + (this.type || '');
-                    const SELF = { 'PointOfInterest': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1 };
-                    if (this.name && !SELF[ty] && ty.indexOf('cdd-') !== 0) {
-                        graph.drawString45('' + this.name, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), '#0a2540', "9px system-ui, -apple-system, Roboto, Arial, sans-serif");
-                    }
-                } else if (this.name) {
-                    // No shape function → draw the FULL name (was truncated to 5 chars before).
-                    graph.drawString45('' + this.name, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY + 1.5), '#0a2540', "9px system-ui, -apple-system, Roboto, Arial, sans-serif");
+                }
+                // Show the annotation's NAME as a label ABOVE the bar, connected by a dashed, very
+                // thin, faint light-gray leader — placed above the peptide/AA sequence row, stacked
+                // by lane (track.js) so neighbours don't overlap, and kept within the track height.
+                // Shapes that render their own label are skipped so the name isn't drawn twice.
+                const __ty = '' + (this.type || '');
+                const __SELF = { 'PointOfInterest': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1, 'AA': 1, 'Exon': 1 };
+                if (this.name && !__SELF[__ty] && __ty.indexOf('cdd-') !== 0) {
+                    try {
+                        const gctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+                        const cx = graph.X(ti + ((tf - ti) / 2));
+                        const cyBar = graph.Y(tgrid.Y(this.y));
+                        const screencell = graph.screenWidth(tgrid.screenWidth(1));
+                        let pepClear = 4;
+                        if (screencell > 5) pepClear = Math.max(11, Math.min(Math.round(screencell * 0.8), 44)) + 12;
+                        const trackHpx = Math.abs(graph.screenHeight ? graph.screenHeight(tgrid.height) : 46) || 46;
+                        const lane = Math.max(0, this.__labelLane | 0);
+                        const base = (this.__laneBasePx != null) ? this.__laneBasePx : 12;
+                        const step = (this.__laneStepPx != null) ? this.__laneStepPx : 16;
+                        let up = base + lane * step;
+                        const maxUp = Math.max(8, trackHpx - pepClear - 4);
+                        if (up > maxUp) up = maxUp;
+                        const ly = cyBar - pepClear - up;
+                        // Leader ends at the amino-acid letter (peptide row) it refers to, not the
+                        // track baseline.
+                        let footY = cyBar;
+                        if (screencell > 5 && tgrid && tgrid.__pepTopPx != null) footY = tgrid.__pepTopPx;
+                        // Skip this name if its box would overlap a name already drawn this frame.
+                        const __label = ('' + this.name).slice(0, 46);
+                        let __w = __label.length * 5.4;
+                        if (gctx) { try { gctx.font = '9px system-ui, -apple-system, Roboto, Arial, sans-serif'; __w = gctx.measureText(__label).width; } catch (e) { } }
+                        const __rects = (tgrid.__labelRects = tgrid.__labelRects || []);
+                        const __bx0 = cx - __w / 2 - 1, __bx1 = cx + __w / 2 + 1, __by0 = ly - 6, __by1 = ly + 6;
+                        let __ov = false;
+                        for (const __r of __rects) { if (__bx0 < __r.x1 && __bx1 > __r.x0 && __by0 < __r.y1 && __by1 > __r.y0) { __ov = true; break; } }
+                        if (!__ov) {
+                            __rects.push({ x0: __bx0, y0: __by0, x1: __bx1, y1: __by1 });
+                            if (gctx) {
+                                gctx.save();
+                                gctx.strokeStyle = 'rgba(148,163,184,0.35)'; gctx.lineWidth = 0.5;
+                                try { gctx.setLineDash([2, 2]); } catch (e) { }
+                                gctx.beginPath(); gctx.moveTo(cx, footY); gctx.lineTo(cx, ly + 5); gctx.stroke();
+                                try { gctx.setLineDash([]); } catch (e) { }
+                                gctx.restore();
+                            }
+                            // Name sits at the TOP END of the dashed leader, centered on the line.
+                            graph.drawScreenText(__label, cx, ly, '#0a2540', 9, 'center');
+                        }
+                    } catch (e) { }
                 }
 
                 if (this.highlighted)

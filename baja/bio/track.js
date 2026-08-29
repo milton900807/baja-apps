@@ -5026,6 +5026,42 @@ return new Promise(async (resolve, reject) => {
       if (ty === 'tss' || ty === 'stop') { try { this.scheduleCDSUpdate(); } catch (e) { } }
     }
 
+    // Merge annotations that are the SAME (identical name + type) and sit NEXT TO each other on
+    // the track into a single annotation spanning the whole region — e.g. a run of consecutive
+    // "active site" residues collapses into one "active site" region. `typeFilter` (optional)
+    // restricts the merge to one type (e.g. 'cdd-site'); `gap` is the max nt between two
+    // annotations still considered adjacent (default 3 ≈ one codon).
+    mergeAdjacentAnnotations(typeFilter, gap = 3) {
+      const anns = this.annotations || [];
+      if (anns.length < 2) return;
+      // Structural annotations drive the CDS/exon model — never merge them.
+      const SKIP = { 'Exon': 1, 'TSS': 1, 'STOP': 1, 'Translation': 1, 'CDS': 1 };
+      const keep = [];
+      const groups = {};
+      const order = [];
+      for (const a of anns) {
+        if (!a || SKIP[a.type] || (typeFilter && ('' + a.type) !== typeFilter)) { keep.push(a); continue; }
+        const key = (a.name || '') + ' ' + (a.type || '');
+        if (!groups[key]) { groups[key] = []; order.push(key); }
+        groups[key].push(a);
+      }
+      for (const key of order) {
+        const g = groups[key].slice().sort((x, y) => (Math.min(+x.xi, +x.xf)) - (Math.min(+y.xi, +y.xf)));
+        let cur = null;
+        for (const a of g) {
+          const axi = Math.min(+a.xi, +a.xf), axf = Math.max(+a.xi, +a.xf);
+          if (cur && axi <= cur.__mxf + gap) {
+            cur.__mxf = Math.max(cur.__mxf, axf);   // extend the current region
+          } else {
+            if (cur) { cur.xi = cur.__mxi; cur.xf = cur.__mxf; cur.gxi = cur.__mxi; cur.gxf = cur.__mxf; keep.push(cur); }
+            cur = a; cur.__mxi = axi; cur.__mxf = axf;
+          }
+        }
+        if (cur) { cur.xi = cur.__mxi; cur.xf = cur.__mxf; cur.gxi = cur.__mxi; cur.gxf = cur.__mxf; keep.push(cur); }
+      }
+      this.annotations = keep;
+    }
+
     // Give a newly-added annotation a `labelY` lane (vertical offset) so its label/name does not
     // overlap the labels of other annotations that are nearby ALONG THE TRACK'S X AXIS. Lane 0
     // keeps labelY = 0 (the default position); each overlapping neighbour bumps this one up a row.
@@ -5895,6 +5931,11 @@ return new Promise(async (resolve, reject) => {
     async draw(graph) {
       const ctx = graph.canvas.getCTX();
       if (!ctx) return;
+      // Every 10th redraw (at ANY zoom), collapse identical annotations that sit next to each
+      // other into one region spanning the whole run. Genomic + cheap, so it runs here at the
+      // top of draw rather than only inside the zoomed-in detail block.
+      this.__mergeFrame = (this.__mergeFrame | 0) + 1;
+      if (this.__mergeFrame % 10 === 0) { try { this.mergeAdjacentAnnotations(); } catch (e) { } }
       ctx.save();
       ctx.beginPath();
 
@@ -6142,8 +6183,25 @@ return new Promise(async (resolve, reject) => {
               const inView = (x1 <= graph.grid.xmax && x2 >= graph.grid.xmin) || (graph.X(x1) <= graph.grid.width && graph.X(x2) >= 0);
               if (!inView) return;
 
-              graph.drawLine(x1, yBase, xm, yApex, GX_INTRON, 2, "round");
-              graph.drawLine(xm, yApex, x2, yBase, GX_INTRON, 2, "round");
+              // Exon-to-exon bridge: lighter + dashed so it reads as a connector, not a feature.
+              const __bctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+              if (__bctx) {
+                __bctx.save();
+                __bctx.strokeStyle = 'rgba(176,83,63,0.4)';
+                __bctx.lineWidth = 1;
+                __bctx.lineCap = 'round';
+                try { __bctx.setLineDash([4, 3]); } catch (e) { }
+                __bctx.beginPath();
+                __bctx.moveTo(graph.X(x1), graph.Y(yBase));
+                __bctx.lineTo(graph.X(xm), graph.Y(yApex));
+                __bctx.lineTo(graph.X(x2), graph.Y(yBase));
+                __bctx.stroke();
+                try { __bctx.setLineDash([]); } catch (e) { }
+                __bctx.restore();
+              } else {
+                graph.drawLine(x1, yBase, xm, yApex, GX_INTRON, 1, "round");
+                graph.drawLine(xm, yApex, x2, yBase, GX_INTRON, 1, "round");
+              }
             };
 
             const exons = this.annotations
@@ -6218,7 +6276,14 @@ return new Promise(async (resolve, reject) => {
             // that have drifted into collision as the user pans/zooms get re-stacked. Scoped to
             // this track only — it never considers annotations on other tracks.
             this.__annLabelFrame = (this.__annLabelFrame | 0) + 1;
-            if (this.__annLabelFrame % 10 === 0) { try { this._recheckAnnotationLabelLanes(graph); } catch (e) { } }
+            if (this.__annLabelFrame % 10 === 0) {
+              // Re-lane the labels (merging already ran at the top of draw()). Scoped to this track.
+              try { this._recheckAnnotationLabelLanes(graph); } catch (e) { }
+            }
+            // Per-frame list of drawn annotation-name rectangles (screen space). A name whose box
+            // would overlap one already drawn this frame is skipped (annotation.js / drawCddSite),
+            // so cluttered regions simply drop the colliding labels instead of stacking forever.
+            this.tgraph.__labelRects = [];
             for (let a of this.annotations) {
               a.gxi = Math.floor(a.gxi);
               a.gxf = Math.floor(a.gxf);
@@ -6537,6 +6602,13 @@ return new Promise(async (resolve, reject) => {
                 _pepRowY = _seqRowY - (seqPx + 8) / _ppw;
               }
             } catch (e) { }
+            // Expose the peptide row's SCREEN y so annotation leaders (gene-draw.js drawCddSite /
+            // annotation.js) stop just ABOVE the amino-acid letters instead of running down through
+            // them or all the way to the track baseline. __pepTopPx = top edge of the AA letters.
+            try {
+                this.tgraph.__pepMidPx = graph.Y(_pepRowY);
+                this.tgraph.__pepTopPx = graph.Y(_pepRowY) - seqPx * 0.7;
+            } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
               let seq_index = Math.floor(index - Math.floor(this.xi));
@@ -6675,11 +6747,8 @@ return new Promise(async (resolve, reject) => {
                 const hrw = Math.abs(hx1 - hx0) + 4;
                 if (hrw > 1 && hrh > 1) {
                   hctx.save();
-                  hctx.fillStyle = 'rgba(255,140,26,0.16)';      // warm translucent wash
+                  hctx.fillStyle = 'rgba(255,140,26,0.16)';      // warm translucent wash (no border)
                   hctx.fillRect(hrx, hry, hrw, hrh);
-                  hctx.lineWidth = 1.25;
-                  hctx.strokeStyle = 'rgba(255,140,26,0.75)';
-                  hctx.strokeRect(hrx + 0.5, hry + 0.5, hrw - 1, hrh - 1);
                   hctx.restore();
                 }
               }
