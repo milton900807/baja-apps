@@ -80,6 +80,26 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 return sites;
             };
 
+            // Classify a CDD functional-site title into one of the visual categories drawn by
+            // gene-draw.js (each maps to a distinct icon/colour). Order = most specific first.
+            const cddSiteCategory = (raw) => {
+                const n = ('' + (raw || '')).toLowerCase();
+                if (/cleav/.test(n)) return 'cleavage';
+                if (/inhibitor/.test(n)) return 'inhibitor';
+                if (/(phosphor|glycosyl|acetyl|methyl|myristoyl|palmitoyl|sumoyl|ubiquitin|lipid attach|modif)/.test(n)) return 'modification';
+                if (/(dimer|trimer|tetramer|oligomer|interface|subunit interact)/.test(n)) return 'interface';
+                if (/(heme|haem|cofactor|pyridoxal|flavin|\bfad\b|\bnad\b|nadp|biotin|thiamine|cobalamin|molybdopterin|pyrophosphate cofactor)/.test(n)) return 'cofactor';
+                if (/(dna|rna|nucleic)/.test(n)) return 'dna';
+                if (/(\batp\b|\bgtp\b|\badp\b|\bgdp\b|\bamp\b|nucleotide|nucleoside|purine|pyrimidine)/.test(n)) return 'nucleotide';
+                if (/(metal|zinc|\bzn\b|copper|\bcu\b|manganese|\bmn\b|magnesium|\bmg\b|calcium|\bca\b|cobalt|nickel|\bni\b|iron|\bfe\b)/.test(n)) return 'metal';
+                if (/ion.?bind/.test(n)) return 'ion';
+                if (/(substrate|ligand)/.test(n)) return 'substrate';
+                if (/(catalyt|catalysis)/.test(n)) return 'catalytic';
+                if (/active/.test(n)) return 'active';
+                if (/(peptide|polypeptide|protein.?bind|dimerization)/.test(n)) return 'peptide';
+                return 'other';
+            };
+
             let nDomains = 0, nSites = 0;
             const drawResult = (value) => {
                 if (!value || !value['file'] || value['file'].length < 1) return;
@@ -110,9 +130,9 @@ function (graph, genegraph_panel_layout, presetTrack) {
                         const aa = +('' + p).substring(1).trim();
                         const start = getNucleotideIndex(aa);
                         if (start >= 0) {
-                            const an = new Annotation('AA', name, start - 2, start + 1);
-                            an.labelY = Math.random() + 1;
-                            t.add(an);
+                            // Give each CDD functional site its category-specific glyph (gene-draw.js).
+                            const an = new Annotation('cdd-' + cddSiteCategory(name), name, start - 2, start + 1);
+                            t.add(an);   // add() assigns a label lane so nearby sites don't collide
                             nSites++;
                         }
                     }

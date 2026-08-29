@@ -5018,9 +5018,89 @@ return new Promise(async (resolve, reject) => {
 
     add(annotation) {
       this.annotations.push(annotation);
+      // Stack this annotation's label into a free vertical lane so its name doesn't sit on top
+      // of a neighbour's label when they're close together on the track's X axis.
+      try { this._assignAnnotationLabelLane(annotation); } catch (e) { }
       // When the track gains a start or stop codon, auto-(re)generate the CDS.
       const ty = ('' + (annotation && annotation.type)).toLowerCase();
       if (ty === 'tss' || ty === 'stop') { try { this.scheduleCDSUpdate(); } catch (e) { } }
+    }
+
+    // Give a newly-added annotation a `labelY` lane (vertical offset) so its label/name does not
+    // overlap the labels of other annotations that are nearby ALONG THE TRACK'S X AXIS. Lane 0
+    // keeps labelY = 0 (the default position); each overlapping neighbour bumps this one up a row.
+    // Footprint is genomic (zoom-independent, as required at creation time): the label spans at
+    // least `name.length` bases, centred on the annotation, or the annotation's own width if wider.
+    _assignAnnotationLabelLane(ann) {
+      if (!ann) return;
+      // Structural / auto-CDS annotations are positioned deliberately — leave their labels alone.
+      const SKIP = { tss: 1, stop: 1, translation: 1, cds: 1 };
+      const ty = ('' + (ann.type || '')).toLowerCase();
+      if (SKIP[ty]) return;
+      const STEP = 0.5;   // world-Y between label rows
+      const footprint = (a) => {
+        const lo0 = Math.min(+a.xi, +a.xf), hi0 = Math.max(+a.xi, +a.xf);
+        if (!isFinite(lo0) || !isFinite(hi0)) return null;
+        const nameLen = ('' + (a.name || '')).length;
+        const c = (lo0 + hi0) / 2;
+        const half = Math.max((hi0 - lo0) / 2, nameLen / 2, 1);
+        return { lo: c - half, hi: c + half };
+      };
+      const mine = footprint(ann);
+      if (!mine) return;
+      // Which lanes are already taken by labels that overlap this one on the X axis?
+      const occupied = {};
+      for (const other of (this.annotations || [])) {
+        if (other === ann) continue;
+        if (SKIP[('' + (other.type || '')).toLowerCase()]) continue;
+        const f = footprint(other);
+        if (!f) continue;
+        if (f.lo <= mine.hi && f.hi >= mine.lo) {   // X-axis overlap on the track
+          const lane = Math.max(0, Math.round((+other.labelY || 0) / STEP));
+          occupied[lane] = true;
+        }
+      }
+      let lane = 0;
+      while (occupied[lane]) lane++;
+      ann.labelY = lane * STEP;
+      ann.__labelLane = lane;
+    }
+
+    // Draw-time re-lane of THIS track's annotation labels, using their real SCREEN-X footprints
+    // (so it adapts to the current zoom). Called every 10th redraw from draw(). Only this track's
+    // annotations are considered — labels on other tracks are irrelevant to this track's rows.
+    _recheckAnnotationLabelLanes(graph) {
+      const anns = this.annotations || [];
+      if (!anns.length || !this.tgraph || !graph || !graph.X) return;
+      const SKIP = { tss: 1, stop: 1, translation: 1, cds: 1 };
+      const STEP = 0.5;
+      const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+      if (ctx) { try { ctx.font = '10px system-ui, -apple-system, Roboto, Arial, sans-serif'; } catch (e) { } }
+      // Screen-X label span for each labelled annotation on this track.
+      const items = [];
+      for (const a of anns) {
+        if (!a) continue;
+        if (SKIP[('' + (a.type || '')).toLowerCase()]) continue;
+        let sx;
+        try { sx = graph.X(this.tgraph.X((+a.xi + +a.xf) / 2)); } catch (e) { continue; }
+        if (!isFinite(sx)) continue;
+        const name = '' + (a.name || '');
+        let w = 44;
+        if (ctx && name) { try { w = ctx.measureText(name).width + 8; } catch (e) { } }
+        items.push({ a, lo: sx - w / 2, hi: sx + w / 2, sx });
+      }
+      if (!items.length) return;
+      // Greedy interval partition: sweep left→right, drop each label into the lowest lane whose
+      // last label ended before this one starts (+4px gap), so overlapping labels stack instead.
+      items.sort((p, q) => p.sx - q.sx);
+      const laneRight = [];
+      for (const it of items) {
+        let lane = 0;
+        while (lane < laneRight.length && it.lo <= laneRight[lane] + 4) lane++;
+        laneRight[lane] = it.hi;
+        it.a.__labelLane = lane;
+        it.a.labelY = lane * STEP;
+      }
     }
     setAnnotation(annotation) {
       for (let a of this.annotations) {
@@ -5029,6 +5109,7 @@ return new Promise(async (resolve, reject) => {
         }
       }
       this.annotations.push(annotation);
+      try { this._assignAnnotationLabelLane(annotation); } catch (e) { }
     }
 
     setTrackCoordinatesAnimated(__graph, start, end, durationMs = 3000) {
@@ -6118,6 +6199,11 @@ return new Promise(async (resolve, reject) => {
               _viewLo = Math.min(_tL, _tR) - 2;
               _viewHi = Math.max(_tL, _tR) + 2;
             } catch (e) { }
+            // Every 10th redraw, re-lane THIS track's annotation labels (screen-space) so labels
+            // that have drifted into collision as the user pans/zooms get re-stacked. Scoped to
+            // this track only — it never considers annotations on other tracks.
+            this.__annLabelFrame = (this.__annLabelFrame | 0) + 1;
+            if (this.__annLabelFrame % 10 === 0) { try { this._recheckAnnotationLabelLanes(graph); } catch (e) { } }
             for (let a of this.annotations) {
               a.gxi = Math.floor(a.gxi);
               a.gxf = Math.floor(a.gxf);

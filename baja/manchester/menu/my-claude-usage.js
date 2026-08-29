@@ -10,7 +10,7 @@ function () {
             const em = new EngineMonitor(() => { });
             r = await exec('/py/usage/claude-usage-report.py', em, email, '7');
         } catch (e) {
-            try { if (typeof infoPrompt === 'function') infoPrompt('Could not read Claude usage: ' + (e && e.message ? e.message : e)); } catch (e2) { }
+            try { if (typeof infoPrompt === 'function') infoPrompt('Could not read AI usage: ' + (e && e.message ? e.message : e)); } catch (e2) { }
             return;
         }
         const total = (r && r.total_today) || 0;

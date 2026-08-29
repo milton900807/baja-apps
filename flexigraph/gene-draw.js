@@ -45,7 +45,120 @@ function () {
         }
     };
 
+    // ---------------------------------------------------------------------------------------
+    // CDD functional-site glyphs. NCBI's Conserved Domain Database annotates a fixed vocabulary
+    // of functional SITES on a protein (active sites, binding sites, interfaces, modification
+    // sites, …). protein-domains.js classifies each site's title into one of the categories
+    // below and creates an annotation of type 'cdd-<category>'; each category draws a distinct
+    // fixed-size icon (shape + colour) on a short stem above the track so the different site
+    // kinds are visually distinguishable at a glance. Nearby sites stack by their label lane
+    // (assigned in track.add) so their icons/labels don't collide on the X axis.
+    const CDD_SITE_STYLES = {
+        active:       { color: '#e11d48', icon: 'circledot',    tag: 'active site' },
+        catalytic:    { color: '#ea580c', icon: 'star',         tag: 'catalytic' },
+        substrate:    { color: '#0d9488', icon: 'triangle',     tag: 'substrate binding' },
+        nucleotide:   { color: '#7c3aed', icon: 'diamond',      tag: 'nucleotide binding' },
+        metal:        { color: '#ca8a04', icon: 'hexagon',      tag: 'metal binding' },
+        dna:          { color: '#2563eb', icon: 'square',       tag: 'nucleic-acid binding' },
+        interface:    { color: '#475569', icon: 'doublecircle', tag: 'interface' },
+        inhibitor:    { color: '#9f1239', icon: 'triangledown', tag: 'inhibitor binding' },
+        cofactor:     { color: '#c026d3', icon: 'pentagon',     tag: 'cofactor binding' },
+        modification: { color: '#d97706', icon: 'cross',        tag: 'modification site' },
+        cleavage:     { color: '#1f2937', icon: 'notch',        tag: 'cleavage site' },
+        ion:          { color: '#0891b2', icon: 'smallsquare',  tag: 'ion binding' },
+        peptide:      { color: '#16a34a', icon: 'chevron',      tag: 'peptide binding' },
+        other:        { color: '#6b7280', icon: 'circle',       tag: 'site' },
+    };
+
+    const drawCddGlyph = (ctx, kind, cx, cy, r, color) => {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (kind === 'circledot') {
+            ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.arc(cx, cy, r * 0.34, 0, Math.PI * 2); ctx.fill();
+        } else if (kind === 'triangle') {
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx - r, cy + r * 0.82); ctx.lineTo(cx + r, cy + r * 0.82); ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'triangledown') {
+            ctx.moveTo(cx, cy + r); ctx.lineTo(cx - r, cy - r * 0.82); ctx.lineTo(cx + r, cy - r * 0.82); ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'diamond') {
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'square') {
+            ctx.rect(cx - r * 0.85, cy - r * 0.85, r * 1.7, r * 1.7); ctx.fill(); ctx.stroke();
+        } else if (kind === 'smallsquare') {
+            ctx.rect(cx - r * 0.68, cy - r * 0.68, r * 1.36, r * 1.36); ctx.fill(); ctx.stroke();
+        } else if (kind === 'hexagon') {
+            for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'pentagon') {
+            for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5; const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'star') {
+            for (let i = 0; i < 10; i++) { const rr = (i % 2) ? r * 0.45 : r; const a = -Math.PI / 2 + i * Math.PI / 5; const px = cx + rr * Math.cos(a), py = cy + rr * Math.sin(a); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else if (kind === 'cross') {
+            const w = r * 0.42; ctx.rect(cx - w, cy - r, w * 2, r * 2); ctx.rect(cx - r, cy - w, r * 2, w * 2); ctx.fill(); ctx.stroke();
+        } else if (kind === 'doublecircle') {
+            ctx.arc(cx - r * 0.5, cy, r * 0.72, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.arc(cx + r * 0.5, cy, r * 0.72, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        } else if (kind === 'chevron') {
+            ctx.lineWidth = 2.2; ctx.strokeStyle = color; ctx.moveTo(cx - r, cy - r * 0.55); ctx.lineTo(cx, cy + r * 0.65); ctx.lineTo(cx + r, cy - r * 0.55); ctx.stroke();
+        } else if (kind === 'notch') {
+            ctx.lineWidth = 2.2; ctx.strokeStyle = color; ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx, cy + r * 0.25); ctx.lineTo(cx + r, cy - r); ctx.stroke();
+        } else {   // 'circle' / fallback
+            ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        }
+        ctx.restore();
+    };
+
+    // Draw one CDD functional site: a stem from the track up to the category glyph, plus the
+    // site's name when zoomed in enough to read it. `catKey` is a CDD_SITE_STYLES key.
+    const drawCddSite = (graph, tgraph, xs, xf, y, annotation, catKey) => {
+        const st = CDD_SITE_STYLES[catKey] || CDD_SITE_STYLES.other;
+        const cx = graph.X((xs + xf) / 2);
+        const cyTrack = graph.Y(y);
+        const screencell = graph.screenWidth(tgraph.screenWidth(1));
+        const lane = Math.max(0, (annotation.__labelLane | 0));
+        const r = 5.5;
+        const gy = cyTrack - (15 + lane * 15);   // glyph sits above the track; lanes stack upward
+        const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+        if (!ctx) {
+            try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
+            return;
+        }
+        ctx.save();
+        // Stem from the residue on the track up to the glyph.
+        ctx.strokeStyle = 'rgba(100,116,139,0.55)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(cx, cyTrack); ctx.lineTo(cx, gy + r); ctx.stroke();
+        ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 2; ctx.shadowOffsetY = 1;
+        ctx.restore();
+        drawCddGlyph(ctx, st.icon, cx, gy, r, st.color);
+        if (screencell > 2.5) {
+            const label = annotation.name || st.tag;
+            try { graph.drawScreenText(('' + label).slice(0, 42), cx + r + 3, gy + 3, '#0a2540', 9, 'left'); } catch (e) { }
+        }
+    };
+
+    // One shape entry per CDD site category, all sharing drawCddSite.
+    const cddShape = (catKey) => createIon((graph, tgraph, xs, xf, y, color, annotation) => drawCddSite(graph, tgraph, xs, xf, y, annotation, catKey));
+
     return {
+        'cdd-active': cddShape('active'),
+        'cdd-catalytic': cddShape('catalytic'),
+        'cdd-substrate': cddShape('substrate'),
+        'cdd-nucleotide': cddShape('nucleotide'),
+        'cdd-metal': cddShape('metal'),
+        'cdd-dna': cddShape('dna'),
+        'cdd-interface': cddShape('interface'),
+        'cdd-inhibitor': cddShape('inhibitor'),
+        'cdd-cofactor': cddShape('cofactor'),
+        'cdd-modification': cddShape('modification'),
+        'cdd-cleavage': cddShape('cleavage'),
+        'cdd-ion': cddShape('ion'),
+        'cdd-peptide': cddShape('peptide'),
+        'cdd-other': cddShape('other'),
         'UserAnnotation': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             color = annotation.color;
 
@@ -773,7 +886,7 @@ function () {
             const labelY = Math.abs(y + upSign * (baseGap + row * step));   // further up for higher rows
 
             // Leader from the domain bar up to its (staggered) label so it stays associated.
-            graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
+            // graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
             // graph.drawString(name, cx, labelY, '#0a2540', FONT)
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
             if (screencell < 1.5 && screencell > 0.1) {
