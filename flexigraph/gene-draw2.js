@@ -508,13 +508,13 @@ function () {
                         (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2, graph.Y(tgraph.Y(y)),
                         '#0a2540', 1, 'butt'
                     );
-                    drawString(ctx,
-                        annotation.description,
-                        (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2,
-                        graph.Y(tgraph.Y(y + annotation.labelY - 2)),
-                        '#0a2540',
-                        '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
-                    );
+                    // drawString(ctx,
+                    //     annotation.description,
+                    //     (graph.X(tgraph.X(xs)) + graph.X(tgraph.X(xf))) / 2,
+                    //     graph.Y(tgraph.Y(y + annotation.labelY - 2)),
+                    //     '#0a2540',
+                    //     '10px system-ui, -apple-system, Roboto, Arial, sans-serif'
+                    // );
                 }
 
             }

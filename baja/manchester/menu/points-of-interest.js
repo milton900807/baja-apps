@@ -159,7 +159,7 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
                 if (graph.wake) graph.wake();
             } catch (e) { }
         };
-        const zoomTo = async (m) => { try { if (m && m.snp && m.snp.xi != null) { const w = 30; await goToLocus(m.snp.xi - w, m.snp.xi + w); try { exec('baja/manchester/menu/focus-mutation.js', graph, m.snp, 10000); } catch (e) { } } } catch (e) { } };
+        const zoomTo = async (m) => { try { if (m && m.snp && m.snp.xi != null) { const w = 30; try { await exec('baja/manchester/menu/focus-mutation.js', graph, m.snp, 10000); } catch (e) { } await goToLocus(m.snp.xi - w, m.snp.xi + w); } } catch (e) { } };
 
         const runTour = () => {
             let i = 0, cancelled = false, timer = null;

@@ -62,14 +62,14 @@ function (graph, genegraph_panel_layout) {
                 // for the sequence. Keep room below too so a down-fanned marker also stays visible.
                 const topExt = span * 3.6;   // toward screen top (the ymin side)
                 const botExt = span * 2.2;   // toward screen bottom
-                try { s.highlight = true; } catch (e) { }
+                // Deselect all other mutations and select THIS one BEFORE zooming (spotlight).
+                try { await exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000); } catch (e) { }
                 if (graph.zoomRect) {
                     await graph.zoomRect(xMin, xMax, cy + topExt, cy - botExt, 500);   // smooth animated
                 } else if (graph.graph && graph.graph.setxmin) {
                     graph.graph.setxmin(xMin); graph.graph.setxmax(xMax);
                     graph.graph.setymin(cy + topExt); graph.graph.setymax(cy - botExt);
                 }
-                try { exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000); } catch (e) { }
                 if (graph.wake) graph.wake();
             } catch (e) { }
         };

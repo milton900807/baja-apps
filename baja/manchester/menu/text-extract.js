@@ -583,7 +583,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
 
             // Prompt the user (side menu) to jump to / tour the mutations that were just added.
             const zoomTo = async (tg) => {
-                try { if (tg && tg.xi != null) { const w = 30; await goToLocus(tg.track, tg.xi - w, tg.xi + w); if (tg.snp) { try { exec('baja/manchester/menu/focus-mutation.js', graph, tg.snp, 10000); } catch (e) { } } } } catch (e) { }
+                try { if (tg && tg.xi != null) { const w = 30; if (tg.snp) { try { await exec('baja/manchester/menu/focus-mutation.js', graph, tg.snp, 10000); } catch (e) { } } await goToLocus(tg.track, tg.xi - w, tg.xi + w); } } catch (e) { }
             };
             // Interactive tour: zoom to each mutation, dwell ~10s (auto-advance), with a side
             // menu of Previous / Next / Done so the user can step through at their own pace.

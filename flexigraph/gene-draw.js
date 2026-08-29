@@ -770,15 +770,15 @@ function () {
             const upSign = (graph.Y(y + 1) <= graph.Y(y)) ? 1 : -1;   // world sign that moves the label UP on screen
             let step = 0.02, baseGap = 0.03;
             try { if (graph.worldHeight) { step = Math.abs(graph.worldHeight(13)); baseGap = Math.abs(graph.worldHeight(18)); } } catch (e) { }
-            const labelY = y + upSign * (baseGap + row * step);   // further up for higher rows
+            const labelY = Math.abs(y + upSign * (baseGap + row * step));   // further up for higher rows
 
             // Leader from the domain bar up to its (staggered) label so it stays associated.
             graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
-            graph.drawString(name, cx, labelY, '#0a2540', FONT)
+            // graph.drawString(name, cx, labelY, '#0a2540', FONT)
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
             if (screencell < 1.5 && screencell > 0.1) {
                 if (annotation.description != null && annotation.description.length > 0) {
-                    graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
+                    // graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
                 }
 
             }
