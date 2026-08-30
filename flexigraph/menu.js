@@ -471,7 +471,13 @@ function () {
                         const tw = ctx.measureText(this.title).width;
                         const chipPadX = 8, chipH = 18;
                         const chipW = tw + chipPadX * 2;
-                        const chipX = panelX + panelW + 6;             // just right of the menu
+                        // Default to the right of the menu; flip to the left when there's no
+                        // room on the right (menu opened near the right screen edge).
+                        let chipX = panelX + panelW + 6;
+                        try {
+                            const cw = (ctx.canvas && ctx.canvas.width) || 0;
+                            if (cw && chipX + chipW > cw - 4) chipX = Math.max(4, panelX - chipW - 6);
+                        } catch (e) { }
                         const chipY = panelY + 2;                      // aligned to the menu top
                         ctx.shadowColor = 'rgba(16,24,40,0.28)';
                         ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
