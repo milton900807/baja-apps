@@ -8380,14 +8380,13 @@ pattern, GGGG | Required`
                     ctx.stroke();
                 };
 
-                const chemSelected = !!(this.props && this.props.selected_chemistry);
-                let chemName = (this.props && this.props.selected_chemistry && this.props.selected_chemistry.name) || '';
-                if (chemName.endsWith('.json')) chemName = chemName.substring(0, chemName.indexOf('.json'));
-                if (chemName.length > 22) chemName = chemName.slice(0, 21) + '…';
+                // Total variants (SNVs/indels) across all tracks — shown as a stat row.
+                const varCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
 
                 const rows = [
                     { label: 'Tracks', value: String(this.track.length) },
                     { label: 'Oligos', value: String(ocount) },
+                    { label: 'Variants', value: String(varCount) },
                 ];
 
                 const LABEL_FONT = '600 10px Arial';
@@ -8396,10 +8395,6 @@ pattern, GGGG | Required`
                 ctx.font = VALUE_FONT;
                 let maxValW = 0;
                 for (const r of rows) maxValW = Math.max(maxValW, ctx.measureText(r.value).width);
-                const chemMeasure = chemSelected
-                    ? ctx.measureText(chemName || '—').width
-                    : ctx.measureText('None selected').width + 14;
-                maxValW = Math.max(maxValW, chemMeasure);
 
                 // Install a raw pointer listener once — records the live mouse position in
                 // canvas-pixel space directly from the DOM event (independent of the graph's
@@ -8464,10 +8459,8 @@ pattern, GGGG | Required`
                 const rowH = 16;
                 const labelColW = 44;
                 const panelW = padX * 2 + labelColW + maxValW + 6;
-                // Chem is hidden in a read-only (viewer) screen. Reserve rows + (Chem) + Pos
-                // so the layout never jumps.
-                const showChem = !this.readonly;
-                const panelH = padY * 2 + rowH * (rows.length + (showChem ? 2 : 1));
+                // Reserve rows + Pos so the layout never jumps.
+                const panelH = padY * 2 + rowH * (rows.length + 1);
 
                 paintCard(panelX, panelY, panelW, panelH);
                 // Remember the stats card so a click on it opens the info menu.
@@ -8482,32 +8475,6 @@ pattern, GGGG | Required`
                     ctx.fillText(r.label, lx, ry);
                     ctx.font = VALUE_FONT; ctx.fillStyle = TXT_MAIN;
                     ctx.fillText(r.value, vx, ry);
-                    ry += rowH;
-                }
-
-                // Chem row — hidden in a read-only (viewer) screen.
-                if (showChem) {
-                    ctx.font = LABEL_FONT; ctx.fillStyle = TXT_MUTED;
-                    ctx.fillText('Chem', lx, ry);
-                    if (chemSelected) {
-                        ctx.font = VALUE_FONT; ctx.fillStyle = TXT_ACCENT;
-                        ctx.fillText(chemName || '—', vx, ry);
-                    } else {
-                        const t = 'None selected';
-                        ctx.font = '600 10px Arial';
-                        const tw = ctx.measureText(t).width;
-                        const pillPadX = 6, pillH = 14;
-                        const pillX = vx, pillY = ry - pillH / 2;
-                        ctx.fillStyle = 'rgba(255,225,77,0.16)';
-                        this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                        ctx.fill();
-                        ctx.lineWidth = 1;
-                        ctx.strokeStyle = 'rgba(255,225,77,0.55)';
-                        this.roundRectPath(ctx, pillX, pillY, tw + pillPadX * 2, pillH, 7);
-                        ctx.stroke();
-                        ctx.fillStyle = '#ffe600';   // bright yellow for contrast on navy
-                        ctx.fillText(t, pillX + pillPadX, ry);
-                    }
                     ry += rowH;
                 }
 
@@ -8648,7 +8615,7 @@ pattern, GGGG | Required`
                 return xs >= b.x && xs <= b.x + b.w && ys >= b.y && ys <= b.y + b.h;
             }
 
-            // Is the given SCREEN point on the top stats (Tracks/Oligos/Chem) card?
+            // Is the given SCREEN point on the top stats (Tracks/Oligos/Variants) card?
             hitInfoPanel(xs, ys) {
                 const b = this.__infoPanelBounds;
                 if (!b || !this.showDisplay) return false;
