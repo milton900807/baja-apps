@@ -65,6 +65,7 @@ function () {
             targetSiteRna = '';
             senseCoreRna = '';
             antisenseCoreRna = '';
+            design_scores = {};
 
             constructor(typeOrObject, sequence, sense, antisense, xi, xf, y, strand, structure) {
                 // Object-style construction for JSON hydration
@@ -148,6 +149,8 @@ function () {
                 this.targetSiteRna = data.targetSiteRna ?? '';
                 this.senseCoreRna = data.senseCoreRna ?? '';
                 this.antisenseCoreRna = data.antisenseCoreRna ?? '';
+                // Itemized design scores + nearest-neighbor thermodynamics (persisted).
+                this.design_scores = (data.design_scores && typeof data.design_scores === 'object') ? data.design_scores : {};
 
                 this.rebuildDerivedFields();
             }
@@ -224,6 +227,7 @@ function () {
                     targetSiteRna: this.targetSiteRna,
                     senseCoreRna: this.senseCoreRna,
                     antisenseCoreRna: this.antisenseCoreRna,
+                    design_scores: this.design_scores,
                     selected: this.selected
                 };
             }
@@ -393,12 +397,19 @@ function () {
                         _ctx.restore();
                     }
 
-                    // Draw the two strands stacked VERTICALLY so they don't block each
-                    // other: PASSENGER (sense) above, GUIDE (antisense) below.
-                    const _guide = ('' + (this.sequence || this.guide || '')).toUpperCase().replace(/T/g, 'U');
+                    // Draw the two strands stacked VERTICALLY so they don't block each other:
+                    // PASSENGER (sense) above, GUIDE (antisense) below. The GUIDE must be the actual
+                    // SYNTHESIS sequence (the antisense that is ordered/made) — NOT the target — so the
+                    // drawn chemistry (and the seed tint at positions 2-8) represents the exact
+                    // structure created.
+                    const _guide = ('' + (this.synthesisSequence || this.antisense || this.guide || this.sequence || '')).toUpperCase().replace(/T/g, 'U');
                     const _n = _guide.length || Math.max(1, Math.round(this.xf - this.xi));
-                    // Passenger (sense) = reverse complement of the guide, 5'->3'.
-                    const _pass = _guide.split('').reverse().map((b) => (b === 'A' ? 'U' : b === 'U' ? 'A' : b === 'G' ? 'C' : b === 'C' ? 'G' : 'N')).join('');
+                    // Passenger (sense) = the actual sense strand if we have it (same length as the
+                    // guide core), else the reverse complement of the guide, 5'->3'.
+                    let _pass = ('' + (this.sense || '')).toUpperCase().replace(/T/g, 'U');
+                    if (_pass.length !== _guide.length) {
+                        _pass = _guide.split('').reverse().map((b) => (b === 'A' ? 'U' : b === 'U' ? 'A' : b === 'G' ? 'C' : b === 'C' ? 'G' : 'N')).join('');
+                    }
                     // guide is antiparallel to the target; passenger is parallel.
                     const _li = (p) => (this.strand >= 0 ? (_n - 1 - p) : p);   // guide position -> local base index
                     const _liP = (i) => (this.strand >= 0 ? i : (_n - 1 - i));  // passenger position -> local base index
@@ -578,9 +589,12 @@ function () {
                     };
 
                     if (_ctx && screencell >= 3.2) {
-                        // thin backbone behind each lane's beads
-                        this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.55)', 3, 'round');
-                        this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'rgba(10,37,64,0.55)', 3, 'round');
+                        // Thin backbone behind each lane's beads — omit at full chemistry zoom
+                        // (sugarMode), where the sugar-ring/backbone glyphs already carry the strand.
+                        if (!sugarMode) {
+                            this.drawLine(graph, tgraph.X(this.xi), passY, tgraph.X(this.xf), 'rgba(90,120,150,0.55)', 3, 'round');
+                            this.drawLine(graph, tgraph.X(this.xi), guideY, tgraph.X(this.xf), 'rgba(10,37,64,0.55)', 3, 'round');
+                        }
                         // base-pair rungs between the two lanes
                         _ctx.save(); _ctx.strokeStyle = 'rgba(120,140,160,0.45)'; _ctx.lineWidth = Math.max(1, _R * 0.28);
                         for (let i = 0; i < _n; i++) { const cx = graph.X(tgraph.X(this.xi + i)) + _per / 2; if (cx < _visMin || cx > _visMax) continue; _ctx.beginPath(); _ctx.moveTo(cx, passY + _R); _ctx.lineTo(cx, guideY - _R); _ctx.stroke(); }
@@ -627,12 +641,24 @@ function () {
                         _ctx.restore();
                         if (screencell > 5) {
                             _ctx.save();
-                            _ctx.font = Math.max(8, Math.min(14, Math.floor(screencell))) + 'px monospace';
+                            const _fsz = Math.max(8, Math.min(14, Math.floor(screencell)));
+                            _ctx.font = _fsz + 'px monospace';
                             _ctx.textAlign = 'center';
                             _ctx.textBaseline = 'middle';
-                            _ctx.fillStyle = '#5a6b7a';
                             for (let k = 0; k < ohStr.length; k++) {
                                 const cx = graph.X(tgraph.X(this.xi + edgeLocal + dir * (k + 1))) + Math.max(1, screencell) / 2;
+                                // Background circle around each overhang nucleotide — ONLY when the
+                                // chemistry is showing (sugarMode). Otherwise just print the letter.
+                                if (sugarMode) {
+                                    _ctx.beginPath();
+                                    _ctx.fillStyle = '#eef3f8';
+                                    _ctx.arc(cx, laneY, _fsz * 0.72, 0, 2 * Math.PI);
+                                    _ctx.fill();
+                                    _ctx.lineWidth = 1;
+                                    _ctx.strokeStyle = 'rgba(90,120,150,0.7)';
+                                    _ctx.stroke();
+                                }
+                                _ctx.fillStyle = '#5a6b7a';
                                 _ctx.fillText((ohStr[k] || '').toLowerCase(), cx, laneY);   // dTdT shown lowercase
                             }
                             _ctx.restore();
@@ -645,55 +671,103 @@ function () {
                     // passenger 3' end: +strand -> xf side (dir +1); -strand -> xi side (dir -1)
                     _drawOverhang(_sOh, (this.strand >= 0 ? (_n - 1) : 0), (this.strand >= 0 ? 1 : -1), passY);
 
+                    // At full chemistry zoom, label the 5'/3' ends of each strand (just beyond the
+                    // strand's true extent, including any 3' overhang), correctly oriented by strand.
+                    if (sugarMode && _ctx) {
+                        const plus = (this.strand >= 0);
+                        const gLeft = plus ? (0 - _gOh.length) : 0;
+                        const gRight = plus ? _n : (_n + _gOh.length);
+                        const pLeft = plus ? 0 : (0 - _sOh.length);
+                        const pRight = plus ? (_n + _sOh.length) : _n;
+                        _ctx.save();
+                        _ctx.font = 'bold 11px monospace';
+                        _ctx.textBaseline = 'middle';
+                        _ctx.fillStyle = '#5a6b7a';
+                        const lab = (localX, laneY, text, outLeft) => {
+                            const x = graph.X(tgraph.X(this.xi + localX));
+                            _ctx.textAlign = outLeft ? 'right' : 'left';
+                            _ctx.fillText(text, x + (outLeft ? -6 : 6), laneY);
+                        };
+                        // guide (antisense) lane
+                        lab(gLeft, guideY, plus ? "3'" : "5'", true);
+                        lab(gRight, guideY, plus ? "5'" : "3'", false);
+                        // passenger (sense) lane
+                        lab(pLeft, passY, plus ? "5'" : "3'", true);
+                        lab(pRight, passY, plus ? "3'" : "5'", false);
+                        _ctx.restore();
+                    }
+
                     if (graph.canvas) {
                         var ctx = graph.canvas.getCTX();
 
                         // Off-target count badge + gene-symbol annotations. Works for BOTH
                         // an array of hits and a large-count STRING (>1000 hits).
                         if (this.offtarget != null) this.offtargetsRun = true;
-                        if (this.showOfftargets && this.offtarget != null) {
+                        this.__otBadge = null;   // screen rect of the count badge (for click → stats)
+                        // Only show the off-target count when the track SEQUENCE is visible (zoomed in
+                        // enough to draw base letters, screencell > 5) — hide it when zoomed out.
+                        if (screencell > 5 && this.showOfftargets && this.offtarget != null) {
                             const _off = this.offtarget;
-                            // Badge shows the number of distinct off-target GENES (same
-                            // gene across many transcript isoforms counts once).
+                            // Badge shows the OFF-TARGET COUNT (number of hit sites), NOT the number
+                            // of distinct genes/symbols. Array → hit count; large-count STRING (>1000)
+                            // → that number.
                             const _cnt = Array.isArray(_off)
-                                ? (new Set(_off.map((h) => h && h.symbol).filter(Boolean)).size
-                                    || (this.offtargetsymbols ? this.offtargetsymbols.length : 0)
-                                    || _off.length)
-                                : ((this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : (parseInt(_off, 10) || 0));
+                                ? _off.length
+                                : (parseInt(_off, 10) || 0);
                             ctx.save();
-                            ctx.font = '10px Arial';
-                            ctx.textAlign = 'left';
-                            ctx.textBaseline = 'alphabetic';
-                            ctx.shadowBlur = 0;
-                            ctx.shadowColor = 'transparent';
-                            // Count badge, just to the right of the guide bar.
+                            // Professional off-target count "pill": rounded, soft shadow, a small
+                            // target dot, and clean typography.
                             const countStr = '' + _cnt;
+                            ctx.font = '600 10px "Segoe UI", system-ui, Arial, sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            const __rr = (c, x, y, w, h, r) => {
+                                if (c.roundRect) { c.beginPath(); c.roundRect(x, y, w, h, r); return; }
+                                c.beginPath();
+                                c.moveTo(x + r, y);
+                                c.arcTo(x + w, y, x + w, y + h, r);
+                                c.arcTo(x + w, y + h, x, y + h, r);
+                                c.arcTo(x, y + h, x, y, r);
+                                c.arcTo(x, y, x + w, y, r);
+                                c.closePath();
+                            };
                             const tw = ctx.measureText(countStr).width;
+                            const dot = 5;                    // target dot diameter
+                            const padL = 7, padR = 8, gap = 5;
+                            const bh = 16;
+                            const bw = padL + dot + gap + tw + padR;
                             const bx = graph.X(tgraph.X(this.xf)) + 8;
-                            const by = ysc - 4;
-                            // Filled edge (a slightly larger ellipse in the border color,
-                            // then the white fill on top) instead of a curved stroke —
-                            // antialiases cleanly and stays thin at any zoom/DPI.
-                            ctx.beginPath();
-                            ctx.fillStyle = this.selected ? '#c0392b' : '#1aa3bd';
-                            ctx.ellipse(bx + tw / 2, by - 5, tw / 2 + 9, 10, 0, 0, 2 * Math.PI);
+                            const by = (ysc - 4) - bh / 2;     // vertically centered on the guide line
+                            const sel = this.selected;
+                            // Soft drop shadow.
+                            ctx.shadowColor = 'rgba(8,22,38,0.35)';
+                            ctx.shadowBlur = 5;
+                            ctx.shadowOffsetY = 1;
+                            __rr(ctx, bx, by, bw, bh, bh / 2);
+                            ctx.fillStyle = sel ? '#c0392b' : '#0f3a4d';
                             ctx.fill();
+                            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                            // Hairline border.
+                            ctx.lineWidth = 1;
+                            ctx.strokeStyle = sel ? '#e06a5c' : '#1aa3bd';
+                            __rr(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, (bh - 1) / 2);
+                            ctx.stroke();
+                            // Target dot.
                             ctx.beginPath();
-                            ctx.fillStyle = 'white';
-                            ctx.ellipse(bx + tw / 2, by - 5, tw / 2 + 8, 9, 0, 0, 2 * Math.PI);
+                            ctx.fillStyle = sel ? '#ffd7d0' : '#4fd0e6';
+                            ctx.arc(bx + padL + dot / 2, by + bh / 2, dot / 2, 0, 2 * Math.PI);
                             ctx.fill();
-                            ctx.fillStyle = 'navy';
-                            ctx.fillText(countStr, bx, by);
-                            // Gene symbols as a single comma-delimited line above the oligo
-                            // (no overlap), when zoomed in enough.
-                            if (this.offtargetsymbols && this.offtargetsymbols.length > 0 && screencell > 5) {
-                                ctx.fillStyle = 'navy';
-                                ctx.fillText(this.offtargetsymbols.slice(0, 30).join(', '), graph.X(tgraph.X(this.xi)), ysc - 30);
-                            }
+                            // Count.
+                            ctx.fillStyle = '#eaf6f9';
+                            ctx.fillText(countStr, bx + padL + dot + gap, by + bh / 2 + 0.5);
+                            // Remember the badge's screen rect so a click on it opens the stats popup.
+                            this.__otBadge = { x: bx, y: by, w: bw, h: bh };
+                            // Off-target gene symbols are intentionally NOT drawn for siRNA — the
+                            // count badge alone keeps the track clean (the symbol list was too messy).
                             ctx.restore();
-                        } else if (this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
-                            // Searched and found NO off-targets — show a clean "0". Only when
-                            // off-targets were actually RUN: an oligo never searched shows none.
+                        } else if (screencell > 5 && this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
+                            // Searched and found NO off-targets — show a clean "0" (only when the
+                            // sequence is visible). Only when off-targets were actually RUN.
                             ctx.save();
                             ctx.font = '10px Arial';
                             ctx.textAlign = 'left';

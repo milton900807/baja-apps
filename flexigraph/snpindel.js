@@ -448,10 +448,13 @@ function () {
                 ctx.strokeStyle = 'rgba(20,45,72,0.55)'; ctx.lineWidth = 1; ctx.lineCap = 'round';
                 ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ax, ay); ctx.stroke();
                 ctx.fillStyle = 'rgba(20,45,72,0.75)'; ctx.beginPath(); ctx.arc(hx, hy, 1.7, 0, Math.PI * 2); ctx.fill();
-                // Plain translucent panel (NOT a bubble) so the text reads over features, + text.
-                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                // Solid panel behind the annotation so the text is clearly readable over the
+                // sequence / track features (soft shadow to lift it off the background).
+                ctx.shadowColor = 'rgba(0,0,0,0.28)'; ctx.shadowBlur = 5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 2;
+                ctx.fillStyle = 'rgba(255,255,255,0.97)';
                 ctx.fillRect(bx, by, bw, bh);
-                ctx.fillStyle = 'rgba(20,45,72,0.5)'; ctx.fillRect(bx, by, 2.5, bh);   // slim accent on the leader side
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                ctx.fillStyle = 'rgba(20,45,72,0.6)'; ctx.fillRect(bx, by, 2.5, bh);   // slim accent on the leader side
                 ctx.fillStyle = '#12304a';
                 for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + pad, by + pad + i * lineH);
                 ctx.restore();
@@ -568,10 +571,18 @@ function () {
             // Lighten (amt>0) or darken (amt<0) a #rrggbb color; returns rgb(). Falls back
             // to the input for non-hex colors.
             static _shade(hex, amt) {
-                let c = ('' + hex).replace('#', '');
-                if (c.length === 3) c = c.split('').map((x) => x + x).join('');
-                if (c.length < 6) return hex;
-                const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+                const s = ('' + hex).trim();
+                let r, g, b;
+                const m = s.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+                if (m) { r = +m[1]; g = +m[2]; b = +m[3]; }
+                else {
+                    let c = s.replace('#', '');
+                    if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+                    if (c.length < 6) return s;
+                    r = parseInt(c.substr(0, 2), 16); g = parseInt(c.substr(2, 2), 16); b = parseInt(c.substr(4, 2), 16);
+                }
+                // Never emit rgb(NaN,…) — that throws in addColorStop.
+                if (!isFinite(r) || !isFinite(g) || !isFinite(b)) return s;
                 const f = (v) => Math.max(0, Math.min(255, Math.round(v + amt * 255)));
                 return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
             }
@@ -844,9 +855,11 @@ function () {
                 const __dimmed = (__focusOn || __selOn) && !__inSpot;
 
                 // Color by clinical significance (grey / light-blue / red+glow) — or gray when dimmed.
-                const phaseColor = __dimmed ? 'rgba(148,163,184,0.32)' : this.clinsigStyle().color;
-                const neutralStroke = __dimmed ? 'rgba(148,163,184,0.35)' : '#334155';
-                const highlightColor = __dimmed ? 'rgba(148,163,184,0.28)' : '#2563EB';
+                // Dimmed colours are (nearly) OPAQUE: the fade comes from globalAlpha alone, so a
+                // dimmed marker stays visible-but-grey instead of compounding to ~0.1 and vanishing.
+                const phaseColor = __dimmed ? '#94a3b8' : this.clinsigStyle().color;
+                const neutralStroke = __dimmed ? '#788496' : '#334155';
+                const highlightColor = __dimmed ? '#94a3b8' : '#2563EB';
 
                 // Reference footprint [this.xi, this.xf]: the base cells this variant covers.
                 // Same origin the snp marker and the sequence letters use (base P => cell
@@ -920,7 +933,7 @@ function () {
                     const sx1 = Math.round(tgraph.X(this.xi));
                     const sx2 = Math.round(tgraph.X(this.xi + 1));
                     SnpIndel._drawSnpMarker(this, graph, sx1, sx2, y0, yPix, cellPx, highlightColor, neutralStroke, phaseColor);
-                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) SnpIndel._drawAnnotationLeader(graph, screenX, this._screenY, this.annotation);
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight }); }
                     if (__dimCtx) __dimCtx.globalAlpha = 1;
                     return;
                 }
@@ -931,7 +944,7 @@ function () {
                     // highlight the WHOLE CODON (xi..xf spans 3 nt) with the same spanning marker.
                     // Type 'AA' keeps it clearly a substitution, not a deletion.
                     SnpIndel._drawIndel3D(this, graph, x1, x2, yPix, y0, phaseColor, isIns);
-                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) SnpIndel._drawAnnotationLeader(graph, screenX, this._screenY, this.annotation);
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight }); }
                 } else {
                     let drew = false;
                     const isCoarse = cellPx > 5;
@@ -1051,9 +1064,11 @@ function () {
                 const title = (phase === 1) ? `${id}: ${name}` : `${name}`;
                 const mainLabel = changeStr ? ` ${changeStr} ` : ` ${name || 'variant'} `;
 
+                // Opaque-enough white panel so the label text stays readable over the sequence
+                // letters / track features behind it.
                 const labelBg = highlight
-                    ? `rgba(255,255,255,${0.52 + pulse * 0.05})`
-                    : 'rgba(255,255,255,0.55)';
+                    ? `rgba(255,255,255,${0.94 + pulse * 0.04})`
+                    : 'rgba(255,255,255,0.92)';
 
                 SnpIndel._drawTextOnBackdrop(
                     graph,
@@ -1064,7 +1079,7 @@ function () {
                     {
                         bg: labelBg,
                         // No border; a faint soft shadow only, so the text still reads over features.
-                        shadow: highlight ? `rgba(59,130,246,${0.08 + pulse * 0.10})` : 'rgba(0,0,0,0.10)',
+                        shadow: highlight ? `rgba(59,130,246,${0.08 + pulse * 0.10})` : 'rgba(0,0,0,0.12)',
                         border: 'rgba(0,0,0,0)'
                     }
                 );

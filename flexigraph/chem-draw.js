@@ -232,12 +232,14 @@ function () {
             const sugarCol = SUGAR_COL[mo.sugar] || baseCol;
             if (sugarMode) {
                 drawSugar(cx, sy, R, mo);
-                if (mo.base) {   // base attached at C1' (upper-right of the ring)
-                    const a1 = -18 * Math.PI / 180;
-                    const bx = cx + R * Math.cos(a1) * 1.45, by = sy + R * Math.sin(a1) * 1.45;
-                    ctx.font = 'bold ' + Math.max(8, Math.min(13, Math.round(R * 1.1))) + 'px "Segoe UI", Arial, sans-serif';
+                if (mo.base && R >= 5) {   // base letter CENTERED inside the sugar ring (like siRNA),
+                    // with a white halo so it stays clearly legible over the ring's 2'-mod color.
+                    const bl = mo.base[0];
+                    ctx.font = 'bold ' + Math.max(8, Math.round(R * 0.95)) + 'px "Segoe UI", Arial, sans-serif';
                     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillStyle = BASE_COL[mo.base[0]] || GX.ink; ctx.fillText(mo.base[0], bx, by);
+                    ctx.lineWidth = Math.max(2, R * 0.3); ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineJoin = 'round';
+                    ctx.strokeText(bl, cx, sy);
+                    ctx.fillStyle = BASE_COL[bl] || GX.ink; ctx.fillText(bl, cx, sy);
                 }
                 continue;
             }

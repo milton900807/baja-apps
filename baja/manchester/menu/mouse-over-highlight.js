@@ -577,6 +577,52 @@ function (graph, genegraph_panel_layout) {
             else showSideMenuDelayed(submenu);
         }
 
+        // Off-target statistics popup (navy demo look-and-feel), opened by clicking a count badge.
+        // When the count is < 20, every individual hit (gene symbol + locus + edit distance) is listed.
+        const showOffTargetStats = (o) => {
+            try {
+                const old = document.getElementById('baja-ot-stats'); if (old && old.parentNode) old.parentNode.removeChild(old);
+                const hits = Array.isArray(o.offtarget) ? o.offtarget : [];
+                const isStr = (typeof o.offtarget === 'string');
+                const count = isStr ? (parseInt(o.offtarget, 10) || 0) : hits.length;
+                let genes = [];
+                if (Array.isArray(o.offtargetsymbols) && o.offtargetsymbols.length) genes = o.offtargetsymbols.slice();
+                else genes = Array.from(new Set(hits.map((h) => h && h.symbol).filter(Boolean)));
+                const distinct = (o.offtargetGeneCount != null) ? o.offtargetGeneCount : new Set(genes.map((g) => ('' + g).trim())).size;
+                const nm = o.name || o.id || 'oligo';
+                const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const row = (k, v) => '<tr><td style="padding:4px 18px 4px 0;color:#8fb8c8;white-space:nowrap;">' + k + '</td><td style="padding:4px 0;font-weight:600;color:#fff;">' + v + '</td></tr>';
+                let body = '<table style="border-collapse:collapse;font-size:13px;">'
+                    + row('Off-target hits', count.toLocaleString())
+                    + row('Distinct genes', (distinct || 0).toLocaleString())
+                    + '</table>';
+                if (count < 20) {
+                    let listHtml = '';
+                    if (hits.length) {
+                        listHtml = hits.map((h) => {
+                            const sym = (h && h.symbol) ? esc(h.symbol) : '—';
+                            const loc = (h && h.chr != null) ? esc(h.chr + (h.start != null ? (':' + h.start) : '') + (h.end != null ? ('-' + h.end) : '')) : '';
+                            const ed = (h && h.editdistance != null) ? ('edit ' + h.editdistance) : '';
+                            return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;"><span style="color:#eaf6f9;">' + sym + '</span><span style="color:#8fb8c8;font-family:monospace;">' + loc + ' ' + ed + '</span></div>';
+                        }).join('');
+                    } else if (genes.length) {
+                        listHtml = '<div style="color:#eaf6f9;font-size:12px;line-height:1.6;">' + genes.map(esc).join(', ') + '</div>';
+                    }
+                    if (listHtml) body += '<div style="margin-top:12px;font:700 12px Arial;color:#4fd0e6;">All hits</div><div style="max-height:280px;overflow:auto;margin-top:4px;">' + listHtml + '</div>';
+                } else {
+                    body += '<div style="margin-top:12px;color:#8fb8c8;font-size:12px;">' + count.toLocaleString() + ' hits — too many to list individually. Genes: <span style="color:#eaf6f9;">' + genes.slice(0, 10).map(esc).join(', ') + (genes.length > 10 ? ', …' : '') + '</span></div>';
+                }
+                const panel = document.createElement('div');
+                panel.id = 'baja-ot-stats';
+                panel.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:82vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+                panel.innerHTML = '<div style="font:700 16px Arial;margin-bottom:8px;">Off-target statistics — ' + esc(nm) + '</div>' + body
+                    + '<div style="display:flex;justify-content:flex-end;margin-top:16px;"><button id="ot-close" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Close</button></div>';
+                document.body.appendChild(panel);
+                const cb = panel.querySelector('#ot-close');
+                if (cb) cb.onclick = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            } catch (e) { }
+        };
+
         const getOligoMenuItems = (selectedTrack, graph) => {
             let t = [
                 {
@@ -3272,10 +3318,70 @@ function (graph, genegraph_panel_layout) {
                                 try { graph.showSideMenu(items); } catch (e) { }
                             };
                             const loadFrom = (db, label) => { graph.showSideMenu(null); exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, label); };
+                            // Tour the track's mutations: select + zoom each, with Prev/Next/Done.
+                            const runTour = () => {
+                                const tsnps = (tr.snpindels || []).slice().sort((p, q) => (p.xi || 0) - (q.xi || 0));
+                                if (!tsnps.length) { graph.setMessage(' No mutations to tour on this track. '); return; }
+                                const zoomSnp = async (s) => {
+                                    try { await exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000); } catch (e) { }
+                                    try {
+                                        const tg = tr.tgraph, TARGET_PXPB = 6;
+                                        let gridW = 800; try { gridW = (graph.grid && graph.grid.width) || (graph.canvas && graph.canvas.width) || 800; } catch (e) { }
+                                        const wpb = Math.abs((tg.X((s.xi || 0) + 1) - tg.X(s.xi || 0)) || 1) || 1;
+                                        const half = (wpb * gridW) / (2 * TARGET_PXPB);
+                                        const cw = tg.X(s.xi || 0);
+                                        const yA = tg.yi, yB = tg.yi + (tg.height || 0), cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 0.1;
+                                        graph.animating = false;
+                                        if (graph.zoomRect) graph.zoomRect(cw - half, cw + half, cy + span * 3.6, cy - span * 2.2, 300);
+                                    } catch (e) { }
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                };
+                                let i = 0, cancelled = false, timer = null;
+                                const clearT = () => { if (timer) { clearTimeout(timer); timer = null; } };
+                                const finish = () => { cancelled = true; clearT(); try { graph.showSideMenu(null); } catch (e) { } };
+                                const go = async () => {
+                                    clearT();
+                                    if (cancelled) return;
+                                    if (i < 0) i = 0;
+                                    if (i >= tsnps.length) { finish(); return; }
+                                    const s = tsnps[i];
+                                    await zoomSnp(s);
+                                    if (cancelled) return;
+                                    const nm = (s.name || s.id || ('Variant ' + (i + 1)));
+                                    try {
+                                        graph.showSideMenu([
+                                            { label: 'Tour  ' + (i + 1) + ' / ' + tsnps.length + ':  ' + nm, move: () => { }, click: () => { clearT(); go(); } },
+                                            { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
+                                            { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
+                                            { label: '✓ Done', move: () => { }, click: () => { finish(); } },
+                                        ]);
+                                    } catch (e) { }
+                                    timer = setTimeout(() => { i++; go(); }, 10000);
+                                };
+                                go();
+                            };
                             openMain = () => {
                                 try {
-                                    graph.showSideMenu([
+                                    const __items = [
                                         { label: (tr.showSnpIndels === false ? 'Show variants' : 'Hide variants'), move: () => { }, click: () => { tr.showSnpIndels = (tr.showSnpIndels === false); if (graph.wake) graph.wake(); graph.showSideMenu(null); } },
+                                    ];
+                                    // Only offer Tour / annotation controls when the track actually has variants.
+                                    if ((tr.snpindels || []).length) {
+                                        __items.push({ label: '▶ Tour mutations', move: () => { }, click: () => { runTour(); } });
+                                        // Hide (or re-show) the annotation callout windows of every variant on the track.
+                                        __items.push({
+                                            label: ((tr.snpindels || []).some((s) => s && s.showAnnotation) ? 'Hide annotations' : 'Show annotations'),
+                                            move: () => { },
+                                            click: () => {
+                                                const anyOn = (tr.snpindels || []).some((s) => s && s.showAnnotation);
+                                                for (const s of (tr.snpindels || [])) { if (s) s.showAnnotation = !anyOn; }
+                                                if (graph.wake) graph.wake();
+                                                graph.showSideMenu(null);
+                                                try { graph.setMessage(anyOn ? ' Annotations hidden. ' : ' Annotations shown. '); } catch (e) { }
+                                            }
+                                        });
+                                    }
+                                    __items.push(
                                         { label: 'ClinVar ▸', move: () => { }, click: () => { openClinVar(); } },
                                         { label: 'dbSNP', move: () => { }, click: () => { loadFrom('dbsnp', 'dbSNP'); } },
                                         { label: 'gnomAD', move: () => { }, click: () => { loadFrom('gnomad', 'gnomAD'); } },
@@ -3299,8 +3405,9 @@ function (graph, genegraph_panel_layout) {
                                                     { label: 'Cancel', move: () => { }, click: () => { openMain(); } }
                                                 ]);
                                             }
-                                        },
-                                    ]);
+                                        }
+                                    );
+                                    graph.showSideMenu(__items);
                                 } catch (e) { }
                             };
                             openMain();
@@ -3937,32 +4044,98 @@ function (graph, genegraph_panel_layout) {
                                         const str = `py/sirna/design.py`
 
 
-                                        let vap = await prompt("Maximum number:", ["Count"], { "Count": 100 }, 500, 300)
-                                        let va = vap['Count']
-                                        if (!Number.isInteger(Number(va))) {
-                                            infoPrompt("Please provide an integer value only (1-1000)")
-                                        }
-                                        let senseOverhang_str_p = await prompt("Sense strand overhang:", ["Overhang"], { "Overhang": 'dTdT' }, 500, 300)
-                                        let antisenseOverhang_str_p = await prompt("Antisense strand overhang:", ["Overhang"], { "Overhang": 'nothing' }, 500, 300)
-
-                                        let antisenseOverhang_str = antisenseOverhang_str_p['Overhang']
-                                        let senseOverhang_str = senseOverhang_str_p['Overhang']
-
-                                        if (antisenseOverhang_str != null && antisenseOverhang_str === 'nothing') {
-                                            antisenseOverhang_str = '';
-                                        }
-                                        if (senseOverhang_str != null && senseOverhang_str === 'nothing') {
-                                            senseOverhang_str = '';
-                                        }
-
-                                        let _sequence = selectedTrack.sequence;
+                                        // Default vs Advanced design dialog (navy demo look-and-feel).
+                                        // Advanced lets the user tune lengths, overhangs, alphabet and the
+                                        // per-component scoring weights that drive the ranking algorithm.
+                                        const showSirnaDesignDialog = () => new Promise((resolve) => {
+                                            try {
+                                                const old = document.getElementById('baja-sirna-design'); if (old && old.parentNode) old.parentNode.removeChild(old);
+                                                const lbl = 'display:block;font:600 12px Arial;color:#9fb3c8;margin:12px 0 4px;';
+                                                const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:8px 10px;font:13px Arial;';
+                                                const panel = document.createElement('div');
+                                                panel.id = 'baja-sirna-design';
+                                                panel.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:86vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+                                                panel.innerHTML = ''
+                                                    + '<div style="font:700 17px Arial;margin-bottom:2px;">siRNA Design</div>'
+                                                    + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">Choose Default, or Advanced to tune the design algorithm.</div>'
+                                                    + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
+                                                    + '<button id="sd-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
+                                                    + '<button id="sd-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
+                                                    + '</div>'
+                                                    + '<label style="' + lbl + '">Maximum candidates</label>'
+                                                    + '<input id="sd-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
+                                                    + '<div id="sd-adv" style="display:none;">'
+                                                    + '<label style="' + lbl + '">siRNA lengths</label>'
+                                                    + '<div style="display:flex;gap:16px;font:13px Arial;"><label><input type="checkbox" id="sd-l21" checked/> 21</label><label><input type="checkbox" id="sd-l22" checked/> 22</label><label><input type="checkbox" id="sd-l23" checked/> 23</label></div>'
+                                                    + '<label style="' + lbl + '">Output alphabet</label>'
+                                                    + '<select id="sd-alpha" style="' + inp + '"><option value="DNA">DNA</option><option value="RNA">RNA</option></select>'
+                                                    + '<div style="display:flex;gap:12px;"><div style="flex:1;"><label style="' + lbl + '">Sense 3\' overhang</label><input id="sd-soh" value="dTdT" style="' + inp + '"/></div><div style="flex:1;"><label style="' + lbl + '">Antisense 3\' overhang</label><input id="sd-aoh" value="" style="' + inp + '"/></div></div>'
+                                                    + '<div style="font:700 12px Arial;color:#4fd0e6;margin:16px 0 2px;">Scoring weights (multipliers)</div>'
+                                                    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">'
+                                                    + '<div><label style="' + lbl + '">GC content</label><input id="sd-w-gc" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '<div><label style="' + lbl + '">Seed A/U (2–8)</label><input id="sd-w-seed" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '<div><label style="' + lbl + '">Duplex-end ΔΔG</label><input id="sd-w-end" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '<div><label style="' + lbl + '">Antisense pos 1</label><input id="sd-w-ap1" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '<div><label style="' + lbl + '">Sense pos 1</label><input id="sd-w-sp1" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '<div><label style="' + lbl + '">Repeats/runs</label><input id="sd-w-rep" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
+                                                    + '</div></div>'
+                                                    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
+                                                    + '<button id="sd-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                                                    + '<button id="sd-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
+                                                    + '</div>';
+                                                document.body.appendChild(panel);
+                                                const q = (id) => panel.querySelector(id);
+                                                let mode = 'default';
+                                                const setMode = (m) => {
+                                                    mode = m;
+                                                    q('#sd-adv').style.display = (m === 'advanced') ? 'block' : 'none';
+                                                    q('#sd-default').style.background = (m === 'default') ? '#22c55e' : 'transparent';
+                                                    q('#sd-default').style.color = (m === 'default') ? '#04210f' : '#fff';
+                                                    q('#sd-advanced').style.background = (m === 'advanced') ? '#22c55e' : 'transparent';
+                                                    q('#sd-advanced').style.color = (m === 'advanced') ? '#04210f' : '#fff';
+                                                };
+                                                q('#sd-default').onclick = () => setMode('default');
+                                                q('#sd-advanced').onclick = () => setMode('advanced');
+                                                const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+                                                q('#sd-cancel').onclick = () => { close(); resolve(null); };
+                                                q('#sd-run').onclick = () => {
+                                                    const topn = Math.max(1, Math.min(1000, parseInt(q('#sd-topn').value, 10) || 100));
+                                                    let params;
+                                                    if (mode === 'advanced') {
+                                                        const lengths = [];
+                                                        if (q('#sd-l21').checked) lengths.push(21);
+                                                        if (q('#sd-l22').checked) lengths.push(22);
+                                                        if (q('#sd-l23').checked) lengths.push(23);
+                                                        const num = (id, d) => { const v = parseFloat(q(id).value); return Number.isFinite(v) ? v : d; };
+                                                        params = {
+                                                            top_n: topn,
+                                                            lengths: lengths.length ? lengths : [21, 22, 23],
+                                                            output_alphabet: q('#sd-alpha').value || 'DNA',
+                                                            senseOverhang: q('#sd-soh').value || '',
+                                                            antisenseOverhang: q('#sd-aoh').value || '',
+                                                            weights: {
+                                                                gc: num('#sd-w-gc', 1), seed_au: num('#sd-w-seed', 1),
+                                                                end_asymmetry_ddg: num('#sd-w-end', 1), antisense_pos1: num('#sd-w-ap1', 1),
+                                                                sense_pos1: num('#sd-w-sp1', 1), repeats_and_runs: num('#sd-w-rep', 1)
+                                                            }
+                                                        };
+                                                    } else {
+                                                        params = { top_n: topn, lengths: [21, 22, 23], output_alphabet: 'DNA', senseOverhang: 'dTdT', antisenseOverhang: '', weights: {} };
+                                                    }
+                                                    close(); resolve(params);
+                                                };
+                                            } catch (e) { resolve(null); }
+                                        });
+                                        const __p = await showSirnaDesignDialog();
+                                        if (!__p) return;   // cancelled
                                         let json_input = {
-                                            sequence: _sequence,
+                                            sequence: selectedTrack.sequence,
                                             strand: selectedTrack.strand,
-                                            top_n: parseInt(va),
-                                            lengths: [21, 22, 23],
-                                            overhangs: { sense: senseOverhang_str, antisense: antisenseOverhang_str },           // can also be "UU"
-                                            output_alphabet: "DNA"    // "RNA" or "DNA"
+                                            top_n: __p.top_n,
+                                            lengths: __p.lengths,
+                                            overhangs: { sense: __p.senseOverhang, antisense: __p.antisenseOverhang },
+                                            output_alphabet: __p.output_alphabet,
+                                            weights: __p.weights
                                         }
 
 
@@ -3979,12 +4152,7 @@ function (graph, genegraph_panel_layout) {
 
                                         let r = await exec(str, progress, json_input);
 
-
-
-                                        let button_canvas_ = await exec('manchester/controls/navigation-panel.js', graph)
-                                        CurrentLayout.clearComponent('buttonMenuPanel,labelPanel')
-                                        CurrentLayout.setComponent('buttonMenuPanel', button_canvas_);
-
+                                        // siRNA design does NOT touch the buttonMenuPanel — leave it as-is.
 
                                         let SIRNA = await exec('flexigraph/sirna.js')
                                         let Amplicon = await exec('flexigraph/amplicon.js')
@@ -4073,6 +4241,9 @@ function (graph, genegraph_panel_layout) {
                                                     sirna.gc_percent = c.gc_percent;
                                                     sirna.rank = c.rank;
                                                     sirna.notes = c.notes || [];
+                                                    // Itemized per-candidate scoring + nearest-neighbor thermodynamics
+                                                    // (ΔG°37, ΔH, ΔS, Tm, duplex-end ΔΔG, internal stability profile).
+                                                    sirna.design_scores = c.design_scores || {};
                                                     sirna.target_site = c.target_site_input_alphabet || sequence;
                                                     sirna.targetSiteRna = c.target_site_rna || null;
                                                     sirna.senseCoreRna = c.sense_core_rna || null;
@@ -4082,6 +4253,12 @@ function (graph, genegraph_panel_layout) {
 
                                                     if (track && typeof track.addOligo === "function") {
                                                         track.addOligo(sirna);
+                                                        // Magenta glow as each siRNA lands — staggered by add order so you can
+                                                        // see where they fall on the track (like ASO design).
+                                                        try {
+                                                            const __gi = sirnas.length;
+                                                            setTimeout(() => { try { sirna.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __gi * 120);
+                                                        } catch (e) { }
                                                     }
 
                                                     sirnas.push(sirna);
@@ -4600,16 +4777,6 @@ function (graph, genegraph_panel_layout) {
                                                 }
                                             },
                                             {
-                                                label: "Run off-targets & filter (live)",
-                                                move: () => { },
-                                                click: () => {
-                                                    graph.showSideMenu(null);
-                                                    // Pick a genome + edit distance; oligos over the entered
-                                                    // max are removed in real time as results return.
-                                                    exec('baja/manchester/menu/filter-run-offtargets.js', graph, genegraph_panel_layout, selectedTrack);
-                                                }
-                                            },
-                                            {
                                                 label: "← Back",
                                                 move: () => { },
                                                 click: () => { showSideMenuDelayed(submenu); }
@@ -4896,6 +5063,22 @@ function (graph, genegraph_panel_layout) {
             graph.__downInMenu = !!(graph.side_menu || (graph.menuVisible && graph.menuVisible()));
             if (graph.__downInMenu) return;
 
+            // Click on an off-target COUNT badge → show its statistics popup.
+            try {
+                const ds = graph.__downScreen;
+                if (ds) {
+                    for (const t of (graph.track || [])) {
+                        for (const o of (t.oligos || [])) {
+                            const b = o && o.__otBadge;
+                            if (b && ds.x >= b.x && ds.x <= b.x + b.w && ds.y >= b.y && ds.y <= b.y + b.h) {
+                                showOffTargetStats(o);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (e) { }
+
             // Box-zoom owns the interaction — don't let hover select/deselect or
             // clear the selection while the user is dragging a zoom rectangle.
             if (graph.graph && graph.graph.mode === 'bpx') return;
@@ -4974,6 +5157,19 @@ function (graph, genegraph_panel_layout) {
                 clickSnp.select();
                 // Selected mutation POPS OUT — gray every other mutation (snpindel.js draw()).
                 graph.__snpSelectionActive = true;
+                // Keep it highlighted: add it to the selection window so the per-frame
+                // reassertSelectionHighlights() re-applies its highlight (hover clears highlights
+                // every move, which would otherwise drop the spotlight the instant the mouse moves).
+                try {
+                    const __prev = Array.isArray(graph.__lassoSelection) ? graph.__lassoSelection.filter((e) => e && e.kind !== 'snp') : [];
+                    __prev.push({
+                        kind: 'snp',
+                        label: '' + (clickSnp.name || clickSnp.id || ('snp@' + clickSnp.xi)) + (clickSnp.clinsig ? ' · ' + clickSnp.clinsig : ''),
+                        track: clickTrack, chr: clickTrack.chr, xi: clickSnp.xi, xf: (clickSnp.xf != null ? clickSnp.xf : clickSnp.xi),
+                        ref: clickSnp, clinsig: clickSnp.clinsig
+                    });
+                    graph.__lassoSelection = __prev;
+                } catch (e) { }
                 try { if (graph.wake) graph.wake(); } catch (e) { }
                 // Stash the snp menu; mouse-up folds it into the context menu.
                 const snpMenu = await exec('baja/manchester/menu/snp-menu', graph, clickTrack, clickSnp);

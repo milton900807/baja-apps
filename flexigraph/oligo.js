@@ -380,6 +380,55 @@ function () {
                     ctx.restore();
                 };
 
+                // Professional off-target count badge — a centered rounded pill with a soft shadow,
+                // a small target dot and clean typography (selected → red accent).
+                const drawOffTargetBadge = (count, offsetY = 0) => {
+                    if (count == null) return;
+                    const label = String(count).trim();
+                    if (!label) return;
+                    const sel = this.selected;
+                    ctx.save();
+                    ctx.shadowBlur = 0;
+                    ctx.font = '600 10px "Segoe UI", system-ui, Arial, sans-serif';
+                    const __rr = (c, x, y, w, h, r) => {
+                        if (c.roundRect) { c.beginPath(); c.roundRect(x, y, w, h, r); return; }
+                        c.beginPath();
+                        c.moveTo(x + r, y);
+                        c.arcTo(x + w, y, x + w, y + h, r);
+                        c.arcTo(x + w, y + h, x, y + h, r);
+                        c.arcTo(x, y + h, x, y, r);
+                        c.arcTo(x, y, x + w, y, r);
+                        c.closePath();
+                    };
+                    const tw = ctx.measureText(label).width;
+                    const dot = 5, padL = 7, padR = 8, gap = 5, bh = 16;
+                    const bw = padL + dot + gap + tw + padR;
+                    const bx = Math.round(screenMidX - bw / 2);
+                    const by = Math.round(screenY + offsetY - bh / 2);
+                    ctx.shadowColor = 'rgba(8,22,38,0.35)';
+                    ctx.shadowBlur = 5;
+                    ctx.shadowOffsetY = 1;
+                    __rr(ctx, bx, by, bw, bh, bh / 2);
+                    ctx.fillStyle = sel ? '#c0392b' : '#0f3a4d';
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = sel ? '#e06a5c' : '#1aa3bd';
+                    __rr(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, (bh - 1) / 2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.fillStyle = sel ? '#ffd7d0' : '#4fd0e6';
+                    ctx.arc(bx + padL + dot / 2, by + bh / 2, dot / 2, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.fillStyle = '#eaf6f9';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, bx + padL + dot + gap, by + bh / 2 + 0.5);
+                    // Remember the badge's screen rect so a click on it opens the stats popup.
+                    this.__otBadge = { x: bx, y: by, w: bw, h: bh };
+                    ctx.restore();
+                };
+
                 if (screencell > 1) {
                     if (this.__dupSeq) {
                         // Duplicate-sequence oligo: draw a maroon stick with a yellow
@@ -451,7 +500,10 @@ function () {
                     // Only surface off-targets once the oligo is actually drawn as a polymer.
                     // When zoomed out it renders as a plain line (per/screencell < 3.2), and the
                     // off-target badge/labels are suppressed at that scale.
-                    const _offtargetVisible = screencell >= 3.2;
+                    // Only show the off-target count when the track SEQUENCE is visible (zoomed in
+                    // enough to draw base letters, screencell > 5) — hide it when zoomed out.
+                    const _offtargetVisible = screencell > 5;
+                    this.__otBadge = null;   // screen rect of the count badge (for click → stats)
                     if (_offtargetVisible && this.showOfftargets && this.offtarget != null) {
                         if (Array.isArray(this.offtarget)) {
                             // Gene-name annotations only draw once the track is zoomed in
@@ -460,10 +512,11 @@ function () {
                             if (screencell > 5 && this.offtargetsymbols && this.offtargetsymbols.length > 0) {
                                 // Comma-delimited on a single line above the oligo — not
                                 // fanned in an arc (which overlaps when there are several).
-                                const symText = this.offtargetsymbols
+                                // Show at most the first 10 genes, then "…" (avoid a runaway line).
+                                const __syms = this.offtargetsymbols
                                     .map((s) => String(s).trim())
-                                    .filter(Boolean)
-                                    .join(", ");
+                                    .filter(Boolean);
+                                const symText = __syms.slice(0, 10).join(", ") + (__syms.length > 10 ? ", …" : "");
                                 if (symText) {
                                     ctx.save();
                                     ctx.shadowBlur = 0;
@@ -476,34 +529,14 @@ function () {
                                 }
                             }
 
-                            // Badge shows the number of distinct off-target GENES (the same gene
-                            // across many transcript isoforms counts once). IMPORTANT: never use
-                            // offtargetsymbols.length here — that list is CAPPED at 30 for the arc, so
-                            // it maxes out at "30" and misrepresents oligos with many off-targets.
-                            // Prefer the stored true distinct-gene count, then the distinct genes from
-                            // the hit array, then the raw hit count.
-                            const geneN = (this.offtargetGeneCount != null) ? this.offtargetGeneCount
-                                : (new Set(this.offtarget.map((h) => h && h.symbol).filter(Boolean)).size
-                                    || this.offtarget.length);
-                            drawCenteredOvalLabel(geneN, -12, {
-                                font: "10px Arial",
-                                textColor: "navy",
-                                fillColor: "white",
-                                strokeColor: "black",
-                            });
+                            // Badge shows the OFF-TARGET COUNT (number of hit sites), NOT the number
+                            // of distinct genes/symbols.
+                            const hitN = this.offtarget.length;
+                            drawOffTargetBadge(hitN, -12);
                         } else if (typeof this.offtarget === "string") {
-                            // offtargetsymbols is capped at 30 (arc display), so its length is a
-                            // misleading badge number. Show the real count: the stored true gene count
-                            // if present, else the raw off-target count string (this.offtarget).
-                            const strN = (this.offtargetGeneCount != null) ? this.offtargetGeneCount
-                                : ((this.offtarget != null && ('' + this.offtarget).length) ? this.offtarget
-                                    : ((this.offtargetsymbols && this.offtargetsymbols.length) ? this.offtargetsymbols.length : 0));
-                            drawCenteredOvalLabel(strN, -12, {
-                                font: "10px Arial",
-                                textColor: "navy",
-                                fillColor: "white",
-                                strokeColor: "black",
-                            });
+                            // Large-count case: this.offtarget is the raw hit-count string (>1000).
+                            const strN = (parseInt(this.offtarget, 10) || this.offtarget);
+                            drawOffTargetBadge(strN, -12);
                         }
                     } else if (_offtargetVisible && this.showOfftargets && this.offtargetsRun && this.offtarget == null) {
                         // Searched, but the off-target result came back NULL — the oligo could not be

@@ -23,79 +23,26 @@ function (graph, io) {
         if (graph.currentShape && md)
             graph.currentShape.update(x, y);
     });
-    graph.addMouseUpListener((x, y) => {
-        let panel;
-        const __nameHook = createIonFunction((hook) => {
-            panel = hook;
-        })
+    graph.addMouseUpListener(async (x, y) => {
         md = false;
-
         if (!graph.currentShape) {
             return;
         }
-
-        let zoom_to = {
-            wid: 'card',
-            componentRef: 'bottomPanel',
-            data: {
-                width: 480,
-                cards: [
-                    [
-                        {
-                            'title': 'Add a comment',
-                            'body': 'Write a note for this annotation.',
-                            'width': '100%',
-                            'component':
-                            {
-                                wid: 'input-param-items',
-                                refCallback: __nameHook,
-                                data: {
-                                    'input_labels': ['Comment'],
-                                }
-                            }
-                        }
-                    ],
-                    [
-                        {
-                            'title': '',
-                            'width': '100%',
-                            'component': {
-                                wid: 'mt-button', data: {
-                                    buttons: [
-                                        {
-                                            label: 'Save', background: '#1aa3bd', color: '#ffffff', borderColor: '#1aa3bd', ionFunction: createIonFunction(() => {
-                                                graph.currentShape.comment = panel.get('Comment')
-                                                if (graph.currentShape.w < 0) {
-                                                    graph.currentShape.invertX();
-                                                    graph.currentShape.invertY();
-                                                }
-                                                graph.saveCurrentShape();
-                                                graph.currentShape = null;
-
-                                                hideAllModal();
-                                                // Item added → NOW return to navigate + mouse-over-highlight.
-                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                graph.setMouseMode('navigate');
-                                            })
-                                        },
-                                        {
-                                            label: 'Cancel', background: 'transparent', color: '#0a2540', borderColor: '#c7d2dd', ionFunction: createIonFunction(() => {
-                                                graph.currentShape = null;
-
-                                                hideAllModal();
-                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                graph.setMouseMode('navigate');
-                                            })
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                ]
+        // Navy demo-style comment dialog (was a wid modal).
+        const c = await exec('baja/manchester/menu/comment-dialog.js', 'Add a comment', 'Write a note for this annotation.');
+        if (c === null) {
+            graph.currentShape = null;
+        } else {
+            graph.currentShape.comment = c;
+            if (graph.currentShape.w < 0) {
+                graph.currentShape.invertX();
+                graph.currentShape.invertY();
             }
+            graph.saveCurrentShape();
+            graph.currentShape = null;
         }
-        showModal(zoom_to)
-
+        // Item added (or cancelled) → return to navigate + mouse-over-highlight.
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+        graph.setMouseMode('navigate');
     })
 }

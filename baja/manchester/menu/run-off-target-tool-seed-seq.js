@@ -7,6 +7,11 @@ function (graph, genegraph_panel_layout, selectedOnly) {
         let SIRNA = await exec('flexigraph/sirna.js')
 
         let returnMode = 'editdistance'
+        // A hit only counts as an off-target when the seed hits the SAME dataset sequence this many
+        // times or more (prompted at Run; default 3).
+        let hitCountThreshold = 3;
+        // The off-target index is DNA (2-bit): every query MUST be DNA — uppercase, U->T, A/C/G/T only.
+        const __toDNA = (s) => ('' + (s || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
         let splitArray = (array) => {
             const result = [];
             // One oligo per request so the gunsight advances one-at-a-time, left→right.
@@ -56,7 +61,7 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                 }
                 for (let o of oligos) {
                     if (o.getSeedSequence) {
-                        let s = o.getSeedSequence();
+                        let s = __toDNA(o.getSeedSequence());   // DNA (U->T), no overhang (seed is positions 2-8)
                         if (containsRepeatedSequences(s)) {
                             skipo.push(o);
                         } else {
@@ -78,7 +83,7 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             try {
                 ot_oligos.sort((a, b) => { const ax = Math.min(a.xi, a.xf), bx = Math.min(b.xi, b.xf); if (ax !== bx) return ax - bx; return (b.y || 0) - (a.y || 0); });
                 if (ot_oligos.length > 200) { graph.setMessage(' Off-targets run 200 oligos at a time — running the first 200 (left→right, top→bottom). '); ot_oligos = ot_oligos.slice(0, 200); }
-                seqList = ot_oligos.map((o) => ({ "id": String(o.id), "synthesisSequence": o.getSeedSequence ? o.getSeedSequence() : '' }));
+                seqList = ot_oligos.map((o) => ({ "id": String(o.id), "synthesisSequence": o.getSeedSequence ? __toDNA(o.getSeedSequence()) : '' }));
             } catch (e) { }
             const __idToOligo = new Map();
             for (const o of ot_oligos) { if (o && o.id != null) __idToOligo.set(String(o.id), o); }
@@ -202,10 +207,26 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                         for (let off of oq) {
                             console.log('debubg');
                             if (String(o.id) == String(off.id)) {
-                                o.mi_targets_transient_ = off.offtarget;
-                                if ( o.mi_targets_transient_ && o.mi_targets_transient_.length > 0 ){
-                                    o.mi_targets_transient_ = o.mi_targets_transient_.length;
-                                }
+                                // miRNA-like off-target: group the seed hits BY GENE (symbol) and count
+                                // a gene as an off-target only when the seed hits it hitCountThreshold
+                                // times or more. Grouping by GENE (not chr/transcript) is essential —
+                                // one gene's hits spread across its transcripts must still be summed.
+                                // The badge shows the number of qualifying off-target genes.
+                                const __hits = Array.isArray(off.offtarget) ? off.offtarget : [];
+                                const __geneKey = (h) => {
+                                    if (!h) return '?';
+                                    const s = ('' + (h.symbol || '')).trim(); if (s) return s;
+                                    const g = ('' + (h.gene || h.gene_symbol || '')).trim(); if (g) return g;
+                                    const c = ('' + (h.chr || h.seq || h.name || '')).trim(); if (c) return c;
+                                    return JSON.stringify(h);
+                                };
+                                const __byGene = {};
+                                for (const __h of __hits) { const __k = __geneKey(__h); __byGene[__k] = (__byGene[__k] || 0) + 1; }
+                                let __qualifying = 0;
+                                const __qualGenes = [];
+                                for (const __k in __byGene) { if (__byGene[__k] >= hitCountThreshold) { __qualifying++; __qualGenes.push(__k + ' (' + __byGene[__k] + ')'); } }
+                                o.mi_targets_transient_ = __qualifying;
+                                o.__seedOffGenes = __qualGenes;   // for the stats popup
                                 o.show_seed_targets = true;
                                 o.highlight(1000, 'purple')
                             }
@@ -426,20 +447,27 @@ seed-pattern, GGG | Required
 
         }
         let selected_genome = '';
-        let bg = []
-        for (let a of Object.keys(available_genomes)) {
-            if (bg.length === 0) {
-                selected_genome = a;
-            }
-
-            if (a.indexOf('utr') > 0) {
-                bg.push({
-                    'label': a, ionfunction: createIonFunction((_label) => {
-                        selected_genome = a
-
-                    })
-
-                })
+        let bg = [];
+        const __genomeKeys = Object.keys(available_genomes || {});
+        const __findGenome = (frag) => __genomeKeys.find((k) => ('' + k).toLowerCase().indexOf(frag) >= 0) || null;
+        // Always offer BOTH a 3' UTR and a 5' UTR off-target source. Map each to the matching
+        // /genomes entry when the server provides one, else fall back to a conventional key.
+        const __utrSources = [
+            { label: "3' UTR", frag: '3utr', fallback: 'Human3utr' },
+            { label: "5' UTR", frag: '5utr', fallback: 'Human5utr' },
+        ];
+        for (const __src of __utrSources) {
+            const __key = __findGenome(__src.frag) || __src.fallback;
+            if (!selected_genome) selected_genome = __key;
+            bg.push({
+                'label': __src.label, ionfunction: createIonFunction(() => { selected_genome = __key; })
+            });
+        }
+        // Include any other UTR references the server offers that aren't the two above.
+        for (const a of __genomeKeys) {
+            const al = ('' + a).toLowerCase();
+            if (al.indexOf('utr') >= 0 && al.indexOf('3utr') < 0 && al.indexOf('5utr') < 0) {
+                bg.push({ 'label': a, ionfunction: createIonFunction(() => { selected_genome = a; }) });
             }
         }
         sleep = async (ms) => {
@@ -486,12 +514,21 @@ seed-pattern, GGG | Required
                                                     alert('Select a target dataset')
                                                     return;
                                                 }
+                                                // Ask for the hit-count threshold: a dataset sequence is only counted as an
+                                                // off-target when the seed hits it this many times or more (default 3).
+                                                try {
+                                                    let __tp = await prompt("Hit count threshold:", ["Threshold"], { "Threshold": 3 }, 500, 300);
+                                                    if (__tp && __tp["Threshold"] != null) {
+                                                        const __v = parseInt(__tp["Threshold"], 10);
+                                                        if (Number.isFinite(__v) && __v >= 1) hitCountThreshold = __v;
+                                                    }
+                                                } catch (e) { }
                                                 CurrentLayout.clearComponent('mainPanel')
                                                 CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
                                                 setTimeout(() => {
-                                                    graph.setMessage(" Edit distance : " + editDistance)
+                                                    graph.setMessage(" Edit distance : " + editDistance + "    Hit threshold : " + hitCountThreshold)
                                                     graph.rungraph((graph) => {
-                                                        graph.setMessage(" Edit distance : " + editDistance)
+                                                        graph.setMessage(" Edit distance : " + editDistance + "    Hit threshold : " + hitCountThreshold)
                                                         runOffTargets(graph, [selected_genome], editDistance)
                                                     })
                                                 }, 2000)

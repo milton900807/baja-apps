@@ -921,12 +921,12 @@ function () {
             }
         }),
 
-        'TSS': createIon((graph, tgraph, xs, xf, y) => {
-            drawCodonCylinder(graph, tgraph, xs, xf, y, 'start');
-        }),
-        'STOP': createIon((graph, tgraph, xs, xf, y) => {
-            drawCodonCylinder(graph, tgraph, xs, xf, y, 'stop');
-        }),
+        // START / STOP codons are drawn ONCE, by the 'Translation' shape (strand-aware, both
+        // pillars in one place). The TSS/STOP annotations are kept for their functional role
+        // (CDS regeneration triggers on tss/stop) but no longer draw — otherwise the codons
+        // appeared twice (Translation + TSS/STOP).
+        'TSS': createIon((graph, tgraph, xs, xf, y) => { }),
+        'STOP': createIon((graph, tgraph, xs, xf, y) => { }),
         'oligo': createIon((graph, tgraph, xs, xf, y) => {
             graph.drawLine(xs, y, xf, y, '#17a39a', 1, 'butt')
 

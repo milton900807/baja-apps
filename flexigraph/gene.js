@@ -2434,8 +2434,16 @@ function (progress, options) {
                     for (let a of t.annotations) {
                         a.deselect();
                     }
-
+                    // Deselect every variant on the track too.
+                    for (let s of (t.snpindels || [])) {
+                        if (s) { s.highlight = false; if (s.deselect) { try { s.deselect(); } catch (e) { } } }
+                    }
                 }
+                // Clear the SNP spotlight + drop selected variants from the selection window, so the
+                // per-frame reassertSelectionHighlights() doesn't immediately re-highlight them.
+                this.__snpSelectionActive = false;
+                try { if (Array.isArray(this.__lassoSelection)) this.__lassoSelection = this.__lassoSelection.filter((e) => e && e.kind !== 'snp'); } catch (e) { }
+                try { this.__focusSnp = null; this.__focusUntil = 0; } catch (e) { }
             }
             setBookmarks(_bookmarks) {
                 this.bookmarks = _bookmarks;
@@ -3044,14 +3052,17 @@ function (progress, options) {
                     this.graph.setxmax(t.tgraph.xi + t.tgraph.width + xm);
 
                     let offset = t.tgraph.width / 6;
-                    setTimeout(() => {
-                        this.animateTo(
+                    setTimeout(async () => {
+                        await this.animateTo(
                             t.tgraph.xi - offset,
                             t.tgraph.xi + t.tgraph.width + offset,
                             t.tgraph.yi - Math.abs(t.tgraph.height) - 10,
                             t.tgraph.yi + t.tgraph.height + 10
                         );
                         this.setMouseMode('navigate');
+                        // Always record the FIRST view in the navigation history as soon as it loads
+                        // (once the intro animation has settled), so 'back' returns to the initial view.
+                        try { this.pushOntoHistory(); } catch (e) { }
                     }, 500);
 
                     this.graph.rescale();
@@ -8322,19 +8333,18 @@ pattern, GGGG | Required`
                 const TXT_ACCENT = '#4fd0e6';  // headers / highlights
                 const PANEL_BORDER = '#1aa3bd';
                 const paintCard = (x, y, w, h) => {
-                    ctx.shadowColor = 'rgba(16,24,40,0.28)';
-                    ctx.shadowBlur = 8;
-                    ctx.shadowOffsetY = 2;
-                    const g = ctx.createLinearGradient(0, y, 0, y + h);
-                    g.addColorStop(0, 'rgba(10,37,64,0.97)');    // navy top
-                    g.addColorStop(1, 'rgba(18,90,110,0.97)');   // teal-cyan bottom
-                    ctx.fillStyle = g;
-                    this.roundRectPath(ctx, x, y, w, h, 7);
+                    // Demo-panel look-and-feel (manchester/demo.js): solid navy, a subtle light
+                    // border, a soft deep shadow and a 12px radius.
+                    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+                    ctx.shadowBlur = 20;
+                    ctx.shadowOffsetY = 8;
+                    ctx.fillStyle = '#0b2545';
+                    this.roundRectPath(ctx, x, y, w, h, 12);
                     ctx.fill();
                     this.resetCanvasEffects(ctx);
-                    ctx.lineWidth = 1.2;
-                    ctx.strokeStyle = PANEL_BORDER;
-                    this.roundRectPath(ctx, x, y, w, h, 7);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+                    this.roundRectPath(ctx, x, y, w, h, 12);
                     ctx.stroke();
                 };
 
@@ -8572,6 +8582,8 @@ pattern, GGGG | Required`
                 ctx.textBaseline = 'middle';
                 for (const t of this.track) {
                     if (!t || !t.tgraph) continue;
+                    // Clinical-compound tracks show no genomic/cDNA coordinate — skip the hover label.
+                    if (t.track_type === 'clincial_compound' || t.track_type === 'clinical_compound') continue;
                     const tsx = this.graph.X(t.tgraph.xi);
                     const tsw = this.graph.screenWidth(t.tgraph.width);
                     if (sx < tsx || sx > tsx + tsw) continue;   // line not within this track's x-range
@@ -8589,7 +8601,7 @@ pattern, GGGG | Required`
                     const ty = this.graph.Y(t.tgraph.yi);
                     const tw = ctx.measureText(label).width;
                     const lx = sx + 6, ly = ty;
-                    ctx.fillStyle = 'rgba(10,37,64,0.92)';
+                    ctx.fillStyle = 'rgba(10, 37, 64, 0.25)';
                     ctx.fillRect(lx - 3, ly - 9, tw + 6, 18);
                     ctx.fillStyle = '#ffffff';
                     ctx.fillText(label, lx, ly);

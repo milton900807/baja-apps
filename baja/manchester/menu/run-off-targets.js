@@ -12,6 +12,8 @@ function (graph, genegraph_panel_layout, oligos, options) {
     // guide seed region (positions 2-9, an 8-mer that meets the index minimum)
     // instead of the full strand.
     const __seedMode = !!(options && options.seed);
+    // Per-sequence hit-count threshold for UTR datasets (1 = no filtering; set in runWith).
+    let hitCountThreshold = 1;
     const __seedOf = (o) => {
         const norm = (x) => ('' + (x || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
         let g = norm(o && (o.guide || o.antisense));
@@ -37,31 +39,30 @@ function (graph, genegraph_panel_layout, oligos, options) {
     };
     const __querySeq = (o) => {
         if (!o) return '';
-        // The DNA index is searched on BOTH strands, so the query MUST be a real strand of
-        // the target duplex. The most reliable one is the target region itself, read straight
-        // from the track's sequence at the oligo's coordinates (genomic+, and guaranteed to
-        // be present in the index) — this self-hits for BOTH strands. We query its reverse-
-        // complement (the antisense) so the off-target set matches the ASO. o.sequence /
-        // synthesisSequence are NOT reliable: some build paths store a transform (or a plain
-        // complement, which is a dead strand that matches nothing).
-        let g = '';
+        const isSiRNA = (o.type === 'siRNA' || (o.sense && o.antisense));
+        // Query from the oligo's OWN strand — reliable and INDEPENDENT of any track lookup. Guessing
+        // the oligo's track by xi-overlap grabbed the WRONG track when several compounds share xi=0
+        // (e.g. two clinical-compound tracks), producing a query derived from a different compound.
+        // siRNA → the guide (antisense); single-stranded ASO → the synthesis sequence. The DNA index
+        // is searched on BOTH strands, so the compound's antisense target sites are found either way.
+        let g = isSiRNA
+            ? __toDNA(o.antisense || o.guide || o.synthesisSequence || o.sequence)
+            : __toDNA(o.synthesisSequence || o.sequence);
+        // Exclude a 3' overhang: the recorded one, or a common dTdT (TT) the fields didn't capture.
+        let oh = __toDNA(o.antisenseOverhang || o.senseOverhang || o.overhang);
+        if (!oh && isSiRNA && /TT$/.test(g) && g.length > 12) oh = 'TT';
+        if (oh && g.length > oh.length && g.slice(-oh.length) === oh) g = g.slice(0, g.length - oh.length);
+        if (g && g.length >= 8) return g;
+        // Fallback ONLY if the oligo carried no usable sequence: derive from the oligo's OWN track's
+        // target region (prefer o.__track; never guess a track by xi overlap that isn't the oligo's).
         try {
-            let t = o.track || o.__track || null;
-            if (!t) { for (const tr of (graph.track || [])) { if (tr && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } }
+            const t = o.track || o.__track || null;
             if (t && t.getSequenceRange && Biopolymer) {
                 const lo = Math.min(o.xi, o.xf), hi = Math.max(o.xi, o.xf);
                 const tgt = __toDNA(t.getSequenceRange(lo, hi));
-                if (tgt && tgt.length >= 8) g = __toDNA(Biopolymer.reverseComp(tgt));
+                if (tgt && tgt.length >= 8) return __toDNA(Biopolymer.reverseComp(tgt));
             }
         } catch (e) { }
-        // Fallbacks if the track sequence wasn't available.
-        if ((!g || g.length < 8) && o.sequence && Biopolymer) g = __toDNA(Biopolymer.reverseComp(o.sequence));
-        if (!g || g.length < 8) g = __toDNA(o.guide || o.antisense);
-        if (!g || g.length < 8) g = __toDNA(o.synthesisSequence);   // last-resort fallback
-        // Strip a 3' overhang (e.g. dTdT) if the chosen field carries one — it does
-        // not target the transcript.
-        const oh = __toDNA(o.antisenseOverhang || o.overhang);
-        if (oh && g.length > oh.length && g.slice(-oh.length) === oh) g = g.slice(0, g.length - oh.length);
         return g;
     };
     editDistance = 0;
@@ -152,6 +153,9 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 try {
                     if (!o) { res(); return; }
                     let t = o.track || o.__track || null;
+                    // Find the oligo's OWN track by membership (never guess by xi-overlap, which picks
+                    // the wrong track when several compounds share xi=0).
+                    if (!t) { for (const tr of (graph.track || [])) { if (tr && tr.oligos && tr.oligos.indexOf(o) >= 0) { t = tr; break; } } }
                     if (!t) { for (const tr of (graph.track || [])) { if (tr && o.xi >= Math.min(tr.xi, tr.xf) && o.xi <= Math.max(tr.xi, tr.xf)) { t = tr; break; } } }
                     if (!t || !t.tgraph) { res(); return; }
                     const gg = (typeof graph.setxmin === 'function') ? graph : graph.graph;
@@ -187,7 +191,6 @@ function (graph, genegraph_panel_layout, oligos, options) {
             });
             let progressBar;
             let __cancelled = false;
-            let __modalPB = null;
             // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
                 wid: 'card',
@@ -201,20 +204,9 @@ function (graph, genegraph_panel_layout, oligos, options) {
             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
             CurrentLayout.setComponent('buttonMenuPanel', w);
 
-            // Block the app while the run is in progress: disable canvas interaction and
-            // show a modal whose ONLY actionable control is Cancel. Cancel stops the run.
+            // Lock canvas interaction while the run is in progress (it auto-frames each oligo as it
+            // goes). Progress + Cancel live in the buttonMenuPanel — no modal window.
             try { graph.setMouseMode('none'); graph.clearMouseListeners(); } catch (e) { }
-            const __runModal = {
-                wid: 'card',
-                data: {
-                    cards: [
-                        [{ 'width': '100%', 'component': { wid: 'html', data: `<div style="padding:14px 20px;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#eaf6f9;background:rgba(10,37,64,0.98);border:1px solid #1aa3bd;border-radius:10px;"><div style="font-size:15px;font-weight:700;">Running off-targets…</div><div style="font-size:12.5px;color:#8fb8c8;margin-top:4px;">Scanning oligos one at a time, left→right — the app is locked until this finishes.</div></div>` } }],
-                        [{ 'width': '100%', 'component': { wid: 'progress', data: { 'progress': 0, 'progressBar': createIonFunction((pb) => { __modalPB = pb; }) } } }],
-                        [{ 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: [{ label: 'Cancel', ionFunction: createIonFunction(() => { __cancelled = true; }) }] } } }]
-                    ]
-                }
-            };
-            try { showModal(__runModal, 460, 210); } catch (e) { }
             const __finishRun = () => {
                 try { for (const o of oligos) { if (o) o.__gunsight = false; } } catch (e) { }
                 try { hideAllModal(); } catch (e) { }
@@ -267,6 +259,27 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     for (let o of oligos) {
                         for (let off of oq) {
                             if (String(o.id) == String(off.id)) {
+                                // miRNA-like off-target (UTR datasets): group the seed hits BY GENE and
+                                // keep only genes hit >= hitCountThreshold times — a single hit on a gene
+                                // is NOT an off-target. Grouping by GENE (symbol), not chr/transcript, so
+                                // a gene's hits across its transcripts are summed.
+                                if (hitCountThreshold > 1 && Array.isArray(off.offtarget) && off.offtarget.length) {
+                                    const __geneKey = (h) => {
+                                        if (!h) return '?';
+                                        const s = ('' + (h.symbol || '')).trim(); if (s) return s;
+                                        const g = ('' + (h.gene || h.gene_symbol || '')).trim(); if (g) return g;
+                                        const c = ('' + (h.chr || h.seq || h.name || '')).trim(); if (c) return c;
+                                        return JSON.stringify(h);
+                                    };
+                                    const __byGene = {};
+                                    for (const __h of off.offtarget) { const __k = __geneKey(__h); (__byGene[__k] = __byGene[__k] || []).push(__h); }
+                                    let __kept = [];
+                                    for (const __k in __byGene) { if (__byGene[__k].length >= hitCountThreshold) __kept = __kept.concat(__byGene[__k]); }
+                                    off.offtarget = __kept;
+                                    // Recompute the gene list from the kept (qualifying) hits.
+                                    const __symSet = new Set(__kept.map((h) => h && h.symbol).filter(Boolean).map((s) => ('' + s).trim()));
+                                    if (__symSet.size) off.offtargetsymbols = Array.from(__symSet);
+                                }
                                 if (off.offtarget == null) {
                                     // The server returned NO off-target result for this oligo — it could
                                     // not be searched (e.g. its genome/strand isn't indexed, or a
@@ -291,6 +304,8 @@ function (graph, genegraph_panel_layout, oligos, options) {
                                 }
                                 o.showOfftargets = true;
                                 o.offtargetsRun = true;   // searched (incl. zero-hit) → allow the "0" badge
+                                o.offtargetEditDistance = __editDistance;   // the edit distance this run used
+                                o.offtargetDataset = (Array.isArray(genomes) ? genomes[0] : genomes) || null;
                             }
                         }
                     }
@@ -303,8 +318,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 }
 
                 index++;
-                progressBar((index / sp.length) * 100)
-                try { if (__modalPB) __modalPB((index / sp.length) * 100); } catch (e) { }
+                try { if (typeof progressBar === 'function') progressBar((index / sp.length) * 100); } catch (e) { }
                 __framePrev = (__chunkOligos && __chunkOligos[0]) || __framePrev;   // now completed
             }
 
@@ -347,7 +361,9 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 const queriesRun = seqList.length;
                 // Tropical "info window" look: navy card, cyan accents, light text.
                 const row = (k, v) => `<tr><td style="padding:4px 18px 4px 0;color:#8fb8c8;white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:4px 0;font-weight:600;color:#ffffff;">${v}</td></tr>`;
-                const cardOpen = `<div style="padding:18px 22px;border-radius:10px;background:rgba(10,37,64,0.98);border:1px solid #1aa3bd;box-shadow:0 8px 26px rgba(8,22,38,0.5);font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:#eaf6f9;">`;
+                // The navy demo-style overlay (below) supplies the panel frame; this inner wrapper
+                // only carries the font/text color so the content sits cleanly inside it.
+                const cardOpen = `<div style="font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:#eaf6f9;">`;
                 const accent = `<div style="height:2px;background:#4fd0e6;width:52px;border-radius:2px;margin-bottom:12px;"></div>`;
 
                 const single = (oligos.length === 1 && oligos[0] && oligos[0].type !== 'amplicon') ? oligos[0] : null;
@@ -423,36 +439,33 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     </div>`;
                 }
 
-                const buttons = [];
-                if (__anyOff) {
-                    buttons.push({
-                        label: 'Filter by off-targets', ionFunction: createIonFunction(() => {
-                            try { hideAllModal(); } catch (e) { }
-                            exec('baja/manchester/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout);
-                        })
-                    });
-                }
-                buttons.push({
-                    label: 'Continue designing', ionFunction: createIonFunction(() => {
-                        try { hideAllModal(); } catch (e) { }
-                        exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
-                    })
-                });
-                buttons.push({
-                    label: 'Close', ionFunction: createIonFunction(() => { try { hideAllModal(); } catch (e) { } })
-                });
-
-                // Centered modal window (like the info window) rather than a docked panel.
-                const panel = {
-                    wid: 'card',
-                    data: {
-                        cards: [
-                            [{ 'width': '100%', 'component': { wid: 'html', data: html } }],
-                            [{ 'title': '', 'width': '100%', 'component': { wid: 'mt-button', data: { buttons: buttons } } }]
-                        ]
-                    }
+                // Navy DOM overlay matching the demo.js popup look-and-feel (instead of a wid modal).
+                const __closeReport = () => { try { const p = document.getElementById('baja-ott-report'); if (p && p.parentNode) p.parentNode.removeChild(p); } catch (e) { } };
+                __closeReport();
+                const panelEl = document.createElement('div');
+                panelEl.id = 'baja-ott-report';
+                panelEl.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(' + (single ? 640 : 520) + 'px,92vw);'
+                    + 'max-height:82vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);'
+                    + 'border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:16px;';
+                panelEl.innerHTML = html;
+                const rowEl = document.createElement('div');
+                rowEl.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:14px;';
+                const mkBtn = (label, primary, onClick) => {
+                    const b = document.createElement('button');
+                    b.textContent = label;
+                    b.style.cssText = 'cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid '
+                        + (primary ? '#22c55e' : 'rgba(255,255,255,0.22)') + ';background:' + (primary ? '#22c55e' : 'transparent')
+                        + ';color:' + (primary ? '#04210f' : '#fff') + ';';
+                    b.onmouseenter = () => { try { b.style.filter = 'brightness(1.1)'; } catch (e) { } };
+                    b.onmouseleave = () => { try { b.style.filter = ''; } catch (e) { } };
+                    b.onclick = onClick;
+                    return b;
                 };
-                showModal(panel, single ? 600 : 460, single ? 620 : 420);
+                if (__anyOff) rowEl.appendChild(mkBtn('Filter by off-targets', false, () => { __closeReport(); exec('baja/manchester/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout); }));
+                rowEl.appendChild(mkBtn('Continue designing', false, () => { __closeReport(); exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout); }));
+                rowEl.appendChild(mkBtn('Close', true, () => { __closeReport(); }));
+                panelEl.appendChild(rowEl);
+                document.body.appendChild(panelEl);
                 graph.setMessage(' Off-target run: ' + withHits + '/' + oligos.length + ' oligo(s) with hits, ' + totalHits.toLocaleString() + ' total, ' + elapsedS.toFixed(1) + 's. ');
             } catch (e) { console.warn('off-target summary panel failed', e); }
 
@@ -474,7 +487,9 @@ function (graph, genegraph_panel_layout, oligos, options) {
             for (let o of oligos) {
                 if (o.type === 'amplicon') {
                     for (const part of [o.right, o.left, o.mid]) {
-                        const pq = __toDNA(part && part.synthesisSequence);
+                        let pq = __toDNA(part && part.synthesisSequence);
+                        const poh = __toDNA(part && (part.antisenseOverhang || part.overhang));
+                        if (poh && pq.length > poh.length && pq.slice(-poh.length) === poh) pq = pq.slice(0, pq.length - poh.length);
                         if (part && pq && pq.length > 0) {
                             part.offtarget = null;
                             if (pq.match(pattern)) { warn = true; graph.setMessage("Found potential high hit pattern."); }
@@ -499,6 +514,18 @@ function (graph, genegraph_panel_layout, oligos, options) {
             returnMode = 'editdistance';
             // Seed searches never allow more than 1 edit distance.
             if (__seedMode && +editDistance > 1) editDistance = 1;
+            // UTR datasets (name ends in 3utr / 5utr): a hit only counts as an off-target when the
+            // seed hits the SAME dataset sequence >= threshold times. Prompt for it (default 3).
+            hitCountThreshold = 1;
+            if (/3utr|5utr/i.test('' + genome)) {
+                try {
+                    const __tp = await prompt("Hit count threshold:", ["Threshold"], { "Threshold": 3 }, 500, 300);
+                    if (__tp && __tp["Threshold"] != null) {
+                        const __v = parseInt(__tp["Threshold"], 10);
+                        if (Number.isFinite(__v) && __v >= 1) hitCountThreshold = __v;
+                    }
+                } catch (e) { }
+            }
             graph.setMessage("Checking sequences...");
             const genomes = [genome];
             // Clear ALL off-target attributes on every oligo (and amplicon sub-oligos)

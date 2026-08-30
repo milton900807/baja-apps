@@ -926,7 +926,7 @@ return new Promise(async (resolve, reject) => {
       // Spotlight state for this marker: is it the chosen one, or dimmed background?
       const __inSpot = (__focusOn && __G.__focusSnp === s) || (__selOn && s.highlight);
       const __dimmed = __spotAny && !__inSpot;
-      const effColor = __dimmed ? 'rgba(148,163,184,0.85)' : baseColor;
+      const effColor = __dimmed ? 'rgba(148,163,184,0.95)' : baseColor;   // opaque; fade via globalAlpha only
 
       ctx.strokeStyle = STYLE.stroke;
       ctx.fillStyle = effColor;
@@ -5798,12 +5798,15 @@ return new Promise(async (resolve, reject) => {
       this.markend = this.tgraph.xmax;
     }
     deselect() {
-
-
-
       this.showResizeBar = false;
       this.markend = null;
       this.markstart = null;
+      // Deselecting a track also deselects every variant on it.
+      try {
+        for (const s of (this.snpindels || [])) {
+          if (s) { s.highlight = false; if (s.deselect) { try { s.deselect(); } catch (e) { } } }
+        }
+      } catch (e) { }
     }
 
     removeAnnotationsByCount(count) {
@@ -5997,6 +6000,9 @@ return new Promise(async (resolve, reject) => {
         }
 
         let screencell = Math.abs(graph.screenWidth(this.tgraph.screenWidth(1)));
+        // Clinical-compound tracks (from the Clinical Library): a bare sequence with the compound's
+        // chemistry on top — no strand-direction arrows, no genomic/cDNA coordinate tags, no annotations.
+        const __clinical = (this.track_type === 'clincial_compound' || this.track_type === 'clinical_compound');
         let ystart = graph.Y(this.tgraph.yi);
         let yend = graph.screenHeight(this.tgraph.height);
 
@@ -6135,7 +6141,7 @@ return new Promise(async (resolve, reject) => {
         await graph.drawLine(this.tgraph.X(this.xi), this.tgraph.Y(0), this.tgraph.X(this.xf), this.tgraph.Y(0), GX_INTRON, 1, "round");
         if (trackScreenWidth > 10 && screencell > 0.0) {
           let deg = 0;
-          if (this.strand) {
+          if (this.strand && !__clinical) {   // clinical-compound tracks show no direction arrows
             if (this.strand === -1 || this.strand === "-1") {
               deg = 3.14159;
             }
@@ -6168,7 +6174,7 @@ return new Promise(async (resolve, reject) => {
               t = a;
             }
           }
-          if (this.showAnnotaions) {
+          if (this.showAnnotaions && !__clinical) {   // clinical-compound tracks show no annotations
             const drawVIntron = (x1World, x2World) => {
               if (!isFinite(x1World) || !isFinite(x2World)) return;
               const x1w = Math.min(x1World, x2World);
@@ -6284,6 +6290,27 @@ return new Promise(async (resolve, reject) => {
             // would overlap one already drawn this frame is skipped (annotation.js / drawCddSite),
             // so cluttered regions simply drop the colliding labels instead of stacking forever.
             this.tgraph.__labelRects = [];
+            // Background 5'/3' UTR labels: when zoomed OUT (screencell <= 5), draw a light-gray,
+            // centered label over each untranslated region. Drawn BEFORE the annotation loop and all
+            // later feature passes, so it sits behind everything and never overwrites other content.
+            try {
+              if (screencell <= 5 && t) {
+                const __minus = (this.strand === -1 || this.strand === '-1' || this.strand === '-');
+                let __f0, __f1, __t0, __t1;
+                if (!__minus) { __f0 = this.xi; __f1 = t.xi; __t0 = t.xf; __t1 = this.xf; }
+                else { __f0 = t.xf; __f1 = this.xf; __t0 = this.xi; __t1 = t.xi; }
+                const __sy = graph.Y(this.tgraph.Y(0.5));
+                const __utrLabel = (label, a, b) => {
+                  const lo = Math.min(a, b), hi = Math.max(a, b);
+                  if (hi - lo < 1) return;
+                  const sxLo = graph.X(this.tgraph.X(lo)), sxHi = graph.X(this.tgraph.X(hi));
+                  if (Math.abs(sxHi - sxLo) < 40) return;   // region too narrow for a legible label
+                  try { graph.drawScreenText(label, (sxLo + sxHi) / 2, __sy, 'rgba(150,160,175,0.5)', 13, 'center'); } catch (e) { }
+                };
+                __utrLabel("5' UTR", __f0, __f1);
+                __utrLabel("3' UTR", __t0, __t1);
+              }
+            } catch (e) { }
             for (let a of this.annotations) {
               a.gxi = Math.floor(a.gxi);
               a.gxf = Math.floor(a.gxf);
@@ -6614,8 +6641,10 @@ return new Promise(async (resolve, reject) => {
               let seq_index = Math.floor(index - Math.floor(this.xi));
               if (seq_index < this.sequence.length && this.sequence[seq_index]) {
                 if (screencell > 30 && screencell > 0.05) {
-                  graph.drawString(this.genomicAt(seq_index), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
-                  graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
+                  if (!__clinical) {   // clinical-compound tracks show no genomic (g.) / cDNA (c.) coordinates
+                    graph.drawString(this.genomicAt(seq_index), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_INTRON, this.detail_ffont6);
+                    graph.drawString(" " + (seq_index + 1) + " ", this.tgraph.X(index), this.tgraph.Y(-0.068), GX_START, this.detail_ffont6);
+                  }
                   if (this.orf && this.orf.cdsi) {
                     for (let oor of this.orf.cdsi) {
                       if (oor.index === index && oor.ci === 1) {
@@ -6659,7 +6688,7 @@ return new Promise(async (resolve, reject) => {
                   if (this.strand === -1 || this.strand === "-1") {
                     deg = 3.14159;
                   }
-                  if (seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
+                  if (!__clinical && seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
 
                   graph.drawString(this.sequence[seq_index], Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                 }
@@ -6671,7 +6700,7 @@ return new Promise(async (resolve, reject) => {
                 if (__fb) {
                   try {
                     graph.drawString(__fb, Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
-                    if (screencell > 30) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
+                    if (screencell > 30 && !__clinical) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
                   } catch (e) { }
                 } else {
                   graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
@@ -6696,6 +6725,7 @@ return new Promise(async (resolve, reject) => {
               const __gapPx = 6;      // min horizontal gap between two markers in the same lane
               const __charPx = 7;     // approx label glyph width
               const __MAX_LANES = 12; // safety cap for very dense pileups
+              graph.__topAnnos = [];   // snp annotation callouts, flushed on top after all markers
               const __entries = [];
               for (let sid of snpsv) {
                 const __leftSX = graph.X(this.tgraph.X(sid.xi));
@@ -6724,34 +6754,16 @@ return new Promise(async (resolve, reject) => {
             // Load any flanking reference sequence now visible (best-effort, failsafe).
             try { if (__flankHi >= __flankLo) this.ensureFlank(__flankLo, __flankHi); } catch (e) { }
 
-            // Sequence is visible (zoomed in): draw a translucent rectangle around each
-            // LABELED variant in view, so the variant(s) stand out over the bases. Failsafe.
+            // (The orange translucent highlight rectangle over the sequence was removed by
+            // request — it obscured the base letters; the marker + annotation callout are enough.)
+            // Draw the deferred snp annotation callouts LAST — so the annotation text window is
+            // never painted over. Selected/highlighted ones last, so a selected snp's annotation
+            // sits above the others.
             try {
-              const hctx = graph.canvas.getCTX();
-              const hyTop = graph.Y(this.tgraph.Y(this.tgraph.getymax()));
-              const hyBot = graph.Y(this.tgraph.Y(this.tgraph.getymin()));
-              const hry = Math.min(hyTop, hyBot);
-              const hrh = Math.abs(hyBot - hyTop);
-              for (const sid of (this.snpindels || [])) {
-                if (!sid || !sid.name) continue;                 // only labeled variants
-                // Match the box to the SnpIndel marker's drawn extent so they line up. Both
-                // snps and indels now sit on their reference footprint [xi, xf] (see
-                // snpindel.js draw()); the indel cylinder spans the same range.
-                const vxi = sid.xi;
-                const vxf = (sid.xf != null ? sid.xf : sid.xi + 1);
-                const vlo = Math.min(vxi, vxf), vhi = Math.max(vxi, vxf);
-                if (vhi < tx_world_start || vlo > tx_world_end) continue;   // out of view
-                const hx0 = graph.X(Math.round(this.tgraph.X(vxi)));
-                const hx1 = graph.X(Math.round(this.tgraph.X(vxf)));
-                const hrx = Math.min(hx0, hx1) - 2;
-                const hrw = Math.abs(hx1 - hx0) + 4;
-                if (hrw > 1 && hrh > 1) {
-                  hctx.save();
-                  hctx.fillStyle = 'rgba(255,140,26,0.16)';      // warm translucent wash (no border)
-                  hctx.fillRect(hrx, hry, hrw, hrh);
-                  hctx.restore();
-                }
-              }
+              const __ta = graph.__topAnnos || [];
+              __ta.sort((a, b) => (a.sel === b.sel) ? 0 : (a.sel ? 1 : -1));
+              for (const __a of __ta) SnpIndel._drawAnnotationLeader(graph, __a.hx, __a.hy, __a.text);
+              graph.__topAnnos = [];
             } catch (e) { }
           }
         } else {
@@ -6824,7 +6836,8 @@ return new Promise(async (resolve, reject) => {
 
         // Non-linear genomic mapping for cDNA/derived children (introns removed / region
         // cut out) via trackRef.genomeMap; linear fallback for a plain genomic track.
-        for (let index = first; index <= tx_world_end; index += step) {
+        // Clinical-compound tracks show NO genomic ruler (ticks / direction arrows / g. tags).
+        for (let index = first; index <= tx_world_end && !__clinical; index += step) {
           // Don't draw genomic indexes / direction arrows past the ends of the track — only
           // between the track's own start and end (in track-world coords).
           if (index < this.xi || index > this.xf) continue;
@@ -7164,11 +7177,12 @@ return new Promise(async (resolve, reject) => {
               ctx.font = this.detail_ffont6 || '12px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
 
               const angle = (0 * Math.PI) / 180;
+              const __clin2 = (this.track_type === 'clincial_compound' || this.track_type === 'clinical_compound');
 
               // True genomic coordinate per local index. For a cDNA/derived child the
               // mapping is non-linear (introns removed / a region cut out), so read it
               // from trackRef.genomeMap; fall back to the linear map for a genomic track.
-              for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
+              for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end) && !__clin2; index++) {
                 const seq_index = Math.floor(index - Math.floor(this.xi));
                 const genomicPos = this.genomicAt(seq_index);
 
@@ -7458,10 +7472,13 @@ return new Promise(async (resolve, reject) => {
           const safeEndX = Math.min(canvasW - margin, endLabelX);
           ctx.lineWidth = 1;
 
-          // c./g. badges at the TOPS of the start/end arrows; size label below.
+          // c./g. badges at the TOPS of the start/end arrows; size label below. Clinical-compound
+          // tracks keep the size label but show no c./g. coordinate badges.
           drawBadge(distLabel, centerX, yPosition + 18, "center");
-          drawBadge(startLabel, safeStartX, yPosition - 20, "center");
-          drawBadge(endLabel, safeEndX, yPosition - 20, "center");
+          if (!(this.track_type === 'clincial_compound' || this.track_type === 'clinical_compound')) {
+            drawBadge(startLabel, safeStartX, yPosition - 20, "center");
+            drawBadge(endLabel, safeEndX, yPosition - 20, "center");
+          }
         }
 
         if (this.targetPhase != null) {

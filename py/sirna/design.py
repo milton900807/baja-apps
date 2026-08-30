@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Tuple
@@ -37,6 +38,7 @@ class Candidate:
     gc_percent: float
     score: float
     notes: List[str] = field(default_factory=list)
+    design_scores: Dict[str, Any] = field(default_factory=dict)
 
 
 def clean_sequence(seq: str) -> str:
@@ -144,6 +146,98 @@ def longest_homopolymer(seq: str) -> int:
         else:
             current = 1
     return longest
+
+
+# ---------------------------------------------------------------------------
+# RNA nearest-neighbor thermodynamics (Xia et al., Biochemistry 1998).
+# Parameters are keyed by the SENSE (top) strand 5'->3' dinucleotide; for a
+# perfectly complementary duplex that dimer uniquely determines the NN term.
+# ---------------------------------------------------------------------------
+NN_DG = {  # ΔG°37, kcal/mol
+    "AA": -0.93, "UU": -0.93,
+    "AU": -1.10,
+    "UA": -1.33,
+    "CU": -2.08, "AG": -2.08,
+    "CA": -2.11, "UG": -2.11,
+    "GU": -2.24, "AC": -2.24,
+    "GA": -2.35, "UC": -2.35,
+    "CG": -2.36,
+    "GG": -3.26, "CC": -3.26,
+    "GC": -3.42,
+}
+NN_DH = {  # ΔH°, kcal/mol
+    "AA": -6.82, "UU": -6.82,
+    "AU": -9.38,
+    "UA": -7.69,
+    "CU": -10.48, "AG": -10.48,
+    "CA": -10.44, "UG": -10.44,
+    "GU": -11.40, "AC": -11.40,
+    "GA": -12.44, "UC": -12.44,
+    "CG": -10.64,
+    "GG": -13.39, "CC": -13.39,
+    "GC": -14.88,
+}
+INIT_DG = 4.09          # helix initiation, ΔG°37 kcal/mol
+INIT_DH = 3.61          # helix initiation, ΔH° kcal/mol
+AU_END_DG = 0.45        # terminal-AU penalty, ΔG°37 kcal/mol (per AU end)
+AU_END_DH = 3.72        # terminal-AU penalty, ΔH° kcal/mol (per AU end)
+R_CAL = 1.987           # gas constant, cal/(mol·K)
+STRAND_CONC_M = 1e-4    # total single-strand concentration for Tm (non-self-complementary)
+END_WINDOW = 5          # terminal nt used for duplex-end ΔΔG (Khvorova/Schwarz asymmetry)
+
+
+def nn_step_dgs(seq: str) -> List[float]:
+    """Per-step nearest-neighbor ΔG°37 along the sense strand (5'->3'); the
+    'internal stability profile' (len(seq)-1 values)."""
+    return [NN_DG[seq[i:i + 2]] for i in range(len(seq) - 1)]
+
+
+def duplex_thermo(seq: str) -> Tuple[float, float, float, float]:
+    """Full nearest-neighbor thermodynamics of the perfectly-paired core duplex
+    represented by its sense strand. Returns (ΔG°37, ΔH°, ΔS° cal/mol·K, Tm °C)."""
+    dg = INIT_DG
+    dh = INIT_DH
+    for i in range(len(seq) - 1):
+        d = seq[i:i + 2]
+        dg += NN_DG[d]
+        dh += NN_DH[d]
+    for end_base in (seq[0], seq[-1]):
+        if end_base in "AU":
+            dg += AU_END_DG
+            dh += AU_END_DH
+    ds_cal = (dh - dg) / 310.15 * 1000.0    # ΔG = ΔH - TΔS at 37 °C → ΔS
+    try:
+        tm_k = (dh * 1000.0) / (ds_cal + R_CAL * math.log(STRAND_CONC_M / 4.0))
+        tm_c = tm_k - 273.15
+    except Exception:
+        tm_c = float("nan")
+    return dg, dh, ds_cal, tm_c
+
+
+def end_delta_delta_g(seq: str, window: int = END_WINDOW) -> Tuple[float, float, float]:
+    """Duplex-end asymmetry. Returns (ΔΔG, ΔG antisense-5' end, ΔG sense-5' end),
+    each end summed over the terminal `window` nucleotides. The antisense (guide)
+    5' end pairs the sense 3' end. A POSITIVE ΔΔG means the antisense 5' end is
+    LESS stable than the sense 5' end — the Khvorova/Schwarz signature of a duplex
+    whose guide strand is preferentially loaded into RISC."""
+    dgs = nn_step_dgs(seq)
+    k = max(1, min(window, len(seq)) - 1)
+    end_dg_sense5 = sum(dgs[:k])
+    end_dg_antisense5 = sum(dgs[-k:])   # antisense 5' end == sense 3' end
+    ddg = end_dg_antisense5 - end_dg_sense5
+    return ddg, end_dg_antisense5, end_dg_sense5
+
+
+def score_end_asymmetry(ddg: float) -> Tuple[float, str]:
+    """Score real duplex-end ΔΔG (replaces the AU/GC compositional proxy)."""
+    score = max(-10.0, min(15.0, ddg * 8.0))
+    if ddg >= 0.5:
+        q = "favorable (antisense 5' end weaker → correct guide loading)"
+    elif ddg > -0.5:
+        q = "near-symmetric ends"
+    else:
+        q = "unfavorable (antisense 5' end too stable)"
+    return round(score, 2), f"Duplex-end ΔΔG={ddg:.2f} kcal/mol → {q}"
 
 
 def score_gc(gc: float) -> Tuple[float, str]:
@@ -258,41 +352,84 @@ def make_antisense_core_from_target(target_site_rna: str, strand: int) -> str:
     raise ValueError("strand must be either -1 or 1")
 
 
-def score_candidate_core(target_site_rna: str, strand: int) -> Tuple[float, List[str], str]:
+DEFAULT_WEIGHTS = {
+    "gc": 1.0,
+    "antisense_pos1": 1.0,
+    "sense_pos1": 1.0,
+    "seed_au": 1.0,
+    "end_asymmetry_ddg": 1.0,
+    "repeats_and_runs": 1.0,
+}
+
+
+def _weight(weights: Dict[str, Any], key: str) -> float:
+    """Component weight multiplier (default 1.0); tolerates bad input."""
+    try:
+        if weights and key in weights and weights[key] is not None:
+            return float(weights[key])
+    except (TypeError, ValueError):
+        pass
+    return 1.0
+
+
+def score_candidate_core(target_site_rna: str, strand: int, weights: Dict[str, Any] = None) -> Tuple[float, List[str], str, Dict[str, Any]]:
     """
-    Score CORE duplex only.
-    Overhangs are intentionally excluded and attached later.
+    Score CORE duplex only. Overhangs are intentionally excluded and attached later.
+
+    `weights` optionally scales each component sub-score (Advanced design) — a per-component
+    multiplier, default 1.0. Returns (total_score, notes, antisense_core, design_scores) where
+    design_scores is an itemized breakdown of every (weighted) component sub-score plus the
+    measured nearest-neighbor thermodynamic attributes of the duplex.
     """
+    weights = weights or {}
     sense_core = target_site_rna
     antisense_core = make_antisense_core_from_target(target_site_rna, strand)
 
     total = 0.0
     notes: List[str] = []
+    design_scores: Dict[str, Any] = {}
 
     gc = gc_fraction(sense_core)
-    s, note = score_gc(gc)
-    total += s
-    notes.append(note)
+    s, note = score_gc(gc); s *= _weight(weights, "gc")
+    total += s; notes.append(note); design_scores["gc"] = round(s, 2)
 
-    s, note = score_antisense_pos1(antisense_core)
-    total += s
-    notes.append(note)
+    s, note = score_antisense_pos1(antisense_core); s *= _weight(weights, "antisense_pos1")
+    total += s; notes.append(note); design_scores["antisense_pos1"] = round(s, 2)
 
-    s, note = score_sense_pos1(sense_core)
-    total += s
-    notes.append(note)
+    s, note = score_sense_pos1(sense_core); s *= _weight(weights, "sense_pos1")
+    total += s; notes.append(note); design_scores["sense_pos1"] = round(s, 2)
 
-    s, note = score_seed_au(antisense_core)
-    total += s
-    notes.append(note)
+    s, note = score_seed_au(antisense_core); s *= _weight(weights, "seed_au")
+    total += s; notes.append(note); design_scores["seed_au"] = round(s, 2)
 
-    s, note = score_terminal_asymmetry(sense_core, antisense_core)
-    total += s
-    notes.append(note)
+    # Real nearest-neighbor thermodynamics — replaces the old AU/GC terminal proxy.
+    dg37, dh, ds_cal, tm_c = duplex_thermo(sense_core)
+    ddg, end_anti5, end_sense5 = end_delta_delta_g(sense_core, END_WINDOW)
+    profile = [round(x, 2) for x in nn_step_dgs(sense_core)]
+    s, note = score_end_asymmetry(ddg); s *= _weight(weights, "end_asymmetry_ddg")
+    total += s; notes.append(note); design_scores["end_asymmetry_ddg"] = round(s, 2)
 
-    s, extra = score_repeats_and_runs(sense_core)
-    total += s
-    notes.extend(extra)
+    s, extra = score_repeats_and_runs(sense_core); s *= _weight(weights, "repeats_and_runs")
+    total += s; notes.extend(extra); design_scores["repeats_and_runs"] = round(s, 2)
+
+    total = round(total, 2)
+    design_scores["total"] = total
+    design_scores["gc_percent"] = round(gc * 100, 2)
+    design_scores["weights"] = {k: _weight(weights, k) for k in DEFAULT_WEIGHTS}
+    # Measured thermodynamic attributes (kcal/mol unless noted) — NOT points.
+    design_scores["thermo"] = {
+        "duplex_dg_37_kcal_mol": round(dg37, 2),
+        "duplex_dh_kcal_mol": round(dh, 2),
+        "duplex_ds_cal_mol_k": round(ds_cal, 2),
+        "tm_celsius": round(tm_c, 2) if tm_c == tm_c else None,
+        "end_dg_antisense5_kcal_mol": round(end_anti5, 2),
+        "end_dg_sense5_kcal_mol": round(end_sense5, 2),
+        "delta_delta_g_end_kcal_mol": round(ddg, 2),
+        "internal_stability_profile_kcal_mol": profile,
+        "end_window_nt": END_WINDOW,
+        "strand_conc_M": STRAND_CONC_M,
+        "nn_parameters": "RNA nearest-neighbor, Xia et al. 1998",
+    }
 
     notes.append(
         "Antisense core derivation: "
@@ -300,7 +437,7 @@ def score_candidate_core(target_site_rna: str, strand: int) -> Tuple[float, List
     )
     notes.append("3' overhangs applied after scoring")
 
-    return round(total, 2), notes, antisense_core
+    return total, notes, antisense_core, design_scores
 
 
 def apply_overhang(core: str, overhang: str) -> str:
@@ -317,6 +454,7 @@ def generate_candidates(
     strand: int = 1,
     sense_overhang: str = "UU",
     antisense_overhang: str = "UU",
+    weights: Dict[str, Any] = None,
 ) -> List[Candidate]:
     """
     Slide across a long sequence and score every candidate window.
@@ -347,7 +485,7 @@ def generate_candidates(
         for i in range(0, len(seq_rna) - length + 1):
             target_site_rna = seq_rna[i:i + length]
             sense_core_rna = target_site_rna
-            score, notes, antisense_core_rna = score_candidate_core(target_site_rna, strand)
+            score, notes, antisense_core_rna, design_scores = score_candidate_core(target_site_rna, strand, weights)
 
             sense_core_display = to_requested_alphabet(sense_core_rna, output_alphabet)
             antisense_core_display = to_requested_alphabet(antisense_core_rna, output_alphabet)
@@ -380,6 +518,7 @@ def generate_candidates(
                     gc_percent=round(gc_fraction(sense_core_rna) * 100, 2),
                     score=score,
                     notes=notes,
+                    design_scores=design_scores,
                 )
             )
 
@@ -429,6 +568,7 @@ def parse_request(payload: Any) -> Dict[str, Any]:
                 "sense": "",
                 "antisense": "",
             },
+            "weights": {},
         }
 
     if isinstance(payload, dict):
@@ -444,6 +584,10 @@ def parse_request(payload: Any) -> Dict[str, Any]:
         # - if only sense is provided, antisense stays ""
         # - if only antisense is provided, sense stays ""
         # - nothing is auto-filled
+        weights = payload.get("weights", {}) or {}
+        if not isinstance(weights, dict):
+            weights = {}
+
         return {
             "sequence": payload.get("sequence", ""),
             "top_n": int(payload.get("top_n", 10)),
@@ -454,6 +598,7 @@ def parse_request(payload: Any) -> Dict[str, Any]:
                 "sense": str(overhangs.get("sense", "")),
                 "antisense": str(overhangs.get("antisense", "")),
             },
+            "weights": weights,
         }
 
     raise ValueError("Input must be either a sequence string or a JSON object.")
@@ -469,6 +614,7 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
     strand = request["strand"]
     sense_overhang = request["overhangs"]["sense"]
     antisense_overhang = request["overhangs"]["antisense"]
+    weights = request.get("weights", {})
 
     normalized_rna = clean_sequence(raw_sequence)
 
@@ -479,6 +625,7 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
         strand=strand,
         sense_overhang=sense_overhang,
         antisense_overhang=antisense_overhang,
+        weights=weights,
     )
 
     top_candidates = all_candidates[:top_n]
@@ -521,7 +668,18 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
                 "Long GC stretches",
                 "Simple dinucleotide repeats"
             ],
-            "note": "Thermodynamic asymmetry is approximated from terminal nucleotide composition of the core duplex, not including overhangs."
+            "thermodynamics": (
+                "Duplex-end asymmetry is scored from TRUE nearest-neighbor free energies "
+                "(RNA NN parameters, Xia et al. 1998): per-candidate ΔG°37, ΔH°, ΔS°, Tm, "
+                "duplex-end ΔΔG (Khvorova/Schwarz), and the internal stability profile are "
+                "computed on the core duplex (overhangs excluded) and reported per candidate "
+                "under design_scores.thermo."
+            ),
+            "design_scores": (
+                "Every candidate carries an itemized design_scores object: each component "
+                "sub-score (gc, antisense_pos1, sense_pos1, seed_au, end_asymmetry_ddg, "
+                "repeats_and_runs), the total, gc_percent, and a thermo block."
+            )
         },
         "top_candidates": [asdict(c) for c in top_candidates],
     }

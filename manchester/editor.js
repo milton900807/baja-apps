@@ -1888,9 +1888,97 @@ function (path, config) {
                                                                         }
                                                                     }
                                                                     const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
-                                                                    clear();
-                                                                    showWidget(tu);
-
+                                                                    CurrentLayout.clearComponent('mainPanel')
+                                                                    CurrentLayout.setComponent('mainPanel', tu);
+                                                                    // Close (✕) pinned upper-left → reset the mainPanel back to the editor canvas.
+                                                                    try {
+                                                                        const __p = document.getElementById('baja-editor-lib-close');
+                                                                        if (__p && __p.parentNode) __p.parentNode.removeChild(__p);
+                                                                        const xb = document.createElement('div');
+                                                                        xb.id = 'baja-editor-lib-close';
+                                                                        xb.title = 'Back to the editor';
+                                                                        xb.textContent = '✕';
+                                                                        xb.style.cssText = 'position:fixed;top:44px;left:12px;z-index:2147483000;width:30px;height:30px;border-radius:50%;'
+                                                                            + 'display:flex;align-items:center;justify-content:center;background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;'
+                                                                            + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                                                                        xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.2)'; } catch (e) { } };
+                                                                        xb.onmouseleave = () => { try { xb.style.filter = ''; } catch (e) { } };
+                                                                        xb.onclick = () => {
+                                                                            try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
+                                                                            // Reset back to the editor canvas.
+                                                                            try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                                                                            try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
+                                                                        };
+                                                                        document.body.appendChild(xb);
+                                                                    } catch (e) { }
+                                                                },
+                                                            },
+                                                            {
+                                                                // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
+                                                                // compound → load its sequence + chemistry onto a track.
+                                                                label: 'Clinical Library', move: () => { },
+                                                                click: () => {
+                                                                    graph.hideMenu();
+                                                                    try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
+                                                                    catch (e) { try { graph.setMessage(' Clinical Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                                },
+                                                            },
+                                                            {
+                                                                // Record the user's actions, then emit a demo.js script that replays them.
+                                                                // Toggles: first click starts (shows a REC badge), Stop shows the script.
+                                                                label: 'Record actions', move: () => { },
+                                                                click: () => {
+                                                                    graph.hideMenu();
+                                                                    try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
+                                                                    catch (e) { try { graph.setMessage(' Recorder failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                                },
+                                                            },
+                                                            {
+                                                                // Scripted demo: open a panel to paste/edit a script, then run
+                                                                // manchester/demo.js which drives the app from that script.
+                                                                label: 'Demo script', move: () => { },
+                                                                click: () => {
+                                                                    graph.hideMenu();
+                                                                    try {
+                                                                        const prev = document.getElementById('baja-demo-panel');
+                                                                        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+                                                                        const example = [
+                                                                            '# One "cmd arg" per line (or paste a JSON array of command objects).',
+                                                                            '# cmds: load | sequence | zoom | variants | lasso | tour | cursor | exec | js | message | wait | fit',
+                                                                            'message Loading SOD1…',
+                                                                            'load ENST00000270142',
+                                                                            'wait 2500',
+                                                                            'fit',
+                                                                            'variants pathogenic',
+                                                                            'wait 1500',
+                                                                            'lasso 0',
+                                                                            'wait 2000',
+                                                                            'tour 0 3000'
+                                                                        ].join('\n');
+                                                                        const wrap = document.createElement('div');
+                                                                        wrap.id = 'baja-demo-panel';
+                                                                        wrap.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(640px,92vw);background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font:13px system-ui,Arial;padding:14px;';
+                                                                        wrap.innerHTML = ''
+                                                                            + '<div style="font-weight:700;margin-bottom:8px;">▶ Run a demo script</div>'
+                                                                            + '<textarea id="baja-demo-text" spellcheck="false" style="width:100%;height:210px;box-sizing:border-box;background:#0a1e3a;color:#e8eef6;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px;font:12px ui-monospace,Menlo,Consolas,monospace;resize:vertical;"></textarea>'
+                                                                            + '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">'
+                                                                            + '  <label style="opacity:.8;">step delay <input id="baja-demo-gap" type="number" value="1000" min="0" step="100" style="width:70px;background:#0a1e3a;color:#fff;border:1px solid rgba(255,255,255,0.18);border-radius:6px;padding:4px;"> ms</label>'
+                                                                            + '  <span style="flex:1;"></span>'
+                                                                            + '  <button id="baja-demo-cancel" style="background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:7px 16px;cursor:pointer;">Cancel</button>'
+                                                                            + '  <button id="baja-demo-run" style="background:#22c55e;color:#06230f;font-weight:700;border:none;border-radius:999px;padding:7px 20px;cursor:pointer;">Run ▶</button>'
+                                                                            + '</div>';
+                                                                        document.body.appendChild(wrap);
+                                                                        const ta = document.getElementById('baja-demo-text'); ta.value = example;
+                                                                        const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
+                                                                        document.getElementById('baja-demo-cancel').onclick = close;
+                                                                        document.getElementById('baja-demo-run').onclick = () => {
+                                                                            const text = ta.value;
+                                                                            const gap = +(document.getElementById('baja-demo-gap').value || 1000);
+                                                                            close();
+                                                                            try { exec('manchester/demo.js', text, { stepDelayMs: gap }); }
+                                                                            catch (e) { try { graph.setMessage('Demo failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                                        };
+                                                                    } catch (e) { try { graph.setMessage('Demo panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                                 },
                                                             },
                                                         ], 0, 0, 280);
@@ -2088,15 +2176,22 @@ function (path, config) {
                                                 {
                                                     label: 'Design', ionFunction: createIonFunction(() => {
 
+                                                        // Clinical Library — always available (it can bootstrap a track by loading a compound).
+                                                        const clinicalItem = {
+                                                            label: 'Clinical Library', move: () => { },
+                                                            click: () => { if (graph.hideMenu) graph.hideMenu(); exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
+                                                        };
 
                                                         if (!graph.track || graph.track.length === 0) {
-                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            // No track yet — still offer the Clinical Library so it can create one.
+                                                            graph.showMenu([clinicalItem]);
                                                             return;
                                                         }
 
                                                         // Also show the compound editor in the button/label panel.
                                                         exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
                                                         graph.showMenu([
+                                                            clinicalItem,
                                                             {
                                                                 label: 'Select sequence', move: () => { },
                                                                 click: () => {
@@ -2337,15 +2432,6 @@ function (path, config) {
                                                                                 // Click a track, enter a max off-target count, and any oligo
                                                                                 // exceeding it is auto-removed (reports "removed ${id} with OT #").
                                                                                 exec('baja/manchester/menu/filter-oligos-by-offtargets.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Run off-targets & filter (live)', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                // Click a track, enter a max, pick genome + edit distance; oligos
-                                                                                // over the max are removed in real time as results return.
-                                                                                exec('baja/manchester/menu/filter-run-offtargets.js', graph, genegraph_panel_layout);
                                                                             }
                                                                         },
                                                                     ]);
