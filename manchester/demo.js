@@ -71,7 +71,9 @@ function (script, config) {
 
         // ---- 2) Helpers ---------------------------------------------------------------------
         const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, +ms || 0)));
-        const say = (m) => { try { graph.setMessage('' + m); } catch (e) { } try { log('' + m); } catch (e) { } };
+        // Playback must NEVER put anything on the page's bottom message bar / log panel — status
+        // goes to the browser console only.
+        const say = (m) => { try { console.log('demo:', '' + m); } catch (e) { } };
         const lastTrack = () => (graph.track && graph.track.length ? graph.track.length - 1 : 0);
         const trackAt = (i) => (graph.track && graph.track[i]) ? graph.track[i] : null;
 
@@ -146,9 +148,22 @@ function (script, config) {
         };
         const removeCursor = () => { try { if (__curEl) __curEl.remove(); } catch (e) { } __curEl = null; };
         // Biggest on-screen canvas + its viewport rect (for world→viewport cursor targeting).
+        // The VISIBLE gene-graph canvas: largest by ON-SCREEN DISPLAY area (getBoundingClientRect),
+        // not internal resolution — so an off-screen/buffer canvas can't be picked and its rect
+        // (top = below the header + buttonMenuPanel) is the coordinate reference for playback.
         const biggestCanvas = () => {
             let best = null, area = -1;
-            try { for (const c of document.querySelectorAll('canvas')) { const a = c.width * c.height; if (a > area) { area = a; best = c; } } } catch (e) { }
+            try {
+                const vh = window.innerHeight || 1e9, vw = window.innerWidth || 1e9;
+                for (const c of document.querySelectorAll('canvas')) {
+                    const r = c.getBoundingClientRect();
+                    if (!r || r.width <= 1 || r.height <= 1) continue;
+                    if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) continue;   // off-screen
+                    const a = r.width * r.height;
+                    if (a > area) { area = a; best = c; }
+                }
+                if (!best) { for (const c of document.querySelectorAll('canvas')) { const a = c.width * c.height; if (a > area) { area = a; best = c; } } }
+            } catch (e) { }
             return best;
         };
         // World (track) coords → viewport pixels, for pointing the cursor at a feature.
@@ -322,6 +337,41 @@ function (script, config) {
             } catch (e) { return null; }
         };
 
+        // Fire a canvas mouse event at ABSOLUTE screen (client) coordinates cx,cy. This is the
+        // single path used by everything now that record/playback are all in screen coordinates.
+        const fireCanvas = (type, cx, cy, extra) => {
+            try {
+                const cv = biggestCanvas(); if (!cv) return;
+                const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, screenX: cx, screenY: cy };
+                const fire = (name, opts) => {
+                    try { cv.dispatchEvent(new MouseEvent(name, Object.assign({}, base, opts))); } catch (e) { }
+                    try { if (typeof PointerEvent === 'function' && /^pointer/.test(name)) cv.dispatchEvent(new PointerEvent(name, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true }, base, opts))); } catch (e) { }
+                };
+                if (type === 'wheel') { try { cv.dispatchEvent(new WheelEvent('wheel', Object.assign({ deltaY: +extra || 0, deltaMode: 0 }, base))); } catch (e) { } return; }
+                if (type === 'down') { fire('pointerdown', { button: 0, buttons: 1 }); fire('mousedown', { button: 0, buttons: 1 }); return; }
+                if (type === 'up') { fire('pointerup', { button: 0, buttons: 0 }); fire('mouseup', { button: 0, buttons: 0 }); fire('click', { button: 0, buttons: 0 }); return; }
+                if (type === 'move') { fire('pointermove', { buttons: +extra ? 1 : 0 }); fire('mousemove', { buttons: +extra ? 1 : 0 }); return; }
+            } catch (e) { }
+        };
+        // Recorded screen point (viewport fraction sx,sy → client px). Legacy recordings used a
+        // canvas fraction (fx,fy) + world coords — map those through the canvas rect as a fallback.
+        // Recorded coordinates are a fraction of the ENTIRE window (clientX/innerWidth,
+        // clientY/innerHeight) — the header above the top buttons is part of that window — so
+        // playback maps them straight back onto the full window: sx*innerWidth, sy*innerHeight.
+        const screenClient = (c, loc) => {
+            const iw = window.innerWidth || 1, ih = window.innerHeight || 1;
+            const sx = (c && c.sx != null) ? +c.sx : (loc && loc.wx != null ? +loc.wx : null);
+            const sy = (c && c.sy != null) ? +c.sy : (loc && loc.wy != null ? +loc.wy : null);
+            if (sx != null && isFinite(sx) && sy != null && isFinite(sy)) return { cx: sx * iw, cy: sy * ih };
+            // Legacy canvas-fraction fallback (old recordings only).
+            const fx = c ? +(c.fx != null ? c.fx : NaN) : NaN, fy = c ? +(c.fy != null ? c.fy : NaN) : NaN;
+            if (isFinite(fx) && isFinite(fy) && fx >= -1.5 && fx <= 1.5 && fy >= -1.5 && fy <= 1.5) {
+                const pt = canvasClient(fx, fy, (c && c.wx != null) ? +c.wx : null, (c && c.wy != null) ? +c.wy : null);
+                if (pt) return pt;
+            }
+            return null;
+        };
+
         // Resolve a recorded DOM locator {by:'id'|'text'|'path', v, tag?, path?} back to a live
         // element. Text match prefers the SMALLEST visible element with that exact text (the actual
         // button/label, not an outer container that merely contains the text).
@@ -423,14 +473,43 @@ function (script, config) {
             const cmd = ('' + (c.cmd || '')).toLowerCase();
             const a = c.args || [];
             switch (cmd) {
+                case 'setstate': case 'state': {
+                    // Restore the full gene-graph JSON state (captured by the recorder via getState)
+                    // as the starting point, BEFORE the recorded actions run. Clear the live tracks
+                    // first so setState replaces rather than appends.
+                    const st = (c.state != null) ? c.state : c.value;
+                    if (st == null) break;
+                    let obj = null;
+                    try { obj = (typeof st === 'string') ? JSON.parse(st) : st; } catch (e) { try { console.warn('demo setstate: bad JSON', e); } catch (e2) { } break; }
+                    try { if (graph.clearTracks) graph.clearTracks(); } catch (e) { }
+                    try { if (graph.setState) await graph.setState(obj); } catch (e) { try { console.warn('demo setstate failed', e); } catch (e2) { } }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    await sleep(200);
+                    break;
+                }
                 case 'load': case 'add': case 'transcript': case 'gene': {
                     const id = ('' + (c.value != null ? c.value : (c.id != null ? c.id : a.join(' ')))).trim();
                     if (!id) break;
                     // Skip an internal UUID/track-id that was mistakenly recorded as a load — it isn't
                     // a transcript and would fail (older recorded scripts may contain one).
                     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) { say('Skipping non-transcript id ' + id); break; }
+                    // Close the New-track window FIRST — put the editor canvas back in the mainPanel,
+                    // exactly like the real "Load" button's showEditorCanvas() — and dismiss any center
+                    // menu, THEN load. Order matters: graph.add creates the track and frames the view,
+                    // which needs a mounted canvas; loading while the dialog still owns the mainPanel
+                    // leaves the canvas absent and the load/frame fails.
+                    try { graph.menu = null; if (graph.graph) graph.graph.menu = null; } catch (e) { }
+                    try {
+                        if (typeof CurrentLayout !== 'undefined' && CurrentLayout) {
+                            const __gpl = graph.genegraph_panel_layout || genegraph_panel_layout;
+                            if (__gpl) { try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { } try { CurrentLayout.setComponent('mainPanel', __gpl); } catch (e) { } }
+                            else if (CurrentLayout.reset) { CurrentLayout.reset('mainPanel'); }
+                        }
+                    } catch (e) { }
+                    await sleep(250);   // let the canvas mount (matches the real flow's setTimeout)
                     say('Loading ' + id + ' …');
                     await graph.add(id, 10, 10);
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
                     break;
                 }
                 case 'sequence': case 'seq': {
@@ -619,52 +698,67 @@ function (script, config) {
                     break;
                 }
                 case 'event': case 'ev': {
-                    // event <down|move|up|wheel> <fx> <fy> [dragOrDelta]  — replay one raw input event.
+                    // A raw canvas input event, replayed at the recorded SCREEN point.
                     const type = ('' + (c.type || a[0] || 'move')).toLowerCase();
-                    const fx = +(c.fx != null ? c.fx : a[1]);
-                    const fy = +(c.fy != null ? c.fy : a[2]);
-                    const wx = (c.wx != null) ? +c.wx : null;
-                    const wy = (c.wy != null) ? +c.wy : null;
                     const extra = (c.extra != null ? c.extra : a[3]);
-                    const hasFrac = isFinite(fx) && isFinite(fy);
-                    const hasWorld = (wx != null && isFinite(wx) && wy != null && isFinite(wy));
-                    if (!hasFrac && !hasWorld) break;
-                    // Coalesce a duplicate release: older recordings double-bound 'mouseup' (canvas +
-                    // document), so a single tap was logged as two identical 'up' events. Replaying both
-                    // taps the same spot twice — the second tap re-closes the just-opened selection menu
-                    // ("opens then goes away"), breaking everything downstream. Skip an 'up' that exactly
-                    // repeats the previous event when that was also an 'up' (no intervening down/move).
-                    const __k = hasWorld ? { x: wx, y: wy } : { x: fx, y: fy };
+                    const pt = screenClient(c, null);
+                    if (!pt) break;
+                    const cx = pt.cx, cy = pt.cy;
+                    // Coalesce a duplicate release (a single tap once logged as two identical 'up's):
+                    // skip an 'up' at the same screen point as the previous 'up'.
                     const __le = graph.__replayLastEv;
-                    if (type === 'up' && __le && __le.type === 'up' && Math.abs(__le.x - __k.x) < 1e-4 && Math.abs(__le.y - __k.y) < 1e-4) { break; }
-                    const cv = biggestCanvas();
-                    const pt = canvasClient(fx, fy, wx, wy);
-                    if (cv && pt) { await moveCursor(pt.cx, pt.cy, +(c.ms || 150)); }
+                    if (type === 'up' && __le && __le.type === 'up' && Math.abs(__le.x - cx) < 0.5 && Math.abs(__le.y - cy) < 0.5) { break; }
+                    await moveCursor(cx, cy, +(c.ms || 150));
                     if (type === 'down') clickPulse();
-                    dispatchCanvasEvent(type, fx, fy, extra, wx, wy);
-                    try { graph.__replayLastEv = { type: type, x: __k.x, y: __k.y }; } catch (e) { }
+                    fireCanvas(type, cx, cy, extra);
+                    try { graph.__replayLastEv = { type: type, x: cx, y: cy }; } catch (e) { }
                     break;
                 }
-                case 'domclick': case 'dom': case 'click': {
+                case 'domclick': case 'dom': case 'click': case 'domdown': case 'domup': {
+                    // Reproduce a DOM interaction by locator at the recorded screen point. A recorded
+                    // press/release is replayed as its own phase: `domdown` fires down, `domup` fires
+                    // up + click. Legacy `domclick` fires the whole down+up+click.
+                    const __phase = (cmd === 'domdown') ? 'down' : (cmd === 'domup') ? 'up' : 'both';
                     // Click a top-level toolbar / dialog element (outside the canvas) by locator.
                     const loc = c.locator || c.loc || (c.by ? { by: c.by, v: c.v, tag: c.tag, path: c.path } : null);
                     // Poll for the target — a DOM overlay/menu opened by the PREVIOUS step may still be
                     // rendering, so a single resolve can miss (the intermittent "some clicks don't work").
                     let el = resolveLocator(loc);
                     for (let tries = 0; !el && tries < 30; tries++) { await sleep(80); el = resolveLocator(loc); }
-                    if (!el) { say('click: element not found (' + JSON.stringify(loc) + ')'); break; }
-                    // Bring it into view if it's scrolled off (grid/list overlays).
+                    // The recorded SCREEN point (viewport fraction → client px).
+                    const spt = screenClient(c, loc);
+                    if (!el && spt) { try { el = document.elementFromPoint(spt.cx, spt.cy); } catch (e) { } }
+                    if (!el) { try { console.warn('demo click: element not found', loc); } catch (e) { } break; }
                     try { if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { }
-                    const r = el.getBoundingClientRect();
-                    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                    // Cursor + click at the recorded screen point (fall back to the element centre if
+                    // the recording had no point). One screen-coordinate model for everything.
+                    let cx, cy;
+                    if (spt) { cx = spt.cx; cy = spt.cy; }
+                    else { const r = el.getBoundingClientRect(); cx = r.left + r.width / 2; cy = r.top + r.height / 2; }
                     await moveCursor(cx, cy, +(c.ms || 420));
                     clickPulse();
+                    // If the point lands on the gene-graph canvas (or its container), it must be
+                    // dispatched as a canvas mouse event on the canvas element — a click on a wrapper
+                    // <div> would never reach the graph's handlers.
+                    const __cv = biggestCanvas();
+                    const __onCanvas = __cv && el && (el === __cv || (el.contains && el.contains(__cv)) || (__cv.contains && __cv.contains(el)));
+                    if (__onCanvas) {
+                        if (__phase !== 'up') fireCanvas('down', cx, cy);
+                        if (__phase === 'both') await sleep(45);
+                        if (__phase !== 'down') fireCanvas('up', cx, cy);
+                        break;
+                    }
                     const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, screenX: cx, screenY: cy, button: 0 };
-                    try { el.dispatchEvent(new MouseEvent('pointerdown', base)); } catch (e) { }
-                    try { el.dispatchEvent(new MouseEvent('mousedown', base)); } catch (e) { }
-                    await sleep(45);
-                    try { el.dispatchEvent(new MouseEvent('mouseup', base)); } catch (e) { }
-                    try { el.dispatchEvent(new MouseEvent('click', base)); } catch (e) { }
+                    if (__phase !== 'up') {
+                        try { el.dispatchEvent(new MouseEvent('pointerdown', base)); } catch (e) { }
+                        try { el.dispatchEvent(new MouseEvent('mousedown', base)); } catch (e) { }
+                    }
+                    if (__phase === 'both') await sleep(45);
+                    if (__phase !== 'down') {
+                        try { el.dispatchEvent(new MouseEvent('pointerup', base)); } catch (e) { }
+                        try { el.dispatchEvent(new MouseEvent('mouseup', base)); } catch (e) { }
+                        try { el.dispatchEvent(new MouseEvent('click', base)); } catch (e) { }
+                    }
                     break;
                 }
                 case 'set': case 'domset': case 'type': {
@@ -743,14 +837,25 @@ function (script, config) {
                         }
                         if (!item) await sleep(50);
                     }
-                    if (!item) { say('menuclick: "' + label + '" not found in ' + menuType + ' menu'); break; }
+                    // Menu item not found: skip quietly (console only) — don't surface a bottom
+                    // error-log panel during playback.
+                    if (!item) { try { console.warn('demo menuclick: "' + label + '" not found in ' + menuType + ' menu'); } catch (e) { } break; }
                     // Glide the cursor to the item (side menu: exact; center menu: canvas centre) and pulse.
                     try {
                         let vp = (menuType === 'side') ? sideMenuItemViewport(list, idx) : null;
                         if (!vp) { const cv = biggestCanvas(); const r = cv && cv.getBoundingClientRect(); if (r) vp = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
                         if (vp) { await moveCursor(vp.x, vp.y, +(c.ms || 550)); clickPulse(); await sleep(160); }
                     } catch (e) { }
-                    try { if (typeof item.click === 'function') item.click(); } catch (e) { say('menuclick failed: ' + (e && e.message ? e.message : e)); }
+                    // Close the CENTER menu BEFORE running the item's action (so it always disappears,
+                    // and a submenu the action may open via showMenu still shows). Mirrors the real
+                    // mouse-up path in gene.js. The side menu manages its own close via the item.
+                    if (menuType === 'center') {
+                        try { graph.menu = null; } catch (e) { }
+                        try { if (graph.graph) graph.graph.menu = null; } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                    }
+                    try { if (typeof item.click === 'function') item.click(); } catch (e) { try { console.warn('demo menuclick failed:', e); } catch (e2) { } }
+                    if (menuType === 'center') { try { if (graph.wake) graph.wake(); } catch (e) { } }
                     break;
                 }
                 case 'message': case 'msg': case 'say': { say(c.text || c.value || a.join(' ')); break; }
@@ -800,12 +905,32 @@ function (script, config) {
         } catch (e) { }
 
         say('Demo: running ' + cmds.length + ' step(s)…');
+        // Wait for any in-flight zoom/pan animation to finish before the next step runs — a fresh
+        // canvas event or a new zoom would otherwise ABORT it (zoomRect/animateTo no-op while
+        // graph.animating is true), so animations never complete. Wake the loop each tick so the
+        // animation actually renders during otherwise-idle playback. Bounded so it can't hang.
+        const settleAnim = async () => {
+            for (let i = 0; i < 200 && graph && graph.animating; i++) { try { if (graph.wake) graph.wake(); } catch (e) { } await sleep(25); }
+        };
+
+        // Silence the page's bottom message bar / log for the ENTIRE playback — including any
+        // messages the app's own actions (graph.add, off-target runs, …) would post. Restored at
+        // the end. Status still goes to the browser console via say().
+        const __msgSaved = {};
+        try {
+            for (const __m of ['setMessage', 'setSunsetMessage', 'setCenterMessage']) {
+                if (typeof graph[__m] === 'function') { __msgSaved[__m] = graph[__m]; graph[__m] = function () { return graph; }; }
+            }
+        } catch (e) { }
+
         try { ensureCursor(); } catch (e) { }   // show the demo pointer
         try { graph.__replayLastEv = null; } catch (e) { }   // reset duplicate-release coalescing state
         for (let i = 0; i < cmds.length; i++) {
+            await settleAnim();   // don't let this step interrupt a zoom animation still in flight
             try { await runCommand(cmds[i]); }
-            catch (e) { say('Step ' + (i + 1) + ' failed: ' + (e && e.message ? e.message : e)); }
+            catch (e) { try { console.warn('demo step ' + (i + 1) + ' failed:', e); } catch (e2) { } }
             try { if (graph.wake) graph.wake(); } catch (e) { }
+            await settleAnim();   // and let an animation this step kicked off render/finish
             await sleep(gap);
         }
         try { removeCursor(); } catch (e) { }
@@ -834,9 +959,10 @@ function (script, config) {
             try { if (graph.wake) graph.wake(); } catch (e) { }
         } catch (e) { }
 
-        // Sunset "Demo complete" notice.
-        try { if (graph.setSunsetMessage) graph.setSunsetMessage(' Demo complete '); else graph.setMessage(' Demo complete '); } catch (e) { }
-        try { log('Demo complete — ' + cmds.length + ' step(s); returned to the original state.'); } catch (e) { }
+        // No page message — console only.
+        try { console.log('demo: complete — ' + cmds.length + ' step(s); returned to the original state.'); } catch (e) { }
+        // Restore the app's message methods that were silenced for playback.
+        try { for (const __m in __msgSaved) { if (__msgSaved[__m]) graph[__m] = __msgSaved[__m]; } } catch (e) { }
         return graph;
     })();
 }

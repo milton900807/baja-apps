@@ -65,6 +65,8 @@ function (graph, oligo, genegraph_panel_layout) {
             try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
             await sleep(450);
             try { if (graph.zoomToTrack) await graph.zoomToTrack(t); } catch (e) { }
+            // Magenta landing burst once the view settles on the copy — visible even zoomed out.
+            try { if (clone && clone.landingBurst) clone.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
             await sleep(650);
         }
 

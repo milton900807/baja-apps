@@ -25,9 +25,22 @@ function (graph, layout) {
         // Expose the live editor to demo.js's in-place replay.
         try { window.__bajaLiveGraph = graph; window.__bajaLiveLayout = layout || graph.genegraph_panel_layout || null; } catch (e) { }
 
+        // The VISIBLE gene-graph canvas: largest by ON-SCREEN DISPLAY area (getBoundingClientRect),
+        // not internal resolution — so an off-screen/buffer canvas (or one positioned differently)
+        // can't be chosen, and its rect (top = below the header + buttonMenuPanel) is the reference.
         const biggestCanvas = () => {
             let best = null, area = -1;
-            try { for (const c of document.querySelectorAll('canvas')) { const a = c.width * c.height; if (a > area) { area = a; best = c; } } } catch (e) { }
+            try {
+                const vh = window.innerHeight || 1e9, vw = window.innerWidth || 1e9;
+                for (const c of document.querySelectorAll('canvas')) {
+                    const r = c.getBoundingClientRect();
+                    if (!r || r.width <= 1 || r.height <= 1) continue;
+                    if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) continue;   // off-screen
+                    const a = r.width * r.height;
+                    if (a > area) { area = a; best = c; }
+                }
+                if (!best) { for (const c of document.querySelectorAll('canvas')) { const a = c.width * c.height; if (a > area) { area = a; best = c; } } }
+            } catch (e) { }
             return best;
         };
         const now = () => Date.now();
@@ -38,10 +51,16 @@ function (graph, layout) {
 
         const OVERLAY_IDS = ['baja-rec-badge', 'baja-recorded-panel'];
         const inOverlay = (el) => { try { for (let n = el; n; n = n.parentElement) { if (n.id && OVERLAY_IDS.indexOf(n.id) >= 0) return true; } } catch (e) { } return false; };
-        const isCanvas = (el) => { try { return !!(cv && (el === cv || cv.contains(el))); } catch (e) { return false; } };
+        // Use the LIVE canvas each time (it can re-mount / move during a session), so the canvas's
+        // current position is always what we test against and subtract.
+        const curCanvas = () => { try { return biggestCanvas() || cv; } catch (e) { return cv; } };
+        const isCanvas = (el) => { try { const c = curCanvas(); return !!(c && (el === c || c.contains(el))); } catch (e) { return false; } };
 
+        // Canvas-relative fraction: subtract the canvas's current Y (and X) offset from the mouse
+        // position before capturing, so the stored coordinate is relative to the canvas window.
         const fracOf = (e) => {
-            const r = cv ? cv.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+            const c = curCanvas();
+            const r = c ? c.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
             return { fx: (e.clientX - r.left) / (r.width || 1), fy: (e.clientY - r.top) / (r.height || 1) };
         };
         // World (graph) coordinates of a canvas event: convert the CSS-pixel position to the
@@ -115,6 +134,15 @@ function (graph, layout) {
         };
 
         // ---- 1) Start snapshot -------------------------------------------------------------
+        // Preferred: the FULL gene-graph JSON state (graph.getState) as the starting point — replay
+        // restores it via setState (exact tracks/oligos/layers) before running the recorded actions.
+        // Captured async; it resolves long before the user stops recording, and buildScript uses it
+        // (dropping the per-track load/sequence lines below, which are the fallback).
+        try {
+            if (typeof graph.getState === 'function') {
+                Promise.resolve(graph.getState()).then((s) => { if (s && ('' + s).length > 2) rec.startState = '' + s; }).catch(() => { });
+            }
+        } catch (e) { }
         try {
             for (const t of (graph.track || [])) {
                 // Only `load` a REAL transcript/gene id (Ensembl / RefSeq) — NEVER the track's internal
@@ -154,20 +182,20 @@ function (graph, layout) {
             rec.origAdd = graph.add;
             graph.add = function (id) {
                 try {
-                    const drivenByClick = (now() - (rec.lastDomClickT || 0)) < 45000;
-                    if (!drivenByClick) {
-                        while (rec.events.length > rec.snapshotCount) {
-                            const n = rec.events.length;
-                            const e2 = rec.events[n - 1].cmd;
-                            if (e2.cmd === 'domclick' || e2.cmd === 'domset') { rec.events.pop(); continue; }
-                            if (n - rec.snapshotCount >= 2) {
-                                const e1 = rec.events[n - 2].cmd;
-                                if (e1.cmd === 'event' && e1.type === 'down' && e2.cmd === 'event' && e2.type === 'up') { rec.events.pop(); rec.events.pop(); continue; }
-                            }
-                            break;
-                        }
-                        if (id != null && ('' + id).trim()) push({ cmd: 'load', value: ('' + id).trim() });
+                    // ALWAYS record a deterministic `load <resolvedId>`: the New-track "Load" button
+                    // funnels through resolveAndLoad → graph.add(resolvedTranscriptId), so `id` here is
+                    // the exact transcript that was loaded. Pop the fragile UI taps that DROVE this load
+                    // (the dropdown result + Load-button clicks, and any stray canvas taps) so playback
+                    // doesn't depend on the search/dropdown reproducing the same results — it loads the
+                    // EXACT id and closes the window. The typed value (domset) and dialog-open are kept.
+                    while (rec.events.length > rec.snapshotCount) {
+                        const n = rec.events.length;
+                        const e2 = rec.events[n - 1].cmd;
+                        if (e2.cmd === 'domclick' || e2.cmd === 'domdown' || e2.cmd === 'domup') { rec.events.pop(); continue; }
+                        if (e2.cmd === 'event') { rec.events.pop(); continue; }
+                        break;   // stop at domset / key / menuclick / load
                     }
+                    if (id != null && ('' + id).trim()) push({ cmd: 'load', value: ('' + id).trim() });
                 } catch (er) { }
                 return rec.origAdd.apply(this, arguments);
             };
@@ -206,7 +234,11 @@ function (graph, layout) {
                                     const lbl = ('' + (item.label || item.name || '')).trim();
                                     item.click = function () {
                                         try { popTrailingTap(); push({ cmd: 'menuclick', menu: menuType, label: lbl }); } catch (e) { }
-                                        return origClick.apply(this, arguments);
+                                        const __r = origClick.apply(this, arguments);
+                                        // Make sure the CENTER menu is dismissed after an item runs (any
+                                        // submenu the action opens via showMenu appears ~300ms later).
+                                        if (menuType === 'center') { try { graph.menu = null; if (graph.graph) graph.graph.menu = null; if (graph.wake) graph.wake(); } catch (e) { } }
+                                        return __r;
                                     };
                                     item.__recWrapped = true;
                                 }
@@ -223,22 +255,51 @@ function (graph, layout) {
         // ---- 2) Canvas input capture ------------------------------------------------------
         // Canvas events carry BOTH the canvas-fraction (fx,fy — legacy/fallback) and the world
         // (wx,wy) coordinates; replay prefers world coords so a screen-size change doesn't shift it.
-        const worldFields = (e) => { const w = worldOf(e); return w ? { wx: +w.wx.toFixed(4), wy: +w.wy.toFixed(4) } : {}; };
-        const onDown = (e) => { try { rec.dragging = true; const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'down', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }, worldFields(e))); } catch (er) { } };
-        const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'move', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: 1 }, worldFields(e))); } catch (er) { } };
-        const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'up', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }, worldFields(e))); } catch (er) { } };
-        const onWheel = (e) => { try { const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'wheel', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: Math.round(e.deltaY || 0) }, worldFields(e))); } catch (er) { } };
+        // EVERYTHING is recorded in SCREEN coordinates — the pointer's viewport fraction
+        // (clientX/innerWidth, clientY/innerHeight). Playback multiplies back by the current
+        // viewport size. Canvas input still records as `event` (so playback fires real canvas
+        // mouse events); DOM interactions record as `domclick`/`domset` (locator + same sx,sy).
+        // Only ON-CANVAS input becomes an `event`; clicks on a DOM panel over/replacing the canvas
+        // are captured as `domclick` instead (onDocClick mirrors this isCanvas skip).
+        // CANVAS input is recorded as a fraction of the CANVAS itself (fracOf uses the canvas rect),
+        // so the click's Y is relative to the canvas — playback maps it back through the canvas rect
+        // (canvasClient), which INCLUDES the canvas's current Y position (below the header + top
+        // buttons). DOM interactions stay in full-window coords (their locator carries wx,wy).
+        const canvasFields = (e) => { const f = fracOf(e); return { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }; };
+        const onDown = (e) => { try { if (!isCanvas(e && e.target)) return; rec.dragging = true; push(Object.assign({ cmd: 'event', type: 'down' }, canvasFields(e))); } catch (er) { } };
+        const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; push(Object.assign({ cmd: 'event', type: 'move', extra: 1 }, canvasFields(e))); } catch (er) { } };
+        const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } const onCanvas = isCanvas(e && e.target); const wasDragging = rec.dragging; rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } if (!onCanvas && !wasDragging) return; push(Object.assign({ cmd: 'event', type: 'up' }, canvasFields(e))); } catch (er) { } };
+        const onWheel = (e) => { try { if (!isCanvas(e && e.target)) return; push(Object.assign({ cmd: 'event', type: 'wheel', extra: Math.round(e.deltaY || 0) }, canvasFields(e))); } catch (er) { } };
         rec.canvasListeners = [['mousedown', onDown], ['mousemove', onMove], ['mouseup', onUp], ['wheel', onWheel]];
         try { for (const p of rec.canvasListeners) (cv || document).addEventListener(p[0], p[1], { capture: true, passive: true }); } catch (e) { }
         try { document.addEventListener('mouseup', onUp, { capture: true, passive: true }); rec.docUp = onUp; } catch (e) { }
 
         // ---- 3) Top-level DOM capture (toolbar / dialogs) ---------------------------------
+        // Log ALL DOM mouse downs and ups (not just synthesised clicks): mousedown → `domdown`,
+        // mouseup → `domup`. Playback dispatches the matching phase (a `domup` also fires a click),
+        // reproducing the full press/release a target may depend on. (Canvas input is still recorded
+        // as `event`; our own overlays are ignored.)
+        const onDocDown = (e) => {
+            try {
+                const el = e.target; if (!el || el.nodeType !== 1) return;
+                if (isCanvas(el) || inOverlay(el)) return;
+                push({ cmd: 'domdown', locator: locate(el, e) });
+            } catch (er) { }
+        };
+        const onDocUp2 = (e) => {
+            try {
+                const el = e.target; if (!el || el.nodeType !== 1) return;
+                if (isCanvas(el) || inOverlay(el)) return;
+                rec.lastDomClickT = now();
+                push({ cmd: 'domup', locator: locate(el, e) });
+            } catch (er) { }
+        };
+        // Kept for backward compatibility / cleanup; the click path is superseded by domdown/domup.
         const onDocClick = (e) => {
             try {
                 const el = e.target; if (!el || el.nodeType !== 1) return;
-                if (isCanvas(el) || inOverlay(el)) return;   // canvas handled as events; ignore our overlays
-                rec.lastDomClickT = now();                   // marks a button-driven load (see graph.add wrap)
-                push({ cmd: 'domclick', locator: locate(el, e) });
+                if (isCanvas(el) || inOverlay(el)) return;
+                rec.lastDomClickT = now();
             } catch (er) { }
         };
         const onDocInput = (e) => {
@@ -268,21 +329,29 @@ function (graph, layout) {
                 if (editable && SPECIAL[e.key]) push({ cmd: 'key', key: e.key, locator: locate(el, e) });
             } catch (er) { }
         };
-        try { document.addEventListener('click', onDocClick, { capture: true, passive: true }); rec.docClick = onDocClick; } catch (e) { }
+        try { document.addEventListener('mousedown', onDocDown, { capture: true, passive: true }); rec.docDown = onDocDown; } catch (e) { }
+        try { document.addEventListener('mouseup', onDocUp2, { capture: true, passive: true }); rec.docUp2 = onDocUp2; } catch (e) { }
         try { document.addEventListener('input', onDocInput, { capture: true, passive: true }); rec.docInput = onDocInput; } catch (e) { }
         try { document.addEventListener('keydown', onDocKey, { capture: true, passive: true }); rec.docKey = onDocKey; } catch (e) { }
 
         // ---- 4) Build the script ----------------------------------------------------------
         rec.buildScript = () => {
             const arr = [];
+            // Prefer the full gene-graph state as the starting point; playback restores it with
+            // setState before running. When present, drop the redundant per-track load/sequence
+            // snapshot lines (setState already rebuilds them) — keep the camera and everything else.
+            const useState = !!(rec.startState && ('' + rec.startState).length > 2);
+            if (useState) arr.push({ cmd: 'setstate', state: '' + rec.startState });
             let prev = rec.t0;
             rec.events.forEach((ev, i) => {
+                const c0 = ev.cmd || {};
+                if (useState && i < rec.snapshotCount && (c0.cmd === 'load' || c0.cmd === 'sequence')) return;
                 if (i >= rec.snapshotCount) {
                     const gap = ev.t - prev;
                     if (gap > 120) arr.push({ cmd: 'wait', ms: Math.min(4000, Math.round(gap)) });
                     prev = ev.t;
                 }
-                const c = Object.assign({}, ev.cmd); delete c.__el;   // strip the internal element ref
+                const c = Object.assign({}, c0); delete c.__el;   // strip the internal element ref
                 arr.push(c);
             });
             return JSON.stringify(arr, null, 2);
@@ -321,6 +390,8 @@ function (graph, layout) {
             try { if (rec.tick) clearInterval(rec.tick); } catch (e) { }
             try { for (const p of rec.canvasListeners) (cv || document).removeEventListener(p[0], p[1], { capture: true }); } catch (e) { }
             try { if (rec.docUp) document.removeEventListener('mouseup', rec.docUp, { capture: true }); } catch (e) { }
+            try { if (rec.docDown) document.removeEventListener('mousedown', rec.docDown, { capture: true }); } catch (e) { }
+            try { if (rec.docUp2) document.removeEventListener('mouseup', rec.docUp2, { capture: true }); } catch (e) { }
             try { if (rec.docClick) document.removeEventListener('click', rec.docClick, { capture: true }); } catch (e) { }
             try { if (rec.docInput) document.removeEventListener('input', rec.docInput, { capture: true }); } catch (e) { }
             try { if (rec.docKey) document.removeEventListener('keydown', rec.docKey, { capture: true }); } catch (e) { }

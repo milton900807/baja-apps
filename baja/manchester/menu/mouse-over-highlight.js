@@ -28,9 +28,30 @@ function (graph, genegraph_panel_layout) {
         // collide with the in-progress canvas mouse interaction that triggered the
         // click. Closing a menu (null) still happens immediately.
         const MENU_OPEN_DELAY_MS = 1000;
+        // Consistent menu ordering: items that open a SUBMENU (label carries the ▸ marker) are
+        // grouped FIRST, then leaf actions, with navigation (‹ Back / Cancel / Close / Done) last.
+        // Header rows stay pinned at the very top. Applied to every menu this file shows.
+        const orderMenu = (list) => {
+            try {
+                if (!Array.isArray(list) || list.length < 2) return list;
+                const lab = (it) => ('' + (it && (it.label || it.name || ''))).trim();
+                const isHeader = (it) => !!(it && it.header);
+                const isNav = (it) => { const l = lab(it); return /^(‹|«|<|←|✓|↩)/.test(l) || /(^|\s)(Back|Cancel|Close|Done)\b/i.test(l) || /Back$/i.test(l) || l === 'more...' || l === 'Refresh menu' || l === 'Close menu'; };
+                const isSub = (it) => /[▸►]/.test(lab(it));
+                const headers = [], subs = [], leaves = [], navs = [];
+                for (const it of list) {
+                    if (!it) { leaves.push(it); continue; }
+                    if (isHeader(it)) headers.push(it);
+                    else if (isNav(it)) navs.push(it);
+                    else if (isSub(it)) subs.push(it);
+                    else leaves.push(it);
+                }
+                return headers.concat(subs, leaves, navs);
+            } catch (e) { return list; }
+        };
         const showSideMenuDelayed = (menu, x, y) => {
             if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
-            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(menu, x, y); }, MENU_OPEN_DELAY_MS);
+            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y); }, MENU_OPEN_DELAY_MS);
         };
         // On mobile the full-screen feature menu is blocking, so a quick tap only SELECTS —
         // the menu opens on a LONG-PRESS (~500ms held still), armed as graph.graph.__longPressReady
@@ -1639,7 +1660,7 @@ function (graph, genegraph_panel_layout) {
 
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
-                            graph.showSideMenu(mergedMenu.items, x, y);
+                            graph.showSideMenu(orderMenu(mergedMenu.items), x, y);
                         }
                     }
                 }
@@ -1752,7 +1773,7 @@ function (graph, genegraph_panel_layout) {
                         if (hitShapes.length > 1) shapeMenu.push({ type: 'separator' });
                     }
 
-                    graph.showSideMenu(shapeMenu, x, y);
+                    graph.showSideMenu(orderMenu(shapeMenu), x, y);
                     return;
                 }
             }
@@ -2435,7 +2456,7 @@ function (graph, genegraph_panel_layout) {
 
                             // Annotation options moved to the selection window as their
                             // own object type (selection box → Annotations).
-                            graph.showSideMenu(mergePendingSnp(ml), x, y)
+                            graph.showSideMenu(orderMenu(mergePendingSnp(ml)), x, y)
                             return;
                         }
                     } else {
@@ -3319,7 +3340,7 @@ function (graph, genegraph_panel_layout) {
                                 ];
                                 const items = sigList.map((s) => ({ label: s.label, move: () => { }, click: () => { loadSig(s.key); } }));
                                 items.push({ label: '‹ Back', move: () => { }, click: () => { openMain(); } });
-                                try { graph.showSideMenu(items); } catch (e) { }
+                                try { graph.showSideMenu(orderMenu(items)); } catch (e) { }
                             };
                             const loadFrom = (db, label) => { graph.showSideMenu(null); exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, label); };
                             // Tour the track's mutations: select + zoom each, with Prev/Next/Done.
@@ -4028,14 +4049,17 @@ function (graph, genegraph_panel_layout) {
                             showSideMenuDelayed(submenus)
                         }
                     }, {
-                        label: "Design",
+                        label: "Design ▸",
                         click: async (scx, scy) => {
                             graph.setMessage("Loading chemistry database...");
+                            // Designing on THIS track: select the whole track and its sequence so the
+                            // design tools operate on it.
+                            try { if (selectedTrack) { selectedTrack.selectTrackAndSeq(); } } catch (e) { }
                             const selected = async (v) => {
                                 graph.props.selected_chemistry = v;
                                 setTimeout(async () => {
-                                    await exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
-                                    graph.setMessage(" Chemistry selected : " + graph.props.selected_chemistry.name);
+                                    // await exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
+                                    // graph.setMessage(" Chemistry selected : " + graph.props.selected_chemistry.name);
                                 }, 1000);
                             };
                             // Therapeutic oligo designers — grouped under "Therapeutics ▸" below.
@@ -4069,6 +4093,14 @@ function (graph, genegraph_panel_layout) {
                                                     + '</div>'
                                                     + '<label style="' + lbl + '">Maximum candidates</label>'
                                                     + '<input id="sd-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
+                                                    + '<label style="' + lbl + '">Template chemistry</label>'
+                                                    + '<select id="sd-chem" style="' + inp + '">'
+                                                    + '<option value="standard">2\'-F / 2\'-OMe (standard)</option>'
+                                                    + '<option value="esc">ESC (Enhanced Stabilization)</option>'
+                                                    + '<option value="esc_plus">Advanced ESC (ESC+)</option>'
+                                                    + '<option value="galnac_esc">GalNAc-conjugated ESC</option>'
+                                                    + '<option value="all_2ome">Fully 2\'-OMe</option>'
+                                                    + '</select>'
                                                     + '<div id="sd-adv" style="display:none;">'
                                                     + '<label style="' + lbl + '">siRNA lengths</label>'
                                                     + '<div style="display:flex;gap:16px;font:13px Arial;"><label><input type="checkbox" id="sd-l21" checked/> 21</label><label><input type="checkbox" id="sd-l22" checked/> 22</label><label><input type="checkbox" id="sd-l23" checked/> 23</label></div>'
@@ -4118,6 +4150,7 @@ function (graph, genegraph_panel_layout) {
                                                             output_alphabet: q('#sd-alpha').value || 'DNA',
                                                             senseOverhang: q('#sd-soh').value || '',
                                                             antisenseOverhang: q('#sd-aoh').value || '',
+                                                            chemistry_template: (q('#sd-chem') ? q('#sd-chem').value : 'standard'),
                                                             weights: {
                                                                 gc: num('#sd-w-gc', 1), seed_au: num('#sd-w-seed', 1),
                                                                 end_asymmetry_ddg: num('#sd-w-end', 1), antisense_pos1: num('#sd-w-ap1', 1),
@@ -4125,7 +4158,7 @@ function (graph, genegraph_panel_layout) {
                                                             }
                                                         };
                                                     } else {
-                                                        params = { top_n: topn, lengths: [21, 22, 23], output_alphabet: 'DNA', senseOverhang: 'dTdT', antisenseOverhang: '', weights: {} };
+                                                        params = { top_n: topn, lengths: [21, 22, 23], output_alphabet: 'DNA', senseOverhang: 'dTdT', antisenseOverhang: '', chemistry_template: (q('#sd-chem') ? q('#sd-chem').value : 'standard'), weights: {} };
                                                     }
                                                     close(); resolve(params);
                                                 };
@@ -4135,11 +4168,17 @@ function (graph, genegraph_panel_layout) {
                                         if (!__p) return;   // cancelled
                                         let json_input = {
                                             sequence: selectedTrack.sequence,
-                                            strand: selectedTrack.strand,
+                                            // The track sequence is the SENSE mRNA (5'->3'), so the guide is ALWAYS its
+                                            // reverse-complement — independent of the gene's genomic strand. Passing the
+                                            // track's (possibly -1) strand made the designer emit complement(target) for
+                                            // minus-strand genes (e.g. KRAS), which is the wrong guide AND matched nothing
+                                            // in the off-target index. Design on the sense mRNA => strand 1.
+                                            strand: 1,
                                             top_n: __p.top_n,
                                             lengths: __p.lengths,
                                             overhangs: { sense: __p.senseOverhang, antisense: __p.antisenseOverhang },
                                             output_alphabet: __p.output_alphabet,
+                                            chemistry_template: __p.chemistry_template,
                                             weights: __p.weights
                                         }
 
@@ -4309,36 +4348,29 @@ function (graph, genegraph_panel_layout) {
 
                                         let Oligo = await exec('flexigraph/oligo.js');
                                         const str = `py/ssaso/design.py`;
-                                        let vap = await prompt("Maximum number:", ["Count"], { "Count": 100 }, 500, 300);
-                                        let va = 100;
-                                        if (vap && vap["Count"])
-                                            va = vap['Count']
-                                        if (!Number.isInteger(Number(va))) {
-                                            infoPrompt("Please provide an integer value only (1-1000)");
-                                            return;
-                                        }
+                                        // Default / Advanced design dialog — the LAST interface before the design runs.
+                                        const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
+                                        if (!__p) return;   // cancelled
+                                        let va = parseInt(__p.top_n) || 100;
                                         let _sequence = selectedTrack.sequence;
-
-
-
-
-                                        va = parseInt(va)
-
-
 
                                         let json_input = {
                                             "sequence": _sequence,
-                                            "strand": selectedTrack.strand,
+                                            // Sense mRNA — the ASO is the reverse-complement of the target regardless of
+                                            // the gene's genomic strand (same fix as siRNA; minus-strand genes otherwise
+                                            // got complement(target), which is wrong and finds no off-targets).
+                                            "strand": 1,
                                             "top_n": va,
 
-                                            "lengths": [16, 17, 18, 19, 20],
-                                            "gap_sizes": [8, 9, 10],
+                                            "lengths": __p.lengths || [16, 17, 18, 19, 20],
+                                            "gap_sizes": __p.gap_sizes || [8, 9, 10],
 
-                                            "wing_modification": "LNA",
-                                            "default_backbone": "PS",
+                                            "wing_modification": __p.wing_modification || "LNA",
+                                            "default_backbone": __p.default_backbone || "PS",
                                             "po_link_positions": [],
 
-                                            "output_alphabet": "DNA",
+                                            "output_alphabet": __p.output_alphabet || "DNA",
+                                            "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
 
                                             "helm_symbols": {
                                                 "DNA": "d",
@@ -4347,7 +4379,6 @@ function (graph, genegraph_panel_layout) {
                                                 "2'-MOE": "moe"
                                             },
 
-                                            "enforce_non_overlapping": false,
                                             "min_separation": 0,
 
                                             "endonuclease_motifs": [
@@ -4545,46 +4576,22 @@ function (graph, genegraph_panel_layout) {
 
                                         const str = `py/ssaso/design-steric-blocking.py`;
 
-                                        let vap = await prompt("Maximum number:", ["Count"], { "Count": 100 }, 500, 300);
-                                        let va = vap["Count"];
-
-                                        if (!Number.isInteger(Number(va))) {
-                                            infoPrompt("Please provide an integer value only (1-1000)");
-                                            return;
-                                        }
-
-                                        let backbonePrompt = await prompt("Backbone:", ["Backbone"], { "Backbone": "ps" }, 500, 300);
-                                        let sugarPrompt = await prompt("Sugar modifications:", ["2'modification"], { "2'modification": "moe" }, 500, 300);
-
-                                        let backbone = String(backbonePrompt["Backbone"] || "ps").toUpperCase();
-                                        let sugar = String(sugarPrompt["2'modification"] || "moe");
-
-                                        // Normalize common UI inputs to backend values
-                                        const sugarMap = {
-                                            "moe": "2'-MOE",
-                                            "2'-moe": "2'-MOE",
-                                            "2-moe": "2'-MOE",
-                                            "ome": "2'-OMe",
-                                            "2'-ome": "2'-OMe",
-                                            "2-ome": "2'-OMe",
-                                            "lna": "LNA",
-                                            "rna": "RNA",
-                                            "dna": "DNA"
-                                        };
-
-                                        const normalizedSugar = sugarMap[sugar.toLowerCase()] || sugar;
-
+                                        // Default / Advanced design dialog — the LAST interface before the design runs.
+                                        const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric');
+                                        if (!__p) return;   // cancelled
                                         let _sequence = selectedTrack.sequence;
 
                                         let json_input = {
                                             sequence: _sequence,
-                                            strand: selectedTrack.strand,
-                                            top_n: Number(va),
-                                            lengths: [16, 17, 18, 19, 20],
-                                            full_modification: normalizedSugar,
-                                            default_backbone: backbone,
+                                            // Sense mRNA — ASO is the reverse-complement of the target (same fix as siRNA).
+                                            strand: 1,
+                                            top_n: parseInt(__p.top_n) || 100,
+                                            lengths: __p.lengths || [18, 19, 20],
+                                            full_modification: __p.wing_modification || "2'-MOE",
+                                            default_backbone: __p.default_backbone || "PS",
                                             po_link_positions: [],
-                                            output_alphabet: "DNA",
+                                            output_alphabet: __p.output_alphabet || "DNA",
+                                            enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
                                             annotations: [] // optional: populate if you have site annotations
                                         };
 
@@ -4721,76 +4728,84 @@ function (graph, genegraph_panel_layout) {
                             ];
 
                             const offTargetsItem = {
-                                    label: "Off-targets",
-                                    move: () => { },
-                                    click: async (scx, scy) => {
-                                        // Off-target count for an oligo — matches the on-canvas badge:
-                                        // distinct off-target GENES, else offtargetsymbols count, else
-                                        // the raw Levenshtein hit count.
-                                        const otCount = (o) => {
-                                            if (!o) return 0;
-                                            let ot = (o.offtarget != null) ? o.offtarget : o._offtarget;
-                                            if (ot == null) return 0;
-                                            if (Array.isArray(ot)) {
-                                                const genes = new Set(ot.map((h) => h && h.symbol).filter(Boolean)).size;
-                                                if (genes) return genes;
-                                                if (o.offtargetsymbols && o.offtargetsymbols.length) return o.offtargetsymbols.length;
-                                                return ot.length;
-                                            }
-                                            if (typeof ot === 'number') return ot;
-                                            if (typeof ot === 'string') {
-                                                const n = parseInt(ot, 10);
-                                                if (!isNaN(n)) return n;
-                                                return (o.offtargetsymbols && o.offtargetsymbols.length) ? o.offtargetsymbols.length : 0;
-                                            }
-                                            return 0;
-                                        };
-                                        const otSub = [
-                                            {
-                                                label: "Filter by off-target count",
-                                                move: () => { },
-                                                click: async () => {
-                                                    const vap = await prompt("Maximum allowable off-targets:", ["Max"], { "Max": 5 }, 520, 300);
-                                                    if (!vap) return;
-                                                    const max = parseInt(vap["Max"], 10);
-                                                    if (!Number.isInteger(max) || max < 0) {
-                                                        infoPrompt("Please enter a non-negative integer.");
-                                                        return;
-                                                    }
-                                                    graph.pushOntoHistory();
-                                                    const removed = [];
-                                                    const kept = [];
-                                                    for (const o of (selectedTrack.oligos || [])) {
-                                                        const isAmp = !!(o && (o.type === 'amplicon' || (o.left && o.right)));
-                                                        const n = otCount(o);
-                                                        // Auto-remove any oligo whose off-target count exceeds the max.
-                                                        if (!isAmp && n > max) {
-                                                            removed.push({ id: (o.id != null ? o.id : (o.name || '?')), n });
-                                                        } else {
-                                                            kept.push(o);
-                                                        }
-                                                    }
-                                                    selectedTrack.oligos = kept;
-                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
-                                                    graph.showSideMenu(null);
-                                                    if (removed.length) {
-                                                        const lines = removed.map((r) => 'removed ' + r.id + ' with OT ' + r.n);
-                                                        try { lines.forEach((l) => log(l)); } catch (e) { }
-                                                        graph.setMessage(' ' + removed.length + ' oligo(s) over ' + max + ' off-targets removed:  ' + lines.join('   |   ') + ' ');
+                                label: "Off-targets",
+                                move: () => { },
+                                click: async (scx, scy) => {
+                                    // Off-target count for an oligo — matches the on-canvas badge:
+                                    // distinct off-target GENES, else offtargetsymbols count, else
+                                    // the raw Levenshtein hit count.
+                                    const otCount = (o) => {
+                                        if (!o) return 0;
+                                        let ot = (o.offtarget != null) ? o.offtarget : o._offtarget;
+                                        if (ot == null) return 0;
+                                        if (Array.isArray(ot)) {
+                                            const genes = new Set(ot.map((h) => h && h.symbol).filter(Boolean)).size;
+                                            if (genes) return genes;
+                                            if (o.offtargetsymbols && o.offtargetsymbols.length) return o.offtargetsymbols.length;
+                                            return ot.length;
+                                        }
+                                        if (typeof ot === 'number') return ot;
+                                        if (typeof ot === 'string') {
+                                            const n = parseInt(ot, 10);
+                                            if (!isNaN(n)) return n;
+                                            return (o.offtargetsymbols && o.offtargetsymbols.length) ? o.offtargetsymbols.length : 0;
+                                        }
+                                        return 0;
+                                    };
+                                    const otSub = [
+                                        {
+                                            label: "Filter by off-target count",
+                                            move: () => { },
+                                            click: async () => {
+                                                const vap = await prompt("Maximum allowable off-targets:", ["Max"], { "Max": 5 }, 520, 300);
+                                                if (!vap) return;
+                                                const max = parseInt(vap["Max"], 10);
+                                                if (!Number.isInteger(max) || max < 0) {
+                                                    infoPrompt("Please enter a non-negative integer.");
+                                                    return;
+                                                }
+                                                graph.pushOntoHistory();
+                                                const removed = [];
+                                                const kept = [];
+                                                for (const o of (selectedTrack.oligos || [])) {
+                                                    const isAmp = !!(o && (o.type === 'amplicon' || (o.left && o.right)));
+                                                    const n = otCount(o);
+                                                    // Auto-remove any oligo whose off-target count exceeds the max.
+                                                    if (!isAmp && n > max) {
+                                                        removed.push({ id: (o.id != null ? o.id : (o.name || '?')), n });
                                                     } else {
-                                                        graph.setMessage(' No oligos exceeded ' + max + ' off-targets. ');
+                                                        kept.push(o);
                                                     }
                                                 }
-                                            },
-                                            {
-                                                label: "← Back",
-                                                move: () => { },
-                                                click: () => { showSideMenuDelayed(submenu); }
+                                                selectedTrack.oligos = kept;
+                                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                                graph.showSideMenu(null);
+                                                if (removed.length) {
+                                                    const lines = removed.map((r) => 'removed ' + r.id + ' with OT ' + r.n);
+                                                    try { lines.forEach((l) => log(l)); } catch (e) { }
+                                                    graph.setMessage(' ' + removed.length + ' oligo(s) over ' + max + ' off-targets removed:  ' + lines.join('   |   ') + ' ');
+                                                } else {
+                                                    graph.setMessage(' No oligos exceeded ' + max + ' off-targets. ');
+                                                }
                                             }
-                                        ];
-                                        showSideMenuDelayed(otSub);
-                                    }
+                                        },
+                                        {
+                                            label: "← Back",
+                                            move: () => { },
+                                            click: () => { showSideMenuDelayed(submenu); }
+                                        }
+                                    ];
+                                    showSideMenuDelayed(otSub);
+                                }
                             };
+
+
+
+
+
+
+
+
 
                             // Primer-probe assay design (primer3 / djPrimer / exon-exon) on the
                             // highlighted region of this track — brought up under "Primer probes ▸".
@@ -5115,7 +5130,7 @@ function (graph, genegraph_panel_layout) {
                                     click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/manchester/menu/menu-for-single-aso.js', graph, o, genegraph_panel_layout); }
                                 }));
                                 items.push({ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
-                                graph.showSideMenu(items);
+                                graph.showSideMenu(orderMenu(items));
                             }
                         });
                     }
@@ -5124,14 +5139,19 @@ function (graph, genegraph_panel_layout) {
                 // Selected-track menu order: group related actions together — structure/edit,
                 // then layers, then analysis/navigation (SNPs, points of interest, Go to), then
                 // Properties, with Delete last. Items not listed keep their original order after.
+                // Mark the top-level items that open a SUBMENU with ▸ (Compounds ▸ / Variants ▸
+                // already carry it) so every submenu reads consistently; orderMenu then groups them
+                // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
+                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Go to...': 1, 'Go to': 1 };
+                for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers', 'Data Layers', 'Compounds ▸', 'Variants ▸', 'Go to...',
+                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
                 track_list = track_list.filter(__isTrackItem).sort((a, b) => __ti(a) - __ti(b))
                     .concat(track_list.filter((m) => !__isTrackItem(m)));
-                const __trackMenu = mergePendingSnp(track_list);
+                const __trackMenu = orderMenu(mergePendingSnp(track_list));
                 // The track menu is no longer popped up on click. Instead the track is
                 // added to the selection box as its own object type; the menu is shown
                 // only when the user opens it there (selection box → Tracks → track).

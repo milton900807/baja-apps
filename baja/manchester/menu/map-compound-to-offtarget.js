@@ -94,6 +94,8 @@ function (graph, oligo, hit, editDistance) {
             if (graph.zoomRect) await graph.zoomRect(xi - xpad, xf + xpad, cy + yhalf, cy - yhalf, 340);
             else if (graph.zoomToTrack) await graph.zoomToTrack(track);
         } catch (e) { try { if (graph.zoomToTrack) await graph.zoomToTrack(track); } catch (e2) { } }
+        // Magenta landing burst once the view settles on the mapped compound (visible zoomed out).
+        try { if (clone && clone.landingBurst) clone.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
         say(' Mapped ' + (oligo.name || 'compound') + ' onto ' + (track.name || id) + ' (' + bestMm + (bestMm === 1 ? ' mismatch' : ' mismatches') + '). ');
         return graph;

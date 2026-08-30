@@ -314,12 +314,19 @@ function () {
                 if (color) {
                     this.highlight__ = color;
                 }
+                // Long magenta highlight (fired on add) also sets off a one-shot expanding burst
+                // so the user can see where the siRNA landed, even when zoomed out. See draw().
+                if (this.highlight__ === 'magenta' && delay && delay >= 1200) { this.landingBurst('magenta'); }
                 if (delay && delay > 0) {
                     setTimeout(() => {
 
                         this.highlight__ = false;
                     }, delay)
                 }
+            }
+
+            landingBurst(color) {
+                try { this.__burstT0 = Date.now(); this.__burstColor = color || 'magenta'; this.__burstMs = 950; } catch (e) { }
             }
 
             setSelected(value) {
@@ -395,6 +402,36 @@ function () {
                         _ctx.ellipse(gcx, gcy, grx, gry, 0, 0, Math.PI * 2);
                         _ctx.fill();
                         _ctx.restore();
+                    }
+
+                    // One-shot "landing burst" — a decent, zoom-independent expanding ring so a
+                    // just-placed siRNA is easy to spot even when zoomed out. See landingBurst().
+                    if (_ctx && this.__burstT0) {
+                        const __el = Date.now() - this.__burstT0;
+                        const __ms = this.__burstMs || 950;
+                        if (__el >= 0 && __el < __ms) {
+                            const __p = __el / __ms;
+                            const __named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
+                            const __c = __named[('' + (this.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
+                            const __bx = (graph.X(tgraph.X(this.xi)) + graph.X(tgraph.X(this.xf))) / 2;
+                            const __by = ysc - 9;
+                            const __R = 30 + 64 * __p;
+                            _ctx.save();
+                            _ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * (1 - __p)})`;
+                            _ctx.shadowBlur = 20;
+                            const __g = _ctx.createRadialGradient(__bx, __by, 2, __bx, __by, __R);
+                            __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * (1 - __p)})`);
+                            __g.addColorStop(1, `rgba(${__c[0]},${__c[1]},${__c[2]},0)`);
+                            _ctx.fillStyle = __g; _ctx.beginPath(); _ctx.arc(__bx, __by, __R, 0, Math.PI * 2); _ctx.fill();
+                            _ctx.lineWidth = Math.max(1.5, 5 * (1 - __p));
+                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * (1 - __p)})`;
+                            _ctx.beginPath(); _ctx.arc(__bx, __by, __R, 0, Math.PI * 2); _ctx.stroke();
+                            const __R2 = 14 + 42 * __p;
+                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * (1 - __p)})`;
+                            _ctx.beginPath(); _ctx.arc(__bx, __by, __R2, 0, Math.PI * 2); _ctx.stroke();
+                            _ctx.restore();
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                        } else { this.__burstT0 = null; }
                     }
 
                     // Draw the two strands stacked VERTICALLY so they don't block each other:

@@ -146,6 +146,8 @@ function (graph, layout, compound) {
             if (graph.viewAllTracks) await graph.viewAllTracks();   // view all
             await sleep(500);
             if (graph.zoomToTrack) await graph.zoomToTrack(t);      // then zoom into the compound
+            // Magenta landing burst so it's obvious where the compound landed (visible zoomed out).
+            try { if (compoundObj && compoundObj.landingBurst) compoundObj.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
         } catch (e) { }
         return graph;
     })();

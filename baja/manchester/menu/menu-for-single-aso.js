@@ -1141,6 +1141,9 @@ function (graph, oligo, genegraph_panel_layout) {
                     click: async () => {
                         try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
                         try { graph.showSideMenu(null); } catch (e) { }
+                        // The off-target mapping panel is a shared module (also opened from the
+                        // off-target report). Fall through to the inline build only if it fails.
+                        try { await exec('baja/manchester/menu/off-target-summary.js', graph, oligo, genegraph_panel_layout); return; } catch (e) { }
                         try {
                             const o = oligo;
                             const hits = Array.isArray(o.offtarget) ? o.offtarget : [];

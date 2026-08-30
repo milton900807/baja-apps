@@ -217,11 +217,22 @@ function () {
                     this.highlight__ = color;
                 }
 
+                // A compound that just LANDED (a long magenta highlight, as fired on add) also
+                // sets off a one-shot expanding burst so the user can see where it landed —
+                // especially when zoomed out, where the static glow is tiny. Brief hover
+                // highlights (short delay) don't burst.
+                if (this.highlight__ === 'magenta' && delay && delay >= 1200) { this.landingBurst('magenta'); }
+
                 if (delay && delay > 0) {
                     setTimeout(() => {
                         this.highlight__ = false;
                     }, delay);
                 }
+            }
+
+            // Start a one-shot expanding "landing burst" centred on the compound (see draw()).
+            landingBurst(color) {
+                try { this.__burstT0 = Date.now(); this.__burstColor = color || 'magenta'; this.__burstMs = 950; } catch (e) { }
             }
 
             async draw(graph, tgraph, y) {
@@ -297,6 +308,36 @@ function () {
                     ctx.ellipse(cx, screenY, rx, ry, 0, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.restore();
+                }
+
+                // One-shot "landing burst": an expanding, fading ring at a DECENT fixed screen
+                // size (independent of zoom) so a just-placed compound is easy to spot even when
+                // zoomed way out. Triggered by landingBurst() when a compound is added/mapped.
+                if (this.__burstT0 && ctx) {
+                    const __el = Date.now() - this.__burstT0;
+                    const __ms = this.__burstMs || 950;
+                    if (__el >= 0 && __el < __ms) {
+                        const __p = __el / __ms;                                   // 0..1
+                        const __named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
+                        const __c = __named[('' + (this.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
+                        const __bx = screenMidX, __by = screenY;
+                        const __R = 30 + 64 * __p;                                 // 30 -> 94 px
+                        ctx.save();
+                        ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * (1 - __p)})`;
+                        ctx.shadowBlur = 20;
+                        const __g = ctx.createRadialGradient(__bx, __by, 2, __bx, __by, __R);
+                        __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * (1 - __p)})`);
+                        __g.addColorStop(1, `rgba(${__c[0]},${__c[1]},${__c[2]},0)`);
+                        ctx.fillStyle = __g; ctx.beginPath(); ctx.arc(__bx, __by, __R, 0, Math.PI * 2); ctx.fill();
+                        ctx.lineWidth = Math.max(1.5, 5 * (1 - __p));
+                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * (1 - __p)})`;
+                        ctx.beginPath(); ctx.arc(__bx, __by, __R, 0, Math.PI * 2); ctx.stroke();
+                        const __R2 = 14 + 42 * __p;
+                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * (1 - __p)})`;
+                        ctx.beginPath(); ctx.arc(__bx, __by, __R2, 0, Math.PI * 2); ctx.stroke();
+                        ctx.restore();
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                    } else { this.__burstT0 = null; }
                 }
 
                 // Targeting "gunsight" reticle drawn on the oligo currently being run

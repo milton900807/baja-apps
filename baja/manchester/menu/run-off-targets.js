@@ -486,6 +486,9 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     b.onclick = onClick;
                     return b;
                 };
+                // Link to the off-target MAPPING panel (load & map onto any off-target transcript/
+                // gene) — shown for a single-oligo report whenever it actually has off-targets.
+                if (single && __anyOff) rowEl.appendChild(mkBtn('↗ Off-target mapper', false, () => { __closeReport(); try { exec('baja/manchester/menu/off-target-summary.js', graph, single, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Mapper failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }));
                 if (__anyOff) rowEl.appendChild(mkBtn('Filter by off-targets', false, () => { __closeReport(); exec('baja/manchester/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout); }));
                 rowEl.appendChild(mkBtn('Continue designing', false, () => { __closeReport(); exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout); }));
                 rowEl.appendChild(mkBtn('Close', true, () => { __closeReport(); }));

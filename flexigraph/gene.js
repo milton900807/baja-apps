@@ -3014,7 +3014,7 @@ function (progress, options) {
                 return sub;
             }
 
-            async add(ensembleId, x, y, source) {
+            async add(ensembleId, x, y, source, __noAiResolve) {
                 ensembleId = ensembleId.trim();
 
                 if (ensembleId.startsWith('NM_') || ensembleId.startsWith('NC_')) {
@@ -3360,6 +3360,30 @@ function (progress, options) {
                 // (rather than a 502) — surface that clearly instead of building a broken track
                 // from the empty body.
                 if (js.notFound) {
+                    // Before surfacing a load error for a retired/invalid id, ask the AI resolver for
+                    // the current, closest-matching transcript (MANE Select / Ensembl canonical) and
+                    // retry the load once (__noAiResolve guards against loops). The retry loads
+                    // local-DB-first, so it only succeeds on a transcript we can actually serve.
+                    if (!__noAiResolve) {
+                        try {
+                            const sp = /^ENSMUST/i.test(ensembleId) ? 'mouse' : (/^ENSRNOT/i.test(ensembleId) ? 'rat' : 'human');
+                            if (this.setMessage) this.setMessage('Transcript "' + ensembleId + '" not found — finding the current version with AI…');
+                            const em = (typeof EngineMonitor === 'function') ? new EngineMonitor((m) => { try { if (this.setMessage) this.setMessage('' + m); } catch (e) { } }) : null;
+                            const promptTxt = 'The Ensembl transcript stable ID "' + ensembleId + '" is retired or invalid. '
+                                + 'Return the current, closest-matching Ensembl transcript stable ID for the SAME transcript/gene '
+                                + '(prefer the MANE Select or Ensembl canonical transcript of that gene). Species: ' + sp + '.';
+                            const res = em ? await exec('/py/sequence/prompt-to-transcript.py', em, promptTxt, sp)
+                                : await exec('/py/sequence/prompt-to-transcript.py', promptTxt, sp);
+                            let list; try { list = JSON.parse(res && res.transcripts); } catch (e) { list = (res && Array.isArray(res.transcripts)) ? res.transcripts : []; }
+                            let cand = (Array.isArray(list) && list.length && list[0]) ? ('' + (list[0].id || list[0].transcript || list[0])) : '';
+                            cand = cand.replace(/\..*$/, '').trim();   // strip any version suffix
+                            if (cand && cand.toUpperCase() !== ('' + ensembleId).toUpperCase() && /^ENS[A-Z]*T\d+$/i.test(cand)) {
+                                if (this.setMessage) this.setMessage('Loading closest current transcript ' + cand + ' (for retired ' + ensembleId + ')…');
+                                const __t = await this.add(cand, x, y, source, true);
+                                if (__t) return __t;
+                            }
+                        } catch (e) { console.warn('AI transcript resolve failed for', ensembleId, e); }
+                    }
                     const __msg = 'Transcript "' + ensembleId + '" was not found on Ensembl — it may be a retired or invalid ID.';
                     if (this.setMessage) this.setMessage(__msg);
                     try { if (typeof infoPrompt === 'function') infoPrompt(__msg); } catch (e) { }
@@ -8253,7 +8277,7 @@ pattern, GGGG | Required`
                 alpha = Math.max(0, Math.min(1, alpha));
 
                 const ORANGE = '#ff8c1a', ORANGE2 = '#ff6f3c', CYAN = '#12c2e0', INK = '#08313a';
-                const msg = 'When you select something, click here to see options';
+                const msg = 'Selection window';
 
                 ctx.save();
                 ctx.globalAlpha = alpha;
@@ -9047,7 +9071,12 @@ pattern, GGGG | Required`
                 const showTypePicker = (picks, k, openOne, topItems) => {
                     const backItem = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
                     const reopen = () => showTypePicker(picks, k, openOne, topItems);
-                    const pickEntries = picks.map((p) => ({ label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen)); }, move: () => { } }));
+                    const pickEntries = picks.map((p) => (k === 'track'
+                        // A track picks straight into its OWN menu (a ▸ submenu = all the "Open Track
+                        // menu" items) — not the generic action page, so no "Remove all others" /
+                        // "Deselect" in between.
+                        ? { label: (p.label || k) + ' ▸', click: () => { if (openOne) openOne(p); }, move: () => { } }
+                        : { label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen)); }, move: () => { } }));
                     show(renderPickPage(topItems || [], pickEntries, 0, backItem));
                 };
 
