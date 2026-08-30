@@ -14,8 +14,21 @@ function (graph, oligo, hit, editDistance) {
         const revComp = (s) => s.split('').reverse().map((b) => ({ A: 'T', T: 'A', G: 'C', C: 'G' }[b] || 'N')).join('');
 
         // 1) Load the off-target transcript / gene as a new track.
-        const id = ('' + ((hit && (hit.chr || hit.transcript || hit.symbol || hit.gene)) || '')).trim();
+        let id = ('' + ((hit && (hit.chr || hit.transcript || hit.symbol || hit.gene)) || '')).trim();
         if (!id) { say(' No transcript id for this off-target. '); return graph; }
+        // A gene SYMBOL (not a transcript id) must first be resolved to a real Ensembl transcript id
+        // — graph.add would otherwise treat "BCL2" as a transcript id and fail.
+        const TX_RE = /^(ENS[A-Z]*T\d|N[MR]_|X[MR]_)/i;
+        if (!TX_RE.test(id)) {
+            say(' Resolving ' + id + ' → Ensembl transcript…');
+            try {
+                const em = (typeof EngineMonitor !== 'undefined') ? new EngineMonitor((m) => { try { graph.setMessage('' + m); } catch (e) { } }) : null;
+                const res = em ? await exec('/py/sequence/prompt-to-transcript.py', em, id, 'human') : await exec('/py/sequence/prompt-to-transcript.py', id, 'human');
+                let list = [];
+                try { list = JSON.parse(res && res.transcripts); } catch (e) { list = (res && Array.isArray(res.transcripts)) ? res.transcripts : []; }
+                if (Array.isArray(list) && list.length && list[0]) id = (list[0].id || list[0].transcript || list[0]) + '';
+            } catch (e) { }
+        }
         const before = new Set((graph.track || []).map((t) => t));
         say(' Loading ' + id + ' …');
         let track = null;

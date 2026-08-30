@@ -77,7 +77,13 @@ function (graph, layout) {
         const bookCard = (c) => {
             const mod = modalityOf(c);
             const name = titleCase(c.name || c.compound_id || 'compound');
-            const target = c.target_gene || c.target_name || '';
+            // Target on the cover: prefer a gene SYMBOL (target_gene, or one in parentheses within
+            // the target name), else the target name / mechanism.
+            const __tg = ('' + (c.target_gene || '')).trim();
+            let __tn = ('' + (c.target_name || c.mechanism_of_action || '')).trim();
+            let __sym = __tg;
+            if (!__sym && __tn) { const __m = __tn.match(/\(([A-Za-z0-9][A-Za-z0-9-]{1,7})\)/); if (__m) __sym = __m[1]; }
+            const target = __sym || __tn;
             const phase = (c.max_phase != null && c.max_phase !== '') ? ('Phase ' + (c.max_phase >= 4 ? '4 (approved)' : c.max_phase)) : '';
             const len = c.total_length_nt ? (c.total_length_nt + ' nt') : '';
             const sub = c.aso_subtype || c.architecture || (c.chemistry_summary || '').split(';')[0] || '';
@@ -92,7 +98,7 @@ function (graph, layout) {
                 + '<div style="flex:1;position:relative;background:linear-gradient(135deg,' + mod.color + ' 0%, rgba(0,0,0,0.35) 140%);padding:14px 14px 10px 16px;border-left:5px solid rgba(255,255,255,0.35);">'
                 + '<div style="position:absolute;top:10px;right:10px;font:700 10px Arial;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.3);border-radius:999px;padding:3px 8px;">' + esc(mod.badge) + '</div>'
                 + '<div style="font:800 15px/1.2 Georgia,\'Times New Roman\',serif;margin-top:26px;word-break:break-word;">' + esc(name) + '</div>'
-                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.9);margin-top:8px;">▸ ' + esc(target) + '</div>' : '')
+                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.95);margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">🎯 ' + esc(target) + '</div>' : '')
                 + '</div>'
                 + '<div style="flex:0 0 auto;background:#0b2545;padding:9px 12px;border-top:1px solid rgba(255,255,255,0.12);">'
                 + '<div style="font:11px Arial;color:#cfe0ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(sub || mod.key) + '</div>'
