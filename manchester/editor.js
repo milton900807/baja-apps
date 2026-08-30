@@ -3032,6 +3032,15 @@ function (path, config) {
                             ]]
                     }
                 }
+                // Give the top button-panel buttons material-icon names. They render only on
+                // mobile (CSS hides the icon on desktop), where the buttons are shown small and
+                // icon-first on a single non-wrapping row.
+                try {
+                    const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
+                    const __icons = { File: 'folder', Track: 'view_stream', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with' };
+                    for (const b of __bm) { if (b && b.label && __icons[b.label] && !b.icon) b.icon = __icons[b.label]; }
+                } catch (e) { }
+
                 progressBar(100);
                 graph.genegraph_panel_layout = genegraph_panel_layout;
 

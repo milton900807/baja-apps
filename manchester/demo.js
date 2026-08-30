@@ -287,12 +287,28 @@ function (script, config) {
         // Dispatch a REAL DOM input event on the gene-graph canvas at canvas-fraction coords
         // (fx,fy ∈ 0..1). Replays recorded actions: the app listens to mousedown/mousemove/
         // mouseup/wheel with clientX/clientY, so synthetic events drive selection, menus, pan & zoom.
-        const dispatchCanvasEvent = (type, fx, fy, extra) => {
+        // Client (screen) coords for a canvas event. Prefer WORLD coords (wx,wy) — map them
+        // through the grid to the current canvas so replay lands on the same GRAPH location
+        // regardless of viewport size; fall back to the recorded canvas-fraction (fx,fy).
+        const canvasClient = (fx, fy, wx, wy) => {
             try {
                 const cv = biggestCanvas(); if (!cv) return null;
                 const rect = cv.getBoundingClientRect();
-                const cx = rect.left + (+fx) * rect.width;
-                const cy = rect.top + (+fy) * rect.height;
+                const g = graph && graph.graph;
+                if (wx != null && wy != null && g && typeof g.X === 'function' && typeof g.Y === 'function') {
+                    const sx = g.X(+wx), sy = g.Y(+wy);
+                    if (isFinite(sx) && isFinite(sy)) {
+                        return { cx: rect.left + sx * (rect.width / (cv.width || rect.width)), cy: rect.top + sy * (rect.height / (cv.height || rect.height)) };
+                    }
+                }
+                return { cx: rect.left + (+fx) * rect.width, cy: rect.top + (+fy) * rect.height };
+            } catch (e) { return null; }
+        };
+        const dispatchCanvasEvent = (type, fx, fy, extra, wx, wy) => {
+            try {
+                const cv = biggestCanvas(); if (!cv) return null;
+                const pt = canvasClient(fx, fy, wx, wy); if (!pt) return null;
+                const cx = pt.cx, cy = pt.cy;
                 const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, screenX: cx, screenY: cy };
                 const fire = (name, opts) => {
                     try { cv.dispatchEvent(new MouseEvent(name, Object.assign({}, base, opts))); } catch (e) { }
@@ -607,20 +623,26 @@ function (script, config) {
                     const type = ('' + (c.type || a[0] || 'move')).toLowerCase();
                     const fx = +(c.fx != null ? c.fx : a[1]);
                     const fy = +(c.fy != null ? c.fy : a[2]);
+                    const wx = (c.wx != null) ? +c.wx : null;
+                    const wy = (c.wy != null) ? +c.wy : null;
                     const extra = (c.extra != null ? c.extra : a[3]);
-                    if (!isFinite(fx) || !isFinite(fy)) break;
+                    const hasFrac = isFinite(fx) && isFinite(fy);
+                    const hasWorld = (wx != null && isFinite(wx) && wy != null && isFinite(wy));
+                    if (!hasFrac && !hasWorld) break;
                     // Coalesce a duplicate release: older recordings double-bound 'mouseup' (canvas +
                     // document), so a single tap was logged as two identical 'up' events. Replaying both
                     // taps the same spot twice — the second tap re-closes the just-opened selection menu
                     // ("opens then goes away"), breaking everything downstream. Skip an 'up' that exactly
                     // repeats the previous event when that was also an 'up' (no intervening down/move).
+                    const __k = hasWorld ? { x: wx, y: wy } : { x: fx, y: fy };
                     const __le = graph.__replayLastEv;
-                    if (type === 'up' && __le && __le.type === 'up' && Math.abs(__le.fx - fx) < 1e-4 && Math.abs(__le.fy - fy) < 1e-4) { break; }
+                    if (type === 'up' && __le && __le.type === 'up' && Math.abs(__le.x - __k.x) < 1e-4 && Math.abs(__le.y - __k.y) < 1e-4) { break; }
                     const cv = biggestCanvas();
-                    if (cv) { const r = cv.getBoundingClientRect(); await moveCursor(r.left + fx * r.width, r.top + fy * r.height, +(c.ms || 150)); }
+                    const pt = canvasClient(fx, fy, wx, wy);
+                    if (cv && pt) { await moveCursor(pt.cx, pt.cy, +(c.ms || 150)); }
                     if (type === 'down') clickPulse();
-                    dispatchCanvasEvent(type, fx, fy, extra);
-                    try { graph.__replayLastEv = { type: type, fx: fx, fy: fy }; } catch (e) { }
+                    dispatchCanvasEvent(type, fx, fy, extra, wx, wy);
+                    try { graph.__replayLastEv = { type: type, x: __k.x, y: __k.y }; } catch (e) { }
                     break;
                 }
                 case 'domclick': case 'dom': case 'click': {
@@ -760,6 +782,23 @@ function (script, config) {
             return graph;
         }
 
+        // Snapshot the current application state so we can return to it when the demo
+        // finishes: the track list, each existing track's oligo list, and the camera. The
+        // demo typically ADDS tracks/compounds and pans/zooms; restoring these reverses it.
+        let __snapTracks = null, __snapOligos = null, __snapCam = null;
+        try {
+            __snapTracks = (graph.track || []).slice();
+            __snapOligos = (graph.track || []).map((t) => (t && t.oligos ? t.oligos.slice() : null));
+            const gd = graph.graph && graph.graph.grid;
+            if (gd) {
+                const gx0 = (typeof gd.getxmin === 'function') ? gd.getxmin() : gd.xmin;
+                const gx1 = (typeof gd.getxmax === 'function') ? gd.getxmax() : gd.xmax;
+                const gy0 = (typeof gd.getymax === 'function') ? gd.getymax() : gd.ymax;   // top
+                const gy1 = (typeof gd.getymin === 'function') ? gd.getymin() : gd.ymin;   // bottom
+                if ([gx0, gx1, gy0, gy1].every((v) => typeof v === 'number' && isFinite(v))) __snapCam = { x0: gx0, x1: gx1, y0: gy0, y1: gy1 };
+            }
+        } catch (e) { }
+
         say('Demo: running ' + cmds.length + ' step(s)…');
         try { ensureCursor(); } catch (e) { }   // show the demo pointer
         try { graph.__replayLastEv = null; } catch (e) { }   // reset duplicate-release coalescing state
@@ -769,8 +808,35 @@ function (script, config) {
             try { if (graph.wake) graph.wake(); } catch (e) { }
             await sleep(gap);
         }
-        say('Demo complete — ' + cmds.length + ' step(s).');
         try { removeCursor(); } catch (e) { }
+
+        // ---- 6) Return to the original state ------------------------------------------------
+        // Drop any tracks the demo added, revert the oligo lists on the tracks that existed
+        // before, close any demo-opened overlays/menus, and restore the camera.
+        try {
+            if (__snapTracks) {
+                for (let i = 0; i < __snapTracks.length; i++) {
+                    const t = __snapTracks[i];
+                    if (t && __snapOligos[i]) { try { t.oligos = __snapOligos[i].slice(); } catch (e) { } }
+                }
+                graph.track = __snapTracks.slice();
+                try { if (graph.notifyTrackListener) graph.notifyTrackListener(); } catch (e) { }
+            }
+            ['baja-ott-report', 'baja-aso-ot-summary', 'baja-clinical-library', 'baja-demos-library',
+                'baja-play-panel', 'baja-demo-panel', 'baja-sirna-design', 'dl-editor', 'dl-editor'].forEach((id) => {
+                    try { const el = document.getElementById(id); if (el && el.parentNode) el.parentNode.removeChild(el); } catch (e) { }
+                });
+            try { if (graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
+            try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
+            try { graph.__lassoSelection = []; graph.showDisplay = false; graph.__selPanelBounds = null; } catch (e) { }
+            try { if (__snapCam && graph.zoomRect) { graph.animating = false; graph.zoomRect(__snapCam.x0, __snapCam.x1, __snapCam.y0, __snapCam.y1, 600); } } catch (e) { }
+            try { graph.setMouseMode('navigate'); } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+        } catch (e) { }
+
+        // Sunset "Demo complete" notice.
+        try { if (graph.setSunsetMessage) graph.setSunsetMessage(' Demo complete '); else graph.setMessage(' Demo complete '); } catch (e) { }
+        try { log('Demo complete — ' + cmds.length + ' step(s); returned to the original state.'); } catch (e) { }
         return graph;
     })();
 }

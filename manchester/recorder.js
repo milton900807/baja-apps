@@ -44,6 +44,22 @@ function (graph, layout) {
             const r = cv ? cv.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
             return { fx: (e.clientX - r.left) / (r.width || 1), fy: (e.clientY - r.top) / (r.height || 1) };
         };
+        // World (graph) coordinates of a canvas event: convert the CSS-pixel position to the
+        // canvas's internal pixel space, then through the grid's inverse map (Xwc/Ywc). Recording
+        // canvas clicks in WORLD coords makes replay robust to screen-size changes — the same graph
+        // location is hit regardless of the viewport the demo is replayed in. (Buttons outside the
+        // gene-graph are recorded by DOM locator instead — see locate()/onDocClick.)
+        const worldOf = (e) => {
+            try {
+                const g = graph && graph.graph;
+                if (!cv || !g || typeof g.Xwc !== 'function' || typeof g.Ywc !== 'function') return null;
+                const r = cv.getBoundingClientRect();
+                const sx = (e.clientX - r.left) * ((cv.width || r.width) / (r.width || 1));
+                const sy = (e.clientY - r.top) * ((cv.height || r.height) / (r.height || 1));
+                const wx = g.Xwc(sx), wy = g.Ywc(sy);
+                return (isFinite(wx) && isFinite(wy)) ? { wx: wx, wy: wy } : null;
+            } catch (er) { return null; }
+        };
         const push = (cmd) => { rec.events.push({ t: now(), cmd: cmd }); };
 
         // ---- Build a robust locator for a DOM element -------------------------------------
@@ -205,10 +221,13 @@ function (graph, layout) {
         wrapMenu('showSideMenu', 'side');
 
         // ---- 2) Canvas input capture ------------------------------------------------------
-        const onDown = (e) => { try { rec.dragging = true; const f = fracOf(e); push({ cmd: 'event', type: 'down', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }); } catch (er) { } };
-        const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; const f = fracOf(e); push({ cmd: 'event', type: 'move', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: 1 }); } catch (er) { } };
-        const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } const f = fracOf(e); push({ cmd: 'event', type: 'up', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }); } catch (er) { } };
-        const onWheel = (e) => { try { const f = fracOf(e); push({ cmd: 'event', type: 'wheel', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: Math.round(e.deltaY || 0) }); } catch (er) { } };
+        // Canvas events carry BOTH the canvas-fraction (fx,fy — legacy/fallback) and the world
+        // (wx,wy) coordinates; replay prefers world coords so a screen-size change doesn't shift it.
+        const worldFields = (e) => { const w = worldOf(e); return w ? { wx: +w.wx.toFixed(4), wy: +w.wy.toFixed(4) } : {}; };
+        const onDown = (e) => { try { rec.dragging = true; const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'down', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }, worldFields(e))); } catch (er) { } };
+        const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'move', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: 1 }, worldFields(e))); } catch (er) { } };
+        const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'up', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }, worldFields(e))); } catch (er) { } };
+        const onWheel = (e) => { try { const f = fracOf(e); push(Object.assign({ cmd: 'event', type: 'wheel', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: Math.round(e.deltaY || 0) }, worldFields(e))); } catch (er) { } };
         rec.canvasListeners = [['mousedown', onDown], ['mousemove', onMove], ['mouseup', onUp], ['wheel', onWheel]];
         try { for (const p of rec.canvasListeners) (cv || document).addEventListener(p[0], p[1], { capture: true, passive: true }); } catch (e) { }
         try { document.addEventListener('mouseup', onUp, { capture: true, passive: true }); rec.docUp = onUp; } catch (e) { }

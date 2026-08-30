@@ -4925,8 +4925,16 @@ function (progress, options) {
                         this.side_menu = null;
 
                         if (this.menuVisible()) {
-                            await this.menu.mouseUp(this.graph, xwc, ywc)
+                            // Close the center menu IMMEDIATELY — before running the item's action —
+                            // so it ALWAYS disappears on click, even when the action opens a panel that
+                            // loads before the release is processed or leaves the canvas unrepainted.
+                            // The captured menu still resolves the click and fires the hit item's action.
+                            const __m = this.menu;
                             this.menu = null;
+                            try { this.graph.menu = null; } catch (e) { }
+                            try { if (this.wake) this.wake(); } catch (e) { }
+                            try { await __m.mouseUp(this.graph, xwc, ywc); } catch (e) { }
+                            try { if (this.wake) this.wake(); } catch (e) { }
                             // If the menu was dismissed/canceled WITHOUT the item installing
                             // its own canvas interaction, fall back to the mouse-over hover
                             // highlight. Deferred so it runs AFTER any Cancel/dismiss handler
