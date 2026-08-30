@@ -6516,15 +6516,19 @@ return new Promise(async (resolve, reject) => {
           // Flag oligos whose sequence is duplicated on this track so draw() can
           // render them distinctively (a maroon stick with a yellow glow).
           try {
+            // Key by sequence AND position: two copies of the same compound mapped to DIFFERENT
+            // loci are legitimate (e.g. off-target mapping) — only same-sequence oligos at the SAME
+            // position are truly redundant duplicates and get the maroon-stick warning.
+            const __dupKey = (o) => { const s = (o.sequence || o.synthesisSequence || ''); return s ? (s + '@' + Math.round(o.xi)) : ''; };
             const __seqCount = {};
             for (const o of this.oligos) {
               if (!o) continue;
-              const k = (o.sequence || o.synthesisSequence || '');
+              const k = __dupKey(o);
               if (k) __seqCount[k] = (__seqCount[k] || 0) + 1;
             }
             for (const o of this.oligos) {
               if (!o) continue;
-              const k = (o.sequence || o.synthesisSequence || '');
+              const k = __dupKey(o);
               o.__dupSeq = !!(k && __seqCount[k] > 1);
             }
           } catch (e) { }

@@ -1007,6 +1007,42 @@ function (path, config) {
 
                 progressBar(55);
 
+                // Open the "Play a script" panel: paste a recorded JSON script (from "Record
+                // actions") and run it verbatim via manchester/demo.js. Reachable from three
+                // places — File ▸ Play script…, the top menubar Play button, and the top button
+                // panel (buttonMenuPanel) Play button — so they all share this one implementation.
+                const openPlayScriptPanel = () => {
+                    try {
+                        const prev = document.getElementById('baja-play-panel');
+                        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+                        const wrap = document.createElement('div');
+                        wrap.id = 'baja-play-panel';
+                        wrap.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(640px,92vw);background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font:13px system-ui,Arial;padding:14px;';
+                        wrap.innerHTML = ''
+                            + '<div style="font-weight:700;margin-bottom:4px;">▶ Play a script</div>'
+                            + '<div style="opacity:.7;margin-bottom:8px;font-size:12px;">Paste a recorded script (a JSON array of command objects) and run it.</div>'
+                            + '<textarea id="baja-play-text" spellcheck="false" placeholder="Paste your recorded JSON script here…" style="width:100%;height:230px;box-sizing:border-box;background:#0a1e3a;color:#e8eef6;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px;font:12px ui-monospace,Menlo,Consolas,monospace;resize:vertical;"></textarea>'
+                            + '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">'
+                            + '  <label style="opacity:.8;">step delay <input id="baja-play-gap" type="number" value="0" min="0" step="100" style="width:70px;background:#0a1e3a;color:#fff;border:1px solid rgba(255,255,255,0.18);border-radius:6px;padding:4px;"> ms</label>'
+                            + '  <span style="flex:1;"></span>'
+                            + '  <button id="baja-play-cancel" style="background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:7px 16px;cursor:pointer;">Cancel</button>'
+                            + '  <button id="baja-play-run" style="background:#22c55e;color:#06230f;font-weight:700;border:none;border-radius:999px;padding:7px 20px;cursor:pointer;">Play ▶</button>'
+                            + '</div>';
+                        document.body.appendChild(wrap);
+                        const ta = document.getElementById('baja-play-text'); try { ta.focus(); } catch (e) { }
+                        const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
+                        document.getElementById('baja-play-cancel').onclick = close;
+                        document.getElementById('baja-play-run').onclick = () => {
+                            const text = ta.value;
+                            if (!('' + text).trim()) { try { graph.setMessage(' Paste a script first. '); } catch (e) { } return; }
+                            const gap = +(document.getElementById('baja-play-gap').value || 0);
+                            close();
+                            try { exec('manchester/demo.js', text, { stepDelayMs: gap }); }
+                            catch (e) { try { graph.setMessage('Play failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                        };
+                    } catch (e) { try { graph.setMessage('Play panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                };
+
                 let buttonMenuPanel = {
                     wid: 'card',
                     componentRef: 'staticPanel',
@@ -1024,11 +1060,12 @@ function (path, config) {
                                             cards: [
                                                 [
                                                     {
-                                                        // Navigation controls now live in the menubar; keep
-                                                        // this as an empty swappable slot (Tools > Navigation
-                                                        // and other panels still inject content here).
+                                                        // Swappable slot (Tools > Navigation and other panels
+                                                        // inject content here). Its default content is a Play
+                                                        // button so a recorded script can be launched straight
+                                                        // from the top button panel.
                                                         'title': '',
-                                                        'component': { wid: 'html', data: '' }
+                                                        'component': { wid: 'button-menu', data: { buttons: [{ label: 'Play', ionFunction: createIonFunction(() => { openPlayScriptPanel(); }) }] } }
                                                     },
                                                 ]]
                                         }
@@ -1980,6 +2017,13 @@ function (path, config) {
                                                                         };
                                                                     } catch (e) { try { graph.setMessage('Demo panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                                 },
+                                                            },
+                                                            {
+                                                                // Play script: paste a recorded JSON script (from "Record actions")
+                                                                // and run it verbatim. The script carries its own `wait` timings,
+                                                                // so the inter-step delay defaults to 0 (honor recorded pacing).
+                                                                label: 'Play script…', move: () => { },
+                                                                click: () => { graph.hideMenu(); openPlayScriptPanel(); },
                                                             },
                                                         ], 0, 0, 280);
                                                     })
@@ -2958,6 +3002,11 @@ function (path, config) {
                             ]]
                     }
                 }
+                // Add a top-level "Play" button to the menubar row (File/Track/Draw/Layers/
+                // Design/Navigate) so a recorded script can be launched from the top menubutton
+                // panel too. Pushed here rather than inlined into the deeply-nested literal above.
+                try { genegraph_panel_layout.data.cards[0][0].component.data.buttons.push({ label: 'Play', ionFunction: createIonFunction(() => { openPlayScriptPanel(); }) }); } catch (e) { }
+
                 progressBar(100);
                 graph.genegraph_panel_layout = genegraph_panel_layout;
 

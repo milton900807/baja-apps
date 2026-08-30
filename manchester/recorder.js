@@ -207,7 +207,7 @@ function (graph, layout) {
         // ---- 2) Canvas input capture ------------------------------------------------------
         const onDown = (e) => { try { rec.dragging = true; const f = fracOf(e); push({ cmd: 'event', type: 'down', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }); } catch (er) { } };
         const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; const f = fracOf(e); push({ cmd: 'event', type: 'move', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: 1 }); } catch (er) { } };
-        const onUp = (e) => { try { rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } const f = fracOf(e); push({ cmd: 'event', type: 'up', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }); } catch (er) { } };
+        const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } const f = fracOf(e); push({ cmd: 'event', type: 'up', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }); } catch (er) { } };
         const onWheel = (e) => { try { const f = fracOf(e); push({ cmd: 'event', type: 'wheel', fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4), extra: Math.round(e.deltaY || 0) }); } catch (er) { } };
         rec.canvasListeners = [['mousedown', onDown], ['mousemove', onMove], ['mouseup', onUp], ['wheel', onWheel]];
         try { for (const p of rec.canvasListeners) (cv || document).addEventListener(p[0], p[1], { capture: true, passive: true }); } catch (e) { }

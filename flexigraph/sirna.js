@@ -497,7 +497,9 @@ function () {
                     const _grabSugars = (label) => {
                         const m = ('' + (this.structure || '')).match(new RegExp(label + '\\{([^}]*)\\}'));
                         if (!m) return [];
-                        return m[1].split('.').map((u) => { const mm = u.match(/\[([^\]]*)\]\(([^)]*)\)/); return mm ? ('' + (mm[1] || '')).toLowerCase() : ''; });
+                        // Accept BOTH a bracketed multi-char sugar ([moe]) and a BARE single-char sugar
+                        // (m/f/r/d) — normalizeStructure leaves single-char symbols unbracketed.
+                        return m[1].split('.').map((u) => { const mm = u.match(/(?:\[([^\]]+)\]|([A-Za-z0-9+]+))\(([^)]*)\)/); return mm ? ('' + (mm[1] || mm[2] || '')).toLowerCase() : ''; });
                     };
                     // Sugars for a strand: parsed HELM when present, else the DEFAULT siRNA chemistry —
                     // alternating 2'-F / 2'-OMe (the common metabolic-stabilization pattern).
@@ -525,8 +527,9 @@ function () {
                             const m = ('' + structure).match(new RegExp(label + '\\{([^}]*)\\}'));
                             if (!m) return [];
                             return m[1].split('.').map((u) => {
-                                const mm = u.match(/\[([^\]]*)\]\(([^)]*)\)(?:\[([^\]]*)\])?/);
-                                return mm ? ('' + (mm[3] || '')).toLowerCase() : '';
+                                // Sugar bracketed or bare; trailing linkage bracketed ([sp]) or bare (p).
+                                const mm = u.match(/(?:\[[^\]]+\]|[A-Za-z0-9+]+)\([^)]*\)(?:\[([^\]]+)\]|([A-Za-z0-9]+))?/);
+                                return mm ? ('' + (mm[1] || mm[2] || '')).toLowerCase() : '';
                             });
                         };
                         out.rna1 = grab('RNA1');
@@ -694,6 +697,14 @@ function () {
                         // passenger (sense) lane
                         lab(pLeft, passY, plus ? "5'" : "3'", true);
                         lab(pRight, passY, plus ? "3'" : "5'", false);
+                        // Strand-type labels on the FAR RIGHT, after the 3'/5' orientation labels:
+                        // the sense strand is the PASSENGER (upper lane), the antisense is the GUIDE.
+                        const __rx = graph.X(tgraph.X(this.xi + Math.max(gRight, pRight, _n))) + 30;
+                        _ctx.textAlign = 'left';
+                        _ctx.font = 'bold 10px "Segoe UI", monospace';
+                        _ctx.fillStyle = '#5a6b7a';
+                        _ctx.fillText('passenger', __rx, passY);
+                        _ctx.fillText('guide', __rx, guideY);
                         _ctx.restore();
                     }
 

@@ -3067,49 +3067,49 @@ function (graph, genegraph_panel_layout) {
 
                         }
                     },
-                    {
-                        label: 'Protein',
-                        click: async () => {
-                            graph.showSideMenu(null)
-                            let orf = null;
-                            try { selectedTrack.generateORF(); orf = selectedTrack.getProteinSequence(); } catch (e) { console.warn('protein', e); }
-                            if (!orf) { graph.setCenterMessage(" This does not appear to create a protein "); return; }
-                            {
-                                const protein_list = [
-                                    {
-                                        label: 'Peptide sequence',
-                                        click: async (scx, scy) => {
-                                            showModal({
-                                                wid: 'text-editor',
-                                                data: {
-                                                    'code': orf
-                                                }
-                                            })
+                    // {
+                    //     label: 'Protein',
+                    //     click: async () => {
+                    //         graph.showSideMenu(null)
+                    //         let orf = null;
+                    //         try { selectedTrack.generateORF(); orf = selectedTrack.getProteinSequence(); } catch (e) { console.warn('protein', e); }
+                    //         if (!orf) { graph.setCenterMessage(" This does not appear to create a protein "); return; }
+                    //         {
+                    //             const protein_list = [
+                    //                 {
+                    //                     label: 'Peptide sequence',
+                    //                     click: async (scx, scy) => {
+                    //                         showModal({
+                    //                             wid: 'text-editor',
+                    //                             data: {
+                    //                                 'code': orf
+                    //                             }
+                    //                         })
 
 
-                                        },
-                                    },
-                                    {
-                                        label: 'Peptide properties',
-                                        click: async (scx, scy) => {
-                                            graph.showSideMenu(null)
+                    //                     },
+                    //                 },
+                    //                 {
+                    //                     label: 'Peptide properties',
+                    //                     click: async (scx, scy) => {
+                    //                         graph.showSideMenu(null)
 
-                                            let engineMonitor = new EngineMonitor((msg) => {
-                                            });
-                                            let pepseq = await exec('py/bio/protein/properties.py', engineMonitor, orf)
-                                            showModal({
-                                                wid: 'text-editor',
-                                                data: { 'code': (jsonToNameValue(pepseq)) }
-                                            }, 600, 400)
+                    //                         let engineMonitor = new EngineMonitor((msg) => {
+                    //                         });
+                    //                         let pepseq = await exec('py/bio/protein/properties.py', engineMonitor, orf)
+                    //                         showModal({
+                    //                             wid: 'text-editor',
+                    //                             data: { 'code': (jsonToNameValue(pepseq)) }
+                    //                         }, 600, 400)
 
 
-                                        },
-                                    }
-                                ]
-                                showSideMenuDelayed(protein_list)
-                            }
-                        }
-                    },
+                    //                     },
+                    //                 }
+                    //             ]
+                    //             showSideMenuDelayed(protein_list)
+                    //         }
+                    //     }
+                    // },
                     {
                         label: 'Layers',
                         click: async () => {
@@ -5030,11 +5030,39 @@ function (graph, genegraph_panel_layout) {
                     }
                 } catch (e) { }
 
+                // Compounds ▸ — only when the track carries compounds. One compound opens its menu
+                // directly; several are listed to pick from (each opens the single-compound menu).
+                try {
+                    const __compounds = (selectedTrack && Array.isArray(selectedTrack.oligos)) ? selectedTrack.oligos.filter(Boolean) : [];
+                    if (__compounds.length) {
+                        track_list.push({
+                            label: 'Compounds ▸',
+                            move: () => { },
+                            click: () => {
+                                const cs = (selectedTrack.oligos || []).filter(Boolean);
+                                if (!cs.length) { graph.setMessage(' No compounds on this track. '); return; }
+                                if (cs.length === 1) {
+                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    exec('baja/manchester/menu/menu-for-single-aso.js', graph, cs[0], genegraph_panel_layout);
+                                    return;
+                                }
+                                const items = cs.map((o, i) => ({
+                                    label: ('' + (o.name || o.synthesisSequence || o.sequence || ('Compound ' + (i + 1)))),
+                                    move: () => { },
+                                    click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/manchester/menu/menu-for-single-aso.js', graph, o, genegraph_panel_layout); }
+                                }));
+                                items.push({ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
+                                graph.showSideMenu(items);
+                            }
+                        });
+                    }
+                } catch (e) { }
+
                 // Selected-track menu order: group related actions together — structure/edit,
                 // then layers, then analysis/navigation (SNPs, points of interest, Go to), then
                 // Properties, with Delete last. Items not listed keep their original order after.
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers', 'Data Layers', 'Variants ▸', 'Go to...',
+                    'Layers', 'Data Layers', 'Compounds ▸', 'Variants ▸', 'Go to...',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };

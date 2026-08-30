@@ -1149,11 +1149,35 @@ function (graph, oligo, genegraph_panel_layout) {
                             const nm = o.name || o.synthesisSequence || o.id || 'compound';
                             const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                             const row = (k, v) => '<tr><td style="padding:4px 18px 4px 0;color:#8fb8c8;white-space:nowrap;">' + k + '</td><td style="padding:4px 0;font-weight:600;color:#fff;">' + v + '</td></tr>';
+                            // A one-paragraph description of the reference dataset that was searched.
+                            const __datasetDesc = (nm) => {
+                                const s = ('' + nm).toLowerCase();
+                                const sp = (s.includes('mouse') || s.includes('mus_')) ? 'Mouse'
+                                    : (s.includes('rat') || s.includes('rattus')) ? 'Rat' : 'Human';
+                                if (s.includes('virus') || s.includes('viral')) return 'NCBI RefSeq viral reference genomes — complete genome sequences spanning human and non-human viruses (~19,600 genomes, ~580 Mbp). A hit flags unintended complementarity to a viral genome.';
+                                if (s.includes('3utr') || s.includes('3_utr')) return sp + ' 3′UTR sequences — the dominant site of miRNA-like, seed-mediated off-targeting; a guide whose seed matches many 3′UTRs can silence unintended genes.';
+                                if (s.includes('5utr') || s.includes('5_utr')) return sp + ' 5′UTR sequences — the 5′ untranslated regions of protein-coding transcripts.';
+                                if (s.includes('premrna') || s.includes('pre-mrna') || s.includes('pre_mrna')) return sp + ' pre-mRNA (Ensembl) — unspliced primary transcripts including introns; captures intronic / splice-junction off-targets.';
+                                if (s.includes('ncrna')) return sp + ' non-coding RNA (Ensembl) — lncRNAs, snRNAs, snoRNAs, miRNA precursors and other ncRNAs.';
+                                if (s.includes('all_transcripts')) return sp + ' transcriptome (Ensembl) — every annotated transcript (mRNAs + ncRNAs, all isoforms); the broadest ' + sp.toLowerCase() + ' off-target reference.';
+                                if (s.includes('cdna')) return sp + ' cDNA (Ensembl) — spliced, mature protein-coding transcripts (all isoforms).';
+                                return nm ? (sp + ' reference (Ensembl) — searched for complementary sites.') : '';
+                            };
+                            const __ds = o.offtargetDataset || '';
+                            const __dsName = Array.isArray(__ds) ? __ds.filter(Boolean).join(', ') : ('' + __ds);
+                            const __edd0 = (o.offtargetEditDistance != null) ? o.offtargetEditDistance : 0;
+                            const __dsPara = __dsName ? __dsName.split(/,\s*/).filter(Boolean).map(__datasetDesc).join(' ') : '';
                             let body = '<table style="border-collapse:collapse;font-size:13px;">'
                                 + row('Query', '<span style="font-family:monospace;">' + esc(o.synthesisSequence || o.sequence || '') + '</span>')
                                 + row('Off-target hits', count.toLocaleString())
                                 + row('Distinct genes', (distinct || 0).toLocaleString())
+                                + (__dsName ? row('Dataset', esc(__dsName)) : '')
                                 + '</table>';
+                            if (__dsPara) {
+                                body += '<div style="margin-top:12px;padding:10px 12px;background:rgba(79,208,230,0.08);border-left:3px solid #4fd0e6;border-radius:6px;font-size:12.5px;line-height:1.55;color:#cfe6ee;">'
+                                    + '<span style="color:#4fd0e6;font-weight:700;">Dataset.</span> ' + esc(__dsPara)
+                                    + ' <span style="color:#8fb8c8;">Search: Levenshtein edit distance ≤ ' + esc('' + __edd0) + ', both strands.</span></div>';
+                            }
                             if (count > 0 && count < 20 && hits.length) {
                                 body += '<div style="margin-top:12px;font:700 12px Arial;color:#4fd0e6;">Off-target transcripts</div><div style="max-height:300px;overflow:auto;margin-top:4px;">'
                                     + hits.map((h, hi) => {

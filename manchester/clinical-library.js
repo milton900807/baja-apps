@@ -90,6 +90,9 @@ function (graph, layout) {
 
             const card = document.createElement('button');
             card.type = 'button';
+            // Stable recorder id so record/replay resolves this exact book deterministically (by
+            // data-rec), not by brittle text/position that shifts as the grid reflows on search/filter.
+            try { card.setAttribute('data-rec', 'clinical-compound:' + ('' + (c.compound_id || c.name || ''))); } catch (e) { }
             card.style.cssText = 'text-align:left;cursor:pointer;border:0;padding:0;background:transparent;display:flex;flex-direction:column;'
                 + 'height:230px;border-radius:10px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.4);transition:transform .12s ease,box-shadow .12s ease;';
             card.onmouseenter = () => { card.style.transform = 'translateY(-3px)'; card.style.boxShadow = '0 12px 26px rgba(0,0,0,0.5)'; };
@@ -98,7 +101,7 @@ function (graph, layout) {
                 + '<div style="flex:1;position:relative;background:linear-gradient(135deg,' + mod.color + ' 0%, rgba(0,0,0,0.35) 140%);padding:14px 14px 10px 16px;border-left:5px solid rgba(255,255,255,0.35);">'
                 + '<div style="position:absolute;top:10px;right:10px;font:700 10px Arial;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.3);border-radius:999px;padding:3px 8px;">' + esc(mod.badge) + '</div>'
                 + '<div style="font:800 15px/1.2 Georgia,\'Times New Roman\',serif;margin-top:26px;word-break:break-word;">' + esc(name) + '</div>'
-                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.95);margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">🎯 ' + esc(target) + '</div>' : '')
+                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.95);margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><span style="color:rgba(255,255,255,0.65);font-weight:700;">Target&nbsp;</span>' + esc(target) + '</div>' : '')
                 + '</div>'
                 + '<div style="flex:0 0 auto;background:#0b2545;padding:9px 12px;border-top:1px solid rgba(255,255,255,0.12);">'
                 + '<div style="font:11px Arial;color:#cfe0ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(sub || mod.key) + '</div>'

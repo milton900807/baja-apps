@@ -609,17 +609,30 @@ function (script, config) {
                     const fy = +(c.fy != null ? c.fy : a[2]);
                     const extra = (c.extra != null ? c.extra : a[3]);
                     if (!isFinite(fx) || !isFinite(fy)) break;
+                    // Coalesce a duplicate release: older recordings double-bound 'mouseup' (canvas +
+                    // document), so a single tap was logged as two identical 'up' events. Replaying both
+                    // taps the same spot twice — the second tap re-closes the just-opened selection menu
+                    // ("opens then goes away"), breaking everything downstream. Skip an 'up' that exactly
+                    // repeats the previous event when that was also an 'up' (no intervening down/move).
+                    const __le = graph.__replayLastEv;
+                    if (type === 'up' && __le && __le.type === 'up' && Math.abs(__le.fx - fx) < 1e-4 && Math.abs(__le.fy - fy) < 1e-4) { break; }
                     const cv = biggestCanvas();
                     if (cv) { const r = cv.getBoundingClientRect(); await moveCursor(r.left + fx * r.width, r.top + fy * r.height, +(c.ms || 150)); }
                     if (type === 'down') clickPulse();
                     dispatchCanvasEvent(type, fx, fy, extra);
+                    try { graph.__replayLastEv = { type: type, fx: fx, fy: fy }; } catch (e) { }
                     break;
                 }
                 case 'domclick': case 'dom': case 'click': {
                     // Click a top-level toolbar / dialog element (outside the canvas) by locator.
                     const loc = c.locator || c.loc || (c.by ? { by: c.by, v: c.v, tag: c.tag, path: c.path } : null);
-                    const el = resolveLocator(loc);
+                    // Poll for the target — a DOM overlay/menu opened by the PREVIOUS step may still be
+                    // rendering, so a single resolve can miss (the intermittent "some clicks don't work").
+                    let el = resolveLocator(loc);
+                    for (let tries = 0; !el && tries < 30; tries++) { await sleep(80); el = resolveLocator(loc); }
                     if (!el) { say('click: element not found (' + JSON.stringify(loc) + ')'); break; }
+                    // Bring it into view if it's scrolled off (grid/list overlays).
+                    try { if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { }
                     const r = el.getBoundingClientRect();
                     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
                     await moveCursor(cx, cy, +(c.ms || 420));
@@ -749,6 +762,7 @@ function (script, config) {
 
         say('Demo: running ' + cmds.length + ' step(s)…');
         try { ensureCursor(); } catch (e) { }   // show the demo pointer
+        try { graph.__replayLastEv = null; } catch (e) { }   // reset duplicate-release coalescing state
         for (let i = 0; i < cmds.length; i++) {
             try { await runCommand(cmds[i]); }
             catch (e) { say('Step ' + (i + 1) + ' failed: ' + (e && e.message ? e.message : e)); }

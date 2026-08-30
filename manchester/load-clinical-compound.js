@@ -55,10 +55,19 @@ function (graph, layout, compound) {
 
         const isDuplex = seqStrands.length >= 2;
         const strandHelms = seqStrands.map((seq, si) => buildStrand(seq.split(''), sugStrands[si] || [], lnkStrands[si] || []));
+        // Normalize each strand's tokens SEPARATELY — normalizeStructure treats the whole string as
+        // one {...} wrapper, so a combined RNA1{…}|RNA2{…} duplex gets mangled at the boundary
+        // ("}|[RNA2{m](C)…"). Wrap each strand as its own RNA1{…}, normalize, then extract the body.
+        const normTokens = (toks) => {
+            try {
+                const n = Biopolymer.normalizeStructure('RNA1{' + toks + '}$$$$');
+                const m = ('' + n).match(/\{([^}]*)\}/);
+                return m ? m[1] : toks;
+            } catch (e) { return toks; }
+        };
         let structure = isDuplex
-            ? ('RNA1{' + strandHelms[0] + '}|RNA2{' + strandHelms[1] + '}$$$$')
-            : ('RNA1{' + strandHelms[0] + '}$$$$');
-        try { structure = Biopolymer.normalizeStructure(structure); } catch (e) { }
+            ? ('RNA1{' + normTokens(strandHelms[0]) + '}|RNA2{' + normTokens(strandHelms[1]) + '}$$$$')
+            : ('RNA1{' + normTokens(strandHelms[0]) + '}$$$$');
 
         // ---- 3) AI fallback for unresolved tokens (uses the monomer library) ------------
         const unknownList = Object.keys(unknown);
@@ -77,7 +86,9 @@ function (graph, layout, compound) {
                     + 'preserving bases and strand order. Unresolved tokens: ' + unknownList.join(', ') + '.';
                 const refined = await exec(host + '/py/sequence/design-helm-chemistry.py', em, structure, prompt, monomersStr);
                 if (refined && refined.helm && ('' + refined.helm).indexOf('{') >= 0) {
-                    structure = Biopolymer.normalizeStructure('' + refined.helm);
+                    // Use the AI's HELM directly (it's already library-valid). Do NOT run it through
+                    // normalizeStructure — that mangles an RNA1{…}|RNA2{…} duplex at the boundary.
+                    structure = '' + refined.helm;
                 }
             } catch (e) { /* keep the deterministic structure */ }
         }

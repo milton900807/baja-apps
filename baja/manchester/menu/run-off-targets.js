@@ -357,8 +357,26 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 const __anyOff = withHits > 0;
 
                 const elapsedS = ((Date.now() - __t0) / 1000);
-                const dataset = (Array.isArray(genomes) ? genomes : [genomes]).filter(Boolean).join(', ') || '—';
+                const __dsList = (Array.isArray(genomes) ? genomes : [genomes]).filter(Boolean);
+                const dataset = __dsList.join(', ') || '—';
                 const queriesRun = seqList.length;
+                // A one-paragraph plain-language description of the reference dataset(s) that were
+                // searched — so the reader knows exactly what an off-target hit means for each index.
+                const __datasetDesc = (nm) => {
+                    const s = ('' + nm).toLowerCase();
+                    const sp = (s.includes('mouse') || s.includes('mus_')) ? 'Mouse'
+                        : (s.includes('rat') || s.includes('rattus')) ? 'Rat' : 'Human';
+                    if (s.includes('virus') || s.includes('viral')) return 'NCBI RefSeq viral reference genomes — complete genome sequences spanning human and non-human viruses (~19,600 viral genomes, ~580 Mbp). A hit flags unintended complementarity to a viral genome, useful when screening an oligo against viral sequence space or checking for adventitious-agent / vector cross-reactivity.';
+                    if (s.includes('3utr') || s.includes('3_utr')) return sp + ' 3′UTR sequences — the 3′ untranslated regions of protein-coding transcripts. This is the dominant site of miRNA-like, seed-mediated off-targeting: a guide/antisense strand whose seed matches many 3′UTRs can silence unintended genes.';
+                    if (s.includes('5utr') || s.includes('5_utr')) return sp + ' 5′UTR sequences — the 5′ untranslated regions of protein-coding transcripts, a secondary site of seed-mediated and structural off-targeting.';
+                    if (s.includes('premrna') || s.includes('pre-mrna') || s.includes('pre_mrna')) return sp + ' pre-mRNA (Ensembl) — unspliced primary transcripts including introns. Captures intronic and splice-junction off-targets that a mature-mRNA index cannot see; relevant for nuclear-acting gapmer ASOs.';
+                    if (s.includes('ncrna')) return sp + ' non-coding RNA (Ensembl) — lncRNAs, snRNAs, snoRNAs, miRNA precursors and other ncRNAs. Hits indicate potential hybridization to regulatory or structural non-coding transcripts.';
+                    if (s.includes('all_transcripts')) return sp + ' transcriptome (Ensembl) — every annotated transcript: protein-coding mRNAs and non-coding RNAs, all isoforms. The broadest ' + sp.toLowerCase() + ' off-target reference; a hit means the oligo can base-pair with an expressed transcript.';
+                    if (s.includes('cdna')) return sp + ' cDNA (Ensembl) — spliced, mature protein-coding transcript sequences (all isoforms). Off-targets here are mature mRNAs the oligo could hybridize to.';
+                    return sp + ' reference (Ensembl) — searched for complementary sites in the ' + sp.toLowerCase() + ' transcriptome.';
+                };
+                const __dsPara = __dsList.length ? __dsList.map(__datasetDesc).join(' ') : 'The reference index searched for Levenshtein off-target sites.';
+                const __dsBlock = `<div style="margin:0 0 12px;padding:10px 12px;background:rgba(79,208,230,0.08);border-left:3px solid #4fd0e6;border-radius:6px;font-size:12.5px;line-height:1.55;color:#cfe6ee;"><span style="color:#4fd0e6;font-weight:700;">Dataset — ${__dsList.join(', ') || '—'}.</span> ${__dsPara} <span style="color:#8fb8c8;">Search: Levenshtein edit distance ≤ ${__editDistance}, both strands.</span></div>`;
                 // Tropical "info window" look: navy card, cyan accents, light text.
                 const row = (k, v) => `<tr><td style="padding:4px 18px 4px 0;color:#8fb8c8;white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:4px 0;font-weight:600;color:#ffffff;">${v}</td></tr>`;
                 // The navy demo-style overlay (below) supplies the panel frame; this inner wrapper
@@ -409,6 +427,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     html = `${cardOpen}
                       <div style="font-size:16px;font-weight:700;color:#ffffff;margin-bottom:4px;">Off-target report — ${o.name || o.id || 'oligo'}</div>
                       ${accent}
+                      ${__dsBlock}
                       <table style="border-collapse:collapse;font-size:13px;">
                         ${row('Dataset (index)', dataset)}
                         ${row('Edit distance', __editDistance)}
@@ -425,6 +444,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     html = `${cardOpen}
                       <div style="font-size:16px;font-weight:700;color:#ffffff;margin-bottom:4px;">Off-target run complete</div>
                       ${accent}
+                      ${__dsBlock}
                       <table style="border-collapse:collapse;font-size:13px;">
                         ${row('Dataset (index)', dataset)}
                         ${row('Edit distance', __editDistance)}
@@ -563,6 +583,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             if (s.includes('rat') || s.includes('rattus')) return 'Rat';
             if (s.includes('yeast') || s.includes('cerevisiae')) return 'Yeast';
             if (s.includes('dog') || s.includes('canis')) return 'Dog';
+            if (s.includes('virus') || s.includes('viral')) return 'Viruses';
             const pre = ('' + name).split(/[_.]/)[0] || 'Other';
             return pre.charAt(0).toUpperCase() + pre.slice(1);
         };
