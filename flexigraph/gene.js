@@ -8672,9 +8672,34 @@ pattern, GGGG | Required`
                         click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
                         move: () => { }
                     });
+                    // Clicking a track centers it (as before) AND opens a child menu of that
+                    // track's actions. Prefer the track's FULL menu (Layers / Variants / Design /
+                    // …) stashed when it was interacted with on the canvas; otherwise a compact
+                    // fallback built from the standalone per-track modules.
+                    const openTrackChild = (t, i) => {
+                        centerTrack(t);
+                        try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { }
+                        const back = { label: '‹ Back', click: () => { openTracks(); }, move: () => { } };
+                        let stashed = null;
+                        try { const e = (this.__lassoSelection || []).find((s) => s.kind === 'track' && s.ref === t); stashed = e && e.trackMenu; } catch (e) { }
+                        let child;
+                        if (stashed && stashed.length) {
+                            child = stashed.concat([back]);
+                        } else {
+                            const L = this.genegraph_panel_layout;
+                            child = [
+                                { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Design ▸', click: () => { close(); try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/tile-oligos-design.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                back,
+                            ];
+                        }
+                        try { child.__compactCols = true; child.__menuTitle = (t.name || ('track ' + (i + 1))); } catch (e) { }
+                        show(child);
+                    };
                     tracks.forEach((t, i) => sub.push({
-                        label: (t.name || ('track ' + (i + 1))),
-                        click: () => { close(); centerTrack(t); },
+                        label: (t.name || ('track ' + (i + 1))) + ' ▸',
+                        click: () => { openTrackChild(t, i); },
                         move: () => { }
                     }));
                     sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
@@ -8781,8 +8806,8 @@ pattern, GGGG | Required`
                     const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
                     return [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
-                        { label: 'Variants (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
+                        { label: 'Variants (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
                 };
 

@@ -464,31 +464,35 @@ function () {
                     ctx.textAlign = 'left';
                     ctx.fillText(this.title, panelX + 12, panelY + titleH / 2 + 1);
                 } else if (this.title && this.externalTitle) {
-                    // Horizontal name chip sitting just OUTSIDE the menu, on its right side.
+                    // Track name as a VERTICAL chip (rotated 90°) running along the menu's
+                    // right edge; flips to the left edge when there's no room on the right.
                     try {
                         ctx.save();
                         ctx.font = this.titleFont || '700 12px Arial';
                         const tw = ctx.measureText(this.title).width;
-                        const chipPadX = 8, chipH = 18;
-                        const chipW = tw + chipPadX * 2;
-                        // Default to the right of the menu; flip to the left when there's no
-                        // room on the right (menu opened near the right screen edge).
-                        let chipX = panelX + panelW + 6;
+                        const chipPadX = 8, chipThick = 18;            // pill thickness across the edge
+                        const chipLen = tw + chipPadX * 2;             // pill length along the edge
+                        const gap = 5;
+                        const cy = panelY + panelH / 2;                // vertical center of the panel
+                        // Right edge by default; flip left if the pill would overflow the canvas.
+                        let side = 1;
+                        let centerX = panelX + panelW + gap + chipThick / 2;
                         try {
                             const cw = (ctx.canvas && ctx.canvas.width) || 0;
-                            if (cw && chipX + chipW > cw - 4) chipX = Math.max(4, panelX - chipW - 6);
+                            if (cw && centerX + chipThick / 2 > cw - 2) { side = -1; centerX = panelX - gap - chipThick / 2; }
                         } catch (e) { }
-                        const chipY = panelY + 2;                      // aligned to the menu top
+                        ctx.translate(centerX, cy);
+                        ctx.rotate(-Math.PI / 2);                      // text reads bottom-to-top
                         ctx.shadowColor = 'rgba(16,24,40,0.28)';
-                        ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
-                        ctx.fillStyle = 'rgba(11,37,69,0.94)';   // navy pill
-                        menuRoundPath(ctx, chipX, chipY, chipW, chipH, 6);
+                        ctx.shadowBlur = 8; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 3;
+                        ctx.fillStyle = 'rgba(11,37,69,0.94)';        // navy pill
+                        menuRoundPath(ctx, -chipLen / 2, -chipThick / 2, chipLen, chipThick, 6);
                         ctx.fill();
                         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = '#ffd9a0';               // warm text
-                        ctx.textAlign = 'left';
+                        ctx.fillStyle = '#ffd9a0';                     // warm text
+                        ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(this.title, chipX + chipPadX, chipY + chipH / 2 + 0.5);
+                        ctx.fillText(this.title, 0, 0.5);
                         ctx.restore();
                     } catch (e) { }
                 }
