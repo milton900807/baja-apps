@@ -16,11 +16,19 @@ function (x, y, list, graph, genegraph_panel_layout, reset) {
                 let name = items[0]
                 for (let l of list) {
                     if (l.label === name) {
-                        l.click(x, y)
+                        const lbl = '' + (l.label || '');
+                        // A submenu / "back" item re-opens another menu list; a leaf item runs an
+                        // action. After a LEAF action, close this selection window and return to the
+                        // canvas — the mobile menu replaces mainPanel, so it otherwise lingers even
+                        // though the user is done (their own showSideMenu(null) doesn't restore it).
+                        const opensSubmenu = /[▸►‹◄▶◀]/.test(lbl);
+                        try { await Promise.resolve(l.click(x, y)); } catch (e) { }
                         if (reset) {
-                            CurrentLayout.reset('mainPanel')
+                            try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                        } else if (!opensSubmenu) {
+                            try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
                         }
-
+                        break;
                     }
                 }
             })

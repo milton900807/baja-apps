@@ -427,7 +427,9 @@ function (graph, oligo, genegraph_panel_layout) {
                         log('');
                     }
                 },
-                {
+                // "Map to all tracks" only makes sense when there is more than one track on the
+                // canvas to map onto — otherwise hide it (conditional spread into the array).
+                ...((graph.track && graph.track.length > 1) ? [{
                     // Find this compound's exact locus (0 mismatches) on every non-compound track and
                     // drop a copy of the compound there; view-all + zoom into each as it lands.
                     label: 'Map to all tracks',
@@ -438,7 +440,7 @@ function (graph, oligo, genegraph_panel_layout) {
                         catch (e) { try { graph.setMessage(' Map failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                     },
                     move: () => { }
-                },
+                }] : []),
 
 
                 {
@@ -898,211 +900,211 @@ function (graph, oligo, genegraph_panel_layout) {
                     }
                 },
 
-                {
-                    label: 'Off-targets / Seed sequence report',
-                    click: async (xwc, ywc) => {
-                        function summarizeAndSortMatches(mi_targets_transient_) {
-                            const countMap = new Map();
+                // {
+                //     label: 'Off-targets / Seed sequence report',
+                //     click: async (xwc, ywc) => {
+                //         function summarizeAndSortMatches(mi_targets_transient_) {
+                //             const countMap = new Map();
 
-                            mi_targets_transient_.forEach(target => {
-                                const key = `${target.chr}|${target.genome}|${target.editdistance}`;
-                                countMap.set(key, (countMap.get(key) || 0) + 1);
-                            });
+                //             mi_targets_transient_.forEach(target => {
+                //                 const key = `${target.chr}|${target.genome}|${target.editdistance}`;
+                //                 countMap.set(key, (countMap.get(key) || 0) + 1);
+                //             });
 
-                            const sortedMatches = Array.from(countMap, ([key, count]) => ({
-                                key,
-                                count
-                            }));
+                //             const sortedMatches = Array.from(countMap, ([key, count]) => ({
+                //                 key,
+                //                 count
+                //             }));
 
-                            sortedMatches.sort((a, b) => b.count - a.count);
+                //             sortedMatches.sort((a, b) => b.count - a.count);
 
-                            return sortedMatches.map(entry => ({
-                                description: `Combination: ${entry.key}, Occurrences: ${entry.count}`
-                            }));
-                        }
+                //             return sortedMatches.map(entry => ({
+                //                 description: `Combination: ${entry.key}, Occurrences: ${entry.count}`
+                //             }));
+                //         }
 
-                        let hits = summarizeAndSortMatches(oligo.mi_targets_transient_);
+                //         let hits = summarizeAndSortMatches(oligo.mi_targets_transient_);
 
-                        let backtog = {
-                            wid: 'card',
-                            data: {
-                                cards: [[
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        component: {
-                                            wid: 'mt-button',
-                                            data: {
-                                                buttons: [
-                                                    {
-                                                        label: 'Return to design',
-                                                        ionFunction: createIonFunction(async () => {
-                                                            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
-                                                            CurrentLayout.clearComponent('mainPanel');
-                                                            CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
-                                                            CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
-                                                        })
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    },
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        component: {
-                                            wid: 'json',
-                                            data: JSON.stringify(hits)
-                                        }
-                                    }
-                                ]]
-                            }
-                        };
+                //         let backtog = {
+                //             wid: 'card',
+                //             data: {
+                //                 cards: [[
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         component: {
+                //                             wid: 'mt-button',
+                //                             data: {
+                //                                 buttons: [
+                //                                     {
+                //                                         label: 'Return to design',
+                //                                         ionFunction: createIonFunction(async () => {
+                //                                             let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
+                //                                             CurrentLayout.clearComponent('mainPanel');
+                //                                             CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
+                //                                             CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
+                //                                         })
+                //                                     }
+                //                                 ]
+                //                             }
+                //                         }
+                //                     },
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         component: {
+                //                             wid: 'json',
+                //                             data: JSON.stringify(hits)
+                //                         }
+                //                     }
+                //                 ]]
+                //             }
+                //         };
 
-                        CurrentLayout.clearComponent('mainPanel');
-                        CurrentLayout.setComponent('mainPanel', backtog);
-                    },
-                    move: () => {
-                        log('');
-                    }
-                },
+                //         CurrentLayout.clearComponent('mainPanel');
+                //         CurrentLayout.setComponent('mainPanel', backtog);
+                //     },
+                //     move: () => {
+                //         log('');
+                //     }
+                // },
 
-                {
-                    label: 'Off-targets / Off-target Analysis',
-                    click: async (xwc, ywc) => {
-                        graph.clearMouseListeners();
+                // {
+                //     label: 'Off-targets / Off-target Analysis',
+                //     click: async (xwc, ywc) => {
+                //         graph.clearMouseListeners();
 
-                        let tpanel = null;
-                        let innerComponentCallback = (panel) => {
-                            tpanel = panel;
-                        };
+                //         let tpanel = null;
+                //         let innerComponentCallback = (panel) => {
+                //             tpanel = panel;
+                //         };
 
-                        console.log('debubg');
+                //         console.log('debubg');
 
-                        let rs = await exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', JSON.stringify(oligo.offtarget));
+                //         let rs = await exec('https://data.oligodesigner.com/ionworks/py/gene/gff.py', JSON.stringify(oligo.offtarget));
 
-                        if (rs && rs['tsv']) {
-                            let tsvText = rs['tsv'];
-                            const lines = tsvText.split('\n');
-                            const geneSymbols = [];
-                            for (let line of lines) {
-                                const columns = line.split('\t');
-                                if (columns.length > 1 && columns[1]) {
-                                    geneSymbols.push(columns[1]);
-                                }
-                            }
-                            oligo.offtargetsymbols = [geneSymbols.toString()];
-                        }
+                //         if (rs && rs['tsv']) {
+                //             let tsvText = rs['tsv'];
+                //             const lines = tsvText.split('\n');
+                //             const geneSymbols = [];
+                //             for (let line of lines) {
+                //                 const columns = line.split('\t');
+                //                 if (columns.length > 1 && columns[1]) {
+                //                     geneSymbols.push(columns[1]);
+                //                 }
+                //             }
+                //             oligo.offtargetsymbols = [geneSymbols.toString()];
+                //         }
 
-                        let backtog = {
-                            wid: 'card',
-                            data: {
-                                cards: [[
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        component: {
-                                            wid: 'mt-button',
-                                            data: {
-                                                buttons: [
-                                                    {
-                                                        label: 'Return to design',
-                                                        ionFunction: createIonFunction(async () => {
-                                                            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
-                                                            CurrentLayout.clearComponent('mainPanel');
-                                                            CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
-                                                            CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
-                                                        })
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    },
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        height: '800px',
-                                        component: {
-                                            wid: 'html',
-                                            data: rs['html']
-                                        }
-                                    },
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        height: '800px',
-                                        component: {
-                                            wid: 'tsv',
-                                            refCallback: innerComponentCallback,
-                                            height: '100px',
-                                            data: JSON.stringify(rs['tsv'])
-                                        }
-                                    }
-                                ]]
-                            }
-                        };
+                //         let backtog = {
+                //             wid: 'card',
+                //             data: {
+                //                 cards: [[
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         component: {
+                //                             wid: 'mt-button',
+                //                             data: {
+                //                                 buttons: [
+                //                                     {
+                //                                         label: 'Return to design',
+                //                                         ionFunction: createIonFunction(async () => {
+                //                                             let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
+                //                                             CurrentLayout.clearComponent('mainPanel');
+                //                                             CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
+                //                                             CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
+                //                                         })
+                //                                     }
+                //                                 ]
+                //                             }
+                //                         }
+                //                     },
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         height: '800px',
+                //                         component: {
+                //                             wid: 'html',
+                //                             data: rs['html']
+                //                         }
+                //                     },
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         height: '800px',
+                //                         component: {
+                //                             wid: 'tsv',
+                //                             refCallback: innerComponentCallback,
+                //                             height: '100px',
+                //                             data: JSON.stringify(rs['tsv'])
+                //                         }
+                //                     }
+                //                 ]]
+                //             }
+                //         };
 
-                        CurrentLayout.clearComponent('mainPanel');
-                        CurrentLayout.setComponent('mainPanel', backtog);
-                    },
-                    move: () => {
-                        log('');
-                    }
-                },
+                //         CurrentLayout.clearComponent('mainPanel');
+                //         CurrentLayout.setComponent('mainPanel', backtog);
+                //     },
+                //     move: () => {
+                //         log('');
+                //     }
+                // },
 
-                {
-                    label: 'Off-targets / Raw report',
-                    click: async (xwc, ywc) => {
-                        let backtog = {
-                            wid: 'card',
-                            data: {
-                                cards: [[
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        component: {
-                                            wid: 'mt-button',
-                                            data: {
-                                                buttons: [
-                                                    {
-                                                        label: 'Return to design',
-                                                        ionFunction: createIonFunction(async () => {
-                                                            let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
-                                                            CurrentLayout.clearComponent('mainPanel');
-                                                            CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
-                                                            CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
-                                                        })
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    },
-                                    {
-                                        title: ' ',
-                                        body: ``,
-                                        width: '100%',
-                                        component: {
-                                            wid: 'json',
-                                            data: JSON.stringify(oligo.offtarget)
-                                        }
-                                    }
-                                ]]
-                            }
-                        };
+                // {
+                //     label: 'Off-targets / Raw report',
+                //     click: async (xwc, ywc) => {
+                //         let backtog = {
+                //             wid: 'card',
+                //             data: {
+                //                 cards: [[
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         component: {
+                //                             wid: 'mt-button',
+                //                             data: {
+                //                                 buttons: [
+                //                                     {
+                //                                         label: 'Return to design',
+                //                                         ionFunction: createIonFunction(async () => {
+                //                                             let button_canvas = await exec('manchester/controls/navigation-panel.js', graph, graph.genegraph_panel_layout);
+                //                                             CurrentLayout.clearComponent('mainPanel');
+                //                                             CurrentLayout.setComponent('mainPanel', graph.genegraph_panel_layout);
+                //                                             CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
+                //                                         })
+                //                                     }
+                //                                 ]
+                //                             }
+                //                         }
+                //                     },
+                //                     {
+                //                         title: ' ',
+                //                         body: ``,
+                //                         width: '100%',
+                //                         component: {
+                //                             wid: 'json',
+                //                             data: JSON.stringify(oligo.offtarget)
+                //                         }
+                //                     }
+                //                 ]]
+                //             }
+                //         };
 
-                        CurrentLayout.clearComponent('mainPanel');
-                        CurrentLayout.setComponent('mainPanel', backtog);
-                    },
-                    move: () => {
-                        log('');
-                    }
-                },
+                //         CurrentLayout.clearComponent('mainPanel');
+                //         CurrentLayout.setComponent('mainPanel', backtog);
+                //     },
+                //     move: () => {
+                //         log('');
+                //     }
+                // },
 
                 {
                     label: 'Register / Register',

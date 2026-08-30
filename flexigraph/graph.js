@@ -177,18 +177,65 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
 
                         }),
                         'touchstart': createIonFunction((evt) => {
+                            // Track the touch for pan (below) + long-press detection: on mobile a menu
+                            // opens on a long-press (~500ms held still), not a quick tap — a quick tap
+                            // just selects. A 500ms timer arms __longPressReady; movement cancels it.
+                            try {
+                                this.__lastTouch = null; this.__touchActive = true; this.__longPressReady = false;
+                                this.__touchStartX = (evt && evt.touches && evt.touches[0]) ? evt.touches[0].clientX : null;
+                                this.__touchStartY = (evt && evt.touches && evt.touches[0]) ? evt.touches[0].clientY : null;
+                                try { clearTimeout(this.__lpTimer); } catch (e) { }
+                                this.__lpTimer = setTimeout(() => { try { this.__longPressReady = true; } catch (e) { } }, 500);
+                            } catch (e) { }
                             if (touchStart) {
                                 touchStart(evt);
                             }
 
                         }),
                         'touchend': createIonFunction((evt) => {
+                            try { this.__lastTouch = null; this.__touchActive = false; clearTimeout(this.__lpTimer); } catch (e) { }
                             if (touchend) {
                                 touchend(evt);
                             }
 
                         }),
                         'touchmove': createIonFunction((evt) => {
+                            // Mobile: a single-finger drag pans the view. The navigate mouse-move pan
+                            // above is suppressed while a touch is active (this.__touchActive), so this
+                            // is the single pan path during touch regardless of whether the widget also
+                            // forwards touch→mouse. Two-finger gestures are left to the pinch listener.
+                            try {
+                                const touches = (evt && evt.touches) ? evt.touches : [];
+                                if (isMobile() && this.mode === 'navigate' && touches.length === 1 && !this.menu && this.grid) {
+                                    // Significant movement → this is a drag/pan, not a long-press: cancel the menu arm.
+                                    try {
+                                        if (this.__touchStartX != null && (Math.abs(touches[0].clientX - this.__touchStartX) > 10 || Math.abs(touches[0].clientY - this.__touchStartY) > 10)) {
+                                            clearTimeout(this.__lpTimer); this.__longPressReady = false;
+                                        }
+                                    } catch (e) { }
+                                    const t = touches[0];
+                                    if (this.__lastTouch) {
+                                        let pw = 800, ph = 600;
+                                        try {
+                                            const el = (evt.target && evt.target.getBoundingClientRect) ? evt.target : null;
+                                            const r = el ? el.getBoundingClientRect() : null;
+                                            pw = (r && r.width) || this.grid.width || 800;
+                                            ph = (r && r.height) || this.grid.height || 600;
+                                        } catch (e) { }
+                                        const wpx = (this.grid.getxmax() - this.grid.getxmin()) / (pw || 800);
+                                        const wpy = (this.grid.getymax() - this.grid.getymin()) / (ph || 600);
+                                        const xd = -(t.clientX - this.__lastTouch.x) * wpx;
+                                        const yd = (t.clientY - this.__lastTouch.y) * wpy;
+                                        this.grid.setxmin(this.grid.getxmin() + xd);
+                                        this.grid.setxmax(this.grid.getxmax() + xd);
+                                        this.grid.setymin(this.grid.getymin() + yd);
+                                        this.grid.setymax(this.grid.getymax() + yd);
+                                        this.grid.rescale();
+                                        try { if (mdel && mdel.wake) mdel.wake(); } catch (e) { }
+                                    }
+                                    this.__lastTouch = { x: t.clientX, y: t.clientY };
+                                }
+                            } catch (e) { }
                             if (touchmove) {
                                 touchmove(evt);
                             }
@@ -222,7 +269,7 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                                 if (mdel.getPriority())
                                     return;
                             }
-                            if (this.mode == 'navigate' && mouse_down) {
+                            if (this.mode == 'navigate' && mouse_down && !this.__touchActive) {
                                 // Motion LOD: while actively panning, drop the chemistry to simple
                                 // beads (skip sugar rings / phosphate glyphs / labels) so dragging
                                 // stays smooth; restore full detail ~180ms after motion stops, and

@@ -1007,6 +1007,28 @@ function (path, config) {
 
                 progressBar(55);
 
+                // Mobile: the floating popup windows use desktop widths and can overflow the
+                // device viewport. Tag the body and inject one stylesheet that constrains those
+                // popups to fit within the mobile window (centered, ≤96vw, height-capped, scroll).
+                try {
+                    if (typeof isMobile === 'function' && isMobile()) {
+                        try { document.body.classList.add('baja-mobile'); } catch (e) { }
+                        if (!document.getElementById('baja-mobile-fit-style')) {
+                            const st = document.createElement('style');
+                            st.id = 'baja-mobile-fit-style';
+                            st.textContent = 'body.baja-mobile #baja-ott-report,body.baja-mobile #baja-aso-ot-summary,'
+                                + 'body.baja-mobile #baja-play-panel,body.baja-mobile #baja-demo-panel,'
+                                + 'body.baja-mobile #baja-sirna-design,body.baja-mobile #baja-sirna-design>div{'
+                                + 'top:6px!important;left:50%!important;right:auto!important;transform:translateX(-50%)!important;'
+                                + 'width:96vw!important;max-width:96vw!important;max-height:calc(100vh - 12px)!important;'
+                                + 'overflow:auto!important;box-sizing:border-box!important;padding:12px!important;}'
+                                + 'body.baja-mobile #baja-ott-report textarea,body.baja-mobile #baja-play-panel textarea,'
+                                + 'body.baja-mobile #baja-demo-panel textarea{max-width:100%!important;}';
+                            (document.head || document.body).appendChild(st);
+                        }
+                    }
+                } catch (e) { }
+
                 // Open the "Play a script" panel: paste a recorded JSON script (from "Record
                 // actions") and run it verbatim via manchester/demo.js. Reachable from three
                 // places — File ▸ Play script…, the top menubar Play button, and the top button
@@ -1037,7 +1059,11 @@ function (path, config) {
                             if (!('' + text).trim()) { try { graph.setMessage(' Paste a script first. '); } catch (e) { } return; }
                             const gap = +(document.getElementById('baja-play-gap').value || 0);
                             close();
-                            try { exec('manchester/demo.js', text, { stepDelayMs: gap }); }
+                            // Run IN-PLACE against the live editor graph + its real toolbar, so playback
+                            // reuses the existing layout (top menubar / button panel stay put) instead of
+                            // demo.js rebuilding a fresh canvas-only layout that wipes the top buttons.
+                            try { window.__bajaLiveGraph = graph; window.__bajaLiveLayout = graph.genegraph_panel_layout || genegraph_panel_layout || null; } catch (e) { }
+                            try { exec('manchester/demo.js', text, { stepDelayMs: gap, inPlace: true }); }
                             catch (e) { try { graph.setMessage('Play failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                         };
                     } catch (e) { try { graph.setMessage('Play panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
@@ -1060,12 +1086,11 @@ function (path, config) {
                                             cards: [
                                                 [
                                                     {
-                                                        // Swappable slot (Tools > Navigation and other panels
-                                                        // inject content here). Its default content is a Play
-                                                        // button so a recorded script can be launched straight
-                                                        // from the top button panel.
+                                                        // Navigation controls now live in the menubar; keep
+                                                        // this as an empty swappable slot (Tools > Navigation
+                                                        // and other panels still inject content here).
                                                         'title': '',
-                                                        'component': { wid: 'button-menu', data: { buttons: [{ label: 'Play', ionFunction: createIonFunction(() => { openPlayScriptPanel(); }) }] } }
+                                                        'component': { wid: 'html', data: '' }
                                                     },
                                                 ]]
                                         }
@@ -1860,6 +1885,12 @@ function (path, config) {
                                                                 click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
                                                             },
                                                             {
+                                                                // Demos Library — a bookshelf of saved demo/recording scripts
+                                                                // (play / edit / delete). Sits alongside My Files & The Library.
+                                                                label: 'Demos', move: () => { },
+                                                                click: () => { graph.hideMenu(); try { exec('manchester/demos-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage('Demos failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }
+                                                            },
+                                                            {
                                                                 label: 'New', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
@@ -2012,7 +2043,10 @@ function (path, config) {
                                                                             const text = ta.value;
                                                                             const gap = +(document.getElementById('baja-demo-gap').value || 1000);
                                                                             close();
-                                                                            try { exec('manchester/demo.js', text, { stepDelayMs: gap }); }
+                                                                            // Run IN-PLACE against the live editor graph + toolbar so the top
+                                                                            // menubar / button panel stay put (same as Play script…).
+                                                                            try { window.__bajaLiveGraph = graph; window.__bajaLiveLayout = graph.genegraph_panel_layout || genegraph_panel_layout || null; } catch (e) { }
+                                                                            try { exec('manchester/demo.js', text, { stepDelayMs: gap, inPlace: true }); }
                                                                             catch (e) { try { graph.setMessage('Demo failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                                         };
                                                                     } catch (e) { try { graph.setMessage('Demo panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
@@ -2030,9 +2064,6 @@ function (path, config) {
                                                 },
                                                 {
                                                     label: 'Track', ionFunction: createIonFunction(() => {
-                                                        // Show the track-tools toolbar in the button/label panel.
-                                                        exec('baja/manchester/menu/track-tools-toolbar.js', graph, genegraph_panel_layout);
-                                                        // Centered menu: New track | Edit track.
                                                         graph.showMenu([
                                                             {
                                                                 label: 'New track', move: () => { },
@@ -2176,7 +2207,7 @@ function (path, config) {
 
 
                                                         // Show the layers-tools toolbar in the button/label panel.
-                                                        exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
+                                                        // exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
                                                         // Centered menu of layer actions.
                                                         graph.showMenu([
                                                             {
@@ -2231,9 +2262,8 @@ function (path, config) {
                                                             graph.showMenu([clinicalItem]);
                                                             return;
                                                         }
-
                                                         // Also show the compound editor in the button/label panel.
-                                                        exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
+                                                        // exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
                                                         graph.showMenu([
                                                             clinicalItem,
                                                             {
@@ -3002,11 +3032,6 @@ function (path, config) {
                             ]]
                     }
                 }
-                // Add a top-level "Play" button to the menubar row (File/Track/Draw/Layers/
-                // Design/Navigate) so a recorded script can be launched from the top menubutton
-                // panel too. Pushed here rather than inlined into the deeply-nested literal above.
-                try { genegraph_panel_layout.data.cards[0][0].component.data.buttons.push({ label: 'Play', ionFunction: createIonFunction(() => { openPlayScriptPanel(); }) }); } catch (e) { }
-
                 progressBar(100);
                 graph.genegraph_panel_layout = genegraph_panel_layout;
 

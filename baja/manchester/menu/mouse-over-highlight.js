@@ -32,6 +32,10 @@ function (graph, genegraph_panel_layout) {
             if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
             setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(menu, x, y); }, MENU_OPEN_DELAY_MS);
         };
+        // On mobile the full-screen feature menu is blocking, so a quick tap only SELECTS —
+        // the menu opens on a LONG-PRESS (~500ms held still), armed as graph.graph.__longPressReady
+        // by flexigraph/graph.js. Desktop is unaffected.
+        const __menuAllowedOnTap = () => { try { return (typeof isMobile !== 'function') || !isMobile() || !!(graph && graph.graph && graph.graph.__longPressReady); } catch (e) { return true; } };
         const showWindowMenuDelayed = (menu, a, b, c) => {
             setTimeout(() => { if (graph && graph.showWindowMenu) graph.showWindowMenu(menu, a, b, c); }, MENU_OPEN_DELAY_MS);
         };
@@ -385,7 +389,7 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            showSideMenuDelayed(menuItems);
+                            if (__menuAllowedOnTap()) showSideMenuDelayed(menuItems);
                         }
 
                         showAmpliconFilterSideMenu(graph, selTrack, 20);
@@ -953,7 +957,7 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            showSideMenuDelayed(menuItems);
+                            if (__menuAllowedOnTap()) showSideMenuDelayed(menuItems);
                         }
 
                         showOligoFilterSideMenu(graph, selTrack, 20);
@@ -1167,7 +1171,7 @@ function (graph, genegraph_panel_layout) {
                                 })
 
 
-                            showSideMenuDelayed(menuItems);
+                            if (__menuAllowedOnTap()) showSideMenuDelayed(menuItems);
                         }
 
                         showSnpIndelFilterSideMenu(graph, selectedTrack, 20);
@@ -3822,7 +3826,7 @@ function (graph, genegraph_panel_layout) {
                                                     click: () => { }
                                                 });
                                             }
-                                            showSideMenuDelayed(menuItems);
+                                            if (__menuAllowedOnTap()) showSideMenuDelayed(menuItems);
 
                                         }, 1300)
 
@@ -4034,7 +4038,8 @@ function (graph, genegraph_panel_layout) {
                                     graph.setMessage(" Chemistry selected : " + graph.props.selected_chemistry.name);
                                 }, 1000);
                             };
-                            let submenu = [
+                            // Therapeutic oligo designers — grouped under "Therapeutics ▸" below.
+                            let therapeutics = [
                                 {
                                     label: "siRNA",
                                     click: async (scx, scy) => {
@@ -4713,8 +4718,9 @@ function (graph, genegraph_panel_layout) {
                                         // });
                                     }
                                 },
+                            ];
 
-                                {
+                            const offTargetsItem = {
                                     label: "Off-targets",
                                     move: () => { },
                                     click: async (scx, scy) => {
@@ -4784,10 +4790,67 @@ function (graph, genegraph_panel_layout) {
                                         ];
                                         showSideMenuDelayed(otSub);
                                     }
-                                },
+                            };
 
+                            // Primer-probe assay design (primer3 / djPrimer / exon-exon) on the
+                            // highlighted region of this track — brought up under "Primer probes ▸".
+                            const __ppRefresh = () => { graph.setMouseMode('navigate'); try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
+                            const __needMark = () => { if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) return true; infoPrompt(' Highlight a region on the track first. '); return false; };
+                            const runPrimer3 = async () => {
+                                if (!__needMark()) return;
+                                graph.pushOntoHistory(); graph.clearMouseListeners();
+                                const sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                graph.setMessage(' Generating primers (primer3)... ');
+                                const em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
+                                const r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
+                                await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                if (graph.wake) graph.wake();
+                                __ppRefresh();
+                            };
+                            const runDjprimer = async () => {
+                                if (!__needMark()) return;
+                                graph.pushOntoHistory(); graph.clearMouseListeners();
+                                const sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                const gene = selectedTrack.geneID || selectedTrack.name || '';
+                                const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
+                                graph.setMessage(' Designing primers (djPrimer)... ');
+                                const r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                                selectedTrack.ampliconResults = r;
+                                await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                if (graph.wake) graph.wake();
+                                __ppRefresh();
+                            };
+                            const runExonExon = async () => {
+                                if (!__needMark()) return;
+                                graph.pushOntoHistory(); graph.clearMouseListeners();
+                                const r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', selectedTrack);
+                                selectedTrack.ampliconResults = r;
+                                showModal({ wid: 'json', data: JSON.stringify(r) });
+                            };
 
-                            ]
+                            const backToDesign = { label: '‹ Back', move: () => { }, click: () => { showSideMenuDelayed(submenu); } };
+                            const primerProbesItem = {
+                                label: 'Primer probes ▸', move: () => { },
+                                click: () => {
+                                    showSideMenuDelayed([
+                                        { label: 'primer3', move: () => { }, click: () => { graph.showSideMenu(null); runPrimer3(); } },
+                                        { label: 'djPrimer (assay success)', move: () => { }, click: () => { graph.showSideMenu(null); runDjprimer(); } },
+                                        { label: 'Exon-exon primer-probes', move: () => { }, click: () => { graph.showSideMenu(null); runExonExon(); } },
+                                        backToDesign
+                                    ]);
+                                }
+                            };
+                            const therapeuticsItem = {
+                                label: 'Therapeutics ▸', move: () => { },
+                                click: () => { showSideMenuDelayed(therapeutics.concat([backToDesign])); }
+                            };
+                            const clinicalLibraryItem = {
+                                label: 'Clinical Library', move: () => { },
+                                click: () => { try { graph.showSideMenu(null); } catch (e) { } try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); } catch (e) { } }
+                            };
+
+                            // Design ▸  Primer probes ▸ | Therapeutics ▸ | Off-targets | Clinical Library
+                            const submenu = [primerProbesItem, therapeuticsItem, offTargetsItem, clinicalLibraryItem];
 
                             setTimeout(() => {
 

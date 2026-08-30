@@ -414,13 +414,18 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     for (const k of shownSyms) {
                         const g = bySym.get(k);
                         const ed = isFinite(g.minEd) ? g.minEd : '';
-                        hitRows += `<tr>${cell('<b>' + k + '</b>')}${cell(g.count + ' transcript' + (g.count === 1 ? '' : 's'))}${cell('ed ' + ed)}${cell('<span style="color:#8fb8c8;">' + g.examples.join('; ') + '</span>')}</tr>`;
+                        // ↗ Map opens the off-target mapper: load this gene's transcript and map the
+                        // compound onto it at the same edit distance (map-compound-to-offtarget.js).
+                        const mapCell = (k && k !== '—')
+                            ? `<td style="padding:3px 0;"><button class="ott-rpt-map" data-gene="${k}" title="Load ${k} and map the compound onto it" style="cursor:pointer;border-radius:6px;padding:3px 9px;font:700 11px Arial;border:1px solid #1aa3bd;background:transparent;color:#4fd0e6;white-space:nowrap;">↗ Map</button></td>`
+                            : `<td></td>`;
+                        hitRows += `<tr>${cell('<b>' + k + '</b>')}${cell(g.count + ' transcript' + (g.count === 1 ? '' : 's'))}${cell('ed ' + ed)}${cell('<span style="color:#8fb8c8;">' + g.examples.join('; ') + '</span>')}${mapCell}</tr>`;
                     }
                     const more = symKeys.length > shownSyms.length ? `<div style="color:#8fb8c8;font-size:12px;margin-top:6px;">… and ${(symKeys.length - shownSyms.length).toLocaleString()} more gene(s)</div>` : '';
                     const hitsTable = hits.length
                         ? `<div style="max-height:220px;overflow:auto;margin-top:8px;border-top:1px solid rgba(26,163,189,0.35);">
                              <table style="border-collapse:collapse;font-size:12px;width:100%;">
-                               <tr style="color:#8fb8c8;text-align:left;position:sticky;top:0;background:#0a2540;"><th style="padding:5px 12px 5px 0;">Gene</th><th style="padding-right:12px;">Transcripts</th><th style="padding-right:12px;">Best edit</th><th>Example loci</th></tr>
+                               <tr style="color:#8fb8c8;text-align:left;position:sticky;top:0;background:#0a2540;"><th style="padding:5px 12px 5px 0;">Gene</th><th style="padding-right:12px;">Transcripts</th><th style="padding-right:12px;">Best edit</th><th>Example loci</th><th style="padding-right:0;">Map</th></tr>
                                ${hitRows}
                              </table></div>${more}`
                         : `<div style="color:#8fb8c8;margin-top:8px;">No off-target hits found.</div>`;
@@ -486,6 +491,19 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 rowEl.appendChild(mkBtn('Close', true, () => { __closeReport(); }));
                 panelEl.appendChild(rowEl);
                 document.body.appendChild(panelEl);
+                // Wire the ↗ Map buttons (single-oligo report) to the off-target mapper.
+                if (single) {
+                    try {
+                        panelEl.querySelectorAll('.ott-rpt-map').forEach((btn) => {
+                            btn.onclick = () => {
+                                const gsym = btn.getAttribute('data-gene');
+                                __closeReport();
+                                try { exec('baja/manchester/menu/map-compound-to-offtarget.js', graph, single, { symbol: gsym }, __editDistance); }
+                                catch (e) { try { graph.setMessage(' Map failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                            };
+                        });
+                    } catch (e) { }
+                }
                 graph.setMessage(' Off-target run: ' + withHits + '/' + oligos.length + ' oligo(s) with hits, ' + totalHits.toLocaleString() + ' total, ' + elapsedS.toFixed(1) + 's. ');
             } catch (e) { console.warn('off-target summary panel failed', e); }
 
