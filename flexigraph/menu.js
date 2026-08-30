@@ -464,23 +464,25 @@ function () {
                     ctx.textAlign = 'left';
                     ctx.fillText(this.title, panelX + 12, panelY + titleH / 2 + 1);
                 } else if (this.title && this.externalTitle) {
-                    // Horizontal name chip sitting just OUTSIDE the menu, above its top-left.
+                    // Horizontal name chip sitting just OUTSIDE the menu, centered above it.
                     try {
                         ctx.save();
                         ctx.font = this.titleFont || '700 12px Arial';
                         const tw = ctx.measureText(this.title).width;
                         const chipPadX = 8, chipH = 18;
+                        const chipW = tw + chipPadX * 2;
+                        const chipX = panelX + (panelW - chipW) / 2;   // centered over the menu
                         const chipY = panelY - chipH - 5;
                         ctx.shadowColor = 'rgba(16,24,40,0.28)';
                         ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
                         ctx.fillStyle = 'rgba(11,37,69,0.94)';   // navy pill
-                        menuRoundPath(ctx, panelX, chipY, tw + chipPadX * 2, chipH, 6);
+                        menuRoundPath(ctx, chipX, chipY, chipW, chipH, 6);
                         ctx.fill();
                         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
                         ctx.fillStyle = '#ffd9a0';               // warm text
-                        ctx.textAlign = 'left';
+                        ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(this.title, panelX + chipPadX, chipY + chipH / 2 + 0.5);
+                        ctx.fillText(this.title, chipX + chipW / 2, chipY + chipH / 2 + 0.5);
                         ctx.restore();
                     } catch (e) { }
                 }
