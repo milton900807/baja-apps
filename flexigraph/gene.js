@@ -7089,12 +7089,15 @@ pattern, GGGG | Required`
                     // single column's width, NOT the whole menu's. It fits the longest
                     // label, is capped at 500px, and is further shrunk so that all
                     // columns + 20px gaps fit on screen (labels then ellipsize).
+                    // A menu can opt into narrower columns (list.__compactCols) — used by the
+                    // per-track menu so its columns are tight and it fits alongside the track name.
+                    const compact = !!(list && list.__compactCols);
                     const gap = 20;
                     const maxTotal = Math.max(200, screenWidth - 24);
                     const perColFit = Math.floor((maxTotal - gap * (cols - 1)) / cols);
                     const columnWidth = Math.max(
-                        120,
-                        Math.min(500, Math.ceil(maxLabelWidth) + 40, perColFit)
+                        compact ? 92 : 120,
+                        Math.min(compact ? 190 : 500, Math.ceil(maxLabelWidth) + (compact ? 22 : 40), perColFit)
                     );
 
                     // Whole-menu width (columns + gaps) — used only to center the menu.
@@ -7142,6 +7145,13 @@ pattern, GGGG | Required`
 
                     this.side_menu.menu_width = columnWidth;   // PER-COLUMN width
                     this.side_menu.sunset = true;              // orange sunset panel background
+                    // Optional label (e.g. the track name) drawn as a chip OUTSIDE the menu.
+                    try {
+                        if (list && list.__menuTitle) {
+                            this.side_menu.title = '' + list.__menuTitle;
+                            this.side_menu.externalTitle = true;
+                        }
+                    } catch (e) { }
                 }, 10);
             }
             showMenu(list, x, y, width) {
@@ -8771,9 +8781,8 @@ pattern, GGGG | Required`
                     const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
                     return [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
-                        { label: 'Mutations (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                        { label: 'Variants (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
-                        { label: 'Choose chemistry…', click: () => { close(); try { Promise.resolve(exec('manchester/choose-chemistry.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
                 };
 
@@ -9054,7 +9063,12 @@ pattern, GGGG | Required`
                     // mouse-over-highlight.js and stashed on the selection entry).
                     if (k === 'track') {
                         const picks = sel.filter((s) => s.kind === 'track' && s.trackMenu);
-                        const openOne = (p) => { show((p.trackMenu || []).concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); };
+                        const openOne = (p) => {
+                            const list = (p.trackMenu || []).concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]);
+                            // Narrow columns + the track name as an external chip (see showSideMenu).
+                            try { list.__compactCols = true; list.__menuTitle = (p.label || (p.track && p.track.name) || 'Track'); } catch (e) { }
+                            show(list);
+                        };
                         if (picks.length === 1) { openOne(picks[0]); return; }
                         if (picks.length > 1) { showTypePicker(picks, 'track', openOne, []); return; }
                     }

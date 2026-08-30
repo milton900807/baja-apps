@@ -5152,6 +5152,8 @@ function (graph, genegraph_panel_layout) {
                 track_list = track_list.filter(__isTrackItem).sort((a, b) => __ti(a) - __ti(b))
                     .concat(track_list.filter((m) => !__isTrackItem(m)));
                 const __trackMenu = orderMenu(mergePendingSnp(track_list));
+                // Render with narrow columns + the track name as a chip outside the menu.
+                try { __trackMenu.__compactCols = true; __trackMenu.__menuTitle = (selectedTrack && selectedTrack.name) || 'Track'; } catch (e) { }
                 // The track menu is no longer popped up on click. Instead the track is
                 // added to the selection box as its own object type; the menu is shown
                 // only when the user opens it there (selection box → Tracks → track).
