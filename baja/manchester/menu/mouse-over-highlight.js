@@ -3065,7 +3065,7 @@ function (graph, genegraph_panel_layout) {
                         }
                     },
                     {
-                        label: 'Data Layers',
+                        label: 'Layers',
                         click: async () => {
                             graph.showSideMenu(null)
 
@@ -3165,136 +3165,10 @@ function (graph, genegraph_panel_layout) {
                 ]
 
                 if (selectedTrack.containsIntrons()) {
-                    golist.push({
-                        label: 'Create mRNA',
-                        click: async (xwc, ywc) => {
-
-
-                            setTimeout(async () => {
-
-                                if (selectedTrack) {
-                                    let seq = selectedTrack.sequence;
-                                    if (!seq) {
-                                        prompt(" No sequence found ")
-                                    } else {
-                                        let track = selectedTrack.createTrackFromAnnotation('CDNA')
-                                        if (selectedTrack.snpindels.length > 0) {
-                                            track.liftSnpindels();
-                                            track.targetPhase = selectedTrack.targetPhase;
-                                        }
-                                        if (selectedTrack.oligos && selectedTrack.oligos.length > 0) {
-                                            track.liftCompounds();
-                                        }
-                                        if (selectedTrack.plots && selectedTrack.plots.length > 0) {
-                                            track.liftPlots();
-                                        }
-                                        graph.track.push(track);
-                                        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                        graph.deselectAllTracks()
-                                        track.select();
-                                        graph.animateTo(track.tgraph.xi - 100,
-                                            track.tgraph.xi + track.tgraph.width + 100,
-                                            track.tgraph.Y(-3), track.tgraph.Y(3))
-
-                                        if (isMobile()) {
-                                            CurrentLayout.clearComponent('mainPanel')
-                                            CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
-                                        }
-                                    }
-                                }
-
-                            }, 1000)
-
-
-                        }
-                        ,
-                        move: () => {
-                            log('move running offtargets....')
-                        }
-                    }
-                        ,
-                        {
-                            label: `Copy to new track`,
-                            click: async (xwc, ywc) => {
-                                let { Track } = await exec('baja/bio/track.js')
-                                graph.pushOntoHistory();
-                                start = -1;
-                                end = -1;
-                                var foo = Object.assign(new Track(), selectedTrack);
-                                foo.track_layers = selectedTrack.copyLayers()
-                                foo.name = selectedTrack.name + '**'
-                                let t = await graph.addTrackJSON(foo);
-                                t.tgraph.yi = selectedTrack.tgraph.yi + 2;
-                            },
-                            move: () => {
-                            }
-                        },
-
-
-                    )
                 } else {
 
                 }
 
-                golist.push({
-                    'label': 'Design Assay', click: (async () => {
-                        const lll = [
-                            {
-                                'label': 'Primers', click: (async () => {
-                                    graph.pushOntoHistory();
-                                    graph.clearMouseListeners();
-                                    graph.showSideMenu(null)
-                                    if (!selectedTrack) {
-                                        infoPrompt("No track selected")
-                                        return;
-                                    }
-                                    graph.___folder_calculation = true;
-                                    graph.___folder_calculation_status = 'Designing assay';
-
-                                    let sequence = selectedTrack.sequence
-                                    const p = 'py/ppsets/models/find-primer-amplicons.py'
-                                    let r = await exec(p, sequence)
-                                    selectedTrack.ampliconResults = r;
-                                    graph.___folder_calculation = false;
-                                    graph.___folder_calculation_status = null;
-                                    showModal({
-                                        wid: 'json',
-                                        data: JSON.stringify(r)
-                                    })
-                                    showSideMenuDelayed(lll)
-
-                                })
-                            }, {
-                                'label': 'Exon/exon Primers', click: (async () => {
-                                    graph.pushOntoHistory();
-                                    graph.showSideMenu(null)
-
-                                    graph.clearMouseListeners();
-
-                                    if (!selectedTrack) {
-                                        infoPrompt("No track selected")
-                                        return;
-                                    }
-                                    graph.___folder_calculation = true;
-                                    graph.___folder_calculation_status = 'Designing assay';
-
-                                    const p = 'py/ppsets/models/find-primer-amplicons-exon-exon.py'
-                                    let r = await exec(p, selectedTrack)
-                                    selectedTrack.ampliconResults = r;
-
-                                    graph.___folder_calculation = false;
-                                    graph.___folder_calculation_status = null;
-
-                                    showModal({
-                                        wid: 'json',
-                                        data: JSON.stringify(r)
-                                    })
-                                })
-                            }]
-                        showSideMenuDelayed(lll)
-                    })
-                },)
 
                 let track_list = [
                     {
@@ -3360,12 +3234,15 @@ function (graph, genegraph_panel_layout) {
                         }
                     },
                     {
-                        label: 'SNPs',
-                        click: () => {
+                        // Single top-level "Variants" entry (SNPs merged in): pick a source, plus
+                        // Show/Hide, Filter and Remove. Clicking ClinVar opens the clinical-
+                        // significance choice (pathogenic / likely-pathogenic / benign / …).
+                        label: 'Variants ▸',
+                        move: () => { },
+                        click: async (scx, scy) => {
                             const tr = selectedTrack;
                             if (!tr) { graph.setMessage(' No track selected.'); return; }
                             const server = (window['env'] && window['env']['apiUrl']) || window.location.origin;
-                            // Selection range (if any) to scope the filter / load.
                             const selRange = () => {
                                 try {
                                     if (tr.markstart != null && tr.markend != null && tr.markend > tr.markstart) {
@@ -3374,83 +3251,59 @@ function (graph, genegraph_panel_layout) {
                                 } catch (e) { }
                                 return null;
                             };
-                            showSideMenuDelayed([
-                                {
-                                    label: 'Filter', move: () => { }, click: () => {
-                                        graph.showSideMenu(null);
-                                        exec('baja/manchester/menu/edit-snps-filter-menu.js', graph, genegraph_panel_layout, tr, selRange());
-                                    }
-                                },
-                                {
-                                    label: 'Add', move: () => { }, click: () => {
-                                        // Pick a variant database, then load onto a track.
-                                        showSideMenuDelayed([
-                                            { db: 'clinvar', label: 'ClinVar' },
-                                            { db: 'dbsnp', label: 'dbSNP' },
-                                            { db: 'gnomad', label: 'gnomAD' },
-                                            { db: 'cosmic', label: 'COSMIC' }
-                                        ].map((d) => ({
-                                            label: d.label, move: () => { }, click: () => {
-                                                graph.showSideMenu(null);
-                                                exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, d.db, d.label);
-                                            }
-                                        })));
-                                    }
-                                },
-                                {
-                                    label: 'Remove all', move: () => { }, click: () => {
-                                        const count = (tr.snpindels || []).length;
-                                        if (!count) { graph.showSideMenu(null); graph.setMessage(' No SNPs on this track. '); return; }
-                                        // Confirm inline via the side menu (destructive).
-                                        showSideMenuDelayed([
-                                            {
-                                                label: 'Yes, remove ' + count + ' SNP' + (count === 1 ? '' : 's'), move: () => { },
-                                                click: () => {
-                                                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }   // undo before delete
-                                                    tr.snpindels = [];
-                                                    try { if (tr.clearDescendantSnps) tr.clearDescendantSnps(graph); } catch (e) { }
-                                                    if (graph.wake) graph.wake();
-                                                    graph.showSideMenu(null);
-                                                    graph.setMessage(' Removed ' + count + ' SNP' + (count === 1 ? '' : 's') + '. ');
-                                                }
-                                            },
-                                            { label: 'Cancel', move: () => { }, click: () => { graph.showSideMenu(null); } }
-                                        ]);
-                                    }
-                                }
-                            ]);
-                        }
-                    },
-                    {
-                        // Variants ▸ (significance) ▸ ClinVar — load ClinVar variants of the chosen
-                        // clinical significance for this track (points-of-interest.js).
-                        label: 'Variants ▸',
-                        move: () => { },
-                        click: async (scx, scy) => {
+                            // ClinVar → clinical significance → load via points-of-interest.js.
                             const loadSig = async (sigKey) => {
                                 try { graph.showSideMenu(null); } catch (e) { }
-                                try { await exec('baja/manchester/menu/points-of-interest.js', graph, genegraph_panel_layout, selectedTrack, sigKey); }
+                                try { await exec('baja/manchester/menu/points-of-interest.js', graph, genegraph_panel_layout, tr, sigKey); }
                                 catch (e) { try { graph.setMessage(' Variant load failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                             };
-                            const sigList = [
-                                { label: 'Pathogenic / likely-pathogenic ▸', key: 'pathogenic' },
-                                { label: 'Non-pathogenic (benign) ▸', key: 'benign' },
-                                { label: 'Uncertain / conflicting ▸', key: 'uncertain' },
-                                { label: 'All ▸', key: 'all' },
-                            ];
-                            let openSig;
-                            const openSource = (s) => {
+                            let openMain;
+                            const openClinVar = () => {
+                                const sigList = [
+                                    { label: 'Pathogenic / likely-pathogenic', key: 'pathogenic' },
+                                    { label: 'Likely pathogenic', key: 'likely_pathogenic' },
+                                    { label: 'Benign / likely-benign', key: 'benign' },
+                                    { label: 'Likely benign', key: 'likely_benign' },
+                                    { label: 'Uncertain / conflicting', key: 'uncertain' },
+                                    { label: 'All', key: 'all' },
+                                ];
+                                const items = sigList.map((s) => ({ label: s.label, move: () => { }, click: () => { loadSig(s.key); } }));
+                                items.push({ label: '‹ Back', move: () => { }, click: () => { openMain(); } });
+                                try { graph.showSideMenu(items); } catch (e) { }
+                            };
+                            const loadFrom = (db, label) => { graph.showSideMenu(null); exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, label); };
+                            openMain = () => {
                                 try {
                                     graph.showSideMenu([
-                                        { label: 'ClinVar', move: () => { }, click: () => { loadSig(s.key); } },
-                                        { label: '‹ Back', move: () => { }, click: () => { openSig(); } },
+                                        { label: (tr.showSnpIndels === false ? 'Show variants' : 'Hide variants'), move: () => { }, click: () => { tr.showSnpIndels = (tr.showSnpIndels === false); if (graph.wake) graph.wake(); graph.showSideMenu(null); } },
+                                        { label: 'ClinVar ▸', move: () => { }, click: () => { openClinVar(); } },
+                                        { label: 'dbSNP', move: () => { }, click: () => { loadFrom('dbsnp', 'dbSNP'); } },
+                                        { label: 'gnomAD', move: () => { }, click: () => { loadFrom('gnomad', 'gnomAD'); } },
+                                        { label: 'COSMIC', move: () => { }, click: () => { loadFrom('cosmic', 'COSMIC'); } },
+                                        { label: 'Filter', move: () => { }, click: () => { graph.showSideMenu(null); exec('baja/manchester/menu/edit-snps-filter-menu.js', graph, genegraph_panel_layout, tr, selRange()); } },
+                                        {
+                                            label: 'Remove all', move: () => { }, click: () => {
+                                                const count = (tr.snpindels || []).length;
+                                                if (!count) { graph.showSideMenu(null); graph.setMessage(' No variants on this track. '); return; }
+                                                graph.showSideMenu([
+                                                    {
+                                                        label: 'Yes, remove ' + count + ' variant' + (count === 1 ? '' : 's'), move: () => { }, click: () => {
+                                                            try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                                            tr.snpindels = [];
+                                                            try { if (tr.clearDescendantSnps) tr.clearDescendantSnps(graph); } catch (e) { }
+                                                            if (graph.wake) graph.wake();
+                                                            graph.showSideMenu(null);
+                                                            graph.setMessage(' Removed ' + count + ' variant' + (count === 1 ? '' : 's') + '. ');
+                                                        }
+                                                    },
+                                                    { label: 'Cancel', move: () => { }, click: () => { openMain(); } }
+                                                ]);
+                                            }
+                                        },
                                     ]);
                                 } catch (e) { }
                             };
-                            openSig = () => {
-                                try { graph.showSideMenu(sigList.map((s) => ({ label: s.label, move: () => { }, click: () => { openSource(s); } }))); } catch (e) { }
-                            };
-                            openSig();
+                            openMain();
                         },
                     },
                     {
@@ -4986,7 +4839,7 @@ function (graph, genegraph_panel_layout) {
                 try {
                     if (selectedTrack && selectedTrack.track_type !== 'CDNA' && selectedTrack.containsIntrons && selectedTrack.containsIntrons()) {
                         track_list.push({
-                            label: 'Create mRNA',
+                            label: 'Create mRNA from pre-mRNA',
                             click: async () => {
                                 graph.showSideMenu(null);
                                 const st = selectedTrack;
@@ -5014,7 +4867,7 @@ function (graph, genegraph_panel_layout) {
                 // then layers, then analysis/navigation (SNPs, points of interest, Go to), then
                 // Properties, with Delete last. Items not listed keep their original order after.
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers', 'Data Layers', 'SNPs', 'Variants ▸', 'Go to...',
+                    'Layers', 'Data Layers', 'Variants ▸', 'Go to...',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };

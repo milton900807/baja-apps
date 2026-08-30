@@ -492,6 +492,7 @@ function (__path) {
                             items: [
                                 {
                                     'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
+                                        clear();
                                         await exec('manchester/editor');
 
                                     })

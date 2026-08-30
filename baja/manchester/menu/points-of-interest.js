@@ -19,9 +19,11 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
 
         // Clinical-significance filter (from the Variants menu) + a display label.
         const sig = ('' + (significance || 'pathogenic')).toLowerCase();
-        const sigLabel = (sig === 'benign' || sig === 'non-pathogenic' || sig === 'nonpathogenic') ? 'benign / likely-benign'
-            : (sig === 'uncertain' || sig === 'conflicting') ? 'uncertain / conflicting'
-                : sig === 'all' ? 'ClinVar' : 'pathogenic / likely-pathogenic';
+        const sigLabel = (sig === 'likely_pathogenic' || sig === 'likely-pathogenic') ? 'likely pathogenic'
+            : (sig === 'likely_benign' || sig === 'likely-benign') ? 'likely benign'
+                : (sig === 'benign' || sig === 'non-pathogenic' || sig === 'nonpathogenic') ? 'benign / likely-benign'
+                    : (sig === 'uncertain' || sig === 'conflicting') ? 'uncertain / conflicting'
+                        : sig === 'all' ? 'ClinVar' : 'pathogenic / likely-pathogenic';
         // Per-variant color by ClinVar significance (red pathogenic, green benign, amber uncertain).
         const colorForClinsig = (cs) => {
             const s = ('' + ((cs || []).join(' '))).toLowerCase();
@@ -83,6 +85,10 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
         const passesFilter = (cs) => {
             const s = ('' + ((cs || []).join(' '))).toLowerCase();
             if (sig === 'all') return true;
+            if (sig === 'likely_pathogenic' || sig === 'likely-pathogenic')
+                return /likely[ _-]?pathogenic/.test(s) && !/conflicting|benign|uncertain/.test(s);
+            if (sig === 'likely_benign' || sig === 'likely-benign')
+                return /likely[ _-]?benign/.test(s) && !/pathogenic|conflicting/.test(s);
             if (sig === 'benign' || sig === 'non-pathogenic' || sig === 'nonpathogenic')
                 return /benign/.test(s) && !/pathogenic|conflicting/.test(s);
             if (sig === 'uncertain' || sig === 'conflicting')
