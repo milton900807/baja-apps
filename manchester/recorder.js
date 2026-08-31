@@ -275,7 +275,16 @@ function (graph, layout) {
         // so the click's Y is relative to the canvas — playback maps it back through the canvas rect
         // (canvasClient), which INCLUDES the canvas's current Y position (below the header + top
         // buttons). DOM interactions stay in full-window coords (their locator carries wx,wy).
-        const canvasFields = (e) => { const f = fracOf(e); return { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }; };
+        // Record BOTH the canvas fraction (fx,fy — fallback) and the WORLD coords (wx,wy). On-canvas
+        // menu items are hit-tested in world space — menu.mouseUp(graph, xwc, ywc) — and the shape
+        // context menus are anchored to their shape's world position, so replaying at the recorded
+        // world coord (canvasClient prefers wx,wy) lands on the same item regardless of viewport size.
+        const canvasFields = (e) => {
+            const f = fracOf(e);
+            const out = { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) };
+            try { const w = worldOf(e); if (w && isFinite(w.wx) && isFinite(w.wy)) { out.wx = +(+w.wx).toFixed(4); out.wy = +(+w.wy).toFixed(4); } } catch (er) { }
+            return out;
+        };
         const onDown = (e) => { try { if (!isCanvas(e && e.target)) return; wrapOpenCenterMenu(); rec.dragging = true; push(Object.assign({ cmd: 'event', type: 'down' }, canvasFields(e))); } catch (er) { } };
         const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; push(Object.assign({ cmd: 'event', type: 'move', extra: 1 }, canvasFields(e))); } catch (er) { } };
         const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } const onCanvas = isCanvas(e && e.target); const wasDragging = rec.dragging; rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } if (!onCanvas && !wasDragging) return; push(Object.assign({ cmd: 'event', type: 'up' }, canvasFields(e))); } catch (er) { } };
@@ -283,6 +292,10 @@ function (graph, layout) {
         rec.canvasListeners = [['mousedown', onDown], ['mousemove', onMove], ['mouseup', onUp], ['wheel', onWheel]];
         try { for (const p of rec.canvasListeners) (cv || document).addEventListener(p[0], p[1], { capture: true, passive: true }); } catch (e) { }
         try { document.addEventListener('mouseup', onUp, { capture: true, passive: true }); rec.docUp = onUp; } catch (e) { }
+        // Capture DRAG moves at the document level too, so a drag whose pointer leaves the canvas
+        // (fast lasso / pan) still records its path. onMove is gated by rec.dragging and shares the
+        // move throttle with the canvas listener, so this never double-records a point.
+        try { document.addEventListener('mousemove', onMove, { capture: true, passive: true }); rec.docMove = onMove; } catch (e) { }
 
         // ---- 3) Top-level DOM capture (toolbar / dialogs) ---------------------------------
         // Log ALL DOM mouse downs and ups (not just synthesised clicks): mousedown → `domdown`,
@@ -400,6 +413,7 @@ function (graph, layout) {
             try { if (rec.tick) clearInterval(rec.tick); } catch (e) { }
             try { for (const p of rec.canvasListeners) (cv || document).removeEventListener(p[0], p[1], { capture: true }); } catch (e) { }
             try { if (rec.docUp) document.removeEventListener('mouseup', rec.docUp, { capture: true }); } catch (e) { }
+            try { if (rec.docMove) document.removeEventListener('mousemove', rec.docMove, { capture: true }); } catch (e) { }
             try { if (rec.docDown) document.removeEventListener('mousedown', rec.docDown, { capture: true }); } catch (e) { }
             try { if (rec.docUp2) document.removeEventListener('mouseup', rec.docUp2, { capture: true }); } catch (e) { }
             try { if (rec.docClick) document.removeEventListener('click', rec.docClick, { capture: true }); } catch (e) { }

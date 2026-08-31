@@ -1270,7 +1270,7 @@ function (path, config) {
                     ,
                     {
 
-                        'label': 'Mutations', 'ionfunction': createIonFunction(async () => {
+                        'label': 'Variants', 'ionfunction': createIonFunction(async () => {
                             CurrentLayout.clearComponent('buttonMenuPanel|labelPanel')
                             await exec('baja/manchester/menu/variant-tools1.js', graph, genegraph_panel_layout)
                         })
@@ -1984,7 +1984,7 @@ function (path, config) {
                                                             {
                                                                 // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
                                                                 // compound → load its sequence + chemistry onto a track.
-                                                                label: 'Clinical Library', move: () => { },
+                                                                label: 'Clinical Compound Library', move: () => { },
                                                                 click: () => {
                                                                     graph.hideMenu();
                                                                     try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
@@ -1999,57 +1999,6 @@ function (path, config) {
                                                                     graph.hideMenu();
                                                                     try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
                                                                     catch (e) { try { graph.setMessage(' Recorder failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                                },
-                                                            },
-                                                            {
-                                                                // Scripted demo: open a panel to paste/edit a script, then run
-                                                                // manchester/demo.js which drives the app from that script.
-                                                                label: 'Demo script', move: () => { },
-                                                                click: () => {
-                                                                    graph.hideMenu();
-                                                                    try {
-                                                                        const prev = document.getElementById('baja-demo-panel');
-                                                                        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
-                                                                        const example = [
-                                                                            '# One "cmd arg" per line (or paste a JSON array of command objects).',
-                                                                            '# cmds: load | sequence | zoom | variants | lasso | tour | cursor | exec | js | message | wait | fit',
-                                                                            'message Loading SOD1…',
-                                                                            'load ENST00000270142',
-                                                                            'wait 2500',
-                                                                            'fit',
-                                                                            'variants pathogenic',
-                                                                            'wait 1500',
-                                                                            'lasso 0',
-                                                                            'wait 2000',
-                                                                            'tour 0 3000'
-                                                                        ].join('\n');
-                                                                        const wrap = document.createElement('div');
-                                                                        wrap.id = 'baja-demo-panel';
-                                                                        wrap.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(640px,92vw);background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font:13px system-ui,Arial;padding:14px;';
-                                                                        wrap.innerHTML = ''
-                                                                            + '<div style="font-weight:700;margin-bottom:8px;">▶ Run a demo script</div>'
-                                                                            + '<textarea id="baja-demo-text" spellcheck="false" style="width:100%;height:210px;box-sizing:border-box;background:#0a1e3a;color:#e8eef6;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px;font:12px ui-monospace,Menlo,Consolas,monospace;resize:vertical;"></textarea>'
-                                                                            + '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">'
-                                                                            + '  <label style="opacity:.8;">step delay <input id="baja-demo-gap" type="number" value="1000" min="0" step="100" style="width:70px;background:#0a1e3a;color:#fff;border:1px solid rgba(255,255,255,0.18);border-radius:6px;padding:4px;"> ms</label>'
-                                                                            + '  <span style="flex:1;"></span>'
-                                                                            + '  <button id="baja-demo-cancel" style="background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:7px 16px;cursor:pointer;">Cancel</button>'
-                                                                            + '  <button id="baja-demo-run" style="background:#22c55e;color:#06230f;font-weight:700;border:none;border-radius:999px;padding:7px 20px;cursor:pointer;">Run ▶</button>'
-                                                                            + '</div>';
-                                                                        document.body.appendChild(wrap);
-                                                                        const ta = document.getElementById('baja-demo-text'); ta.value = example;
-                                                                        const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
-                                                                        document.getElementById('baja-demo-cancel').onclick = close;
-                                                                        document.getElementById('baja-demo-run').onclick = () => {
-                                                                            const text = ta.value;
-                                                                            const gap = +(document.getElementById('baja-demo-gap').value || 1000);
-                                                                            close();
-                                                                            // Run IN-PLACE against the live editor graph + toolbar so the top
-                                                                            // menubar / button panel stay put (same as Play script…).
-                                                                            try { window.__bajaLiveGraph = graph; window.__bajaLiveLayout = graph.genegraph_panel_layout || genegraph_panel_layout || null; } catch (e) { }
-                                                                            try { exec('manchester/demo.js', text, { stepDelayMs: gap, inPlace: true }); }
-                                                                            catch (e) { try { graph.setMessage('Demo failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                                        };
-                                                                    } catch (e) { try { graph.setMessage('Demo panel error: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                                 },
                                                             },
                                                             {
@@ -3032,9 +2981,9 @@ function (path, config) {
                             ]]
                     }
                 }
-                // Give the top button-panel buttons material-icon names. They render only on
-                // mobile (CSS hides the icon on desktop), where the buttons are shown small and
-                // icon-first on a single non-wrapping row.
+                // Give the top button-panel buttons material-icon names. The buttons are now
+                // small, ICON-ONLY on both desktop and mobile (the name shows as a hover tooltip);
+                // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
                     const __icons = { File: 'folder', Track: 'view_stream', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with' };
