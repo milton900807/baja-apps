@@ -71,6 +71,12 @@ function (kind) {
             const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
             q('#ad-cancel').onclick = () => { close(); resolve(null); };
             q('#ad-run').onclick = () => {
+                // Clicking Run design dismisses any on-canvas menus (side + center). This dialog has
+                // no graph handle, so reach the live graph through the stashed layout.
+                try {
+                    const g = (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed) ? CurrentLayout.getStashed('graph') : null;
+                    if (g) { try { if (g.showSideMenu) g.showSideMenu(null); } catch (e) { } g.menu = null; if (g.graph) g.graph.menu = null; if (g.wake) g.wake(); }
+                } catch (e) { }
                 const topn = Math.max(1, Math.min(1000, parseInt(q('#ad-topn').value, 10) || 100));
                 let params = { top_n: topn };
                 if (mode === 'advanced') {

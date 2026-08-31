@@ -117,6 +117,9 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                                                 const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
                                                 q('#sd-cancel').onclick = () => { close(); resolve(null); };
                                                 q('#sd-run').onclick = () => {
+                                                    // Clicking Run design dismisses any on-canvas menus (side + center).
+                                                    try { if (graph && graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
+                                                    try { if (graph) { graph.menu = null; if (graph.graph) graph.graph.menu = null; if (graph.wake) graph.wake(); } } catch (e) { }
                                                     const topn = Math.max(1, Math.min(1000, parseInt(q('#sd-topn').value, 10) || 100));
                                                     let params;
                                                     if (mode === 'advanced') {
