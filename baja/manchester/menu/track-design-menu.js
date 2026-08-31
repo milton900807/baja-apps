@@ -536,7 +536,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                                 // Bright landing bling, staggered by add order, so each ASO is seen landing.
                                 try {
                                     const __d = (__gi++) * 120;
-                                    setTimeout(() => { try { if (oligo.landingBurst) oligo.landingBurst('magenta'); else if (oligo.highlight) oligo.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
+                                    setTimeout(() => { try { if (oligo.highlight) oligo.highlight(1800, 'magenta'); else if (oligo.landingBurst) oligo.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
                                 } catch (e) { }
                             }
                         }
@@ -697,7 +697,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                                 // Bright landing bling, staggered by add order, so each ASO is seen landing.
                                 try {
                                     const __d = (__gi++) * 120;
-                                    setTimeout(() => { try { if (oligo.landingBurst) oligo.landingBurst('magenta'); else if (oligo.highlight) oligo.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
+                                    setTimeout(() => { try { if (oligo.highlight) oligo.highlight(1800, 'magenta'); else if (oligo.landingBurst) oligo.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
                                 } catch (e) { }
                             }
                         }

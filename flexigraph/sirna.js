@@ -310,19 +310,38 @@ function () {
             }
 
             highlight(delay, color) {
-                this.highlight__ = 'magenta';
-                if (color) {
-                    this.highlight__ = color;
+                const c = color || 'magenta';
+                this.highlight__ = c;
+                // Long magenta highlight (fired on add) sets off a one-shot expanding burst AND
+                // blinks a couple of times before fading, so the just-placed siRNA is easy to spot.
+                if (c === 'magenta' && delay && delay >= 1200) {
+                    try { this.landingBurst('magenta'); } catch (e) { }
+                    try { this.__blinkHighlight(c, delay); } catch (e) { this.highlight__ = false; }
+                    return;
                 }
-                // Long magenta highlight (fired on add) also sets off a one-shot expanding burst
-                // so the user can see where the siRNA landed, even when zoomed out. See draw().
-                if (this.highlight__ === 'magenta' && delay && delay >= 1200) { this.landingBurst('magenta'); }
                 if (delay && delay > 0) {
                     setTimeout(() => {
 
                         this.highlight__ = false;
                     }, delay)
                 }
+            }
+
+            // Blink the landing glow on/off a few times over `delay` ms, ending faded (off).
+            __blinkHighlight(color, delay) {
+                const wake = () => { try { const g = (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed) ? CurrentLayout.getStashed('graph') : null; if (g && g.wake) g.wake(); } catch (e) { } };
+                const onPhases = 3;
+                const total = onPhases * 2;
+                const period = Math.max(180, Math.floor(delay / total));
+                let n = 0;
+                const step = () => {
+                    this.highlight__ = (n % 2 === 0) ? color : false;
+                    wake();
+                    n++;
+                    if (n < total) setTimeout(step, period);
+                    else { this.highlight__ = false; wake(); }
+                };
+                step();
             }
 
             landingBurst(color) {

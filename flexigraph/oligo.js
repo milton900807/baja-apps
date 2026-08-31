@@ -211,23 +211,40 @@ function () {
             }
 
             highlight(delay, color) {
-                this.highlight__ = 'magenta';
+                const c = color || 'magenta';
+                this.highlight__ = c;
 
-                if (color) {
-                    this.highlight__ = color;
+                // A compound that just LANDED (a long magenta highlight, as fired on add) sets off
+                // a one-shot expanding burst AND blinks a couple of times before fading, so the user
+                // can see where it landed. Brief hover highlights (short delay) don't burst/blink.
+                if (c === 'magenta' && delay && delay >= 1200) {
+                    try { this.landingBurst('magenta'); } catch (e) { }
+                    try { this.__blinkHighlight(c, delay); } catch (e) { this.highlight__ = false; }
+                    return;
                 }
-
-                // A compound that just LANDED (a long magenta highlight, as fired on add) also
-                // sets off a one-shot expanding burst so the user can see where it landed —
-                // especially when zoomed out, where the static glow is tiny. Brief hover
-                // highlights (short delay) don't burst.
-                if (this.highlight__ === 'magenta' && delay && delay >= 1200) { this.landingBurst('magenta'); }
 
                 if (delay && delay > 0) {
                     setTimeout(() => {
                         this.highlight__ = false;
                     }, delay);
                 }
+            }
+
+            // Blink the landing glow on/off a few times over `delay` ms, ending faded (off).
+            __blinkHighlight(color, delay) {
+                const wake = () => { try { const g = (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed) ? CurrentLayout.getStashed('graph') : null; if (g && g.wake) g.wake(); } catch (e) { } };
+                const onPhases = 3;                 // number of ON flashes
+                const total = onPhases * 2;         // on/off steps
+                const period = Math.max(180, Math.floor(delay / total));
+                let n = 0;
+                const step = () => {
+                    this.highlight__ = (n % 2 === 0) ? color : false;   // even = on, odd = off
+                    wake();
+                    n++;
+                    if (n < total) setTimeout(step, period);
+                    else { this.highlight__ = false; wake(); }
+                };
+                step();
             }
 
             // Start a one-shot expanding "landing burst" centred on the compound (see draw()).
