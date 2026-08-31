@@ -414,6 +414,18 @@ function (graph, layout) {
         } catch (e) { }
         document.body.appendChild(badge); rec.badge = badge;
 
+        // Live mouse-coordinate readout while recording: screen pixels + window fraction (the
+        // exact values captured for playback).
+        try {
+            const coordEl = document.createElement('div');
+            coordEl.id = 'baja-rec-coords';
+            coordEl.style.cssText = 'position:fixed;top:52px;right:14px;z-index:2147483400;background:rgba(11,37,69,0.92);color:#9fefff;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:4px 9px;font:600 11px ui-monospace,Menlo,Consolas,monospace;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,0.35);';
+            coordEl.textContent = 'x —  y —';
+            document.body.appendChild(coordEl); rec.coordEl = coordEl;
+            rec.coordMove = (e) => { try { const iw = window.innerWidth || 1, ih = window.innerHeight || 1; coordEl.textContent = 'x ' + Math.round(e.clientX) + '  y ' + Math.round(e.clientY) + '   (' + (e.clientX / iw).toFixed(3) + ', ' + (e.clientY / ih).toFixed(3) + ')'; } catch (er) { } };
+            document.addEventListener('mousemove', rec.coordMove, { capture: true, passive: true });
+        } catch (e) { }
+
         rec.tick = setInterval(() => {
             try { const s = Math.floor((now() - rec.t0) / 1000); timer.textContent = 'REC ' + Math.floor(s / 60) + ':' + ('' + (s % 60)).padStart(2, '0'); } catch (e) { }
         }, 500);
@@ -433,6 +445,8 @@ function (graph, layout) {
             try { if (rec.orig_showMenu) graph.showMenu = rec.orig_showMenu; } catch (e) { }
             try { if (rec.orig_showSideMenu) graph.showSideMenu = rec.orig_showSideMenu; } catch (e) { }
             try { if (rec.badge && rec.badge.parentNode) rec.badge.parentNode.removeChild(rec.badge); } catch (e) { }
+            try { if (rec.coordMove) document.removeEventListener('mousemove', rec.coordMove, { capture: true }); } catch (e) { }
+            try { if (rec.coordEl && rec.coordEl.parentNode) rec.coordEl.parentNode.removeChild(rec.coordEl); } catch (e) { }
             const text = rec.buildScript();
             showScriptPanel(text);
             try { window.__bajaRecorder = null; } catch (e) { }

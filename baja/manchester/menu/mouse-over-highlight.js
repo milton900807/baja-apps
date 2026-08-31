@@ -4265,7 +4265,7 @@ function (graph, genegraph_panel_layout) {
                 try {
                     if (selectedTrack && selectedTrack.track_type !== 'CDNA' && selectedTrack.containsIntrons && selectedTrack.containsIntrons()) {
                         track_list.push({
-                            label: 'Create mRNA from pre-mRNA',
+                            label: 'Create mRNA...',
                             click: async () => {
                                 graph.showSideMenu(null);
                                 const st = selectedTrack;

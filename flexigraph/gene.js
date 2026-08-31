@@ -8762,6 +8762,25 @@ pattern, GGGG | Required`
                     const items = [];
                     for (const t of tracks) for (const o of (t.oligos || [])) items.push({ o, t });
                     const sub = [{ label: 'Select all oligos (' + oligoCount + ')', click: () => { selectAllOligos(); }, move: () => { } }];
+                    // Highlight every oligo and offer downloads (sequences as XLSX/CSV/FASTA, positions as BED).
+                    sub.push({
+                        label: 'Highlight all oligos & Download ▸',
+                        click: () => {
+                            let n = 0;
+                            for (const t of tracks) for (const o of (t.oligos || [])) { try { this.addOligoToSelection(o, t); n++; } catch (e) { } }
+                            try { this.setMessage(' Highlighted ' + n + ' oligo(s). '); } catch (e) { }
+                            if (this.wake) this.wake();
+                            show([
+                                { label: 'Sequences → XLSX', click: () => { close(); this.exportSelection('xlsx', 'oligo'); }, move: () => { } },
+                                { label: 'Sequences → CSV', click: () => { close(); this.exportSelection('csv', 'oligo'); }, move: () => { } },
+                                { label: 'Sequences → FASTA', click: () => { close(); this.exportSelection('fasta', 'oligo'); }, move: () => { } },
+                                { label: 'Positions → BED', click: () => { close(); this.exportSelection('bed', 'oligo'); }, move: () => { } },
+                                { label: 'Table → TXT', click: () => { close(); this.exportSelection('txt', 'oligo'); }, move: () => { } },
+                                { label: '‹ Back', click: () => { openOligos(offset); }, move: () => { } },
+                            ]);
+                        },
+                        move: () => { }
+                    });
                     // Alongside "Select all oligos", offer running off-targets on all —
                     // but never in a read-only (viewer) screen.
                     if (!this.readonly) sub.push({ label: 'Run off-targets: all', click: () => { runOffTargetsAll(); }, move: () => { } });
@@ -9327,6 +9346,12 @@ pattern, GGGG | Required`
             // Rows [chr, start, end, name, type, track] for the current selection.
             // Optional `kind` restricts the rows to one object type.
             _selectionRows(kind) {
+                const seqOf = (s) => {
+                    try {
+                        const o = s && s.ref; if (!o) return '';
+                        return ('' + (o.synthesisSequence || o.sequence || o.guide || o.antisense || o.sense || o.seq || '')).trim();
+                    } catch (e) { return ''; }
+                };
                 return (this.__lassoSelection || []).filter((s) => !kind || s.kind === kind).map((s) => ({
                     chr: s.chr != null ? ('' + s.chr) : '',
                     start: Math.floor(Math.min(s.xi, s.xf)),
@@ -9334,6 +9359,7 @@ pattern, GGGG | Required`
                     name: s.label || '',
                     type: s.kind || '',
                     track: (s.track && s.track.name) || '',
+                    sequence: seqOf(s),
                 }));
             }
 
@@ -9359,8 +9385,8 @@ pattern, GGGG | Required`
                     this._download(name + '.bed', txt, 'text/plain');
                 } else if (fmt === 'csv') {
                     const esc = (v) => { v = '' + (v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-                    const head = ['chr', 'start', 'end', 'name', 'type', 'track'];
-                    const txt = [head.join(',')].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track].map(esc).join(','))).join('\n') + '\n';
+                    const head = ['chr', 'start', 'end', 'name', 'type', 'track', 'sequence'];
+                    const txt = [head.join(',')].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence].map(esc).join(','))).join('\n') + '\n';
                     this._download(name + '.csv', txt, 'text/csv');
                 } else if (fmt === 'txt') {
                     const txt = rows.map((r) => (r.name || '') + '\t' + (r.chr ? r.chr + ':' : '') + r.start + '-' + r.end + '\t' + r.type + (r.track ? '\t' + r.track : '')).join('\n') + '\n';
@@ -9368,12 +9394,16 @@ pattern, GGGG | Required`
                 } else if (fmt === 'xlsx') {
                     try {
                         if (typeof XLSX === 'undefined') { this.setMessage(' XLSX library not available. '); return; }
-                        const aoa = [['chr', 'start', 'end', 'name', 'type', 'track']].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track]));
+                        const aoa = [['chr', 'start', 'end', 'name', 'type', 'track', 'sequence']].concat(rows.map((r) => [r.chr, r.start, r.end, r.name, r.type, r.track, r.sequence]));
                         const ws = XLSX.utils.aoa_to_sheet(aoa);
                         const wb = XLSX.utils.book_new();
                         XLSX.utils.book_append_sheet(wb, ws, 'Selection');
                         XLSX.writeFile(wb, name + '.xlsx');
                     } catch (e) { this.setMessage(' XLSX export failed: ' + e); return; }
+                } else if (fmt === 'fasta') {
+                    const txt = rows.filter((r) => r.sequence).map((r) => '>' + (('' + (r.name || 'seq')).replace(/\s+/g, '_')) + (r.chr ? ' ' + r.chr + ':' + r.start + '-' + r.end : '') + '\n' + r.sequence).join('\n') + '\n';
+                    if (!('' + txt).trim()) { this.setMessage(' No sequences to export. '); return; }
+                    this._download(name + '.fasta', txt, 'text/plain');
                 }
                 this.setMessage(' Exported ' + rows.length + ' item(s) as ' + fmt.toUpperCase() + '. ');
             }

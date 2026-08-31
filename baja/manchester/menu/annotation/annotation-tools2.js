@@ -416,8 +416,23 @@ function (graph, genegraph_panel_layout) {
                 ]
             }
         }
-        CurrentLayout.clearComponent('buttonMenuPanel')
-        CurrentLayout.setComponent('buttonMenuPanel', bpanel);
+        // The buttonMenuPanel slot was removed — render the SAME menu as an on-canvas SIDE MENU
+        // (New ▸ / Edit ▸), reusing each item's existing ionfunction via getIonFunction().
+        try {
+            const menus = bpanel.data.cards[0][0].component.data.menus;
+            const close = () => { try { graph.showSideMenu(null); } catch (e) { } };
+            const runIon = (ref) => { close(); try { const fn = getIonFunction(ref); if (typeof fn === 'function') fn(); } catch (e) { } };
+            let showMain;
+            const back = { label: '‹ Back', move: () => { }, click: () => { showMain(); } };
+            const groupMenu = (grp) => (grp.items || []).map((it) => ({ label: it.label, move: () => { }, click: () => { runIon(it.ionfunction); } })).concat([back]);
+            showMain = () => {
+                const main = (menus || []).map((grp) => ({ label: (grp.label || '') + ' ▸', move: () => { }, click: () => { try { graph.showSideMenu(groupMenu(grp)); } catch (e) { } } }));
+                main.push({ label: 'Close', move: () => { }, click: () => { close(); } });
+                try { graph.showSideMenu(main); } catch (e) { }
+            };
+            showMain();
+        } catch (e) { try { graph.setMessage(' Could not open annotation tools. '); } catch (e2) { } }
 
+        resolve();
     })
 }

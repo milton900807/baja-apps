@@ -3000,8 +3000,15 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Track: 'view_stream', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with' };
-                    for (const b of __bm) { if (b && b.label && __icons[b.label] && !b.icon) b.icon = __icons[b.label]; }
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with' };
+                    // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
+                    // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
+                    const __symbolIcons = { Track: 'genetics' };
+                    for (const b of __bm) {
+                        if (!b || !b.label) continue;
+                        if (__symbolIcons[b.label] && !b.icon && !b.iconSymbol) b.iconSymbol = __symbolIcons[b.label];
+                        else if (__icons[b.label] && !b.icon) b.icon = __icons[b.label];
+                    }
                 } catch (e) { }
 
                 progressBar(100);

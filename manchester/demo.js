@@ -122,15 +122,32 @@ function (script, config) {
                 __curEl = el; return el;
             } catch (e) { return null; }
         };
+        // Live coordinate readout of the playback cursor (screen px + window fraction), mirroring
+        // the recorder's readout so record and playback show the mouse position the same way.
+        let __coordEl = null;
+        const __updateCoord = () => {
+            try {
+                if (!__coordEl || !document.body.contains(__coordEl)) {
+                    __coordEl = document.createElement('div');
+                    __coordEl.id = 'baja-demo-coords';
+                    __coordEl.style.cssText = 'position:fixed;top:52px;right:14px;z-index:2147483600;background:rgba(11,37,69,0.92);color:#9fefff;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:4px 9px;font:600 11px ui-monospace,Menlo,Consolas,monospace;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,0.35);';
+                    document.body.appendChild(__coordEl);
+                }
+                const iw = window.innerWidth || 1, ih = window.innerHeight || 1;
+                __coordEl.textContent = 'x ' + Math.round(__curX) + '  y ' + Math.round(__curY) + '   (' + (__curX / iw).toFixed(3) + ', ' + (__curY / ih).toFixed(3) + ')';
+            } catch (e) { }
+        };
+        const __removeCoord = () => { try { if (__coordEl && __coordEl.parentNode) __coordEl.parentNode.removeChild(__coordEl); } catch (e) { } __coordEl = null; };
         const moveCursor = (x, y, ms) => new Promise((resolve) => {
             const el = ensureCursor();
-            if (!el || typeof requestAnimationFrame === 'undefined') { __curX = x; __curY = y; if (el) el.style.transform = 'translate(' + x + 'px,' + y + 'px)'; return resolve(); }
+            if (!el || typeof requestAnimationFrame === 'undefined') { __curX = x; __curY = y; if (el) el.style.transform = 'translate(' + x + 'px,' + y + 'px)'; __updateCoord(); return resolve(); }
             const sx = __curX, sy = __curY, dur = Math.max(1, +ms || 600), t0 = performance.now();
             const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
             const step = (now) => {
                 const t = Math.min(1, (now - t0) / dur), e = ease(t);
                 __curX = sx + (x - sx) * e; __curY = sy + (y - sy) * e;
                 el.style.transform = 'translate(' + __curX + 'px,' + __curY + 'px)';
+                __updateCoord();
                 if (t < 1) requestAnimationFrame(step); else resolve();
             };
             requestAnimationFrame(step);
@@ -146,7 +163,7 @@ function (script, config) {
                 setTimeout(() => { try { r.remove(); } catch (e) { } }, 420);
             } catch (e) { }
         };
-        const removeCursor = () => { try { if (__curEl) __curEl.remove(); } catch (e) { } __curEl = null; };
+        const removeCursor = () => { try { if (__curEl) __curEl.remove(); } catch (e) { } __curEl = null; try { __removeCoord(); } catch (e) { } };
         // Biggest on-screen canvas + its viewport rect (for world→viewport cursor targeting).
         // The VISIBLE gene-graph canvas: largest by ON-SCREEN DISPLAY area (getBoundingClientRect),
         // not internal resolution — so an off-screen/buffer canvas can't be picked and its rect
