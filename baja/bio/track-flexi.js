@@ -4631,18 +4631,11 @@ return new Promise(async (resolve, reject) => {
                             }
                         }
 
-                    } else {
-                        drawLine(
-                            ctx,
-                            graph.X(Math.floor(this.grid.X(this.markstart))),
-                            graph.Y(this.grid.Y(-100.0)),
-                            graph.X(Math.floor(this.grid.X(this.markend))),
-                            graph.Y(this.grid.Y(-100.0)),
-                            'rgba(0,0,200,0.2)',
-                            50
-                        );
-
                     }
+                    // Zoomed out past the sequence letters there is deliberately NOTHING drawn
+                    // across the selection: the two arrow heads mark its ends on their own. The
+                    // wide translucent band that used to run between them read as a line joining
+                    // the arrows, which is exactly what the arrow-heads-only look is avoiding.
                 }
             }
 

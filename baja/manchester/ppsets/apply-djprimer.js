@@ -22,7 +22,27 @@ function (djresult, xoffset, track, graph) {
 
 
 
-        let placed = 0;
+        // ---- Duplicate suppression ------------------------------------------------------
+        // An amplicon is identified by where its two primers actually sit plus their
+        // sequences. track.addOligo()'s own guard can't do this: it compares
+        // synthesisSequence / structure / id, which a composite Amplicon never sets (they
+        // are undefined on every amplicon), so it falls back to matching on name alone.
+        // Two sources of duplicates this closes:
+        //   • re-running djPrimer on a track that already carries its amplicons — every
+        //     run used to append a second full set on top of the first
+        //   • the same amplicon appearing twice in one result set (the backend dedupes by
+        //     default, but only when options.dedupe is left on)
+        const ampKey = (lxi, rxf, f, r) => (Math.round(+lxi) + '|' + Math.round(+rxf) + '|' + f + '|' + r);
+        const seen = new Set();
+        try {
+            for (const o of (track.oligos || [])) {
+                if (!o || !o.left || !o.right) continue;   // only amplicon-shaped objects
+                const k = ampKey(o.left.xi, o.right.xf, '' + (o.left.sequence || ''), '' + (o.right.sequence || ''));
+                seen.add(k);
+            }
+        } catch (e) { }
+
+        let placed = 0, skipped = 0;
         for (let i = 0; i < hits.length; i++) {
             const h = hits[i];
             const fwd = '' + (h.forward_primer || '');
@@ -30,6 +50,10 @@ function (djresult, xoffset, track, graph) {
             const start = +h.amp_start || 0;
             const end = +h.amp_end || 0;
             if (!fwd.length || !rev.length || !(end > start)) continue;
+
+            const key = ampKey(base + start, base + end, fwd, rev);
+            if (seen.has(key)) { skipped++; continue; }
+            seen.add(key);
 
             // left (forward) primer: [start .. start+len); right (reverse) primer: [end-len .. end)
             const lo = new Oligo('primer', fwd, fwd, base + start, base + start + fwd.length, 0.15);
@@ -54,7 +78,9 @@ function (djresult, xoffset, track, graph) {
         }
 
         if (graph && graph.wake) graph.wake();
-        if (graph && graph.setMessage) graph.setMessage(' Placed ' + placed + ' djPrimer amplicon' + (placed === 1 ? '' : 's') + ' on ' + (track.name || 'track') + '. ');
+        if (graph && graph.setMessage) graph.setMessage(' Placed ' + placed + ' djPrimer amplicon' + (placed === 1 ? '' : 's')
+            + (skipped ? (' — ' + skipped + ' duplicate' + (skipped === 1 ? '' : 's') + ' skipped') : '')
+            + ' on ' + (track.name || 'track') + '. ');
         resolve(placed);
     });
 }
