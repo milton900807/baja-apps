@@ -129,6 +129,21 @@ def canonical_transcript(host, gene_id):
     return t or None
 
 
+def fetch_cdna(host, tid):
+    """Spliced cDNA for a transcript, as raw text.
+
+    /transcript always prefers the UNSPLICED pre-mRNA and has no override, so a site that
+    spans an exon junction exists in the cDNA index but not in what that endpoint serves.
+    This is the spliced form, and its coordinates match the cDNA index exactly.
+    """
+    url = host.rstrip("/") + "/api/ensembl/sequence/" + urllib.parse.quote(tid)
+    try:
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
+            return to_dna(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return ""
+
+
 def fetch_transcript(host, tid):
     url = host.rstrip("/") + "/transcript/" + urllib.parse.quote(tid)
     try:
@@ -233,6 +248,27 @@ def main():
                     if best and best[3] <= mm_budget:
                         break
             chosen = best
+        # Pass 2b: still nothing — try the SPLICED cDNA of each candidate. A junction-spanning
+        # site (pelacarsen/LPA) exists only in the spliced form, never in the pre-mRNA that
+        # /transcript serves, so no isoform or mismatch budget can find it there.
+        if not chosen or chosen[3] > 0:
+            for cand in candidates:
+                cdna = fetch_cdna(args.host, cand)
+                if not cdna:
+                    continue
+                for pat in pats:
+                    k = cdna.find(pat)
+                    if k >= 0:
+                        cc = load(cand)
+                        cc = dict(cc)
+                        cc["__seq"] = cdna
+                        cc["sequence_length"] = len(cdna)
+                        cc["form"] = "cdna"
+                        chosen = (cand, cc, k, 0)
+                        break
+                if chosen and chosen[3] == 0 and chosen[1].get("form") == "cdna":
+                    break
+
         # Pass 3: no local candidate worked at all — keep the first for reporting.
         if not chosen:
             cand = candidates[0]
@@ -255,6 +291,11 @@ def main():
                 ok += 1
                 c["target_site"] = site
                 c["target_site_mismatches"] = site_mm
+                # 'cdna' tells the loader to build the track from the SPLICED sequence
+                # rather than the pre-mRNA /transcript would otherwise serve.
+                c["target_form"] = cached.get("form") or "premrna"
+                if cached.get("form") == "cdna":
+                    status = "OK (spliced cDNA)"
                 if site_mm:
                     status = "OK (%d mm)" % site_mm
 

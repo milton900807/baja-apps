@@ -155,7 +155,43 @@ function (graph, layout, compound) {
             return named || any;
         };
 
-        if (targetGene) {
+        // ---- 4a-i) Site lives only in the SPLICED cDNA -----------------------------------
+        // /transcript always serves the unspliced pre-mRNA and has no override, so a
+        // junction-spanning site (verify-target-transcripts.py marks these target_form
+        // 'cdna') is absent from it. Build the track from the spliced sequence instead —
+        // its coordinates match the recorded target_site exactly.
+        if (targetGene && ('' + (compound.target_form || '')) === 'cdna' && compound.target_transcript) {
+            try {
+                const tid = '' + compound.target_transcript;
+                say(' Loading ' + targetGene + ' (' + tid + ', spliced)… ');
+                const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+                const raw = await GETXT(host + '/api/ensembl/sequence/' + encodeURIComponent(tid));
+                const cdna = toDNA(raw);
+                if (cdna && cdna.length > 20) {
+                    let at = -1;
+                    for (const pat of [revComp(synthSeq), toDNA(synthSeq)]) {
+                        if (!pat) continue;
+                        const k = cdna.indexOf(pat);
+                        if (k >= 0) { at = k; break; }
+                    }
+                    if (at < 0 && Number.isFinite(+compound.target_site)) at = +compound.target_site;
+                    if (at >= 0 && at + toDNA(synthSeq).length <= cdna.length) {
+                        const nm = targetGene + ' (' + tid + ' mRNA)';
+                        try { t = graph.createTrack(nm, 0, cdna.length, 1); }
+                        catch (e) { t = new Track(nm, 0, cdna.length, 2, 1); try { graph.addTrack(t); } catch (e2) { } }
+                        try { if (t.setSequence) t.setSequence(cdna); else t.sequence = cdna; } catch (e) { t.sequence = cdna; }
+                        onTarget = true;
+                        xi = t.xi + at;
+                        xf = xi + (toDNA(synthSeq).length || 1);
+                        // Spliced: no genomic annotations apply, so this carries sequence only.
+                        say(' ' + rawName + ' placed on the spliced ' + targetGene + ' mRNA (no genomic annotations). ');
+                    }
+                }
+            } catch (e) { }
+            if (!onTarget) say(' Could not load the spliced ' + targetGene + ' mRNA — falling back. ');
+        }
+
+        if (targetGene && !onTarget) {
             const already = findLoadedTarget(targetGene);
             if (already) {
                 t = already.track;
