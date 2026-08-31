@@ -4069,10 +4069,96 @@ function (graph, genegraph_panel_layout) {
                         move: () => { }
                     },
                     {
+                        label: 'Data',
+                        click: async (scx, scy) => {
+                            // Classes of data that can be added to the board as track layers.
+                            // RNASeq descends species -> tissue -> dataset; the library view
+                            // (Data Resources) lists every dataset with a description.
+                            const dataMenu = [
+                                {
+                                    label: 'RNASeq ▸', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
+                                    }
+                                },
+                                {
+                                    label: 'RNASeq Library...', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
+                                    }
+                                },
+                                {
+                                    label: 'Data Resources...', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                    }
+                                },
+                                {
+                                    label: 'My data...', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/my-data.js', graph, genegraph_panel_layout);
+                                    }
+                                }
+                            ];
+                            showSideMenuDelayed(dataMenu, scx, scy);
+                        },
+                        move: () => { }
+                    },
+                    {
+                        label: 'Models',
+                        click: async (scx, scy) => {
+                            // Predictive models that write their output onto tracks as layers.
+                            // Same entry points as the Predictive-models toolbar (baja/ml/
+                            // predictive-models-toolbar.js) so both routes behave identically.
+                            const modelMenu = [
+                                {
+                                    label: 'RNA Binding', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
+                                    }
+                                },
+                                {
+                                    label: 'Peptide', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        // No peptide model wired up yet — placeholder so the
+                                        // menu structure is complete.
+                                        try { graph.setMessage(' Peptide model — coming soon. '); } catch (e) { }
+                                    }
+                                },
+                                {
+                                    label: 'Splicing', move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout);
+                                    }
+                                }
+                            ];
+                            showSideMenuDelayed(modelMenu, scx, scy);
+                        },
+                        move: () => { }
+                    },
+                    {
                         label: 'Layers',
                         click: async (scx, scy) => {
 
                             const golist = [
+                                {
+                                    // The library of data classes that can become layers —
+                                    // RNASeq opens the RNASeq Library, which loads a chosen
+                                    // dataset onto every track on the board.
+                                    label: 'Data Resources...',
+                                    move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                    }
+                                },
                                 {
                                     label: 'New...',
                                     click: () => {
@@ -4323,10 +4409,10 @@ function (graph, genegraph_panel_layout) {
                 // Mark the top-level items that open a SUBMENU with ▸ (Compounds ▸ / Variants ▸
                 // already carry it) so every submenu reads consistently; orderMenu then groups them
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
-                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Go to...': 1, 'Go to': 1 };
+                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Data': 1, 'Models': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸',
+                    'Layers ▸', 'Data ▸', 'Models ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
