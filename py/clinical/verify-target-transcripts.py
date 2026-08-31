@@ -158,18 +158,32 @@ def main():
             skipped += 1
             continue
 
+        # Candidate isoforms, best-first. EVERY transcript that carried the site is a
+        # candidate, not just the first: the site frequently sits on a non-canonical isoform,
+        # and picking the wrong one is what leaves a compound unplaceable. Gene-only
+        # accessions contribute their canonical transcript (gene-lookup returns one row).
         resolved_from = None
-        if tid.startswith("ENSG"):
-            # pre-mRNA-only hit — the gene id will not load, so take the canonical transcript
-            gid, tid = tid, (canonical_transcript(args.host, tid) or "")
-            resolved_from = gid
-            if not tid:
-                print("%3d  %-22s %-16s NO CANONICAL TRANSCRIPT" % (i, c.get("compound_id"), gid), flush=True)
-                empty += 1
-                continue
+        candidates = []
+        for t0 in (c.get("target_transcripts") or []):
+            if t0 and t0 not in candidates:
+                candidates.append(t0)
+        for gid in (c.get("target_gene_ids") or []):
+            ct = canonical_transcript(args.host, gid)
+            if ct and ct not in candidates:
+                candidates.append(ct)
+                if not resolved_from:
+                    resolved_from = gid
+        if tid and tid not in candidates:
+            candidates.append(tid)
+        if not candidates:
+            print("%3d  %-22s %-16s NO CANDIDATE TRANSCRIPT" % (i, c.get("compound_id"), tid), flush=True)
+            empty += 1
+            continue
 
-        cached = index.get(tid)
-        if cached is None:
+        def load(tid):
+            cached = index.get(tid)
+            if cached is not None:
+                return cached
             p = fetch_transcript(args.host, tid)
             seq = to_dna(p.get("sequence") or "")
             cached = {
@@ -184,7 +198,47 @@ def main():
                 "__seq": seq,          # dropped before writing
             }
             index[tid] = cached
+            return cached
 
+        pats = []
+        for st in strands(c.get("sequence_5to3")):
+            pats.extend([rev_comp(st), st])
+        pats = [x for x in pats if x]
+
+        # Pass 1: the first candidate whose SERVED sequence carries the site exactly.
+        chosen = None
+        for cand in candidates:
+            cc = load(cand)
+            if not cc["__seq"] or not cc["local"]:
+                continue
+            for pat in pats:
+                k = cc["__seq"].find(pat)
+                if k >= 0:
+                    chosen = (cand, cc, k, 0)
+                    break
+            if chosen:
+                break
+        # Pass 2: nothing exact anywhere — take the closest fuzzy match across candidates.
+        if not chosen:
+            best = None
+            for cand in candidates:
+                cc = load(cand)
+                if not cc["__seq"] or not cc["local"]:
+                    continue
+                for mm_budget in range(1, MAX_MISMATCH + 1):
+                    for pat in pats:
+                        i2, mm = fuzzy_find(cc["__seq"], pat, mm_budget)
+                        if i2 >= 0 and (best is None or mm < best[3]):
+                            best = (cand, cc, i2, mm)
+                    if best and best[3] <= mm_budget:
+                        break
+            chosen = best
+        # Pass 3: no local candidate worked at all — keep the first for reporting.
+        if not chosen:
+            cand = candidates[0]
+            chosen = (cand, load(cand), -1, -1)
+
+        tid, cached, site, site_mm = chosen
         seq = cached["__seq"]
         status = "OK"
         if not seq:
@@ -194,32 +248,9 @@ def main():
             remote += 1
             status = "REMOTE(%s/%s)" % (cached["sequence_source"], cached["annotation_source"])
         else:
-            # Is the compound's binding site on this sequence? Exact first; if not, widen
-            # the edit distance. The target was called at distance 0 against the INDEX, but
-            # the site can sit on a different isoform than the one loaded here — a couple of
-            # mismatches recovers it on this transcript rather than leaving it unplaceable.
-            site, site_mm = -1, 0
-            pats = []
-            for s in strands(c.get("sequence_5to3")):
-                pats.extend([rev_comp(s), s])
-            pats = [p for p in pats if p]
-            for p in pats:
-                k = seq.find(p)
-                if k >= 0:
-                    site, site_mm = k, 0
-                    break
-            if site < 0:
-                for mm_budget in range(1, MAX_MISMATCH + 1):
-                    for p in pats:
-                        i, mm = fuzzy_find(seq, p, mm_budget)
-                        if i >= 0:
-                            site, site_mm = i, mm
-                            break
-                    if site >= 0:
-                        break
             if site < 0:
                 nosite += 1
-                status = "NO SITE (>%d mm)" % MAX_MISMATCH
+                status = "NO SITE (>%d mm, %d isoform%s tried)" % (MAX_MISMATCH, len(candidates), "" if len(candidates) == 1 else "s")
             else:
                 ok += 1
                 c["target_site"] = site
