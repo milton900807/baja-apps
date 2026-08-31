@@ -56,12 +56,19 @@ function (graph, layout) {
         const curCanvas = () => { try { return biggestCanvas() || cv; } catch (e) { return cv; } };
         const isCanvas = (el) => { try { const c = curCanvas(); return !!(c && (el === c || c.contains(el))); } catch (e) { return false; } };
 
+        // Every CANVAS coordinate is normalized by taking this fixed offset off the pointer's Y
+        // BEFORE anything else — the canvas fraction (fracOf), the viewport fraction (sx,sy) and
+        // the world coords (worldOf) all start from `clientY - Y_OFFSET`. Playback adds it back
+        // (see demo.js Y_OFFSET) so the replayed event lands on the same on-screen point.
+        const Y_OFFSET = 90;   // toolbar/chrome above the canvas
+        const canvasY = (e) => e.clientY - Y_OFFSET;
+
         // Canvas-relative fraction: subtract the canvas's current Y (and X) offset from the mouse
         // position before capturing, so the stored coordinate is relative to the canvas window.
         const fracOf = (e) => {
             const c = curCanvas();
             const r = c ? c.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
-            return { fx: (e.clientX - r.left) / (r.width || 1), fy: (e.clientY - r.top) / (r.height || 1) };
+            return { fx: (e.clientX - r.left) / (r.width || 1), fy: (canvasY(e) - r.top) / (r.height || 1) };
         };
         // World (graph) coordinates of a canvas event: convert the CSS-pixel position to the
         // canvas's internal pixel space, then through the grid's inverse map (Xwc/Ywc). Recording
@@ -73,8 +80,10 @@ function (graph, layout) {
                 const g = graph && graph.graph;
                 if (!cv || !g || typeof g.Xwc !== 'function' || typeof g.Ywc !== 'function') return null;
                 const r = cv.getBoundingClientRect();
+                // Subtract the fixed Y offset from the pointer position BEFORE converting, so the
+                // world coordinate lands where the user actually clicked on the graph.
                 const sx = (e.clientX - r.left) * ((cv.width || r.width) / (r.width || 1));
-                const sy = (e.clientY - r.top) * ((cv.height || r.height) / (r.height || 1));
+                const sy = (canvasY(e) - r.top) * ((cv.height || r.height) / (r.height || 1));
                 const wx = g.Xwc(sx), wy = g.Ywc(sy);
                 return (isFinite(wx) && isFinite(wy)) ? { wx: wx, wy: wy } : null;
             } catch (er) { return null; }
@@ -282,7 +291,7 @@ function (graph, layout) {
         const canvasFields = (e) => {
             const f = fracOf(e);
             const out = { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) };
-            try { const iw = window.innerWidth || 1, ih = window.innerHeight || 1; out.sx = +((e.clientX) / iw).toFixed(5); out.sy = +((e.clientY) / ih).toFixed(5); } catch (er) { }
+            try { const iw = window.innerWidth || 1, ih = window.innerHeight || 1; out.sx = +((e.clientX) / iw).toFixed(5); out.sy = +((canvasY(e)) / ih).toFixed(5); } catch (er) { }
             try { const w = worldOf(e); if (w && isFinite(w.wx) && isFinite(w.wy)) { out.wx = +(+w.wx).toFixed(4); out.wy = +(+w.wy).toFixed(4); } } catch (er) { }
             return out;
         };
@@ -352,6 +361,9 @@ function (graph, layout) {
         // autocomplete). Printable characters are already captured as the field's coalesced value
         // (domset) — and Backspace/Delete are reflected there too — so only these extra keys are
         // recorded, keeping their order relative to the typed text.
+        // Escape is ALSO recorded outside a field: panels that close on Escape (the off-target
+        // overlay, the report) would otherwise be dismissed with nothing captured, and replay
+        // would leave them open over the canvas for the rest of the demo.
         const SPECIAL = { Enter: 1, Tab: 1, Escape: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1 };
         const onDocKey = (e) => {
             try {
@@ -360,6 +372,7 @@ function (graph, layout) {
                 const tag = el.tagName ? el.tagName.toLowerCase() : '';
                 const editable = (tag === 'input' || tag === 'textarea' || (el.getAttribute && el.getAttribute('contenteditable') === 'true'));
                 if (editable && SPECIAL[e.key]) push({ cmd: 'key', key: e.key, locator: locate(el, e) });
+                else if (!editable && e.key === 'Escape') push({ cmd: 'key', key: 'Escape', locator: locate(el, e) });
             } catch (er) { }
         };
         try { document.addEventListener('mousedown', onDocDown, { capture: true, passive: true }); rec.docDown = onDocDown; } catch (e) { }
@@ -449,17 +462,13 @@ function (graph, layout) {
             try { if (rec.coordEl && rec.coordEl.parentNode) rec.coordEl.parentNode.removeChild(rec.coordEl); } catch (e) { }
             const text = rec.buildScript();
             showScriptPanel(text);
-            // Debug aid: download the gene-graph state AT STOP, to compare against the state after
-            // playback (see manchester/demo.js) — e.g. to diagnose a Y-direction drift.
+            // Hand the user the recorded script as a file as soon as recording stops.
             try {
-                Promise.resolve((typeof graph.getState === 'function') ? graph.getState() : null).then((s) => {
-                    if (s == null) return;
-                    const blob = new Blob(['' + s], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); a.href = url; a.download = 'record-state-stop.json';
-                    document.body.appendChild(a); a.click();
-                    setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
-                }).catch(() => { });
+                const blob = new Blob(['' + text], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'recorded-demo.txt';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
             } catch (e) { }
             try { window.__bajaRecorder = null; } catch (e) { }
         };

@@ -319,6 +319,11 @@ function (script, config) {
         // Dispatch a REAL DOM input event on the gene-graph canvas at canvas-fraction coords
         // (fx,fy ∈ 0..1). Replays recorded actions: the app listens to mousedown/mousemove/
         // mouseup/wheel with clientX/clientY, so synthetic events drive selection, menus, pan & zoom.
+        // The recorder takes this fixed offset off the pointer's Y before storing ANY canvas
+        // coordinate (canvas fraction, viewport fraction and world coords alike — see
+        // recorder.js Y_OFFSET). Playback adds it back so the replayed event lands on the same
+        // on-screen point the user actually clicked. Keep the two constants in step.
+        const Y_OFFSET = 90;
         // Client (screen) coords for a canvas event. Prefer WORLD coords (wx,wy) — map them
         // through the grid to the current canvas so replay lands on the same GRAPH location
         // regardless of viewport size; fall back to the recorded canvas-fraction (fx,fy).
@@ -330,10 +335,10 @@ function (script, config) {
                 if (wx != null && wy != null && g && typeof g.X === 'function' && typeof g.Y === 'function') {
                     const sx = g.X(+wx), sy = g.Y(+wy);
                     if (isFinite(sx) && isFinite(sy)) {
-                        return { cx: rect.left + sx * (rect.width / (cv.width || rect.width)), cy: rect.top + sy * (rect.height / (cv.height || rect.height)) };
+                        return { cx: rect.left + sx * (rect.width / (cv.width || rect.width)), cy: rect.top + sy * (rect.height / (cv.height || rect.height)) + Y_OFFSET };
                     }
                 }
-                return { cx: rect.left + (+fx) * rect.width, cy: rect.top + (+fy) * rect.height };
+                return { cx: rect.left + (+fx) * rect.width, cy: rect.top + (+fy) * rect.height + Y_OFFSET };
             } catch (e) { return null; }
         };
         const dispatchCanvasEvent = (type, fx, fy, extra, wx, wy) => {
@@ -377,9 +382,12 @@ function (script, config) {
         // playback maps them straight back onto the full window: sx*innerWidth, sy*innerHeight.
         const screenClient = (c, loc) => {
             const iw = window.innerWidth || 1, ih = window.innerHeight || 1;
-            const sx = (c && c.sx != null) ? +c.sx : (loc && loc.wx != null ? +loc.wx : null);
-            const sy = (c && c.sy != null) ? +c.sy : (loc && loc.wy != null ? +loc.wy : null);
-            if (sx != null && isFinite(sx) && sy != null && isFinite(sy)) return { cx: sx * iw, cy: sy * ih };
+            const fromCanvas = !!(c && c.sx != null && c.sy != null);
+            const sx = fromCanvas ? +c.sx : (loc && loc.wx != null ? +loc.wx : null);
+            const sy = fromCanvas ? +c.sy : (loc && loc.wy != null ? +loc.wy : null);
+            // Canvas events were stored with Y_OFFSET already subtracted; DOM locator points
+            // (loc.wx/loc.wy) are raw window fractions, so only the canvas ones get it back.
+            if (sx != null && isFinite(sx) && sy != null && isFinite(sy)) return { cx: sx * iw, cy: sy * ih + (fromCanvas ? Y_OFFSET : 0) };
             // Legacy canvas-fraction fallback (old recordings only).
             const fx = c ? +(c.fx != null ? c.fx : NaN) : NaN, fy = c ? +(c.fy != null ? c.fy : NaN) : NaN;
             if (isFinite(fx) && isFinite(fy) && fx >= -1.5 && fx <= 1.5 && fy >= -1.5 && fy <= 1.5) {
@@ -951,20 +959,6 @@ function (script, config) {
             await sleep(gap);
         }
         try { removeCursor(); } catch (e) { }
-
-        // Debug aid: download the gene-graph state at the END of playback (BEFORE restoring the
-        // original state), to diff against the record-stop state (see recorder.js) — e.g. to
-        // diagnose a Y-direction drift.
-        try {
-            Promise.resolve((typeof graph.getState === 'function') ? graph.getState() : null).then((s) => {
-                if (s == null) return;
-                const blob = new Blob(['' + s], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = 'playback-state-done.json';
-                document.body.appendChild(a); a.click();
-                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
-            }).catch(() => { });
-        } catch (e) { }
 
         // ---- 6) Return to the original state ------------------------------------------------
         // Drop any tracks the demo added, revert the oligo lists on the tracks that existed
