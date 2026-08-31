@@ -101,16 +101,113 @@ function (graph, layout, compound) {
         const compoundSeq = seqStrands[0];                                  // the compound's own first strand
         const synthSeq = isDuplex ? (seqStrands[1] || seqStrands[0]) : compoundSeq;   // guide (antisense) / ASO
         const revComp = (s) => ('' + s).toUpperCase().replace(/U/g, 'T').split('').reverse().map((b) => ({ A: 'T', T: 'A', G: 'C', C: 'G' }[b] || 'N')).join('');
-        const trackSeq = revComp(synthSeq);                                // the TARGET (reverse-complement of the synthesis sequence)
-        let t;
-        try { t = graph.createTrack(trackName, 0, trackSeq.length, 1); } catch (e) { t = new Track(trackName, 0, trackSeq.length, 2, 1); try { graph.addTrack(t); } catch (e2) { } }
-        try { if (t.setSequence) t.setSequence(trackSeq); else t.sequence = trackSeq; } catch (e) { t.sequence = trackSeq; }
-        // Mark this as a clinical-compound track: the renderer suppresses direction arrows,
-        // genomic/cDNA coordinate tags and annotations for this type (see baja/bio/track.js).
-        try { t.track_type = 'clincial_compound'; } catch (e) { }
+        const toDNA = (s) => ('' + (s || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGT]/g, '');
 
-        const xi = t.xi;
-        const xf = t.xi + trackSeq.length;
+        let t = null, xi = 0, xf = 0, onTarget = false;
+
+        // ---- 4a) Preferred: load the REAL target and map the compound onto it ------------
+        // target_gene is only set when the compound's own sequence matched the human
+        // pre-mRNA / cDNA index exactly (see py/clinical/annotate-clinical-targets.py), so
+        // the binding site is guaranteed to exist somewhere — but not necessarily on the
+        // single transcript that gets loaded here (a pre-mRNA-only hit lives in an intron
+        // the cDNA transcript does not carry). If we can't find the site we fall back to
+        // the compound-only track below rather than dropping it at an arbitrary position.
+        const targetGene = ('' + (compound.target_gene || '')).trim();
+
+        // If the target is ALREADY on the board, drop the compound onto THAT track rather than
+        // loading a second copy of the same gene. A candidate must actually contain the binding
+        // site — that both proves it is the right target and gives the position in one step. A
+        // track that also names the gene wins over one that merely contains the site.
+        const findLoadedTarget = (gene) => {
+            const g = ('' + gene).toUpperCase();
+            const pats = [revComp(synthSeq), toDNA(synthSeq)].filter(Boolean);
+            let named = null, any = null;
+            for (const x of (graph.track || [])) {
+                if (!x || !x.sequence) continue;
+                if (x.track_type === 'clincial_compound') continue;   // a previous compound-only track
+                const seq = toDNA(x.sequence);
+                let at = -1;
+                for (const pat of pats) { const k = seq.indexOf(pat); if (k >= 0) { at = k; break; } }
+                if (at < 0) continue;
+                // Word-split rather than a built regex: a symbol can carry characters that would
+                // otherwise need escaping.
+                const isNamed = [x.name, x.geneID, x.description].some((v) => {
+                    const h = ('' + (v || '')).toUpperCase();
+                    return h === g || h.split(/[^A-Z0-9]+/).indexOf(g) >= 0;
+                });
+                if (isNamed && !named) named = { track: x, at: at };
+                else if (!any) any = { track: x, at: at };
+            }
+            return named || any;
+        };
+
+        if (targetGene) {
+            const already = findLoadedTarget(targetGene);
+            if (already) {
+                t = already.track;
+                onTarget = true;
+                xi = t.xi + already.at;
+                xf = xi + (toDNA(synthSeq).length || 1);
+                say(' Adding ' + rawName + ' to the loaded ' + (t.name || targetGene) + ' track. ');
+            }
+        }
+        if (targetGene && !onTarget) {
+            try {
+                let id = targetGene;
+                const TX_RE = /^(ENS[A-Z]*T\d|N[MR]_|X[MR]_)/i;
+                if (!TX_RE.test(id)) {
+                    say(' Resolving ' + targetGene + ' → transcript… ');
+                    const em = (typeof EngineMonitor !== 'undefined') ? new EngineMonitor((m) => { try { graph.setMessage('' + m); } catch (e) { } }) : null;
+                    const res = em ? await exec('/py/sequence/prompt-to-transcript.py', em, id, 'human')
+                        : await exec('/py/sequence/prompt-to-transcript.py', id, 'human');
+                    let list = [];
+                    try { list = JSON.parse(res && res.transcripts); } catch (e) { list = (res && Array.isArray(res.transcripts)) ? res.transcripts : []; }
+                    if (Array.isArray(list) && list.length && list[0]) id = (list[0].id || list[0].transcript || list[0]) + '';
+                }
+                if (TX_RE.test(id)) {
+                    say(' Loading target ' + targetGene + ' (' + id + ')… ');
+                    const before = new Set((graph.track || []));
+                    let cand = null;
+                    try { cand = await graph.add(id, 10, 10); } catch (e) { }
+                    // graph.add may resolve a track, the graph, or nothing — find what appeared.
+                    if (!cand || !cand.sequence) {
+                        const added = (graph.track || []).filter((x) => x && !before.has(x));
+                        cand = added.length ? added[added.length - 1] : null;
+                    }
+                    if (cand && cand.sequence) {
+                        // The compound binds the reverse complement of its synthesis strand.
+                        // Targets were confirmed at edit distance 0, so an exact search is enough.
+                        const tseq = toDNA(cand.sequence);
+                        let at = -1;
+                        for (const pat of [revComp(synthSeq), toDNA(synthSeq)]) {
+                            if (!pat) continue;
+                            const k = tseq.indexOf(pat);
+                            if (k >= 0) { at = k; break; }
+                        }
+                        if (at >= 0) {
+                            t = cand; onTarget = true;
+                            xi = cand.xi + at;
+                            xf = xi + (toDNA(synthSeq).length || 1);
+                        }
+                    }
+                }
+            } catch (e) { }
+            if (!onTarget) say(' No binding site for ' + rawName + ' on ' + targetGene + ' — loading the compound on its own. ');
+        }
+
+        // ---- 4b) Fallback (and the no-target case): the compound's own target sequence ----
+        if (!t) {
+            const trackSeq = revComp(synthSeq);                            // the TARGET (reverse-complement of the synthesis sequence)
+            try { t = graph.createTrack(trackName, 0, trackSeq.length, 1); } catch (e) { t = new Track(trackName, 0, trackSeq.length, 2, 1); try { graph.addTrack(t); } catch (e2) { } }
+            try { if (t.setSequence) t.setSequence(trackSeq); else t.sequence = trackSeq; } catch (e) { t.sequence = trackSeq; }
+            // Mark this as a clinical-compound track: the renderer suppresses direction arrows,
+            // genomic/cDNA coordinate tags and annotations for this type (see baja/bio/track.js).
+            // A real transcript track must NOT be marked this way — it needs its coordinates.
+            try { t.track_type = 'clincial_compound'; } catch (e) { }
+            xi = t.xi;
+            xf = t.xi + trackSeq.length;
+        }
+
         const yLane = (t.tgraph && t.tgraph.ymax != null) ? (t.tgraph.ymax - 0.2) : ((t.y || 0) + 0.5);
 
         let compoundObj = null;
@@ -139,13 +236,24 @@ function (graph, layout, compound) {
         //         INTO the compound.
         try { graph.setMouseMode('navigate'); } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
-        say(' Loaded ' + trackName + (unknownList.length ? ' (chemistry AI-mapped)' : '') + '. ');
+        say(' Loaded ' + trackName + (onTarget ? (' on ' + targetGene) : '') + (unknownList.length ? ' (chemistry AI-mapped)' : '') + '. ');
         const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
         try {
             await sleep(2000);                                  // wait 2s after loading
             if (graph.viewAllTracks) await graph.viewAllTracks();   // view all
             await sleep(500);
-            if (graph.zoomToTrack) await graph.zoomToTrack(t);      // then zoom into the compound
+            if (onTarget) {
+                // zoomToTrack would frame the whole transcript, which on a real gene leaves the
+                // compound a few pixels wide — zoom to the binding site itself instead.
+                const g = t.tgraph;
+                const xpad = Math.max(4, (xf - xi) * 0.25);
+                const yA = g ? g.yi : 0, yB = g ? (g.yi + (g.height || 0)) : 1;
+                const cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 1, yhalf = span * 1.6;
+                if (graph.zoomRect) await graph.zoomRect(xi - xpad, xf + xpad, cy + yhalf, cy - yhalf, 340);
+                else if (graph.zoomToTrack) await graph.zoomToTrack(t);
+            } else if (graph.zoomToTrack) {
+                await graph.zoomToTrack(t);                     // then zoom into the compound
+            }
             // Magenta landing burst so it's obvious where the compound landed (visible zoomed out).
             try { if (compoundObj && compoundObj.landingBurst) compoundObj.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
         } catch (e) { }
