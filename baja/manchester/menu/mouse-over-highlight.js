@@ -4476,7 +4476,13 @@ function (graph, genegraph_panel_layout) {
             if (__selTrackIndex != null && __selTrackIndex >= 0) {
                 let selectedTrack = graph.track[__selTrackIndex];
                 if (selectedTrack) {
-                    if (!graph.currentShape) graph.deselectAllTracks();
+                    if (!graph.currentShape) {
+                        // Preserve the highlighted SEQUENCE selection (markstart/markend) across the
+                        // deselect — a plain click on a track must NOT drop the selection the user made.
+                        const __savedMarks = (graph.track || []).map((t) => ({ t: t, ms: t.markstart, me: t.markend }));
+                        graph.deselectAllTracks();
+                        for (const m of __savedMarks) { try { m.t.markstart = m.ms; m.t.markend = m.me; } catch (e) { } }
+                    }
                     selectedTrack.select();
 
                     // Oligos / structures under the cursor

@@ -4717,10 +4717,8 @@ return new Promise(async (resolve, reject) => {
                 ctx.closePath();
                 ctx.fill();
 
-                ctx.beginPath();
-                ctx.moveTo(screenStartX + arrowheadLength, yPosition);
-                ctx.lineTo(screenEndX - arrowheadLength, yPosition);
-                ctx.stroke();
+                // Arrow HEADS only — no connecting line body (the heads mark the selection ends,
+                // and each can be grabbed to resize the selection).
                 ctx.restore();
 
                 drawString(
