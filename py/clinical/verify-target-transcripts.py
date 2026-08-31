@@ -129,6 +129,36 @@ def canonical_transcript(host, gene_id):
     return t or None
 
 
+def gene_transcripts(host, gene_id, limit=8):
+    """Every transcript of a gene, longest genomic span first.
+
+    A pre-mRNA index hit is keyed by GENE and its offset is relative to the gene's full
+    span, but gene-lookup returns only the CANONICAL transcript — whose span can stop short
+    of the site. C9orf72/tadnersen is exactly that: the site sits ~307 nt from the gene's 5'
+    end (minus strand, so genomic ~27,573,588) while canonical ENST00000380003 ends at
+    27,573,481, 107 nt short. Longest-span-first because a wider transcript is more likely
+    to reach the site.
+    """
+    url = host.rstrip("/") + "/ensembl/lookup/" + urllib.parse.quote(gene_id) + "?expand=1"
+    try:
+        d = get_json(url)
+    except Exception:
+        return []
+    ts = d.get("Transcript") or []
+    rows = []
+    for t in ts:
+        tid = str(t.get("id") or "").strip()
+        if not tid:
+            continue
+        try:
+            span = int(t.get("end", 0)) - int(t.get("start", 0))
+        except Exception:
+            span = 0
+        rows.append((span, tid))
+    rows.sort(reverse=True)
+    return [tid for _, tid in rows[:limit]]
+
+
 def fetch_cdna(host, tid):
     """Spliced cDNA for a transcript, as raw text.
 
@@ -188,6 +218,13 @@ def main():
                 candidates.append(ct)
                 if not resolved_from:
                     resolved_from = gid
+            # The canonical transcript may not span the site — add the gene's other
+            # transcripts behind it so the candidate loop can find one that does.
+            for t2 in gene_transcripts(args.host, gid):
+                if t2 not in candidates:
+                    candidates.append(t2)
+            if not resolved_from:
+                resolved_from = gid
         if tid and tid not in candidates:
             candidates.append(tid)
         if not candidates:
