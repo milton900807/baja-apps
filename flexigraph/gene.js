@@ -8690,7 +8690,7 @@ pattern, GGGG | Required`
                             child = [
                                 { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
                                 { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                                { label: 'Design ▸', click: () => { close(); try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/tile-oligos-design.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Design ▸', click: () => { close(); try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                 back,
                             ];
                         }
