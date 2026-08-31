@@ -4899,9 +4899,10 @@ function (progress, options) {
                         if (this.select_) {
                             this.startX = xwc;
                         }
-                        if (this.menu && this.menu.mouseDown && this.menuVisible()) {
-                            return this.menu.mouseDown(this.graph, xwc, ywc)
-                        }
+                        // A center (context) menu is open: the press does NOTHING — the item's
+                        // action runs on mouse-UP only. Consume the down so it can't start a
+                        // canvas drag/selection behind the menu.
+                        if (this.menuVisible()) { return; }
                     }
                     if (!this.menu) {
                         this.mouseDown = true;
@@ -4940,21 +4941,27 @@ function (progress, options) {
                         if (this.select_) {
                             this.endX = xwc;
                         }
-                        if (this.side_menu && this.side_menu.isIn(this.graph, xwc, ywc)) {
-                            return;
+                        // These early-returns must NOT fire while a center (context) menu is open:
+                        // it must ALWAYS be closed and resolved on THIS mouse-up (below).
+                        if (!this.menuVisible()) {
+                            if (this.side_menu && this.side_menu.isIn(this.graph, xwc, ywc)) {
+                                return;
+                            }
+                            // A menu was just opened on THIS press (e.g. the selection
+                            // actions menu, shown async) — don't let this up dismiss it.
+                            if (this.__keepSideMenu) { this.__keepSideMenu = false; return; }
                         }
-                        // A menu was just opened on THIS press (e.g. the selection
-                        // actions menu, shown async) — don't let this up dismiss it.
-                        if (this.__keepSideMenu) { this.__keepSideMenu = false; return; }
                         this.side_menu = null;
 
                         if (this.menuVisible()) {
                             // Close the center menu IMMEDIATELY — before running the item's action —
-                            // so it ALWAYS disappears on click, even when the action opens a panel that
-                            // loads before the release is processed or leaves the canvas unrepainted.
-                            // The captured menu still resolves the click and fires the hit item's action.
+                            // so it ALWAYS disappears on the release, even when the action opens a panel
+                            // that loads before the up is processed or leaves the canvas unrepainted.
+                            // The item's action fires ONLY here (Menu has no mouseDown), and the captured
+                            // menu still resolves the click after this.menu has been cleared.
                             const __m = this.menu;
                             this.menu = null;
+                            this.__keepSideMenu = false;
                             try { this.graph.menu = null; } catch (e) { }
                             try { if (this.wake) this.wake(); } catch (e) { }
                             try { await __m.mouseUp(this.graph, xwc, ywc); } catch (e) { }
