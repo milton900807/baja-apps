@@ -27,17 +27,16 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             };
         };
 
-        // ---- chemistry gate: we need a chemistry to actually build the oligo ---
+        // We need a chemistry to actually build the oligo — ensured AFTER the modality pick.
         const hasChem = () => !!(graph.props && graph.props.selected_chemistry);
-        if (!hasChem()) {
-            graph.setMessage(' Select a chemistry first, then click a track to design against. ');
+        const ensureChem = async () => {
+            if (hasChem()) return true;
+            graph.setMessage(' Select a chemistry, then the design will run. ');
             await exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout);
-            // give the user time to pick; poll briefly for a selection
-            for (let i = 0; i < 600 && !hasChem(); i++) {
-                await new Promise((r) => setTimeout(r, 250));
-            }
-            if (!hasChem()) { graph.setMessage(' No chemistry selected — design cancelled. '); resolve(); return; }
-        }
+            for (let i = 0; i < 600 && !hasChem(); i++) { await new Promise((r) => setTimeout(r, 250)); }
+            if (!hasChem()) { graph.setMessage(' No chemistry selected — design cancelled. '); return false; }
+            return true;
+        };
 
         // Derive the design ruleset from the chemistry. A TWO-STRANDED chemistry
         // (one that carries a sense strand) is an siRNA and follows the siRNA
@@ -55,6 +54,75 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
         let selectedTrack = null;
         // Sequence-index offset when designing only across a marked selection.
         let __designOffset = 0;
+
+        // ---- step 1: choose the therapeutic modality (siRNA / Gapmer / Steric) ----
+        const pickModality = () => new Promise((res) => {
+            const choose = (key) => { try { graph.showSideMenu(null); } catch (e) { } res(key); };
+            const menu = [
+                { label: 'siRNA (double-stranded RISC)', move: () => { }, click: () => choose('sirna') },
+                { label: 'Gapmer (RNase-H) ASO', move: () => { }, click: () => choose('gapmer') },
+                { label: 'Steric-blocking ASO', move: () => { }, click: () => choose('steric') },
+                { label: 'Cancel', move: () => { }, click: () => choose(null) },
+            ];
+            try { graph.setMessage(' Choose the therapeutic modality to design. '); } catch (e) { }
+            try { graph.showSideMenu(menu); } catch (e) { res(null); }
+        });
+
+        // ---- step 2: Default / Advanced dialog (mirrors the other designers) -------
+        // Returns { top_n, lengths? } or null if cancelled.
+        const showTileDesignDialog = (modality) => new Promise((res) => {
+            try {
+                const isSirna = modality === 'sirna';
+                const isGapmer = modality === 'gapmer';
+                const title = isSirna ? 'siRNA Design' : (isGapmer ? 'Gapmer ASO Design' : 'Steric-blocking ASO Design');
+                const defLens = isSirna ? '21,22,23' : (isGapmer ? '16,17,18,19,20' : '18,19,20');
+                const old = document.getElementById('baja-tile-design'); if (old && old.parentNode) old.parentNode.removeChild(old);
+                const lbl = 'display:block;font:600 12px Arial;color:#9fb3c8;margin:12px 0 4px;';
+                const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:8px 10px;font:13px Arial;';
+                const panel = document.createElement('div');
+                panel.id = 'baja-tile-design';
+                panel.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:86vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+                panel.innerHTML = ''
+                    + '<div style="font:700 17px Arial;margin-bottom:2px;">' + title + '</div>'
+                    + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">Choose Default, or Advanced to tune the design.</div>'
+                    + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
+                    + '<button id="td-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
+                    + '<button id="td-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
+                    + '</div>'
+                    + '<label style="' + lbl + '">Maximum candidates</label>'
+                    + '<input id="td-topn" type="number" min="1" max="100000" value="500" style="' + inp + '"/>'
+                    + '<div id="td-adv" style="display:none;">'
+                    + '<label style="' + lbl + '">Oligo lengths (nt, comma-separated)</label>'
+                    + '<input id="td-lengths" value="' + defLens + '" style="' + inp + '"/>'
+                    + '</div>'
+                    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
+                    + '<button id="td-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                    + '<button id="td-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
+                    + '</div>';
+                document.body.appendChild(panel);
+                const q = (id) => panel.querySelector(id);
+                const parseList = (s, d) => { try { const a = ('' + s).split(/[,\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0); return a.length ? a : d; } catch (e) { return d; } };
+                let mode = 'default';
+                const setMode = (m) => {
+                    mode = m;
+                    q('#td-adv').style.display = (m === 'advanced') ? 'block' : 'none';
+                    q('#td-default').style.background = (m === 'default') ? '#22c55e' : 'transparent';
+                    q('#td-default').style.color = (m === 'default') ? '#04210f' : '#fff';
+                    q('#td-advanced').style.background = (m === 'advanced') ? '#22c55e' : 'transparent';
+                    q('#td-advanced').style.color = (m === 'advanced') ? '#04210f' : '#fff';
+                };
+                q('#td-default').onclick = () => setMode('default');
+                q('#td-advanced').onclick = () => setMode('advanced');
+                const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+                q('#td-cancel').onclick = () => { close(); res(null); };
+                q('#td-run').onclick = () => {
+                    const topn = Math.max(1, Math.min(100000, parseInt(q('#td-topn').value, 10) || 500));
+                    const params = { top_n: topn };
+                    if (mode === 'advanced') { const ls = parseList(q('#td-lengths').value, null); if (ls) params.lengths = ls; }
+                    close(); res(params);
+                };
+            } catch (e) { res(null); }
+        });
 
         // REQUIRE a selected sequence. Design by rules runs ONLY across a marked selection
         // (markstart..markend) on a track — never the whole track, and never via an interactive
@@ -89,7 +157,7 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const menu = items.map((it) => ({
                 label: it.label + (it.key === recommended ? '   ✓ matches chemistry' : ''),
                 move: () => { },
-                click: () => { graph.showSideMenu(null); runDesign(it.key, x, y); }
+                click: () => { graph.showSideMenu(null); showTileDesignDialog(it.key).then((p) => { if (p) runDesign(it.key, p); else graph.setMessage(' Design cancelled. '); }); }
             }));
             menu.push({ label: 'Cancel', move: () => { }, click: () => { graph.showSideMenu(null); } });
             graph.setMessage(' Choose the design ruleset for ' + (selectedTrack.name || 'this track') + ' ');
@@ -100,25 +168,17 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
         let __lastDropError = null;
 
         // ---- step 2: tile + score + drop all designed oligos onto the track --
-        async function runDesign(ruleset, x, y) {
-            // Ask for the maximum number of oligos to design/place BEFORE doing any work, so the
-            // user bounds the run (the scorer keeps only the top-N candidates by rule score).
-            let maxOligos = 500;
-            try {
-                const vap = await prompt("Maximum number of oligos:", ["Count"], { "Count": 500 }, 500, 300);
-                if (!vap) { graph.setMessage(' Design cancelled. '); return; }   // prompt closed / cancelled
-                const n = Number(vap["Count"]);
-                if (!Number.isFinite(n) || Math.floor(n) < 1) {
-                    graph.setMessage(' Enter a whole number of 1 or more for the maximum — design cancelled. ');
-                    return;
-                }
-                maxOligos = Math.min(100000, Math.floor(n));
-            } catch (e) { }
+        async function runDesign(ruleset, params) {
+            // Maximum candidates + optional lengths come from the Default/Advanced dialog.
+            const maxOligos = Math.max(1, Math.min(100000, (params && params.top_n) ? Math.floor(params.top_n) : 500));
 
             const chemObj = graph.props.selected_chemistry;
             let L = 0;
             try { L = Biopolymer.countBases(chemObj); } catch (e) { L = 0; }
             if (!L || L < 8) L = Rules.DEFAULT_LEN[ruleset] || 20;
+            // Advanced mode can request several lengths; Default uses the single derived length L.
+            const lengths = (params && Array.isArray(params.lengths) && params.lengths.length) ? params.lengths.slice() : [L];
+            const minLen = Math.min.apply(null, lengths);
 
             let seq = String(selectedTrack.sequence);
             // Design ONLY across the SELECTED sequence (the marked region). Never the whole track.
@@ -136,21 +196,27 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
                 const toIdx = (m) => { m = Math.floor(m); return (m >= xi) ? (m - xi) : m; };
                 const ms = Math.max(0, toIdx(selectedTrack.markstart));
                 const me = Math.min(seq.length, toIdx(selectedTrack.markend));
-                if (me - ms < L) {
-                    graph.setMessage(' The selected region is shorter than the oligo length (' + L + ' nt) — select a longer sequence. ');
+                if (me - ms < minLen) {
+                    graph.setMessage(' The selected region is shorter than the oligo length (' + minLen + ' nt) — select a longer sequence. ');
                     return;
                 }
                 seq = seq.substring(ms, me);
                 __designOffset = ms;
             }
-            // Score every position (step 1) up to the 100,000,000 candidate ceiling;
-            // only a sequence longer than that gets subsampled.
-            const span = Math.max(0, seq.length - L);
-            const step = Math.max(1, Math.floor(span / 100000000));
 
             graph.setMessage(' Scoring ' + ruleset + ' candidates over ' + seq.length + ' nt… ');
-            // Design the top-N candidates by rule score (N = the user-supplied maximum).
-            const ranked = Rules.designOligos(seq, { type: ruleset, length: L, step, top: maxOligos });
+            // Design the top-N candidates by rule score across every requested length; each
+            // candidate carries its own length, so the tiling below handles mixed lengths.
+            let ranked = [];
+            for (const len of lengths) {
+                if (seq.length < len) continue;   // selection shorter than this length → skip it
+                const span = Math.max(0, seq.length - len);
+                const step = Math.max(1, Math.floor(span / 100000000));
+                const sub = Rules.designOligos(seq, { type: ruleset, length: len, step, top: maxOligos });
+                if (sub && sub.length) ranked = ranked.concat(sub);
+            }
+            ranked.sort((a, b) => (b.score || 0) - (a.score || 0));
+            if (ranked.length > maxOligos) ranked = ranked.slice(0, maxOligos);
             if (!ranked.length) { graph.setMessage(' No candidates (track sequence shorter than oligo length). '); return; }
 
             // Design has started: hand the mouse back to hover/highlight mode so the user
@@ -282,12 +348,25 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             }
         }
 
-        // A direct target (supplied track, or an already-selected sequence) — design
-        // across it now (respecting its marked region) instead of an interactive pick.
+        // A direct target (supplied track, or an already-selected sequence): FIRST ask the user to
+        // choose the modality (siRNA / Gapmer / Steric), THEN show the Default/Advanced dialog — the
+        // same process as the other designers — and finally tile across the marked region.
         if (__target) {
             selectedTrack = __target;
-            const ruleset = preset || chemTypeToRuleset(graph.props.selected_chemistry);
-            await runDesign(ruleset, 0, 0);
+
+            // Step 1 — modality (skip the picker only if a preset was passed in from the Create menu).
+            const modality = preset || (await pickModality());
+            if (!modality) { graph.setMessage(' Design cancelled. '); resolve(); return; }
+
+            // A chemistry is still required to actually build the compound.
+            if (!(await ensureChem())) { resolve(); return; }
+
+            // Step 2 — Default / Advanced dialog.
+            const params = await showTileDesignDialog(modality);
+            if (!params) { graph.setMessage(' Design cancelled. '); resolve(); return; }
+
+            // Step 3 — design + tile.
+            await runDesign(modality, params);
         }
 
         resolve();
