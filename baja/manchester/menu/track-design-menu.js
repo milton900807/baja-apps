@@ -30,9 +30,10 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
         setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y); }, MENU_OPEN_DELAY_MS);
     };
-    // Called after a design tiles its oligos onto the track: dismiss EVERY on-canvas menu
-    // (side + center) and zoom in to frame the track so the new oligos are visible.
-    const __afterTileFocus = () => {
+    // Called BEFORE a design tiles its oligos onto the track: dismiss EVERY on-canvas menu
+    // (side + center) and zoom in (with margin) to frame the track, so the oligos are then
+    // visibly added onto the framed track with their landing bling.
+    const __focusTrack = () => {
         try { if (graph && graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
         try { if (graph) { graph.menu = null; if (graph.graph) graph.graph.menu = null; } } catch (e) { }
         try {
@@ -42,6 +43,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         } catch (e) { }
         try { if (graph && graph.wake) graph.wake(); } catch (e) { }
     };
+    const __sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
     return (async () => {
         graph.setMessage("Loading chemistry database...");
@@ -186,6 +188,11 @@ function (graph, selectedTrack, genegraph_panel_layout) {
 
                     let r = await exec(str, progress, json_input);
 
+                    // Zoom into the track + clear all menus BEFORE tiling, then let the view settle
+                    // so the siRNAs are seen landing on the framed track.
+                    __focusTrack();
+                    await __sleep(320);
+
                     // siRNA design does NOT touch the buttonMenuPanel — leave it as-is.
 
                     let SIRNA = await exec('flexigraph/sirna.js')
@@ -316,9 +323,6 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         i.xf = i.xi + length
                         selectedTrack.addOligo(i)
                     }
-                    // Tiled onto the track — clear all menus and zoom into the track.
-                    __afterTileFocus();
-
 
                     // showModal({
                     //     wid: 'json',
@@ -384,10 +388,9 @@ function (graph, selectedTrack, genegraph_panel_layout) {
 
                     let r = await exec(str, progress, json_input);
 
-
-
-
-
+                    // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
+                    __focusTrack();
+                    await __sleep(320);
 
                     function normalizedScoreToColor(score) {
                         const s = Number(score ?? 0);
@@ -524,11 +527,17 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         });
 
                         if (track && typeof track.addOligo === "function") {
+                            let __gi = 0;
                             for (const oligo of oligos) {
                                 const length = Math.abs(oligo.xf - oligo.xi)
                                 oligo.xi += track.xi;
                                 oligo.xf = oligo.xi + length
                                 track.addOligo(oligo);
+                                // Bright landing bling, staggered by add order, so each ASO is seen landing.
+                                try {
+                                    const __d = (__gi++) * 120;
+                                    setTimeout(() => { try { if (oligo.landingBurst) oligo.landingBurst('magenta'); else if (oligo.highlight) oligo.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
+                                } catch (e) { }
                             }
                         }
                         return oligos;
@@ -538,8 +547,6 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         y: 0.3,
                         track: selectedTrack
                     });
-                    // Tiled onto the track — clear all menus and zoom into the track.
-                    __afterTileFocus();
 
                     // // Optional:
                     // showModal({
@@ -579,7 +586,9 @@ function (graph, selectedTrack, genegraph_panel_layout) {
 
                     let r = await exec(str, progress, json_input);
 
-
+                    // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
+                    __focusTrack();
+                    await __sleep(320);
 
                     function scoreToColor(score) {
                         if (score >= 40) return "limegreen";
@@ -682,8 +691,14 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         });
 
                         if (track && typeof track.addOligo === "function") {
+                            let __gi = 0;
                             for (const oligo of oligos) {
                                 track.addOligo(oligo);
+                                // Bright landing bling, staggered by add order, so each ASO is seen landing.
+                                try {
+                                    const __d = (__gi++) * 120;
+                                    setTimeout(() => { try { if (oligo.landingBurst) oligo.landingBurst('magenta'); else if (oligo.highlight) oligo.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
+                                } catch (e) { }
                             }
                         }
 
@@ -695,8 +710,6 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                         y: 0.3,
                         track: selectedTrack
                     });
-                    // Tiled onto the track — clear all menus and zoom into the track.
-                    __afterTileFocus();
 
                     // Optional:
                     // showModal({

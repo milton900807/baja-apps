@@ -2985,15 +2985,7 @@ function (path, config) {
                                         }
                                     }
                                 },
-                                {
-                                    // buttonMenuPanel removed — collapsed to an empty slot so its
-                                    // componentRef never registers and every setComponent/clearComponent
-                                    // ('buttonMenuPanel') call is a safe no-op. The loading progress now
-                                    // renders as a thin bar at the top of the page.
-                                    'width': '50%',
-                                    'height': 0,
-                                    'component': { wid: 'html', data: '' }
-                                }], [
+                                ], [
                                 {
                                     'width': '100%',
                                     'height': '100%',
