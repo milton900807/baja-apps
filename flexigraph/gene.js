@@ -4899,6 +4899,13 @@ function (progress, options) {
                         if (this.select_) {
                             this.startX = xwc;
                         }
+                        // Arrow-head drag: a press on a selection arrow head starts resizing THAT edge
+                        // of the selection window (updated in mouseMove, cleared in mouseUp). Consume
+                        // the press so it doesn't also start a new lasso/selection.
+                        try {
+                            const __hit = this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
+                            if (__hit) { this.__dragMark = __hit; this.__downMenuHandled = true; return; }
+                        } catch (e) { }
                         // A center (context) menu is open: the press does NOTHING — the item's
                         // action runs on mouse-UP only. Consume the down so it can't start a
                         // canvas drag/selection behind the menu.
@@ -4932,6 +4939,13 @@ function (progress, options) {
                 this.mouseUpListener = async (xwc, ywc) => {
                     if (!isMobile()) {
                         this.prev = null;
+                        // Finish an arrow-head drag: commit the resized selection.
+                        if (this.__dragMark) {
+                            this.__dragMark = null;
+                            this.__downMenuHandled = false;
+                            try { if (this.wake) this.wake(); } catch (e) { }
+                            return;
+                        }
                         if (this.bookmark_menu && this.showBookmarks) {
                             this.bookmarkMouseUpListener(xwc, ywc);
                         }
@@ -5016,6 +5030,25 @@ function (progress, options) {
                     }
                 }
                 this.mouseMoveListener = (xwc, ywc) => {
+
+                    // Arrow-head drag in progress: move the grabbed edge (start/end) of the selection,
+                    // clamped INSIDE the track, keeping start < end. Nothing else runs this move.
+                    if (this.__dragMark) {
+                        try {
+                            const dm = this.__dragMark, t = dm.track;
+                            if (t && t.grid) {
+                                let v = Math.round(t.grid.Xwc(xwc));
+                                const lo = Math.max(0, Math.floor(t.grid.getxmin ? t.grid.getxmin() : 0));
+                                const hi = Math.floor(t.grid.getxmax ? t.grid.getxmax() : v);
+                                v = Math.max(lo, Math.min(hi, v));
+                                if (dm.edge === 'start') t.markstart = Math.min(v, Math.floor(t.markend) - 1);
+                                else t.markend = Math.max(v, Math.floor(t.markstart) + 1);
+                                try { this.setMessage(' Selection ' + Math.floor(t.markstart) + '–' + Math.floor(t.markend) + ' (' + (Math.floor(t.markend) - Math.floor(t.markstart)) + ' nt) '); } catch (e) { }
+                                if (this.wake) this.wake();
+                            }
+                        } catch (e) { }
+                        return;
+                    }
 
                     this.graph.mousex = xwc
                     // Raw screen coords for the button hover hit-test — pixel-exact at any zoom
@@ -7296,6 +7329,26 @@ pattern, GGGG | Required`
                 if (this.wake) this.wake();
             }
 
+            // Hit-test a SCREEN point against any track's selection arrow heads — the ends of the
+            // orange selected-sequence arrow drawn at grid.Y(-20) (see track-flexi draw). Returns
+            // { track, edge:'start'|'end' } when the point is on a head, else null.
+            __hitSelectionArrow(sx, sy) {
+                try {
+                    const PADX = 16, PADY = 14, HEAD = 15;
+                    for (const t of (this.track || [])) {
+                        if (!t || !t.grid) continue;
+                        if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
+                        const yPos = this.graph.Y(t.grid.Y(-20));
+                        if (Math.abs(sy - yPos) > PADY) continue;
+                        const sxStart = this.graph.X(t.grid.X(Math.floor(t.markstart)));
+                        const sxEnd = this.graph.X(t.grid.X(Math.floor(t.markend)));
+                        // Start head points RIGHT (sxStart..sxStart+HEAD); end head points LEFT.
+                        if (sx >= sxStart - PADX && sx <= sxStart + HEAD + 4) return { track: t, edge: 'start' };
+                        if (sx >= sxEnd - HEAD - 4 && sx <= sxEnd + PADX) return { track: t, edge: 'end' };
+                    }
+                } catch (e) { }
+                return null;
+            }
             menuVisible() {
                 if (this.menu != null) {
                     return true;
