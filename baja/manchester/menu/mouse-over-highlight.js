@@ -3228,6 +3228,83 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
+                            // Data / Models live HERE — this is the Layers menu that actually
+                            // renders (it reaches track_list via ...golist). The other 'Layers'
+                            // entry further down is shadowed by this one.
+                            golist.push({
+                                label: 'Data ▸',
+                                move: () => { },
+                                click: async (sx2, sy2) => {
+                                    showSideMenuDelayed([
+                                        {
+                                            label: 'RNASeq ▸', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
+                                            }
+                                        },
+                                        {
+                                            label: 'RNASeq Library...', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
+                                            }
+                                        },
+                                        {
+                                            label: 'Data Resources...', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                            }
+                                        },
+                                        {
+                                            label: 'My data...', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/data/my-data.js', graph, genegraph_panel_layout);
+                                            }
+                                        },
+                                        {
+                                            label: 'Public data...', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/data/public-data.js', graph, genegraph_panel_layout);
+                                            }
+                                        }
+                                    ], sx2, sy2);
+                                }
+                            });
+
+                            golist.push({
+                                label: 'Models ▸',
+                                move: () => { },
+                                click: async (sx2, sy2) => {
+                                    showSideMenuDelayed([
+                                        {
+                                            label: 'RNA Binding', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
+                                            }
+                                        },
+                                        {
+                                            label: 'Peptide', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                try { graph.setMessage(' Peptide model — coming soon. '); } catch (e) { }
+                                            }
+                                        },
+                                        {
+                                            label: 'Splicing', move: () => { },
+                                            click: async () => {
+                                                graph.showSideMenu(null);
+                                                await exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout);
+                                            }
+                                        }
+                                    ], sx2, sy2);
+                                }
+                            });
+
                             showSideMenuDelayed(golist);
                         }
                     }
