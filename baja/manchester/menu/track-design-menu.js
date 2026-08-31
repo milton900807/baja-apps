@@ -44,6 +44,27 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         try { if (graph && graph.wake) graph.wake(); } catch (e) { }
     };
     const __sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+    // A small working spinner badge in the UPPER-RIGHT (opposite the top button row) shown while
+    // a design runs. Returns a handle with .stop(). Non-blocking (pointer-events:none).
+    const __showSpinner = (label) => {
+        try {
+            const old = document.getElementById('baja-design-spinner'); if (old && old.parentNode) old.parentNode.removeChild(old);
+            if (!document.getElementById('baja-spin-style')) {
+                const st = document.createElement('style'); st.id = 'baja-spin-style';
+                st.textContent = '@keyframes bajaSpin{to{transform:rotate(360deg)}}';
+                (document.head || document.documentElement).appendChild(st);
+            }
+            const wrap = document.createElement('div');
+            wrap.id = 'baja-design-spinner';
+            wrap.style.cssText = 'position:fixed;top:12px;right:14px;z-index:2147483200;display:flex;align-items:center;gap:8px;background:rgba(11,37,69,0.92);color:#e8f0fb;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:7px 12px;font:600 12px Arial;box-shadow:0 8px 26px rgba(0,0,0,0.35);pointer-events:none;';
+            const sp = document.createElement('span');
+            sp.style.cssText = 'width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);border-top-color:#4fd0e6;animation:bajaSpin 0.8s linear infinite;display:inline-block;';
+            wrap.appendChild(sp);
+            const txt = document.createElement('span'); txt.textContent = label || 'Designing…'; wrap.appendChild(txt);
+            (document.body || document.documentElement).appendChild(wrap);
+            return { stop: () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } } };
+        } catch (e) { return { stop: () => { } }; }
+    };
 
     return (async () => {
         graph.setMessage("Loading chemistry database...");
@@ -186,7 +207,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
 
 
-                    let r = await exec(str, progress, json_input);
+                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let the view settle
                     // so the siRNAs are seen landing on the framed track.
@@ -386,7 +407,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "exclude_gap_cleavage_motif_hits": true
                     }
 
-                    let r = await exec(str, progress, json_input);
+                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
                     __focusTrack();
@@ -584,7 +605,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         annotations: [] // optional: populate if you have site annotations
                     };
 
-                    let r = await exec(str, progress, json_input);
+                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
                     __focusTrack();
