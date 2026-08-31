@@ -4649,23 +4649,9 @@ return new Promise(async (resolve, reject) => {
             if (this.markstart != null && this.markend != null && this.markstart >= 0 && this.markend > this.markstart) {
                 let midpoint = this.grid.getymin() + ((this.grid.getymax() - this.grid.getymin()) / 2);
 
-                drawVerticalLine(
-                    ctx,
-                    graph.X(this.grid.X(Math.floor(this.markstart))),
-                    graph.Y(this.grid.Y(this.grid.getymin())),
-                    graph.screenHeight(this.grid.screenHeight((Math.abs(this.grid.getymax() - this.grid.getymin())))),
-                    'lightGray',
-                    4
-                );
-
-                drawVerticalLine(
-                    ctx,
-                    graph.X(this.grid.X(Math.floor(this.markend))),
-                    graph.Y(this.grid.Y(this.grid.getymin())),
-                    graph.screenHeight(this.grid.screenHeight(Math.abs((this.grid.getymax() - this.grid.getymin())))),
-                    'lightGray',
-                    4
-                );
+                // No bracket lines: the selection window is marked by the two orange arrow
+                // heads below the track (drawn further down) and nothing else. Each head is
+                // grabbable to resize that edge — see gene.js __hitSelectionArrow().
 
                 drawString(
                     ctx,

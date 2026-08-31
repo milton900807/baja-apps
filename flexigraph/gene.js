@@ -7335,17 +7335,30 @@ pattern, GGGG | Required`
             __hitSelectionArrow(sx, sy) {
                 try {
                     const PADX = 16, PADY = 14, HEAD = 15;
+                    let best = null, bestD = Infinity;
                     for (const t of (this.track || [])) {
                         if (!t || !t.grid) continue;
                         if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
                         const yPos = this.graph.Y(t.grid.Y(-20));
                         if (Math.abs(sy - yPos) > PADY) continue;
+                        // Mirror exactly what track-flexi.js draws: both heads point OUTWARD, the
+                        // start head spanning [sxStart, sxStart+HEAD] and the end head
+                        // [sxEnd-HEAD, sxEnd]. markend is used unfloored, as in the draw.
                         const sxStart = this.graph.X(t.grid.X(Math.floor(t.markstart)));
-                        const sxEnd = this.graph.X(t.grid.X(Math.floor(t.markend)));
-                        // Start head points RIGHT (sxStart..sxStart+HEAD); end head points LEFT.
-                        if (sx >= sxStart - PADX && sx <= sxStart + HEAD + 4) return { track: t, edge: 'start' };
-                        if (sx >= sxEnd - HEAD - 4 && sx <= sxEnd + PADX) return { track: t, edge: 'end' };
+                        const sxEnd = this.graph.X(t.grid.X(t.markend));
+                        // Nearest head wins: on a short selection the two hit boxes overlap, and
+                        // taking the closer one lets you still grab the edge you pointed at
+                        // (the old order-dependent test always handed back 'start').
+                        if (sx >= sxStart - PADX && sx <= sxStart + HEAD + PADX) {
+                            const d = Math.abs(sx - (sxStart + HEAD / 2));
+                            if (d < bestD) { bestD = d; best = { track: t, edge: 'start' }; }
+                        }
+                        if (sx >= sxEnd - HEAD - PADX && sx <= sxEnd + PADX) {
+                            const d = Math.abs(sx - (sxEnd - HEAD / 2));
+                            if (d < bestD) { bestD = d; best = { track: t, edge: 'end' }; }
+                        }
                     }
+                    return best;
                 } catch (e) { }
                 return null;
             }
@@ -9708,7 +9721,20 @@ pattern, GGGG | Required`
                     if (style) {
                         const mode = this.graph?.mode;
 
-                        if (mode === 'navigate') {
+                        // A selection arrow head under the pointer (or one being dragged) reads
+                        // as a resize handle, whatever the current mouse mode is.
+                        let __overMark = !!this.__dragMark;
+                        if (!__overMark) {
+                            try {
+                                const __ms = this.graph.__moveScreen;
+                                if (__ms && Number.isFinite(__ms.x) && Number.isFinite(__ms.y)) {
+                                    __overMark = !!this.__hitSelectionArrow(__ms.x, __ms.y);
+                                }
+                            } catch (e) { }
+                        }
+                        if (__overMark) {
+                            style.cursor = 'col-resize';
+                        } else if (mode === 'navigate') {
                             style.cursor = 'grab';
                         } else if (mode === 'select') {
                             style.cursor = 'context-menu';
