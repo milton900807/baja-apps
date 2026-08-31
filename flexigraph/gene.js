@@ -9097,12 +9097,29 @@ pattern, GGGG | Required`
                     // own menu (the one that used to pop up on click, built in
                     // mouse-over-highlight.js and stashed on the selection entry).
                     if (k === 'track') {
-                        const picks = sel.filter((s) => s.kind === 'track' && s.trackMenu);
+                        // Match the info-panel Tracks child menu: selecting a track centers + selects
+                        // it and opens its OWN menu — the stashed track menu (Design ▸ / Layers ▸ /
+                        // Variants ▸ / …) when present, else a Layers/Variants/Design fallback.
+                        const picks = sel.filter((s) => s.kind === 'track');
                         const openOne = (p) => {
-                            const list = (p.trackMenu || []).concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]);
-                            // Narrow columns + the track name as an external chip (see showSideMenu).
-                            try { list.__compactCols = true; list.__menuTitle = (p.label || (p.track && p.track.name) || 'Track'); } catch (e) { }
-                            show(list);
+                            const t = p.track || p.ref;
+                            try { if (t && this.zoomToTrack) this.zoomToTrack(t, 0.15); else if (t && this.goToTrack) this.goToTrack(t); } catch (e) { }
+                            try { if (t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { }
+                            const back = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
+                            let child;
+                            if (p.trackMenu && p.trackMenu.length) {
+                                child = p.trackMenu.concat([back]);
+                            } else {
+                                const L = this.genegraph_panel_layout;
+                                child = [
+                                    { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                    { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    { label: 'Design ▸', click: () => { close(); try { if (t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    back,
+                                ];
+                            }
+                            try { child.__compactCols = true; child.__menuTitle = (p.label || (t && t.name) || 'Track'); } catch (e) { }
+                            show(child);
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
                         if (picks.length > 1) { showTypePicker(picks, 'track', openOne, []); return; }
@@ -9975,7 +9992,7 @@ pattern, GGGG | Required`
                         const n = (this.track && this.track.length) || 0;
                         if (!this.__selHintShown && n >= 1 && this.__prevTrackCount === 0) {
                             this.__selHintShown = true;
-                            this.__selHintUntil = Date.now() + 10000;
+                            this.__selHintUntil = Date.now() + 3000;
                             this.__selHintTimer = setInterval(() => {
                                 if (this.wake) this.wake();
                                 if (!this.__selHintUntil || Date.now() >= this.__selHintUntil) {
