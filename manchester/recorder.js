@@ -220,37 +220,47 @@ function (graph, layout) {
                 break;
             }
         };
+        // Wrap each item's click in a menu list so a selection records a semantic `menuclick`
+        // (by LABEL) and drops the fragile raw canvas tap that selected it. Idempotent per item.
+        const wrapListItems = (list, menuType) => {
+            try {
+                if (!Array.isArray(list)) return;
+                for (const item of list) {
+                    if (item && typeof item.click === 'function' && !item.__recWrapped) {
+                        const origClick = item.click;
+                        const lbl = ('' + (item.label || item.name || '')).trim();
+                        item.click = function () {
+                            try { popTrailingTap(); push({ cmd: 'menuclick', menu: menuType, label: lbl }); } catch (e) { }
+                            const __r = origClick.apply(this, arguments);
+                            // Make sure the CENTER menu is dismissed after an item runs (any
+                            // submenu the action opens via showMenu appears ~300ms later).
+                            if (menuType === 'center') { try { graph.menu = null; if (graph.graph) graph.graph.menu = null; if (graph.wake) graph.wake(); } catch (e) { } }
+                            return __r;
+                        };
+                        item.__recWrapped = true;
+                    }
+                }
+            } catch (e) { }
+        };
         const wrapMenu = (methodName, menuType) => {
             try {
                 const orig = graph[methodName];
                 if (typeof orig !== 'function') return;
                 rec['orig_' + methodName] = orig;
                 graph[methodName] = function (list) {
-                    try {
-                        if (Array.isArray(list)) {
-                            for (const item of list) {
-                                if (item && typeof item.click === 'function' && !item.__recWrapped) {
-                                    const origClick = item.click;
-                                    const lbl = ('' + (item.label || item.name || '')).trim();
-                                    item.click = function () {
-                                        try { popTrailingTap(); push({ cmd: 'menuclick', menu: menuType, label: lbl }); } catch (e) { }
-                                        const __r = origClick.apply(this, arguments);
-                                        // Make sure the CENTER menu is dismissed after an item runs (any
-                                        // submenu the action opens via showMenu appears ~300ms later).
-                                        if (menuType === 'center') { try { graph.menu = null; if (graph.graph) graph.graph.menu = null; if (graph.wake) graph.wake(); } catch (e) { } }
-                                        return __r;
-                                    };
-                                    item.__recWrapped = true;
-                                }
-                            }
-                        }
-                    } catch (e) { }
+                    try { wrapListItems(list, menuType); } catch (e) { }
                     return orig.apply(this, arguments);
                 };
             } catch (e) { }
         };
         wrapMenu('showMenu', 'center');
         wrapMenu('showSideMenu', 'side');
+        // A shape/gene CONTEXT menu is assigned straight to graph.menu (gene.js: this.menu =
+        // ct.createMenu()) on hover — it never goes through graph.showMenu, so wrapMenu can't see
+        // it. Wrap whatever center menu is open right before the press that selects an item, so the
+        // click still records a label-based `menuclick` instead of a canvas-fraction tap (which
+        // lands on the wrong item once the menu is re-centered at a different size on replay).
+        const wrapOpenCenterMenu = () => { try { const m = graph.menu; if (m && Array.isArray(m.list)) wrapListItems(m.list, 'center'); } catch (e) { } };
 
         // ---- 2) Canvas input capture ------------------------------------------------------
         // Canvas events carry BOTH the canvas-fraction (fx,fy — legacy/fallback) and the world
@@ -266,7 +276,7 @@ function (graph, layout) {
         // (canvasClient), which INCLUDES the canvas's current Y position (below the header + top
         // buttons). DOM interactions stay in full-window coords (their locator carries wx,wy).
         const canvasFields = (e) => { const f = fracOf(e); return { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) }; };
-        const onDown = (e) => { try { if (!isCanvas(e && e.target)) return; rec.dragging = true; push(Object.assign({ cmd: 'event', type: 'down' }, canvasFields(e))); } catch (er) { } };
+        const onDown = (e) => { try { if (!isCanvas(e && e.target)) return; wrapOpenCenterMenu(); rec.dragging = true; push(Object.assign({ cmd: 'event', type: 'down' }, canvasFields(e))); } catch (er) { } };
         const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; push(Object.assign({ cmd: 'event', type: 'move', extra: 1 }, canvasFields(e))); } catch (er) { } };
         const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } const onCanvas = isCanvas(e && e.target); const wasDragging = rec.dragging; rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } if (!onCanvas && !wasDragging) return; push(Object.assign({ cmd: 'event', type: 'up' }, canvasFields(e))); } catch (er) { } };
         const onWheel = (e) => { try { if (!isCanvas(e && e.target)) return; push(Object.assign({ cmd: 'event', type: 'wheel', extra: Math.round(e.deltaY || 0) }, canvasFields(e))); } catch (er) { } };
