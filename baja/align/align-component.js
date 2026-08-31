@@ -749,7 +749,7 @@ function () {
                             fasta = fasta.trim();
                             if (t.strand < 0) {
                                 let temp = '';
-                                for (let c = fasta.length - 1; c > 0; c--) {
+                                for (let c = fasta.length - 1; c >= 0; c--) {   // >= 0: c > 0 dropped fasta[0], leaving the minus-strand sequence one base short
                                     temp += fasta[c]
                                 }
                                 t.setSequence(temp)
