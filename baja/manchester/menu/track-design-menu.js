@@ -37,7 +37,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         try { if (graph) { graph.menu = null; if (graph.graph) graph.graph.menu = null; } } catch (e) { }
         try {
             const t = selectedTrack;
-            if (t && graph.zoomToTrack) graph.zoomToTrack(t);
+            if (t && graph.zoomToTrack) graph.zoomToTrack(t, 0.15);   // generous margin around the track
             else if (t && graph.goToTrack) graph.goToTrack(t);
         } catch (e) { }
         try { if (graph && graph.wake) graph.wake(); } catch (e) { }

@@ -7280,15 +7280,18 @@ pattern, GGGG | Required`
             // Zoom the viewport to a single track so its box sits centered in the canvas.
             // The zoom rect is symmetric about the track's center in x (xi + width/2) and
             // y (its two edges yi and yi+height), so the track lands in the middle.
-            async zoomToTrack(t) {
+            async zoomToTrack(t, padFrac) {
                 if (!t || !t.tgraph) return;
                 const g = t.tgraph;
-                const xpad = Math.max(50, g.width * 0.05);
+                // Horizontal margin as a fraction of the track width (default 5%); callers can
+                // request more breathing room around the framed track.
+                const pf = (padFrac != null && isFinite(padFrac)) ? padFrac : 0.05;
+                const xpad = Math.max(50, g.width * pf);
                 const yA = g.yi;
                 const yB = g.yi + (g.height || 0);
                 const cy = (yA + yB) / 2;                  // vertical center of the track box
                 const span = Math.abs(yB - yA) || 1;
-                const yhalf = span * 1.5;                  // track box + margin, kept symmetric
+                const yhalf = span * (1.5 + pf * 3);       // track box + margin, kept symmetric
                 try { await this.zoomRect(g.xi - xpad, g.xi + g.width + xpad, cy + yhalf, cy - yhalf, 150); } catch (e) { }
                 if (this.wake) this.wake();
             }
