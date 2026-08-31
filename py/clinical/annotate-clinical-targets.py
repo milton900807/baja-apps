@@ -104,6 +104,7 @@ def main():
             continue
 
         symbols, premrna, cdna, matched = [], 0, 0, 0
+        transcripts, gene_ids = [], []      # accessions that actually carry the binding site
         for q in (res.get("oligoQuery") or []):
             hits = q.get("offtarget") or []
             if hits:
@@ -112,15 +113,32 @@ def main():
                 sym = (h or {}).get("symbol")
                 if sym and sym not in symbols:
                     symbols.append(sym)
-                acc = str((h or {}).get("chr") or "")
+                # Accessions come back versioned (ENST00000237014.8); /transcript wants the
+                # bare stable id.
+                acc = str((h or {}).get("chr") or "").split(".")[0]
                 if acc.startswith("ENSG"):
                     premrna += 1
+                    if acc not in gene_ids:
+                        gene_ids.append(acc)
                 elif acc.startswith("ENST"):
                     cdna += 1
+                    if acc not in transcripts:
+                        transcripts.append(acc)
 
         if symbols:
             found += 1
             c["target_symbols"] = symbols
+            # The transcript to LOAD. Taking it straight from the hit means the loaded
+            # transcript is one that provably carries the binding site, and removes the
+            # per-click symbol -> transcript LLM round trip (prompt-to-transcript.py) that
+            # the realtime path would otherwise make.
+            c["target_transcripts"] = transcripts
+            c["target_gene_ids"] = gene_ids
+            if transcripts:
+                c["target_transcript"] = transcripts[0]
+            elif gene_ids:
+                # pre-mRNA-only hit: the gene id is the only accession carrying the site
+                c["target_transcript"] = gene_ids[0]
             c["target_evidence"] = {
                 "edit_distance": 0,
                 "datasets": GENOMES,
@@ -132,8 +150,9 @@ def main():
             # Never overwrite a curated target_gene — only fill a blank one.
             if not str(c.get("target_gene") or "").strip():
                 c["target_gene"] = symbols[0]
-            print("%3d/%d  %-24s %-22s premrna=%-4d cdna=%-4d" %
-                  (i, len(todo), cid, ",".join(symbols[:3]), premrna, cdna), flush=True)
+            print("%3d/%d  %-24s %-22s premrna=%-4d cdna=%-4d %s" %
+                  (i, len(todo), cid, ",".join(symbols[:3]), premrna, cdna,
+                   c.get("target_transcript", "-")), flush=True)
         else:
             missing += 1
             print("%3d/%d  %-24s no exact target" % (i, len(todo), cid), flush=True)

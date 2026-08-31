@@ -128,7 +128,21 @@ function (graph, layout, compound) {
                 const seq = toDNA(x.sequence);
                 let at = -1;
                 for (const pat of pats) { const k = seq.indexOf(pat); if (k >= 0) { at = k; break; } }
-                if (at < 0) continue;
+                // Same stored-offset fallback as the freshly-loaded path, but only for a track
+                // that NAMES the gene — an offset from another transcript is meaningless on an
+                // unrelated track that merely happens to be loaded.
+                if (at < 0) {
+                    const namesGene = [x.name, x.geneID, x.description].some((v) => {
+                        const h = ('' + (v || '')).toUpperCase();
+                        return h === g || h.split(/[^A-Z0-9]+/).indexOf(g) >= 0;
+                    });
+                    const stored = +compound.target_site;
+                    if (namesGene && Number.isFinite(stored) && stored >= 0
+                        && stored + toDNA(synthSeq).length <= seq.length) {
+                        named = named || { track: x, at: stored };
+                    }
+                    continue;
+                }
                 // Word-split rather than a built regex: a symbol can carry characters that would
                 // otherwise need escaping.
                 const isNamed = [x.name, x.geneID, x.description].some((v) => {
@@ -153,7 +167,13 @@ function (graph, layout, compound) {
         }
         if (targetGene && !onTarget) {
             try {
-                let id = targetGene;
+                // Prefer the PRECOMPUTED transcript. It is taken from the accession that
+                // actually carried the binding site and is checked against the server's local
+                // reference ahead of time (py/clinical/verify-target-transcripts.py), so the
+                // click path needs no lookup at all. The resolver below stays only as a
+                // fallback for a compound annotated before the index existed — it calls out
+                // to the Anthropic API and is exactly the realtime failure this avoids.
+                let id = ('' + (compound.target_transcript || '')).trim() || targetGene;
                 const TX_RE = /^(ENS[A-Z]*T\d|N[MR]_|X[MR]_)/i;
                 if (!TX_RE.test(id)) {
                     say(' Resolving ' + targetGene + ' → transcript… ');
@@ -183,6 +203,18 @@ function (graph, layout, compound) {
                             if (!pat) continue;
                             const k = tseq.indexOf(pat);
                             if (k >= 0) { at = k; break; }
+                        }
+                        // No exact site on this isoform. verify-target-transcripts.py already
+                        // located it by widening the edit distance and stored the offset, so use
+                        // that rather than leaving the compound unplaceable. Bounds-checked in
+                        // case the served sequence has moved since the index was built.
+                        if (at < 0 && Number.isFinite(+compound.target_site)) {
+                            const stored = +compound.target_site;
+                            if (stored >= 0 && stored + toDNA(synthSeq).length <= tseq.length) {
+                                at = stored;
+                                const mm = +compound.target_site_mismatches || 0;
+                                if (mm) say(' Binding site for ' + rawName + ' on ' + targetGene + ' has ' + mm + (mm === 1 ? ' mismatch' : ' mismatches') + '. ');
+                            }
                         }
                         if (at >= 0) {
                             t = cand; onTarget = true;
