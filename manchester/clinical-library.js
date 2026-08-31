@@ -84,12 +84,24 @@ function (graph, layout) {
             let __sym = __tg;
             if (!__sym && __tn) { const __m = __tn.match(/\(([A-Za-z0-9][A-Za-z0-9-]{1,7})\)/); if (__m) __sym = __m[1]; }
             const target = __sym || __tn;
+            // A target carrying target_evidence was found by exact-matching the compound's own
+            // sequence against the human pre-mRNA / cDNA indexes at edit distance 0 (see
+            // py/clinical/annotate-clinical-targets.py), so it is a match rather than a label.
+            const __ev = c.target_evidence;
+            const __exact = !!(__ev && +__ev.total_hits > 0);
             const phase = (c.max_phase != null && c.max_phase !== '') ? ('Phase ' + (c.max_phase >= 4 ? '4 (approved)' : c.max_phase)) : '';
             const len = c.total_length_nt ? (c.total_length_nt + ' nt') : '';
             const sub = c.aso_subtype || c.architecture || (c.chemistry_summary || '').split(';')[0] || '';
+            // Trials for this compound, searched by intervention name — the same source the
+            // manifest's trial counts come from (src/fetch_ctgov.py).
+            const trialsUrl = 'https://clinicaltrials.gov/search?intr=' + encodeURIComponent(c.name || c.compound_id || '');
 
-            const card = document.createElement('button');
-            card.type = 'button';
+            // A div rather than a button: the spine carries an <a> out to ClinicalTrials.gov,
+            // and an anchor cannot legally live inside a button. role/tabindex + the key handler
+            // below keep it keyboard-operable exactly as the button was.
+            const card = document.createElement('div');
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
             // Stable recorder id so record/replay resolves this exact book deterministically (by
             // data-rec), not by brittle text/position that shifts as the grid reflows on search/filter.
             try { card.setAttribute('data-rec', 'clinical-compound:' + ('' + (c.compound_id || c.name || ''))); } catch (e) { }
@@ -101,12 +113,24 @@ function (graph, layout) {
                 + '<div style="flex:1;position:relative;background:linear-gradient(135deg,' + mod.color + ' 0%, rgba(0,0,0,0.35) 140%);padding:14px 14px 10px 16px;border-left:5px solid rgba(255,255,255,0.35);">'
                 + '<div style="position:absolute;top:10px;right:10px;font:700 10px Arial;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.3);border-radius:999px;padding:3px 8px;">' + esc(mod.badge) + '</div>'
                 + '<div style="font:800 15px/1.2 Georgia,\'Times New Roman\',serif;margin-top:26px;word-break:break-word;">' + esc(name) + '</div>'
-                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.95);margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><span style="color:rgba(255,255,255,0.65);font-weight:700;">Target&nbsp;</span>' + esc(target) + '</div>' : '')
+                + (target ? '<div style="font:12px Arial;color:rgba(255,255,255,0.95);margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><span style="color:rgba(255,255,255,0.65);font-weight:700;">Target&nbsp;</span>' + esc(target)
+                    + (__exact ? '<span title="Exact (edit distance 0) match in the human pre-mRNA / cDNA index" style="margin-left:6px;border-radius:999px;padding:1px 6px;font:700 9.5px Arial;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.35);">exact</span>' : '')
+                    + '</div>' : '')
                 + '</div>'
                 + '<div style="flex:0 0 auto;background:#0b2545;padding:9px 12px;border-top:1px solid rgba(255,255,255,0.12);">'
                 + '<div style="font:11px Arial;color:#cfe0ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(sub || mod.key) + '</div>'
-                + '<div style="font:10.5px Arial;color:#8fb8c8;margin-top:3px;display:flex;justify-content:space-between;gap:8px;"><span>' + esc(len) + '</span><span>' + esc(phase) + '</span></div>'
+                + '<div style="font:10.5px Arial;color:#8fb8c8;margin-top:3px;display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>' + esc(len) + '</span><span>' + esc(phase) + '</span>'
+                + '<a class="cl-trials" href="' + esc(trialsUrl) + '" target="_blank" rel="noopener noreferrer" title="Open trials for ' + esc(name) + ' on ClinicalTrials.gov" style="color:#4fd0e6;text-decoration:none;font:700 10.5px Arial;white-space:nowrap;">trials&nbsp;↗</a>'
+                + '</div>'
                 + '</div>';
+            // The spine link must not also load the compound.
+            try {
+                const a = card.querySelector('.cl-trials');
+                if (a) a.addEventListener('click', (e) => { e.stopPropagation(); });
+            } catch (e) { }
+            card.onkeydown = (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.onclick(); }
+            };
             card.onclick = () => {
                 close();
                 try { graph.setCenterMessage && graph.setCenterMessage('Loading ' + name + '…'); } catch (e) { }
@@ -124,7 +148,7 @@ function (graph, layout) {
             for (const c of list) {
                 if (activeModality !== 'All' && modalityOf(c).key !== activeModality) continue;
                 if (q) {
-                    const hay = [c.name, c.compound_id, c.target_gene, c.target_name, c.modality, c.indications, c.aso_subtype, c.architecture].join(' ').toLowerCase();
+                    const hay = [c.name, c.compound_id, c.target_gene, c.target_name, (c.target_symbols || []).join(' '), c.modality, c.indications, c.aso_subtype, c.architecture].join(' ').toLowerCase();
                     if (hay.indexOf(q) < 0) continue;
                 }
                 shelf.appendChild(bookCard(c));
