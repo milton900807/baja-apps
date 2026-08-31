@@ -3140,6 +3140,44 @@ function (path, config) {
 
                 }, 5000)
 
+                // ---- Mouse-over highlight is the RESTING state of the canvas ----------------
+                // Hover highlight should be on whenever nothing else owns the canvas. Tools
+                // routinely finish with a bare graph.clearMouseListeners() and don't always put
+                // the mode back to 'navigate', and setMouseMode only schedules a re-arm for
+                // 'navigate' — so the canvas could sit dead until the user happened to click.
+                // This watchdog restores it.
+                //
+                // "Owns the canvas" = any canvas listener installed. That alone covers an active
+                // tool, because a tool that is mid-interaction always has listeners. The extra
+                // guards below cover selection flows that must NOT be interrupted:
+                //   • graph.select_        — a selection drag is in progress (selectOn/selectOff)
+                //   • mode 'lasso'         — lasso selecting (gene.js setMouseMode('lasso'))
+                //   • mode 'msg:…'         — a tool is prompting the user for a click/drag
+                //   • an open menu / side menu
+                try {
+                    if (graph.__hoverWatchdog) clearInterval(graph.__hoverWatchdog);
+                    graph.__hoverWatchdog = setInterval(() => {
+                        try {
+                            if (!graph || !graph.graph) return;
+                            const mode = '' + (graph.graph.mode || '');
+                            if (graph.select_) return;                       // selecting a sequence
+                            if (mode === 'lasso') return;                    // lasso selecting
+                            if (/^msg/i.test(mode)) return;                  // a tool is prompting
+                            if (graph.side_menu) return;
+                            try { if (graph.menuVisible && graph.menuVisible()) return; } catch (e) { }
+                            const idle = (graph.mouseDownListeners || []).length === 0
+                                && (graph.mouseMoveListeners || []).length === 0
+                                && (graph.mouseUpListeners || []).length === 0;
+                            if (!idle) return;                               // a tool owns the canvas
+                            if (graph.__hoverRearming) return;               // a re-arm is already in flight
+                            graph.__hoverRearming = true;
+                            setTimeout(() => { graph.__hoverRearming = false; }, 300);
+                            if (typeof graph.__hoverRearm === 'function') graph.__hoverRearm();
+                            else exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                        } catch (e) { }
+                    }, 1200);
+                } catch (e) { }
+
                 if (config && config.ensemblList != null) {
                     for (let ensembl of ensemblList)
                         graph.add(ensembl)
