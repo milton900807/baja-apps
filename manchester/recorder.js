@@ -449,6 +449,18 @@ function (graph, layout) {
             try { if (rec.coordEl && rec.coordEl.parentNode) rec.coordEl.parentNode.removeChild(rec.coordEl); } catch (e) { }
             const text = rec.buildScript();
             showScriptPanel(text);
+            // Debug aid: download the gene-graph state AT STOP, to compare against the state after
+            // playback (see manchester/demo.js) — e.g. to diagnose a Y-direction drift.
+            try {
+                Promise.resolve((typeof graph.getState === 'function') ? graph.getState() : null).then((s) => {
+                    if (s == null) return;
+                    const blob = new Blob(['' + s], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = 'record-state-stop.json';
+                    document.body.appendChild(a); a.click();
+                    setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
+                }).catch(() => { });
+            } catch (e) { }
             try { window.__bajaRecorder = null; } catch (e) { }
         };
         stopBtn.onclick = () => { try { rec.stop(); } catch (e) { } };

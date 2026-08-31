@@ -952,6 +952,20 @@ function (script, config) {
         }
         try { removeCursor(); } catch (e) { }
 
+        // Debug aid: download the gene-graph state at the END of playback (BEFORE restoring the
+        // original state), to diff against the record-stop state (see recorder.js) — e.g. to
+        // diagnose a Y-direction drift.
+        try {
+            Promise.resolve((typeof graph.getState === 'function') ? graph.getState() : null).then((s) => {
+                if (s == null) return;
+                const blob = new Blob(['' + s], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'playback-state-done.json';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 150);
+            }).catch(() => { });
+        } catch (e) { }
+
         // ---- 6) Return to the original state ------------------------------------------------
         // Drop any tracks the demo added, revert the oligo lists on the tracks that existed
         // before, close any demo-opened overlays/menus, and restore the camera.
