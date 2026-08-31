@@ -149,20 +149,38 @@ function (path, config) {
                 try { __newsMsgs = JSON.parse(__nr.messages) || []; } catch (e) { __newsMsgs = []; }
             } catch (e) { __newsMsgs = []; }
 
+            // Thin loading progress bar at the very top of the page, sitting behind the top
+            // component buttons (replaces the old full-screen progress widget + newspaper). A fixed
+            // 3px bar whose fill tracks 0→100%, then fades out and removes itself.
             let progressBar;
-            let w = {
-                wid: 'progress',
-                componentRef: 'progressBar',
-                data: {
-                    'progress': 1,
-                    'showNews': true,
-                    'news': __newsMsgs,
-                    'progressBar': createIonFunction((progessBar) => {
-                        progressBar = progessBar;
-                    })
-                }
+            {
+                let __pbWrap = null, __pbFill = null;
+                const __ensurePb = () => {
+                    try {
+                        if (__pbWrap && __pbWrap.isConnected) return true;
+                        __pbWrap = document.createElement('div');
+                        __pbWrap.id = 'baja-load-progress';
+                        __pbWrap.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:3px;z-index:2;pointer-events:none;background:rgba(1,28,60,0.10);transition:opacity .5s ease;';
+                        __pbFill = document.createElement('div');
+                        __pbFill.style.cssText = 'height:100%;width:0%;background:linear-gradient(90deg,#4fd0e6,#1aa3bd,#0a2540);box-shadow:0 0 6px rgba(47,111,235,0.55);transition:width .25s ease;';
+                        __pbWrap.appendChild(__pbFill);
+                        (document.body || document.documentElement).appendChild(__pbWrap);
+                        return true;
+                    } catch (e) { return false; }
+                };
+                progressBar = (pct) => {
+                    try {
+                        const p = Math.max(0, Math.min(100, +pct || 0));
+                        if (!__ensurePb()) return;
+                        __pbFill.style.width = p + '%';
+                        if (p >= 100) {
+                            const wref = __pbWrap;
+                            setTimeout(() => { try { wref.style.opacity = '0'; } catch (e) { } }, 250);
+                            setTimeout(() => { try { if (wref && wref.parentNode) wref.parentNode.removeChild(wref); if (__pbWrap === wref) { __pbWrap = null; __pbFill = null; } } catch (e) { } }, 900);
+                        }
+                    } catch (e) { }
+                };
             }
-            await showWidget(w)
             progressBar(0);
             path = decodeURIComponent(path)
             let obs = path;
@@ -2968,9 +2986,13 @@ function (path, config) {
                                     }
                                 },
                                 {
+                                    // buttonMenuPanel removed — collapsed to an empty slot so its
+                                    // componentRef never registers and every setComponent/clearComponent
+                                    // ('buttonMenuPanel') call is a safe no-op. The loading progress now
+                                    // renders as a thin bar at the top of the page.
                                     'width': '50%',
-                                    'height': 100,
-                                    'component': buttonMenuPanel
+                                    'height': 0,
+                                    'component': { wid: 'html', data: '' }
                                 }], [
                                 {
                                     'width': '100%',
