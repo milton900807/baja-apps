@@ -358,15 +358,15 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
             const modality = preset || (await pickModality());
             if (!modality) { graph.setMessage(' Design cancelled. '); resolve(); return; }
 
-            // A chemistry is still required to actually build the compound.
-            if (!(await ensureChem())) { resolve(); return; }
-
-            // Step 2 — Default / Advanced dialog.
-            const params = await showTileDesignDialog(modality);
-            if (!params) { graph.setMessage(' Design cancelled. '); resolve(); return; }
-
-            // Step 3 — design + tile.
-            await runDesign(modality, params);
+            // Step 2 — hand off to the PY-BASED designer for that modality (track-design-menu.js),
+            // which runs its own Default/Advanced dialog + py design (py/sirna/design.py,
+            // py/ssaso/design.py). Select the whole track + sequence first so it operates on it.
+            try { if (selectedTrack.selectTrackAndSeq) selectedTrack.selectTrackAndSeq(); } catch (e) { }
+            try {
+                await exec('baja/manchester/menu/track-design-menu.js', graph, selectedTrack, genegraph_panel_layout, modality);
+            } catch (e) {
+                try { graph.setMessage(' Could not open the ' + modality + ' designer. '); } catch (e2) { }
+            }
         }
 
         resolve();

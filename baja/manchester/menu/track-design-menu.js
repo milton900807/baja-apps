@@ -1,4 +1,4 @@
-function (graph, selectedTrack, genegraph_panel_layout) {
+function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
     // Standalone "Design ▸" menu for a single track — Primer probes ▸ | Therapeutics ▸ |
     // Off-targets | Clinical Library. Extracted verbatim from the track menu in
@@ -719,6 +719,19 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 }
             },
         ];
+
+        // Preset modality (e.g. from the tile-oligos entry): skip the Design menu and open that
+        // therapeutic designer directly — its own Default/Advanced dialog + py design run from here.
+        if (presetModality) {
+            const __k = ('' + presetModality).toLowerCase();
+            const __idx = (__k.indexOf('sirna') >= 0 || __k.indexOf('si-rna') >= 0) ? 0
+                : (__k.indexOf('gap') >= 0 ? 1
+                    : (__k.indexOf('steric') >= 0 ? 2 : -1));
+            if (__idx >= 0 && therapeutics[__idx] && typeof therapeutics[__idx].click === 'function') {
+                try { await therapeutics[__idx].click(); } catch (e) { }
+                return;
+            }
+        }
 
         const offTargetsItem = {
             label: "Off-targets",
