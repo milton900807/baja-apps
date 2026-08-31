@@ -275,18 +275,28 @@ function (graph, layout) {
         // so the click's Y is relative to the canvas — playback maps it back through the canvas rect
         // (canvasClient), which INCLUDES the canvas's current Y position (below the header + top
         // buttons). DOM interactions stay in full-window coords (their locator carries wx,wy).
-        // Record BOTH the canvas fraction (fx,fy — fallback) and the WORLD coords (wx,wy). On-canvas
-        // menu items are hit-tested in world space — menu.mouseUp(graph, xwc, ywc) — and the shape
-        // context menus are anchored to their shape's world position, so replaying at the recorded
-        // world coord (canvasClient prefers wx,wy) lands on the same item regardless of viewport size.
+        // Record every canvas mouse event in SCREEN coordinates — the pointer's window fraction
+        // (sx = clientX/innerWidth, sy = clientY/innerHeight) — so playback dispatches a real event
+        // at the SAME on-screen point, exactly like the live interaction. fx,fy (canvas fraction)
+        // and wx,wy (world) are kept as fallbacks for older recordings / size-independent replay.
         const canvasFields = (e) => {
             const f = fracOf(e);
             const out = { fx: +f.fx.toFixed(4), fy: +f.fy.toFixed(4) };
+            try { const iw = window.innerWidth || 1, ih = window.innerHeight || 1; out.sx = +((e.clientX) / iw).toFixed(5); out.sy = +((e.clientY) / ih).toFixed(5); } catch (er) { }
             try { const w = worldOf(e); if (w && isFinite(w.wx) && isFinite(w.wy)) { out.wx = +(+w.wx).toFixed(4); out.wy = +(+w.wy).toFixed(4); } } catch (er) { }
             return out;
         };
         const onDown = (e) => { try { if (!isCanvas(e && e.target)) return; wrapOpenCenterMenu(); rec.dragging = true; push(Object.assign({ cmd: 'event', type: 'down' }, canvasFields(e))); } catch (er) { } };
-        const onMove = (e) => { try { if (!rec.dragging) return; const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t; push(Object.assign({ cmd: 'event', type: 'move', extra: 1 }, canvasFields(e))); } catch (er) { } };
+        // Record moves for BOTH hovers (over the canvas) and drags (anywhere while a button is down),
+        // throttled — hover moves reproduce hover-triggered UI (shape context menus, highlights).
+        const onMove = (e) => {
+            try {
+                const onCanvas = isCanvas(e && e.target);
+                if (!onCanvas && !rec.dragging) return;      // ignore hovers that aren't over the canvas
+                const t = now(); if (t - rec.moveThrottle < 45) return; rec.moveThrottle = t;
+                push(Object.assign({ cmd: 'event', type: 'move', extra: rec.dragging ? 1 : 0 }, canvasFields(e)));
+            } catch (er) { }
+        };
         const onUp = (e) => { try { if (e) { if (e.__bajaRecUp) return; try { e.__bajaRecUp = true; } catch (_) { } } const onCanvas = isCanvas(e && e.target); const wasDragging = rec.dragging; rec.dragging = false; if (rec.skipNextUp) { rec.skipNextUp = false; return; } if (!onCanvas && !wasDragging) return; push(Object.assign({ cmd: 'event', type: 'up' }, canvasFields(e))); } catch (er) { } };
         const onWheel = (e) => { try { if (!isCanvas(e && e.target)) return; push(Object.assign({ cmd: 'event', type: 'wheel', extra: Math.round(e.deltaY || 0) }, canvasFields(e))); } catch (er) { } };
         rec.canvasListeners = [['mousedown', onDown], ['mousemove', onMove], ['mouseup', onUp], ['wheel', onWheel]];
