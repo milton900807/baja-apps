@@ -47,14 +47,23 @@ function (graph, genegraph_panel_layout) {
             + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
 
         const nTracks = (graph.track || []).length;
+        // Say up front where a click will land — a selection silently narrowing the load is
+        // worse than no narrowing at all.
+        let __scopeText = 'all ' + nTracks + ' track' + (nTracks === 1 ? '' : 's') + ' on the board';
+        try {
+            const __marked = (graph.getMarkSelectedTracks() || []).filter((t) => t && t.chr != null);
+            const __sel = (graph.getSelectedTracks() || []).filter((t) => t && t.chr != null);
+            if (__marked.length) __scopeText = 'the selected sequence on ' + __marked.length + ' track' + (__marked.length === 1 ? '' : 's');
+            else if (__sel.length) __scopeText = __sel.length + ' selected track' + (__sel.length === 1 ? '' : 's');
+        } catch (e) { }
         const header = document.createElement('div');
         header.style.cssText = 'flex:0 0 auto;padding:16px 22px;background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
             + 'display:flex;align-items:center;gap:16px;box-shadow:0 6px 20px rgba(0,0,0,0.35);';
         header.innerHTML = ''
             + '<div style="display:flex;flex-direction:column;gap:2px;">'
             + '<div style="font:700 19px Arial;">RNASeq Library</div>'
-            + '<div style="font:12.5px Arial;color:#9fb3c8;">' + datasets.length + ' dataset(s) — click one to load it onto all '
-            + nTracks + ' track' + (nTracks === 1 ? '' : 's') + ' on the board</div>'
+            + '<div style="font:12.5px Arial;color:#9fb3c8;">' + datasets.length + ' dataset(s) — click one to load it onto '
+            + esc(__scopeText) + '</div>'
             + '</div>'
             + '<input id="rl-search" placeholder="Search species, tissue, file…" style="flex:1;max-width:420px;margin-left:auto;'
             + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:9px 16px;font:13px Arial;"/>'
@@ -104,12 +113,43 @@ function (graph, genegraph_panel_layout) {
         }
         paintChips();
 
-        // ---- Load one dataset onto EVERY track ------------------------------------------
+        // ---- Which tracks, and over what span? ------------------------------------------
+        // Selection narrows the load, in this order:
+        //   1. a SEQUENCE selection (markstart/markend) — those tracks, over that span only
+        //   2. SELECTED tracks — those tracks, full length
+        //   3. nothing selected — every track, full length
+        // Returns [{track, start, end}], plus a label describing what was chosen.
+        const loadTargets = () => {
+            const all = (graph.track || []).filter((t) => t && t.chr !== undefined && t.chr !== null);
+            let marked = [];
+            try { marked = (graph.getMarkSelectedTracks() || []).filter((t) => all.indexOf(t) >= 0); } catch (e) { marked = []; }
+            if (marked.length) {
+                return {
+                    scope: 'the selected sequence',
+                    items: marked.map((t) => {
+                        // Clamp the selection to the track so a drag past either end can't
+                        // ask the bigwig reader for coordinates the track does not cover.
+                        const a = Math.max(t.xi, Math.min(t.xf, Math.floor(t.markstart)));
+                        const b = Math.min(t.xf, Math.max(t.xi, Math.ceil(t.markend)));
+                        return { track: t, start: Math.min(a, b), end: Math.max(a, b) };
+                    }).filter((r) => r.end > r.start)
+                };
+            }
+            let sel = [];
+            try { sel = (graph.getSelectedTracks() || []).filter((t) => all.indexOf(t) >= 0); } catch (e) { sel = []; }
+            if (sel.length) {
+                return { scope: 'the selected track' + (sel.length === 1 ? '' : 's'), items: sel.map((t) => ({ track: t, start: t.xi, end: t.xf })) };
+            }
+            return { scope: 'all tracks', items: all.map((t) => ({ track: t, start: t.xi, end: t.xf })) };
+        };
+
+        // ---- Load one dataset onto the chosen tracks/spans --------------------------------
         const loadOntoAllTracks = async (d) => {
-            const tracks = (graph.track || []).filter((t) => t && t.chr !== undefined && t.chr !== null);
-            const skipped = (graph.track || []).length - tracks.length;
-            if (!tracks.length) {
-                status.textContent = 'No track on the board has a chromosome defined — nothing to load ' + d.label + ' onto.';
+            const chosen = loadTargets();
+            const items = chosen.items;
+            const skipped = (graph.track || []).length - items.length;
+            if (!items.length) {
+                status.textContent = 'Nothing to load ' + d.label + ' onto — no track with a chromosome is selected or on the board.';
                 return;
             }
             close();
@@ -118,21 +158,26 @@ function (graph, genegraph_panel_layout) {
             catch (e) { try { graph.setMessage(' Could not load the layer type: ' + e + ' '); } catch (e2) { } return; }
 
             let done = 0, failed = 0;
-            for (const t of tracks) {
-                try { graph.setMessage(' ⠋ ' + d.label + ' → ' + (t.name || 'track') + ' (' + (done + 1) + '/' + tracks.length + ')… '); } catch (e) { }
+            for (const it of items) {
+                const t = it.track, start = it.start, end = it.end;
+                try { graph.setMessage(' ⠋ ' + d.label + ' → ' + (t.name || 'track') + ' (' + (done + 1) + '/' + items.length + ')… '); } catch (e) { }
                 try {
                     const em = new EngineMonitor((msg) => { try { log(msg); } catch (e) { } });
-                    const res = await exec('py/baja/bigwig/view-bigwig.py', em, d.path, t.xi, t.xf, t.chr);
+                    // Only the selected span is read, so a narrow selection is a small query.
+                    const res = await exec('py/baja/bigwig/view-bigwig.py', em, d.path, start, end, t.chr);
                     const rv = JSON.parse(res.values);
-                    const layer = new TrackLayer(d.label, t.xi, 0, t.xf, 1);
+                    // Name the layer with the span when it is not the whole track, so several
+                    // selections of the same dataset stay distinguishable.
+                    const nm = (start > t.xi || end < t.xf) ? (d.label + ' [' + start + '-' + end + ']') : d.label;
+                    const layer = new TrackLayer(nm, start, 0, end, 1);
                     let max_exp = rv.reduce((max, tuple) => Math.max(max, tuple[1]), -Infinity);
                     if (!max_exp || !isFinite(max_exp)) max_exp = 1.0;
-                    layer.addPolygonPoint(t.xi, 0);
+                    layer.addPolygonPoint(start, 0);
                     for (const v of rv) {
                         if (!v || !isFinite(v[1])) continue;
                         layer.addPolygonPoint(v[0], v[1] / max_exp);
                     }
-                    layer.addPolygonPoint(t.xf, 0);
+                    layer.addPolygonPoint(end, 0);
                     layer.sortPolygonPoints();
                     t.addLayer(layer);
                     done++;
@@ -144,8 +189,9 @@ function (graph, genegraph_panel_layout) {
             }
             try {
                 graph.setMessage(' Added ' + d.label + ' to ' + done + ' track' + (done === 1 ? '' : 's')
+                    + ' (' + chosen.scope + ')'
                     + (failed ? (' — ' + failed + ' failed') : '')
-                    + (skipped ? (' — ' + skipped + ' skipped (no chromosome)') : '') + '. ');
+                    + (skipped > 0 ? (' — ' + skipped + ' not included') : '') + '. ');
             } catch (e) { }
             if (graph.wake) graph.wake();
             restoreHover();

@@ -3237,21 +3237,14 @@ function (graph, genegraph_panel_layout) {
                                 click: async (sx2, sy2) => {
                                     showSideMenuDelayed([
                                         {
-                                            label: 'RNASeq ▸', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
-                                            }
-                                        },
-                                        {
-                                            label: 'RNASeq Library...', move: () => { },
+                                            label: 'RNASeq Library ▸', move: () => { },
                                             click: async () => {
                                                 graph.showSideMenu(null);
                                                 await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
                                             }
                                         },
                                         {
-                                            label: 'Data Resources...', move: () => { },
+                                            label: 'Other Resources...', move: () => { },
                                             click: async () => {
                                                 graph.showSideMenu(null);
                                                 await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
@@ -3306,6 +3299,56 @@ function (graph, genegraph_panel_layout) {
                             });
 
                             showSideMenuDelayed(golist);
+                        }
+                    },
+                    {
+                        // Sequence-specific operations for THIS track. Everything here acts on
+                        // the current selection (markstart/markend) when there is one and on the
+                        // whole track otherwise, so the same item does the obvious thing either
+                        // way. Lives on golist because that is the list that actually renders.
+                        label: 'Sequence ▸',
+                        move: () => { },
+                        click: async (scx, scy) => {
+                            const t = selectedTrack;
+                            const hasSel = !!(t && t.markstart >= 0 && t.markend > t.markstart);
+                            const spanLabel = hasSel ? 'selection' : 'whole track';
+                            const dna = (x) => ('' + (x || '')).toUpperCase().replace(/U/g, 'T').replace(/[^ACGTN]/g, '');
+                            const seqOf = () => {
+                                try {
+                                    if (hasSel && t.getSequenceRange) return dna(t.getSequenceRange(t.markstart, t.markend));
+                                    return dna(t.sequence);
+                                } catch (e) { return ''; }
+                            };
+                            const copy = async (txt, what) => {
+                                try {
+                                    if (navigator.clipboard) await navigator.clipboard.writeText(txt);
+                                    graph.setMessage(' Copied ' + what + ' (' + txt.length + ' nt). ');
+                                } catch (e) { try { graph.setMessage(' Could not copy: ' + e + ' '); } catch (e2) { } }
+                            };
+                            const revComp = (x) => x.split('').reverse().map((b) => ({ A: 'T', T: 'A', G: 'C', C: 'G' }[b] || 'N')).join('');
+                            const go = (label, fn) => ({ label: label, move: () => { }, click: async () => { graph.showSideMenu(null); try { await fn(); } catch (e) { try { graph.setMessage(' ' + label + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } } } });
+
+                            showSideMenuDelayed([
+                                go('Details (' + spanLabel + ')...', async () => exec('baja/manchester/menu/show-selected-sequence-details.js', selectedTrack, graph, genegraph_panel_layout)),
+                                go('Select sequence range...', async () => exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true)),
+                                go('Selected-sequence tools...', async () => exec('baja/manchester/menu/selected-sequence-tools.js', graph, genegraph_panel_layout, selectedTrack)),
+                                go('Find motif...', async () => exec('baja/manchester/menu/motif-tools.js', graph)),
+                                go('Translate / ORF...', async () => exec('baja/manchester/menu/translate-track.js', graph)),
+                                go('Edit sequence...', async () => exec('baja/manchester/menu/edit-track-sequence.js', graph, genegraph_panel_layout)),
+                                go('Mutate from sequence...', async () => exec('baja/manchester/menu/mutation-from-track-sequence.js', graph, genegraph_panel_layout, true)),
+                                go('Match exons', async () => exec('baja/manchester/menu/sequence-exons-match.js', graph)),
+                                go('Match introns', async () => exec('baja/manchester/menu/sequence-introns-match.js', graph)),
+                                go('Copy sequence (' + spanLabel + ')', async () => copy(seqOf(), spanLabel + ' sequence')),
+                                go('Copy reverse complement', async () => copy(revComp(seqOf()), 'reverse complement')),
+                                go('Composition (GC%)', async () => {
+                                    const q = seqOf();
+                                    if (!q.length) { graph.setMessage(' No sequence on this track. '); return; }
+                                    const gc = (q.match(/[GC]/g) || []).length;
+                                    const n = (q.match(/N/g) || []).length;
+                                    graph.setMessage(' ' + spanLabel + ': ' + q.length + ' nt — GC ' + ((gc / q.length) * 100).toFixed(1) + '%'
+                                        + (n ? (' — ' + n + ' N') : '') + '. ');
+                                })
+                            ], scx, scy);
                         }
                     }
 
@@ -4495,10 +4538,10 @@ function (graph, genegraph_panel_layout) {
                 // Mark the top-level items that open a SUBMENU with ▸ (Compounds ▸ / Variants ▸
                 // already carry it) so every submenu reads consistently; orderMenu then groups them
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
-                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Go to...': 1, 'Go to': 1 };
+                const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸', 'Synthesis cost',
+                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
