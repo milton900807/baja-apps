@@ -4069,6 +4069,15 @@ function (graph, genegraph_panel_layout) {
                         move: () => { }
                     },
                     {
+                        label: 'Synthesis cost',
+                        click: async () => {
+                            // What the compounds on this track cost to make, priced per
+                            // 78-well plate at 250 nmol.
+                            await exec('baja/manchester/menu/synthesis-cost.js', graph, selectedTrack, genegraph_panel_layout);
+                        },
+                        move: () => { }
+                    },
+                    {
                         label: 'Layers',
                         click: async (scx, scy) => {
 
@@ -4412,7 +4421,7 @@ function (graph, genegraph_panel_layout) {
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
                 const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
-                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸',
+                    'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
                 const __ti = (m) => { const k = __trackItemLabels.indexOf(('' + m.label).trim()); return k < 0 ? 999 : k; };
