@@ -94,8 +94,13 @@ function (opts) {
                     + '</div>'
                     + '<div style="font:700 15px Arial;color:#eaf6f9;">' + esc(b.title) + '</div>'
                     + '<div style="font:12px/1.55 Arial;color:#9fb3c8;">' + esc(b.blurb || '') + '</div>';
-                if (ready && typeof b.open === 'function') {
+                if (ready) {
                     card.onclick = async () => {
+                        // A book WITH docs opens its reference view first; the action is then an
+                        // explicit choice there. Without docs the card runs the action directly,
+                        // so shelves that predate this are unaffected.
+                        if (b.docs) { showDetail(b); return; }
+                        if (typeof b.open !== 'function') return;
                         close();
                         try { await b.open(); }
                         catch (e) {
@@ -106,6 +111,71 @@ function (opts) {
                 shelf.appendChild(card);
             }
         };
+        // ---- Maximised reference view for one book -------------------------------------
+        // Fills the same overlay rather than swapping the mainPanel component: the editor
+        // canvas underneath is never unmounted, so closing is just showing the shelf again and
+        // the editor is exactly as it was left.
+        const showDetail = (b) => {
+            const d = b.docs || {};
+            const links = Array.isArray(d.links) ? d.links : [];
+            shelf.style.display = 'none';
+            let pane = document.getElementById(id + '-detail');
+            if (pane && pane.parentNode) pane.parentNode.removeChild(pane);
+            pane = document.createElement('div');
+            pane.id = id + '-detail';
+            pane.style.cssText = 'flex:1 1 auto;overflow:auto;padding:26px 30px;';
+            pane.innerHTML = ''
+                + '<div style="max-width:900px;">'
+                + (b.badge ? ('<span style="display:inline-block;border-radius:999px;padding:3px 10px;font:700 11px Arial;'
+                    + 'background:rgba(18,194,224,0.16);color:#4fd0e6;margin-bottom:8px;">' + esc(b.badge) + '</span>') : '')
+                + '<div style="font:800 24px Arial;color:#eaf6f9;margin-bottom:10px;">' + esc(b.title) + '</div>'
+                + '<div style="font:14px/1.7 Arial;color:#cfe6ee;margin-bottom:18px;">' + esc(d.summary || b.blurb || '') + '</div>'
+                + (d.provenance ? ('<div style="margin-bottom:14px;padding:12px 14px;background:rgba(18,194,224,0.08);'
+                    + 'border-left:3px solid #4fd0e6;border-radius:6px;font:13px/1.65 Arial;color:#cfe6ee;">'
+                    + '<b style="color:#4fd0e6;">Where it comes from.</b> ' + esc(d.provenance) + '</div>') : '')
+                + (d.usage ? ('<div style="margin-bottom:18px;padding:12px 14px;background:rgba(255,255,255,0.05);'
+                    + 'border-left:3px solid rgba(255,255,255,0.28);border-radius:6px;font:13px/1.65 Arial;color:#cfe6ee;">'
+                    + '<b>On the track.</b> ' + esc(d.usage) + '</div>') : '')
+                + (links.length ? ('<div style="font:700 12px Arial;color:#4fd0e6;margin:20px 0 8px;">Documentation &amp; references</div>'
+                    + links.map((l) => '<a href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer" '
+                        + 'style="display:block;text-decoration:none;background:#0b2545;border:1px solid rgba(255,255,255,0.14);'
+                        + 'border-radius:10px;padding:12px 14px;margin-bottom:9px;">'
+                        + '<div style="font:700 13.5px Arial;color:#eaf6f9;">' + esc(l.title) + ' <span style="color:#4fd0e6;">\u2197</span></div>'
+                        + (l.note ? ('<div style="font:12px/1.5 Arial;color:#9fb3c8;margin-top:3px;">' + esc(l.note) + '</div>') : '')
+                        + '<div style="font:11.5px Arial;color:#7f97a6;margin-top:4px;word-break:break-all;">' + esc(l.url) + '</div>'
+                        + '</a>').join('')) : '')
+                + '<div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">'
+                + (typeof b.open === 'function' ? ('<button id="shelf-load" style="cursor:pointer;border-radius:9px;'
+                    + 'padding:11px 18px;font:700 13.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">'
+                    + 'Load this data</button>') : '')
+                + '<button id="shelf-back" style="cursor:pointer;border-radius:9px;padding:11px 18px;'
+                + 'font:700 13.5px Arial;border:1px solid rgba(255,255,255,0.28);background:transparent;color:#e8f0fb;">'
+                + '\u2039 Back to the library</button>'
+                + '<button id="shelf-done" style="cursor:pointer;border-radius:9px;padding:11px 18px;'
+                + 'font:700 13.5px Arial;border:1px solid rgba(255,255,255,0.28);background:transparent;color:#e8f0fb;">'
+                + 'Close \u2192 editor</button>'
+                + '</div>'
+                + '</div>';
+            overlay.appendChild(pane);
+
+            const back = () => {
+                try { if (pane.parentNode) pane.parentNode.removeChild(pane); } catch (e) { }
+                shelf.style.display = '';
+            };
+            try { pane.querySelector('#shelf-back').onclick = back; } catch (e) { }
+            try { pane.querySelector('#shelf-done').onclick = () => close(); } catch (e) { }
+            try {
+                const lb = pane.querySelector('#shelf-load');
+                if (lb) lb.onclick = async () => {
+                    close();
+                    try { await b.open(); }
+                    catch (e) {
+                        try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                    }
+                };
+            } catch (e) { }
+        };
+
         q.oninput = render;
         render();
         try { q.focus(); } catch (e) { }
