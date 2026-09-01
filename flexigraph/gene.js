@@ -7126,7 +7126,7 @@ pattern, GGGG | Required`
                     });
                     // Preserve the marker properties menus hang off the array itself.
                     try {
-                        for (const k of ['__menuTitle', '__compactCols', '__noCollapse']) {
+                        for (const k of ['__menuTitle', '__compactCols', '__noCollapse', '__fromSelection']) {
                             if (list[k] !== undefined) out[k] = list[k];
                         }
                     } catch (e) { }
@@ -7324,12 +7324,40 @@ pattern, GGGG | Required`
                         // pill (see menu.js draw()), so the full-screen mobile menu only opens
                         // once the user taps it.
                         if (!(list && list.__noCollapse)) {
-                            // The chip needs a label. Fall back to the first item's text, then a
-                            // generic one, so a menu without __menuTitle still reads as something.
-                            if (!this.side_menu.title) {
+                            // The chip advertises WHAT IS INSIDE by naming the submenus, joined
+                            // with a pipe and closed with '...' — "Layers | Data | Models ..." —
+                            // rather than a single word that says nothing about the contents.
+                            // Only items carrying the ▸ marker are listed, since those are the
+                            // ones that lead somewhere; leaf actions would make the pill long
+                            // without making it more informative.
+                            const pillLabel = () => {
+                                let subs = [];
+                                try {
+                                    subs = safeList
+                                        .map((it) => ('' + ((it && it.label) || '')).trim())
+                                        .filter((l) => /[▸►]/.test(l))
+                                        .map((l) => l.replace(/\s*[▸►]\s*$/, '').trim())
+                                        .filter((l) => l.length);
+                                } catch (e) { subs = []; }
+                                if (subs.length) {
+                                    let out = subs.join(' | ');
+                                    // Keep the pill to a sane width: drop trailing names until it
+                                    // fits, but never lose the first one.
+                                    const MAX = 46;
+                                    while (subs.length > 1 && out.length > MAX) {
+                                        subs.pop();
+                                        out = subs.join(' | ');
+                                    }
+                                    return out + ' ...';
+                                }
+                                // No submenus — fall back to the first item, then a generic name,
+                                // so a leaf-only menu still reads as something.
                                 let t0 = '';
                                 try { t0 = ('' + ((safeList[0] && safeList[0].label) || '')).replace(/\s*[▸►]\s*$/, '').trim(); } catch (e) { }
-                                this.side_menu.title = t0 ? (t0.length > 22 ? (t0.slice(0, 21) + '…') : t0) : 'Menu';
+                                return t0 ? (t0.length > 22 ? (t0.slice(0, 21) + '…') : t0) : 'Menu';
+                            };
+                            if (!this.side_menu.title) {
+                                this.side_menu.title = pillLabel();
                                 this.side_menu.externalTitle = false;
                             }
                             this.side_menu.collapsible = true;
@@ -8860,6 +8888,30 @@ pattern, GGGG | Required`
                         ctx.fillStyle = TXT_MUTED;
                         ctx.fillText('+' + (distinct.length - maxItems) + ' more…', lX + lpadX, ry2);
                     }
+
+                    // While a menu OPENED FROM THIS BOX is showing, blur the box itself. The menu
+                    // is the box's contents expanded, so leaving both sharp reads as two competing
+                    // panels; blurring the source makes the menu clearly the thing to look at and
+                    // still shows what it came from. Only when the menu is EXPANDED — the
+                    // collapsed pill obscures nothing, so blurring behind it would be noise.
+                    try {
+                        const m = this.side_menu;
+                        const fromSel = !!(m && m.list && m.list.__fromSelection
+                            && !(m.collapsible && m.collapsed));
+                        if (fromSel) {
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(lX, lY, lW, lH);
+                            ctx.clip();
+                            // Blur the region by redrawing that slice of the canvas onto itself.
+                            ctx.filter = 'blur(3px)';
+                            ctx.drawImage(ctx.canvas, lX, lY, lW, lH, lX, lY, lW, lH);
+                            ctx.filter = 'none';
+                            ctx.fillStyle = 'rgba(8,22,38,0.30)';
+                            ctx.fillRect(lX, lY, lW, lH);
+                            ctx.restore();
+                        }
+                    } catch (e) { }
                 }
 
                 ctx.restore();
@@ -9339,7 +9391,12 @@ pattern, GGGG | Required`
                 if (!sel.length) return;
                 const close = () => { try { this.showSideMenu(null); } catch (e) { } };
                 const anchor = () => (this.__selPanelBounds ? { x: this.__selPanelBounds.x, aboveY: this.__selPanelBounds.y } : undefined);
-                const show = (list) => { const a = anchor(); if (a) this.showSideMenu(list, a); else this.showSideMenu(list); };
+                const show = (list) => {
+                    // Mark the list so the selection card can blur itself while this is open.
+                    try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
+                    const a = anchor();
+                    if (a) this.showSideMenu(list, a); else this.showSideMenu(list);
+                };
 
                 const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Amplicons', layer: 'Layer items' };
                 const kindsPresent = [];
@@ -9472,7 +9529,7 @@ pattern, GGGG | Required`
                         const picks = sel.filter((s) => s.kind === 'track');
                         const openOne = (p) => {
                             const t = p.track || p.ref;
-                            try { if (t && this.zoomToTrack) this.zoomToTrack(t, 0.15); else if (t && this.goToTrack) this.goToTrack(t); } catch (e) { }
+                            // try { if (t && this.zoomToTrack) this.zoomToTrack(t, 0.15); else if (t && this.goToTrack) this.goToTrack(t); } catch (e) { }
                             try { if (t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { }
                             const back = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
                             let child;
@@ -9630,7 +9687,7 @@ pattern, GGGG | Required`
                     const menu = [];
                     // Make it unmistakable that this menu acts on the SELECTED items only
                     // (not everything on the canvas).
-                    menu.push({ label: '— Selected items only (' + sel.length + ') —', header: true, click: () => { }, move: () => { } });
+                    menu.push({ label: 'Selected  (' + sel.length + ') —', header: true, click: () => { }, move: () => { } });
                     for (const k of kindsPresent) {
                         const count = sel.filter((s) => s.kind === k).length;
                         const kl = kindLabels[k] || k;
