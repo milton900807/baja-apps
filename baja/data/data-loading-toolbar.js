@@ -27,16 +27,20 @@ function (graph, genegraph_panel_layout) {
     const asoBase = {
         key: 'aso_sirna_gt',
         label: 'ASO / siRNA / gene therapy',
-        // Dedicated ASO/siRNA/gene-therapy index + packed metadata, built by the pipeline in
+        // Dedicated ASO/siRNA/gene-therapy index, built by the pipeline in
         // py/sequence/patent-pipeline (see its README) and deployed to /bd/. `assignees` is the
-        // metadata TSV whose packed label (number‖title‖date‖assignee‖inventors) read-bed-region.py
-        // joins in — bed-hits.js renders it on-zoom.
-        assignees: '/bd/aso_sirna_gt_2020_2026_meta.tsv',
+        // metadata TSV read-bed-region.py joins in — bed-hits.js renders it on-zoom. The
+        // deployed TSV is still the plain 'US<number> <assignee>' label, so the callout shows
+        // one Patent line; rerun stage 4 for the packed
+        // number‖title‖date‖assignee‖inventors form and point this at the _meta.tsv it writes.
+        assignees: '/bd/aso_sirna_gt_assignees.tsv',
         color: 'rgba(160,80,160,0.55)',
         noun: 'ASO/siRNA/gene-therapy hit',
     };
     const asoYears = [
-        { year: '2020–2026', bed: '/bd/aso_sirna_gt_2020_2026_hg38_transcript_hits.bed.gz' },
+        // The dated file the pipeline is meant to emit does not exist yet, so this maps to
+        // the current un-dated index, as the comment above always claimed it did.
+        { year: '2020–2026', bed: '/bd/aso_sirna_gt_hg38_transcript_hits.bed.gz' },
     ];
 
     const ipItems = [
