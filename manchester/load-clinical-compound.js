@@ -306,31 +306,71 @@ function (graph, layout, compound) {
         try { if (graph.wake) graph.wake(); } catch (e) { }
         say(' Loaded ' + trackName + (onTarget ? (' on ' + targetGene) : '') + (unknownList.length ? ' (chemistry AI-mapped)' : '') + '. ');
         const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+        // zoomRect() CANCELS and returns immediately when graph.animating is set, so firing it
+        // a fixed delay after viewAllTracks() silently did nothing whenever that animation was
+        // still running. Wait for the graph to go idle instead of guessing at a delay.
+        const settle = async (budget) => {
+            const t0 = Date.now();
+            while (graph.animating && (Date.now() - t0) < budget) await sleep(60);
+            await sleep(90);
+        };
         try {
-            await sleep(2000);                                  // wait 2s after loading
-            if (graph.viewAllTracks) await graph.viewAllTracks();   // view all
-            await sleep(500);
-            // zoomRect/animateTo take GRAPH-world coordinates, but xi/xf are TRACK-world
-            // (t.xi + offset). Passing them straight through sent the camera to wherever those
-            // numbers happen to land in graph space — off in the white. t.tgraph.X() is the
-            // track-world -> graph-world map; the Y band is derived the same way zoomToTrack
-            // does it, which is the only in-tree example of framing a track correctly.
-            const __ti = (graph.track || []).indexOf(t);
-            const __g = t && t.tgraph;
-            if (__g && typeof __g.X === 'function') {
-                const gx0 = __g.X(xi), gx1 = __g.X(xf);
-                if (isFinite(gx0) && isFinite(gx1)) {
-                    const pad = Math.max(Math.abs(gx1 - gx0) * 0.35, 1e-6);
-                    const yBand = __g.yi + (__g.height || 0);
-                    if (onTarget && graph.zoomRect) {
-                        await graph.zoomRect(gx0 - pad, gx1 + pad, yBand - 0.5, yBand + 0.5, 340);
-                    } else if (graph.zoomToTrack && __ti >= 0) {
-                        // zoomToTrack takes a track INDEX, not the track object.
-                        await graph.zoomToTrack(__ti, xi, xf);
-                    }
+            // Let the compound actually land on the track before framing anything.
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            await sleep(400);
+            await settle(4000);
+
+            if (graph.viewAllTracks) await graph.viewAllTracks();   // establish context
+            await settle(4000);
+
+            // Then zoom INTO the compound. No zoomToTrack — that frames the whole transcript,
+            // which on a real gene leaves the compound sub-pixel and the sequence unreadable.
+            const g = t && t.tgraph;
+            if (g && typeof g.X === 'function') {
+                const L = Math.max(1, Math.abs(xf - xi));
+                const mid = (xi + xf) / 2;
+                // The track draws its sequence letters only above ~30 screen px per base
+                // (screencell in track-flexi.js). Pick a span that keeps us above that so the
+                // target sequence AND the compound's own residues are legible at the end.
+                let cw = 1200;
+                try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || 1200; } catch (e) { }
+                const lettersCap = Math.max(8, Math.floor(cw / 34));
+                let visible = L + 10;                       // ~5 bases of context either side
+                if (lettersCap > L) visible = Math.min(visible, lettersCap);
+                visible = Math.max(visible, L + 2);         // never clip the compound itself
+                const half = visible / 2;
+
+                const gx0 = g.X(mid - half), gx1 = g.X(mid + half);
+
+                // Contract the view VERTICALLY until the track stands about TARGET_TRACK_PX
+                // tall on screen, so the compound and the sequence under it are both readable.
+                // Screen px per graph-world unit is canvasHeight / ySpan, so to land the track's
+                // own world height on TARGET_TRACK_PX:  ySpan = trackWorldH * canvasH / TARGET.
+                // NOTE animateTo() DISCARDS a Y span < 1 and keeps the current view, which is why
+                // the old +/-0.5 band (span exactly 1) never actually contracted anything.
+                const TARGET_TRACK_PX = 100;
+                let ch = 800;
+                try { ch = (graph.canvas && graph.canvas.height) || (graph.graph && graph.graph.canvas && graph.graph.canvas.height) || 800; } catch (e) { }
+                let gyTop, gyBot;
+                try {
+                    gyTop = g.Y(typeof g.getymax === 'function' ? g.getymax() : (g.yi + (g.height || 0)));
+                    gyBot = g.Y(typeof g.getymin === 'function' ? g.getymin() : g.yi);
+                } catch (e) { gyTop = undefined; gyBot = undefined; }
+                let ymin, ymax;
+                if (isFinite(gyTop) && isFinite(gyBot) && Math.abs(gyTop - gyBot) > 0) {
+                    const trackWorldH = Math.abs(gyTop - gyBot);
+                    const cyC = (gyTop + gyBot) / 2;
+                    let ySpan = trackWorldH * (ch / TARGET_TRACK_PX);
+                    if (!(ySpan > 1.0001)) ySpan = 1.0001;   // below 1 animateTo ignores it
+                    ymin = cyC - ySpan / 2;
+                    ymax = cyC + ySpan / 2;
+                } else {
+                    const yBand = g.yi + (g.height || 0);
+                    ymin = yBand - 0.51; ymax = yBand + 0.51;
                 }
-            } else if (graph.zoomToTrack && __ti >= 0) {
-                await graph.zoomToTrack(__ti, t.xi, t.xf);
+                if (isFinite(gx0) && isFinite(gx1) && graph.zoomRect) {
+                    await graph.zoomRect(Math.min(gx0, gx1), Math.max(gx0, gx1), ymin, ymax, 340);
+                }
             }
             // Magenta landing burst so it's obvious where the compound landed (visible zoomed out).
             try { if (compoundObj && compoundObj.landingBurst) compoundObj.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }

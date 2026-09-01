@@ -83,31 +83,67 @@ function (graph, oligo, hit, editDistance) {
 
         // 4) Animate-zoom to view the new track; wait ~2s after mapping/adding; then animate-zoom
         //    into the only compound on the track.
+        // zoomRect() CANCELS and returns when graph.animating is set, so a fixed delay after
+        // viewAllTracks() silently skipped the zoom whenever that animation was still running.
+        // Wait for idle instead. Then zoom INTO the compound — never zoomToTrack, which frames
+        // the whole transcript and leaves the compound sub-pixel with no readable sequence.
+        const settle = async (budget) => {
+            const t0 = Date.now();
+            while (graph.animating && (Date.now() - t0) < budget) await sleep(60);
+            await sleep(90);
+        };
         try { if (graph.wake) graph.wake(); } catch (e) { }
+        await sleep(400);
+        await settle(4000);
         try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
-        await sleep(2000);
-        // zoomRect/animateTo take GRAPH-world coordinates; xi/xf here are TRACK-world
-        // (track.xi + offset). Passing them through unconverted throws the camera off into
-        // empty space. track.tgraph.X() is the track-world -> graph-world map, and the Y band
-        // is derived the way zoomToTrack does it. zoomToTrack also takes a track INDEX, not
-        // the track object, so the old fallback silently did nothing.
+        await settle(4000);
         try {
             const g = track.tgraph;
-            const ti = (graph.track || []).indexOf(track);
-            const gx0 = g.X(xi), gx1 = g.X(xf);
-            if (isFinite(gx0) && isFinite(gx1) && graph.zoomRect) {
-                const pad = Math.max(Math.abs(gx1 - gx0) * 0.35, 1e-6);
-                const yBand = g.yi + (g.height || 0);
-                await graph.zoomRect(gx0 - pad, gx1 + pad, yBand - 0.5, yBand + 0.5, 340);
-            } else if (graph.zoomToTrack && ti >= 0) {
-                await graph.zoomToTrack(ti, xi, xf);
+            if (g && typeof g.X === 'function') {
+                const L = Math.max(1, Math.abs(xf - xi));
+                const mid = (xi + xf) / 2;
+                // Sequence letters render above ~30 screen px per base (screencell), so keep the
+                // visible span under that to leave the target and compound residues legible.
+                let cw = 1200;
+                try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || 1200; } catch (e) { }
+                const lettersCap = Math.max(8, Math.floor(cw / 34));
+                let visible = L + 10;
+                if (lettersCap > L) visible = Math.min(visible, lettersCap);
+                visible = Math.max(visible, L + 2);
+                const half = visible / 2;
+                const gx0 = g.X(mid - half), gx1 = g.X(mid + half);
+
+                // Contract the view VERTICALLY until the track stands about TARGET_TRACK_PX
+                // tall on screen, so the compound and the sequence under it are both readable.
+                // Screen px per graph-world unit is canvasHeight / ySpan, so to land the track's
+                // own world height on TARGET_TRACK_PX:  ySpan = trackWorldH * canvasH / TARGET.
+                // NOTE animateTo() DISCARDS a Y span < 1 and keeps the current view, which is why
+                // the old +/-0.5 band (span exactly 1) never actually contracted anything.
+                const TARGET_TRACK_PX = 100;
+                let ch = 800;
+                try { ch = (graph.canvas && graph.canvas.height) || (graph.graph && graph.graph.canvas && graph.graph.canvas.height) || 800; } catch (e) { }
+                let gyTop, gyBot;
+                try {
+                    gyTop = g.Y(typeof g.getymax === 'function' ? g.getymax() : (g.yi + (g.height || 0)));
+                    gyBot = g.Y(typeof g.getymin === 'function' ? g.getymin() : g.yi);
+                } catch (e) { gyTop = undefined; gyBot = undefined; }
+                let ymin, ymax;
+                if (isFinite(gyTop) && isFinite(gyBot) && Math.abs(gyTop - gyBot) > 0) {
+                    const trackWorldH = Math.abs(gyTop - gyBot);
+                    const cyC = (gyTop + gyBot) / 2;
+                    let ySpan = trackWorldH * (ch / TARGET_TRACK_PX);
+                    if (!(ySpan > 1.0001)) ySpan = 1.0001;   // below 1 animateTo ignores it
+                    ymin = cyC - ySpan / 2;
+                    ymax = cyC + ySpan / 2;
+                } else {
+                    const yBand = g.yi + (g.height || 0);
+                    ymin = yBand - 0.51; ymax = yBand + 0.51;
+                }
+                if (isFinite(gx0) && isFinite(gx1) && graph.zoomRect) {
+                    await graph.zoomRect(Math.min(gx0, gx1), Math.max(gx0, gx1), ymin, ymax, 340);
+                }
             }
-        } catch (e) {
-            try {
-                const ti = (graph.track || []).indexOf(track);
-                if (graph.zoomToTrack && ti >= 0) await graph.zoomToTrack(ti, xi, xf);
-            } catch (e2) { }
-        }
+        } catch (e) { }
         // Magenta landing burst once the view settles on the mapped compound (visible zoomed out).
         try { if (clone && clone.landingBurst) clone.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
