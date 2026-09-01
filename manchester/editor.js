@@ -15,8 +15,16 @@ function (path, config) {
 
         // Subscription gate: block the editor unless an active subscription is confirmed.
         // strict=true → if a subscription is not found (or can't be verified) show the paywall.
-        let __sub = await exec('lib/subscription.js');
-        if ((await __sub.enforce(true)) === false) return;
+        //
+        // SKIPPED in free tier. free/editor.js runs this same editor for non-subscribers, and
+        // this gate paints a carousel + "Subscribe to unlock the full BajaBio editor" over the
+        // canvas (and a 20s watcher re-paints it), which is exactly what the free tier is not.
+        // Free users are limited by the METERED AI and off-target calls, enforced server-side,
+        // not by access to the canvas.
+        if (!window.__bajaFreeTier) {
+            let __sub = await exec('lib/subscription.js');
+            if ((await __sub.enforce(true)) === false) return;
+        }
 
         const EditorState = class EditorState {
             paste_to_graph = true;
