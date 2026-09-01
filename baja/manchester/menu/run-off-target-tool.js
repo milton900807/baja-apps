@@ -139,6 +139,7 @@ function (graph, genegraph_panel_layout, selectedOnly) {
 
             let progressBar;
             let __cancelled = false;
+            let __freeLimit = null;   // set when the server refuses for free-tier allowance
             let __modalPB = null;
             // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
@@ -207,6 +208,11 @@ function (graph, genegraph_panel_layout, selectedOnly) {
                     for (const o of __chunkOligos) { try { o.__gunsight = false; o.highlight__ = false; } catch (e) { } }
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                 }
+                // Out of free allowance: the server answers 402 instead of results. Stop the
+                // whole run -- carrying on would mark every remaining oligo "not determined".
+                __freeLimit = freeLimitInfo(r);
+                if (__freeLimit) { __cancelled = true; break; }
+
                 if (r != null && r['oligoQuery'] != null) {
                     let oq = r['oligoQuery'];
                     console.log(" setting the asos with offtargets ")
@@ -270,6 +276,7 @@ function (graph, genegraph_panel_layout, selectedOnly) {
 
             // Run finished (or was cancelled) — unblock the app.
             __finishRun();
+            if (__freeLimit) { graph.setResultMessage(' No more free GPU time.  ;-) '); return; }
             if (__cancelled) { graph.setMessage(' Off-target run cancelled. '); return; }
 
             let btns = [

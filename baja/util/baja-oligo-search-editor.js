@@ -299,6 +299,14 @@ function (graph, genegraph_panel_layout) {
                                                 let uri = `${oep}/off-targets-file`;
                                                 let r = await POSTJSON(obj, uri)
 
+                                                // Out of free allowance: the server sends 402 with no results, and the
+                                                // read of r.oligoQuery just below would throw on undefined. Say so and
+                                                // stop -- this file has no graph to post a canvas message to.
+                                                if (freeLimitInfo(r)) {
+                                                    try { infoPrompt(' No more free GPU time.  ;-) '); } catch (e) { }
+                                                    return;
+                                                }
+
                                                 const groupedBlocks = {};
 
                                                 r.oligoQuery.forEach(oligo => {

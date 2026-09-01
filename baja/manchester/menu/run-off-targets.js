@@ -191,6 +191,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             });
             let progressBar;
             let __cancelled = false;
+            let __freeLimit = null;   // set when the server refuses for free-tier allowance
             // Progress bar + a Cancel button right beside it (stops the calculation).
             let w = {
                 wid: 'card',
@@ -285,6 +286,12 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                 }
 
+                // Out of free allowance: the server answers 402 instead of results. Stop the
+                // whole run here -- carrying on would mark every remaining oligo "not
+                // determined", which reads as a search that found nothing.
+                __freeLimit = freeLimitInfo(r);
+                if (__freeLimit) { __cancelled = true; break; }
+
                 if (r != null && r['oligoQuery'] != null) {
                     let oq = r['oligoQuery'];
                     console.log(" setting the asos with offtargets ")
@@ -361,6 +368,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             // way it ended. Every return below this point is after the run is over.
             __finishRun();
             __sayDone();
+            if (__freeLimit) { graph.setResultMessage(' No more free GPU time.  ;-) '); return; }
             if (__cancelled) { graph.setMessage(' Off-target run cancelled. '); return; }
 
             // Live-filter mode: everything was removed in real time as chunks

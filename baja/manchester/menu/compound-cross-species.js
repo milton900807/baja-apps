@@ -65,6 +65,7 @@ function (graph, genegraph_panel_layout, oligos) {
 
         const hits = [];
         let checked = 0;
+        let __freeLimit = false;   // set when the server refuses for free-tier allowance
         for (let i = 0; i < list.length; i++) {
             const o = list[i];
             const seq = seqOf(o);
@@ -80,6 +81,13 @@ function (graph, genegraph_panel_layout, oligos) {
                     sequences: [seq],
                     runMode: 'summary'
                 }, server + '/off-targets-file');
+
+                // Out of free allowance: the server sends 402 rather than results. Stop the
+                // sweep. Counting that response as zero hits would report "not conserved in
+                // mouse or rat" for every remaining compound, which is a wrong answer rather
+                // than a missing one.
+                if (freeLimitInfo(r)) { __freeLimit = true; break; }
+
                 // The response shape varies by runMode; count anything that looks like a hit
                 // rather than assuming one field.
                 let n = 0;
@@ -106,6 +114,8 @@ function (graph, genegraph_panel_layout, oligos) {
         }
         status('');
         try { if (graph.wake) graph.wake(); } catch (e) { }
+
+        if (__freeLimit) { try { graph.setResultMessage(' No more free GPU time.  ;-) '); } catch (e) { } return; }
 
         if (!checked) { say(' No compound had a sequence long enough to search (12 nt minimum). '); return; }
 
