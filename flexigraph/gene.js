@@ -3309,17 +3309,16 @@ function (progress, options) {
                                 // ENSMUST=mouse, ENSRNOT=rat, ENSCAFT=dog, ...), falling back
                                 // to the server-reported species. Was hardcoded to 'Human'.
                                 (function () {
-                                    const _id = String(ensembleId || '').toUpperCase();
-                                    let _sp = null;
-                                    if (/^ENSMUST/.test(_id)) _sp = 'Mouse';
-                                    else if (/^ENSRNOT/.test(_id)) _sp = 'Rat';
-                                    else if (/^ENSCAFT/.test(_id)) _sp = 'Dog';
-                                    else if (/^ENST/.test(_id)) _sp = 'Human';
-                                    else if (localResp && localResp.species) {
+                                    // speciesFromTranscriptId (lib/core.js) covers every Ensembl
+                                    // prefix, not just the four spelled out here -- cyno and
+                                    // rhesus were falling through to the 'Human' default.
+                                    let _sp = speciesFromTranscriptId(ensembleId);
+                                    if (!_sp && localResp && localResp.species) {
                                         const s = String(localResp.species);
                                         _sp = s.charAt(0).toUpperCase() + s.slice(1);
                                     }
-                                    t.species = _sp || 'Human';
+                                    // No default: labelling an unknown organism Human is the bug.
+                                    t.species = _sp || '';
                                 })();
                                 t.chr = chr;
 

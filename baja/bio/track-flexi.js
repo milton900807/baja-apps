@@ -69,6 +69,60 @@ return new Promise(async (resolve, reject) => {
         ctx.fillText(text, (x), (y));
         ctx.restore();
     }
+    // The species / coordinate caption above a track, drawn as a TAB rather than loose text.
+    //
+    // It used to go through drawString, whose default alignment is centre -- so the caption was
+    // centred on the track's left edge and half of it hung off into the margin, overlapping
+    // whatever sat to the left. A tab anchors it: square where it meets the track so it reads
+    // as attached, rounded on its two top corners, and sitting above the track's own graphics.
+    //
+    // Fixed pixel sizes, not the zoom-scaled track font: this is chrome describing the track,
+    // and chrome that grows and shrinks with the data underneath it reads as part of the data.
+    function drawTrackTab(ctx, primary, secondary, x, yBottom) {
+        if (!primary && !secondary) return;
+        ctx.save();
+        const BOLD = '700 11px Arial, Helvetica, sans-serif';
+        const PLAIN = '11px Arial, Helvetica, sans-serif';
+        const padX = 8, gap = 7, h = 16, r = 5;
+
+        ctx.font = BOLD;
+        const wP = primary ? ctx.measureText(primary).width : 0;
+        ctx.font = PLAIN;
+        const wS = secondary ? ctx.measureText(secondary).width : 0;
+        const w = wP + (wP && wS ? gap : 0) + wS + padX * 2;
+        const yTop = yBottom - h;
+
+        ctx.beginPath();
+        ctx.moveTo(x, yBottom);
+        ctx.lineTo(x, yTop + r);
+        ctx.quadraticCurveTo(x, yTop, x + r, yTop);
+        ctx.lineTo(x + w - r, yTop);
+        ctx.quadraticCurveTo(x + w, yTop, x + w, yTop + r);
+        ctx.lineTo(x + w, yBottom);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(238,243,249,0.96)';
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(11,37,69,0.30)';
+        ctx.stroke();
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const ty = yTop + h / 2;
+        let tx = x + padX;
+        if (primary) {
+            ctx.font = BOLD;
+            ctx.fillStyle = '#0b2545';
+            ctx.fillText(primary, tx, ty);
+            tx += wP + gap;
+        }
+        if (secondary) {
+            ctx.font = PLAIN;
+            ctx.fillStyle = '#5b6b7d';   // quieter than the species: it is the detail, not the label
+            ctx.fillText(secondary, tx, ty);
+        }
+        ctx.restore();
+    }
     function fillTranslucentRect(ctx, x, y, w, h, {
         lineWidth = 1,
         shadowBlur = 2,
@@ -414,7 +468,12 @@ return new Promise(async (resolve, reject) => {
                         this.xmax = end;
 
                         this.transcriptID = ensembleId;
-                        this.species = 'Human';
+                        // The local /transcript endpoint returns GTF records with no species
+                        // field, and this used to fill the gap with the constant 'Human' -- so
+                        // a mouse or cyno transcript loaded here was labelled Human. Read it
+                        // from the stable id instead, and leave it blank when the id does not
+                        // say (a RefSeq accession does not encode the organism).
+                        this.species = speciesFromTranscriptId(ensembleId);
                         this.chr = chr;
                         const regex = /\d+/;
                         const match = this.chr.match(regex);
@@ -478,7 +537,7 @@ return new Promise(async (resolve, reject) => {
                         let geneID = js['Parent']
                         let desc = js['display_name']
                         this.transcriptID = ensembleId;
-                        this.species = species;
+                        this.species = species || speciesFromTranscriptId(ensembleId);
                         this.chr = chromosome;
                         this.description = desc;
                         this.geneID = geneID
@@ -532,7 +591,7 @@ return new Promise(async (resolve, reject) => {
                 }
 
                 this.transcriptID = transcriptId;
-                this.species = species;
+                this.species = species || speciesFromTranscriptId(transcriptId);
                 this.chr = chromosome;
                 this.description = desc.toString();
 
@@ -4792,26 +4851,23 @@ return new Promise(async (resolve, reject) => {
                     this.detail_ffont7
                 );
 
-                if (screencell > 0.05) {
-                    if (this.chr && this.species) {
-                        drawString(
-                            ctx,
-                            `${this.species} chr${this.chr}:${this.xi}-${this.xf}(${this.getKB()}KB) ${this.description}`,
-                            graph.X((this.grid.xi)),
-                            graph.Y(this.grid.Y(this.grid.ymax)),
-                            'blue',
-                            this.detail_ffont7
-                        );
-                    } else if (this.chr) {
-                        drawString(
-                            ctx,
-                            `chr${this.chr}:${this.xi}-${this.xf} ${this.description}`,
-                            graph.X((this.grid.xi)),
-                            graph.Y(this.grid.Y(this.grid.ymax)),
-                            'blue',
-                            this.detail_ffont7
-                        );
-                    }
+                if (screencell > 0.05 && this.chr) {
+                    // Species leads in bold; the locus and description follow, quieter. A track
+                    // whose organism could not be read from its id simply has no species part
+                    // rather than a guessed one -- see speciesFromTranscriptId in lib/core.js.
+                    let __detail = 'chr' + this.chr + ':' + this.xi + '-' + this.xf
+                        + '  ·  ' + this.getKB() + ' KB';
+                    let __desc = ('' + (this.description == null ? '' : this.description)).trim();
+                    // Long gene/transcript descriptions would run the tab off the canvas.
+                    if (__desc.length > 48) __desc = __desc.slice(0, 47) + '…';
+                    if (__desc) __detail += '  ·  ' + __desc;
+                    drawTrackTab(
+                        ctx,
+                        this.species || '',
+                        __detail,
+                        graph.X((this.grid.xi)),
+                        graph.Y(this.grid.Y(this.grid.ymax))
+                    );
                 }
 
                 fillTranslucentRect(

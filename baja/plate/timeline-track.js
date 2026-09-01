@@ -10709,7 +10709,9 @@ function () {
 
                             let t = this.createTrack(ensembleId, start, end, strand);
                             t.transcriptID = ensembleId;
-                            t.species = 'Human';
+                            // Read the organism from the stable id rather than assuming Human --
+                            // the same fix as baja/bio/track-flexi.js.
+                            t.species = speciesFromTranscriptId(ensembleId);
                             t.chr = chr;
                             const regex = /\d+/;
                             const match = t.chr.match(regex);
