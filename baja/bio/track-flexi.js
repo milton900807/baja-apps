@@ -2949,15 +2949,24 @@ return new Promise(async (resolve, reject) => {
                 oligo.setStrand(this.strand)
             }
 
-            for (let o of this.oligos) {
-                if (oligo.y <= 0.01)
-                    oligo.y = 0.1;
-                let count = 0;
-                while (this.doRectanglesOverlap(o, oligo)) {
-                    oligo.setY(oligo.y += 0.01)
-                    count++;
-                    if (count > 1000)
-                        break;
+            // Stack upward until the new oligo clears EVERY existing one. This used to be a
+            // single pass per oligo: once it had cleared o1 it never rechecked o1, so moving up
+            // to clear a later o3 could push it straight back onto o1 and the two drew on top of
+            // each other. Now compounds start life on the same low lane just above the sequence,
+            // so that collision is the normal case rather than a rarity, and it has to settle.
+            {
+                if (oligo.y <= 0.01) oligo.y = 0.1;
+                let guard = 0;
+                let moved = true;
+                while (moved && guard < 2000) {
+                    moved = false;
+                    for (const o of this.oligos) {
+                        while (this.doRectanglesOverlap(o, oligo) && guard < 2000) {
+                            oligo.setY(oligo.y += 0.01);
+                            guard++;
+                            moved = true;
+                        }
+                    }
                 }
             }
             this.oligos.push(oligo)

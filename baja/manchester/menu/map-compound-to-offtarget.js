@@ -63,7 +63,11 @@ function (graph, oligo, hit, editDistance) {
         // 3) Place a copy of the compound at the binding site.
         const xi = track.xi + best;
         const xf = xi + (L || 1);
-        const yLane = (track.tgraph && track.tgraph.ymax != null) ? (track.tgraph.ymax - 0.2) : ((track.y || 0) + 0.5);
+        // Sit just above the sequence row and let addOligo() stack upward on collision — see
+        // manchester/load-clinical-compound.js for the reasoning. Band is -1.5 .. 1.5 and the
+        // sequence draws at ~0.012.
+        const SEQ_ROW_Y = 0.012;
+        const yLane = SEQ_ROW_Y + 0.11;
         let clone = null;
         try {
             if (oligo.type === 'siRNA' || (oligo.sense && oligo.antisense)) {

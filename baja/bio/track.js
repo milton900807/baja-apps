@@ -4003,13 +4003,21 @@ return new Promise(async (resolve, reject) => {
         oligo.setStrand(this.strand);
       }
 
-      for (let o of this.oligos) {
+      // Stack upward until the new oligo clears EVERY existing one — see track-flexi.js.
+      // A single pass could clear o1, then move up for o3 and land back on o1.
+      {
         if (oligo.y <= 0.01) oligo.y = 0.1;
-        let count = 0;
-        while (this.doRectanglesOverlap(o, oligo)) {
-          oligo.setY((oligo.y += 0.01));
-          count++;
-          if (count > 1000) break;
+        let guard = 0;
+        let moved = true;
+        while (moved && guard < 2000) {
+          moved = false;
+          for (const o of this.oligos) {
+            while (this.doRectanglesOverlap(o, oligo) && guard < 2000) {
+              oligo.setY((oligo.y += 0.01));
+              guard++;
+              moved = true;
+            }
+          }
         }
       }
       this.oligos.push(oligo);

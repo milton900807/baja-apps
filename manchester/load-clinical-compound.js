@@ -276,7 +276,15 @@ function (graph, layout, compound) {
             xf = t.xi + trackSeq.length;
         }
 
-        const yLane = (t.tgraph && t.tgraph.ymax != null) ? (t.tgraph.ymax - 0.2) : ((t.y || 0) + 0.5);
+        // Compounds sit just ABOVE the sequence row and stack upward from there.
+        // The track band is ymin -1.5 .. ymax 1.5 and the sequence is drawn at y ~0.012, so a
+        // small positive lane puts the compound right on top of the sequence it binds instead
+        // of floating at the top of the track (the old ymax - 0.2 put it at 1.3, as far from
+        // the sequence as the band allows). track.addOligo() then nudges y up in 0.01 steps
+        // while the new compound overlaps an existing one, so successive compounds stack
+        // upward rather than landing on each other.
+        const SEQ_ROW_Y = 0.012;                 // where the sequence letters are drawn
+        const yLane = SEQ_ROW_Y + 0.11;          // clear of the letters, still hugging them
 
         let compoundObj = null;
         try {
