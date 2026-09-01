@@ -3232,69 +3232,30 @@ function (graph, genegraph_panel_layout) {
                             // renders (it reaches track_list via ...golist). The other 'Layers'
                             // entry further down is shadowed by this one.
                             golist.push({
-                                label: 'Data ▸',
+                                // Data opens the Data Resources Library directly rather than
+                                // expanding a short list of shortcuts into it. The library is the
+                                // catalogue; a submenu naming three of its shelves was a second,
+                                // narrower index of the same thing. '...' not '▸': it opens a
+                                // panel, it is not a submenu.
+                                label: 'Data...',
                                 move: () => { },
-                                click: async (sx2, sy2) => {
-                                    showSideMenuDelayed([
-                                        {
-                                            label: 'RNASeq Library ▸', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
-                                            }
-                                        },
-                                        {
-                                            label: 'Other Resources...', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
-                                            }
-                                        },
-                                        {
-                                            label: 'My data...', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/data/my-data.js', graph, genegraph_panel_layout);
-                                            }
-                                        },
-                                        {
-                                            label: 'Public data...', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/data/public-data.js', graph, genegraph_panel_layout);
-                                            }
-                                        }
-                                    ], sx2, sy2);
+                                click: async () => {
+                                    graph.showSideMenu(null);
+                                    await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
                                 }
                             });
 
                             golist.push({
-                                label: 'Models ▸',
+                                // Models opens the ML Models Library rather than listing model
+                                // names: the library carries what each one predicts and what it
+                                // cannot, which is the part worth reading before running it. The
+                                // runners fall back to the SELECTED track when not handed one,
+                                // so launching from the library still acts on this track.
+                                label: 'Models...',
                                 move: () => { },
-                                click: async (sx2, sy2) => {
-                                    showSideMenuDelayed([
-                                        {
-                                            label: 'RNA Binding', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
-                                            }
-                                        },
-                                        {
-                                            label: 'Peptide', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                try { graph.setMessage(' Peptide model — coming soon. '); } catch (e) { }
-                                            }
-                                        },
-                                        {
-                                            label: 'Splicing', move: () => { },
-                                            click: async () => {
-                                                graph.showSideMenu(null);
-                                                await exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout);
-                                            }
-                                        }
-                                    ], sx2, sy2);
+                                click: async () => {
+                                    graph.showSideMenu(null);
+                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
                                 }
                             });
 
@@ -3354,6 +3315,82 @@ function (graph, genegraph_panel_layout) {
 
 
                 ]
+
+                // Compound actions, only when this track HAS compounds -- three dead entries on
+                // an empty track is worse than none. They act on every compound on the track,
+                // which is what "the compounds" means from a track menu; the per-compound
+                // actions live under Compounds ▸.
+                try {
+                    const __cs = (selectedTrack && Array.isArray(selectedTrack.oligos))
+                        ? selectedTrack.oligos.filter(Boolean) : [];
+                    if (__cs.length) {
+                        golist.push({
+                            label: 'Highlight compounds (' + __cs.length + ')',
+                            move: () => { },
+                            click: () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                // o.highlight__ is not a boolean: the renderer passes it straight
+                                // to drawVerticalLineScreen as the COLOUR. Toggling it is the
+                                // twinkle -- a static highlight is easy to miss on a busy track.
+                                const MAGENTA = '#ff2fd6';
+                                const prev = __cs.map((o) => o.highlight__);
+                                let on = false, ticks = 0;
+                                const timer = setInterval(() => {
+                                    on = !on;
+                                    for (const o of __cs) { try { o.highlight__ = on ? MAGENTA : false; } catch (e) { } }
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    if (++ticks >= 12) {
+                                        try { clearInterval(timer); } catch (e) { }
+                                        // Restore whatever each one had, so this cannot clobber a
+                                        // highlight something else set (an off-target run marks
+                                        // its hits the same way).
+                                        __cs.forEach((o, i) => { try { o.highlight__ = prev[i]; } catch (e) { } });
+                                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    }
+                                }, 450);
+                                try { graph.setMessage(' Highlighting ' + __cs.length + ' compound' + (__cs.length === 1 ? '' : 's') + '. '); } catch (e) { }
+                            }
+                        });
+                        golist.push({
+                            label: 'Zoom compounds',
+                            move: () => { },
+                            click: () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                try {
+                                    // The union of their spans, so the answer to "where are they"
+                                    // is one view rather than a tour.
+                                    let lo = Infinity, hi = -Infinity;
+                                    for (const o of __cs) {
+                                        const a = +o.xi, b = (o.xf != null ? +o.xf : +o.xi);
+                                        if (!isFinite(a)) continue;
+                                        lo = Math.min(lo, a, isFinite(b) ? b : a);
+                                        hi = Math.max(hi, a, isFinite(b) ? b : a);
+                                    }
+                                    const g = selectedTrack.grid || selectedTrack.tgraph;
+                                    if (!g || !isFinite(lo) || !isFinite(hi)) { graph.setMessage(' Those compounds have no coordinates to zoom to. '); return; }
+                                    const pad = Math.max(20, (hi - lo) * 0.15);
+                                    graph.animateTo(g.X(lo - pad), g.X(hi + pad), g.Y(-1.2), g.Y(1.2));
+                                    if (graph.wake) graph.wake();
+                                    graph.setMessage(' ' + __cs.length + ' compound' + (__cs.length === 1 ? '' : 's')
+                                        + ' — ' + Math.round(lo) + '–' + Math.round(hi) + ' on ' + (selectedTrack.name || 'track') + '. ');
+                                } catch (e) { try { graph.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
+                            }
+                        });
+                        golist.push({
+                            label: 'Select all compounds (' + __cs.length + ')',
+                            move: () => { },
+                            click: () => {
+                                try { graph.showSideMenu(null); } catch (e) { }
+                                let n = 0;
+                                for (const o of __cs) { try { graph.addOligoToSelection(o, selectedTrack); n++; } catch (e) { } }
+                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                // They land in the selection window, where the packaged
+                                // "Compounds (N)" row opens the actions for the whole set.
+                                try { graph.setMessage(' Selected ' + n + ' compound' + (n === 1 ? '' : 's') + ' — see the selection window. '); } catch (e) { }
+                            }
+                        });
+                    }
+                } catch (e) { }
 
                 if (selectedTrack.containsIntrons()) {
                 } else {
@@ -4217,75 +4254,26 @@ function (graph, genegraph_panel_layout) {
                                     // Classes of data that become track layers. RNASeq descends
                                     // species -> tissue -> dataset; the library view lists every
                                     // dataset with a description.
-                                    label: 'Data ▸',
+                                    // Same as the Layers ▸ Data node above: straight to the
+                                    // Data Resources Library.
+                                    label: 'Data...',
                                     move: () => { },
-                                    click: async (scx, scy) => {
-                                        const dataMenu = [
-                                            {
-                                                label: 'RNASeq ▸', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
-                                                }
-                                            },
-                                            {
-                                                label: 'RNASeq Library...', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
-                                                }
-                                            },
-                                            {
-                                                label: 'Data Resources...', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
-                                                }
-                                            },
-                                            {
-                                                label: 'My data...', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/data/my-data.js', graph, genegraph_panel_layout);
-                                                }
-                                            }
-                                        ];
-                                        showSideMenuDelayed(dataMenu, scx, scy);
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
                                     }
                                 },
                                 {
                                     // Predictive models that write their output onto tracks as
                                     // layers. Same entry points as the Predictive-models toolbar
                                     // (baja/ml/predictive-models-toolbar.js).
-                                    label: 'Models ▸',
+                                    // Same as the Layers ▸ Models node above: straight to the
+                                    // ML Models Library.
+                                    label: 'Models...',
                                     move: () => { },
-                                    click: async (scx, scy) => {
-                                        const modelMenu = [
-                                            {
-                                                label: 'RNA Binding', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
-                                                }
-                                            },
-                                            {
-                                                label: 'Peptide', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    // No peptide model wired up yet — placeholder
-                                                    // so the menu structure is complete.
-                                                    try { graph.setMessage(' Peptide model — coming soon. '); } catch (e) { }
-                                                }
-                                            },
-                                            {
-                                                label: 'Splicing', move: () => { },
-                                                click: async () => {
-                                                    graph.showSideMenu(null);
-                                                    await exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout);
-                                                }
-                                            }
-                                        ];
-                                        showSideMenuDelayed(modelMenu, scx, scy);
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        await exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
                                     }
                                 },
                                 {
@@ -4515,16 +4503,65 @@ function (graph, genegraph_panel_layout) {
                             click: () => {
                                 const cs = (selectedTrack.oligos || []).filter(Boolean);
                                 if (!cs.length) { graph.setMessage(' No compounds on this track. '); return; }
-                                if (cs.length === 1) {
+
+                                const nameOf = (o, i) => ('' + (o.name || o.id || o.synthesisSequence || o.sequence || ('Compound ' + (i + 1))));
+                                const openOne = (o) => {
                                     try { graph.showSideMenu(null); } catch (e) { }
-                                    exec('baja/manchester/menu/menu-for-single-aso.js', graph, cs[0], genegraph_panel_layout);
-                                    return;
-                                }
-                                const items = cs.map((o, i) => ({
-                                    label: ('' + (o.name || o.synthesisSequence || o.sequence || ('Compound ' + (i + 1)))),
+                                    exec('baja/manchester/menu/menu-for-single-aso.js', graph, o, genegraph_panel_layout);
+                                };
+
+                                // Picking ONE compound. Past a handful, a side menu is the wrong
+                                // shape: it is bounded by the canvas height and has no search, so
+                                // finding "ASO-42" among a hundred means paging blindly. The
+                                // maximised picker scrolls and filters as you type.
+                                const pickOne = () => {
+                                    if (cs.length === 1) { openOne(cs[0]); return; }
+                                    try { graph.showSideMenu(null); } catch (e) { }
+                                    exec('baja/lib/pick-list.js', {
+                                        title: 'Compounds on ' + (selectedTrack.name || 'track'),
+                                        subtitle: cs.length + ' compounds — type to filter',
+                                        items: cs.map((o, i) => ({
+                                            label: nameOf(o, i),
+                                            sub: ('' + ((o.type || o.modality || '') || '')).trim(),
+                                            ref: o
+                                        })),
+                                        onPick: (it) => { openOne(it.ref); }
+                                    });
+                                };
+
+                                // One compound: skip the chooser entirely and show the actions
+                                // for it, since there is nothing to choose between.
+                                const items = [];
+                                items.push({
+                                    label: cs.length === 1 ? ('Open ' + nameOf(cs[0], 0)) : ('Choose a compound (' + cs.length + ')…'),
                                     move: () => { },
-                                    click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/manchester/menu/menu-for-single-aso.js', graph, o, genegraph_panel_layout); }
-                                }));
+                                    click: () => { pickOne(); }
+                                });
+                                items.push({
+                                    label: 'Run off-targets…', move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        try { window.current = cs[0]; } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/run-off-targets.js',
+                                            graph, genegraph_panel_layout, cs)).catch(() => { });
+                                    }
+                                });
+                                items.push({
+                                    label: 'Filter…', move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/filter-oligos-by-offtargets.js',
+                                            graph, genegraph_panel_layout, selectedTrack)).catch(() => { });
+                                    }
+                                });
+                                items.push({
+                                    label: 'Find cross-species', move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/compound-cross-species.js',
+                                            graph, genegraph_panel_layout, cs)).catch(() => { });
+                                    }
+                                });
                                 items.push({ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
                                 graph.showSideMenu(orderMenu(items));
                             }

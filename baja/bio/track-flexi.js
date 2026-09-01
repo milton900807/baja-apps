@@ -73,8 +73,13 @@ return new Promise(async (resolve, reject) => {
         lineWidth = 1,
         shadowBlur = 2,
         shadowColor = 'black',
-        fillStyle = 'rgba(25,25,255,0.05)',
-        strokeStyle = 'rgba(25,25,255,0.05)',
+        // Transparent YELLOW. This is the wash drawn over a track while it is selected (the
+        // only caller is the showResizeBar block below), so it sits under the sequence letters
+        // and everything else on the track: it has to read as "this is selected" without
+        // tinting what is drawn on top of it. The previous faint blue was close enough to the
+        // track's own colouring to be missed. Alpha stays low for the same reason.
+        fillStyle = 'rgba(255,214,10,0.16)',
+        strokeStyle = 'rgba(255,214,10,0.16)',
         doStroke = false
     } = {}) {
         ctx.save();

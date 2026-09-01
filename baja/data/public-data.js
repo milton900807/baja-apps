@@ -58,7 +58,14 @@ function (graph, genegraph_panel_layout, presetResource) {
             return null;
         };
 
-        const restoreHover = () => { try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
+        const restoreHover = () => {
+            // Reset the mouse BEFORE re-arming the hover. Loading a dataset can leave a
+            // click-a-track listener or a 'msg:' mouse mode behind, and re-arming on top of one
+            // leaves the canvas in a mode the user never chose.
+            try { graph.clearMouseListeners(); } catch (e) { }
+            try { graph.setMouseMode('navigate'); } catch (e) { }
+            try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+        };
 
         // Read a bigWig / VCF endpoint over the track's region and drop the result
         // in as a polygon track layer (values = [[genomicPos, value], …], the same
@@ -119,7 +126,8 @@ function (graph, genegraph_panel_layout, presetResource) {
                 layer.sortPolygonPoints();
                 track.addLayer(layer);
                 if (track.fitYAxis) { try { track.fitYAxis(); } catch (e) { } }
-                graph.setMessage(' Loaded ' + (cand.label || name) + ' onto ' + (track.name || 'track') + '. ');
+                // Toast, so the user sees that the data landed.
+                graph.setResultMessage(' Loaded ' + (cand.label || name) + ' onto ' + (track.name || 'track') + '. ');
                 if (graph.wake) graph.wake();
             } catch (e) {
                 graph.setMessage(' Load error: ' + e);
@@ -131,17 +139,12 @@ function (graph, genegraph_panel_layout, presetResource) {
         // VCF endpoints, let the user pick one (if several), then load it as a layer.
         const armLoad = (name) => {
             if (!name) return;
-            graph.clearMouseListeners();
-            graph.setMouseMode("msg: Click on a track to load data.");
             CurrentLayout.clearComponent('mainPanel');
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
-            graph.addMouseDownListener(async (x, y) => {
-                const ti = graph.getTrack(x, y);
-                if (ti < 0) return;
-                const track = graph.track[ti];
-                graph.clearMouseListeners();
-                graph.setMouseMode('navigate');   // done picking — back to navigate
+            // One clicked track, or every track on the canvas when the board-level Layers
+            // button asked for it -- see baja/lib/for-each-track.js.
+            exec('baja/lib/for-each-track.js', graph, 'Click on a track to load data.', async (track) => {
                 try {
                     const chr = track.chr || '';
                     // Tracks display in genomic coordinates (local x == genomic), so

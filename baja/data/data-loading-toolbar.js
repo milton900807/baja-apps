@@ -18,9 +18,10 @@ function (graph, genegraph_panel_layout) {
             'label': 'Load RNASeq', 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                // Side menu that navigates the local RNASeq hierarchy in BIG_DATA
-                // (baja-bd/RNASeq/<Species>/<Tissue>/*.bw) and loads a file as a layer.
-                await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout);
+                // The RNASeq Library, not the species-by-species cascade: one catalogue with
+                // the datasets described, rather than a second way in that browsed the same
+                // files through a different tree.
+                await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout);
             })
         }
     ];

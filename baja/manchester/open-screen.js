@@ -1810,10 +1810,10 @@ function (lib_id, file_id) {
             );
             working.status = 'complete'
 
+            // Same canvas as the editor, so the brand mark is dropped here too -- otherwise
+            // opening a file put the palm back on a canvas the editor had just left clean.
             let m = window['env']['theme']
-            if (!m || m === 'bajabio') {
-                graph.setCenterLogo('/assets/logos/baja-icon.svg')
-            } else {
+            if (m && m !== 'bajabio') {
                 graph.setMessageCenter(m, 40)
             }
 

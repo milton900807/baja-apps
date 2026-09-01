@@ -20,6 +20,13 @@ function (graph, genegraph_panel_layout) {
                 // Click a track → local bajaclip-lib RBP binding profile as a layer.
                 await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
             })
+        },
+        {
+            'label': 'Intron retention', 'ionfunction': go(async () => {
+                // Pick a tier, click a track → local bajair-lib retention scores as
+                // one interval per intron. Scores by gene, so it ignores a selection.
+                await exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout);
+            })
         }
     ];
 

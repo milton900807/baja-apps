@@ -6,6 +6,11 @@ function (graph, genegraph_panel_layout) {
     // then click a track to add it as a coverage (polygon) layer.
 
     const restoreHover = () => {
+        // Reset the mouse BEFORE re-arming the hover. Loading a dataset can leave a
+        // click-a-track listener or a 'msg:' mouse mode behind, and re-arming on top of one
+        // leaves the canvas in a mode the user never chose.
+        try { graph.clearMouseListeners(); } catch (e) { }
+        try { graph.setMouseMode('navigate'); } catch (e) { }
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
     };
 
@@ -36,14 +41,11 @@ function (graph, genegraph_panel_layout) {
 
     // After choosing a file, click a track to add the bigwig as a coverage layer.
     const loadBigwigOntoTrack = (filePath, fileName) => {
-        graph.clearMouseListeners();
-        graph.setMouseMode('msg: Click a track to add "' + prettyLabel(fileName) + '" as an RNASeq layer.');
-        graph.addMouseDownListener(async (x, y) => {
-            const ti = graph.getTrack(x, y);
-            if (ti < 0) return;
-            const t = graph.track[ti];
-            graph.clearMouseListeners();
-            graph.setMouseMode('navigate');
+        // One clicked track, or every track on the canvas when the board-level Layers button
+        // asked for it -- see baja/lib/for-each-track.js.
+        exec('baja/lib/for-each-track.js', graph,
+            'Click a track to add "' + prettyLabel(fileName) + '" as an RNASeq layer.',
+            async (t) => {
             if (t.chr === undefined || t.chr === null) {
                 graph.setMessage(' ' + (t.name || 'track') + ' has no chromosome defined. ');
                 restoreHover(); return;
@@ -69,7 +71,9 @@ function (graph, genegraph_panel_layout) {
                     layer.sortPolygonPoints();
                     t.addLayer(layer);
                     if (graph.wake) graph.wake();
-                    graph.setMessage(' Added ' + rs_base + ' to ' + (t.name || 'track') + '. ');
+                    // Shown as a toast so the load is visibly confirmed -- see the note in
+                    // baja/data/rnaseq-library.js.
+                    graph.setResultMessage(' Added ' + rs_base + ' to ' + (t.name || 'track') + '. ');
                 } catch (e) {
                     graph.setMessage(' Failed to load ' + prettyLabel(fileName) + ': ' + e + ' ');
                 }

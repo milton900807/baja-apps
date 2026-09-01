@@ -28,15 +28,6 @@ function (graph, genegraph_panel_layout) {
                 open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout); }
             },
             {
-                key: 'rnaseq-browse',
-                title: 'RNASeq — browse by species',
-                badge: 'Coverage',
-                ready: true,
-                blurb: 'The same RNASeq tree as a cascading menu: species → tissue → dataset. '
-                    + 'Pick a file, then click a single track to add it to just that track.',
-                open: async () => { await exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout); }
-            },
-            {
                 key: 'mydata',
                 title: 'My data',
                 badge: 'Personal',

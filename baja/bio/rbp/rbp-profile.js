@@ -11,10 +11,62 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             try { exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout); } catch (e) { }
         };
 
+        // Going back to the editor is CurrentLayout.reset('mainPanel'), not a clear + set.
+        //
+        // reset() remounts the layout manchester/editor.js stashed under 'mainPanel' -- the whole
+        // editor. clear + setComponent(genegraph_panel_layout) mounts only the panel object this
+        // tool was handed, which is not the same thing: after the selection list was dismissed the
+        // clear ran but the canvas never came back. editor.js also PATCHES reset() so returning to
+        // mainPanel re-arms mouse-over-highlight, which a hand-rolled restore skips entirely.
+        //
+        // The clear + set stays as a fallback for a host that stashed nothing.
+        const restoreEditor = () => {
+            try {
+                if (CurrentLayout.getStashed && CurrentLayout.getStashed('mainPanel')) {
+                    CurrentLayout.reset('mainPanel');
+                    return;
+                }
+            } catch (e) { }
+            try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+            try { if (genegraph_panel_layout) CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
+        };
+
         const PALETTE = [
             [26, 163, 189], [224, 112, 59], [94, 84, 199], [46, 160, 102],
             [201, 76, 140], [210, 160, 40], [70, 130, 180], [150, 90, 60]
         ];
+
+        // What the user has already SELECTED, so a model launched from a selection menu runs
+        // on it instead of asking for a click the user has effectively already made.
+        //
+        // Two selections count, and a range is optional:
+        //   * a selected sequence RANGE on a track  -> run on that sub-sequence
+        //   * a selected TRACK with no range        -> run on the whole track
+        // The earlier bypass required BOTH a track and a range, so choosing the model with a
+        // track selected but no range fell through to "click on a track".
+        //
+        // showResizeBar is the selected flag on both renderers (track.js and track-flexi.js);
+        // marks are used raw, exactly as selected-sequence-menu.js passes them.
+        const pickedTrack = () => {
+            if (presetTrack) return presetTrack;
+            try {
+                const sel = (graph.track || []).filter((t) => t && t.showResizeBar);
+                // Only an unambiguous selection. With several tracks selected there is no way
+                // to know which one was meant, so fall back to asking.
+                if (sel.length === 1) return sel[0];
+            } catch (e) { }
+            return null;
+        };
+        const pickedRange = (t) => {
+            if (presetRange) return presetRange;
+            try {
+                if (t && t.markstart != null && t.markend != null
+                    && t.markstart >= 0 && t.markend > t.markstart) {
+                    return { start: Math.floor(t.markstart), end: Math.ceil(t.markend) };
+                }
+            } catch (e) { }
+            return null;   // whole track
+        };
 
         // presetRange {start,end} scopes the model to the SELECTED sequence instead of the
         // whole track: the sequence sent is that range and xi becomes the range start, so the
@@ -35,9 +87,20 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
+                // Context-specific status: which model, on which track, over what span, and
+                // what it will produce. Cleared in the finally at the end of runOnTrack.
+                const __where = (track.name || 'track')
+                    + (range ? (' · ' + (Math.abs(+range.end - +range.start)) + ' nt selection') : ' · whole track');
+                const __say = (phase) => {
+                    try { exec('baja/lib/work-status.js', 'BajaCLIP · ' + rbp + ' binding sites → ' + __where + (phase ? ('  ·  ' + phase) : '')); } catch (e) { }
+                };
+                __say('scoring ' + seq.length.toLocaleString() + ' nt');
+
                 graph.setMessage(' Running RBP model (' + rbp + ')… ');
                 const server = window['env']['apiUrl'];
-                let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                // The model's own progress lines become the status line, so the badge tracks
+                // the phase the run is actually in rather than a single frozen message.
+                let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); __say('' + m); } catch (e) { } });
                 const data = await exec(server + '/py/bio/rbp/rbp-profile.py', em, '' + seq, '' + xi, strand, '' + rbp, '8');
 
                 if (data && data.error) {
@@ -93,19 +156,57 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             } catch (e) {
                 graph.setMessage(' RBP error: ' + e + ' ');
             }
+            try { exec('baja/lib/work-status.js', null); } catch (e) { }
             restoreHover();
+        };
+
+        // BOARD-LEVEL run: the Layers button on the canvas sets __bajaApplyAllTracks, meaning
+        // "apply this to everything on the board" rather than to one track. Run the tracks in
+        // SEQUENCE, not in parallel: each one is a python job, and firing a dozen at once would
+        // queue behind the server's concurrency cap anyway while making the progress meaningless.
+        //
+        // The flag is consumed on entry so a later run from a track menu is a single-track run
+        // again -- a mode that silently persisted would be worse than one that has to be asked
+        // for each time.
+        const runAllTracks = (rbp) => {
+            let all = [];
+            try { all = (graph.track || []).filter((t) => t && (t.grid || t.tgraph)); } catch (e) { }
+            if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
+            (async () => {
+                for (let i = 0; i < all.length; i++) {
+                    const t = all[i];
+                    try {
+                        window.__workStatus = 'Models · ' + ((t && t.name) || ('track ' + (i + 1)))
+                            + ' · ' + (i + 1) + ' of ' + all.length + '…';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    } catch (e) { }
+                    try { await runOnTrack(t, rbp, null); } catch (e) { }
+                }
+                try {
+                    window.__workStatus = '';
+                    if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                } catch (e) { }
+                graph.setMessage(' Applied to all ' + all.length + ' track' + (all.length === 1 ? '' : 's') + '. ');
+            })();
         };
 
         const armTrackClick = (rbp) => {
             graph.clearMouseListeners();
+            let __all = false;
+            try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
+            if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(rbp); return; }
             graph.setMouseMode('msg: Click on a track to build an RBP binding profile.');
-            CurrentLayout.clearComponent('mainPanel');
-            CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-            // Launched from the Selected Sequence menu: the track and range are already known,
-            // so run straight away rather than asking the user to click a track.
-            if (presetTrack && presetRange) {
+            restoreEditor();
+            // Run on the existing selection when there is one -- see pickedTrack above.
+            const pt = pickedTrack();
+            if (pt) {
                 try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
-                runOnTrack(presetTrack, rbp, presetRange);
+                const pr = pickedRange(pt);
+                try {
+                    graph.setMessage(' Running ' + rbp + ' on ' + (pt.name || 'the selected track')
+                        + (pr ? (' (' + (pr.end - pr.start) + ' nt selection)') : ' (whole track)') + '… ');
+                } catch (e) { }
+                runOnTrack(pt, rbp, pr);
                 return;
             }
             graph.addMouseDownListener(async (x, y) => {
@@ -157,8 +258,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     button_function: createIonFunction((items) => {
                         const chosen = items && items[0];
                         const rbp = (chosen && byLabel[chosen]) || 'TARDBP';
-                        CurrentLayout.clearComponent('mainPanel');
-                        CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                        // armTrackClick restores the editor itself. Doing it here too remounted
+                        // the layout twice and scheduled the hover re-arm twice with it.
                         armTrackClick(rbp);
                     })
                 }
@@ -185,8 +286,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                                         buttons: [
                                             {
                                                 label: 'Close', ionFunction: createIonFunction(() => {
-                                                    CurrentLayout.clearComponent('mainPanel');
-                                                    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                                                    restoreEditor();
                                                     resetModelsToolbar();
                                                 })
                                             }

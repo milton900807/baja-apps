@@ -106,9 +106,7 @@ function (graph, genegraph_panel_layout) {
             {
                 title: 'Intron retention', badge: 'BajaIR', ready: true,
                 blurb: 'How retention-prone each intron is, from sequence alone.',
-                open: () => {
-                    try { graph.setMessage(' Intron retention (BajaIR) — run from the Models menu on a track. '); } catch (e) { }
-                },
+                open: () => exec('baja/bio/splicing/intron-retention.js', graph, L),
                 docs: {
                     summary: 'Scores how retention-prone each intron is from sequence alone — no reads '
                         + 'and no expression data. Twenty features: fifteen describing intron geometry '

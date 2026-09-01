@@ -289,7 +289,15 @@ function (path, config) {
             setTimeout(async () => {
                 var result = await verifyUserPath('/cpd/editor', 'bajabio-Project');
                 if (!result.allowed) {
-                    await exec('baja/datayak/ljlcheckout.js', result)
+                    // Not subscribed drops this app to FREE MODE rather than throwing up the checkout
+                    // page. This check runs on a TIMER, so the old behaviour interrupted someone mid-session
+                    // with a paywall over work they were in the middle of -- and denied them on a network
+                    // error too, before verifyUserPath was fixed to fail open.
+                    //
+                    // Editing, saving and designing stay available. What the free tier actually limits is the
+                    // AI and off-target calls, and those are capped server-side in freeGate (baja-server),
+                    // which is the only place a browser cannot edit the answer.
+                    try { window.__bajaFreeTier = true; } catch (e) { }
                 }
             }, 10 * 60);
 

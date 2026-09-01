@@ -360,8 +360,19 @@ function (graph, genegraph_panel_layout, presetRuleset, presetTrack) {
 
             // Step 2 — hand off to the PY-BASED designer for that modality (track-design-menu.js),
             // which runs its own Default/Advanced dialog + py design (py/sirna/design.py,
-            // py/ssaso/design.py). Select the whole track + sequence first so it operates on it.
-            try { if (selectedTrack.selectTrackAndSeq) selectedTrack.selectTrackAndSeq(); } catch (e) { }
+            // py/ssaso/design.py).
+            //
+            // Design must never CHANGE the selection. selectTrackAndSeq() overwrites
+            // markstart/markend with the WHOLE track, so a user who selected a range and then
+            // chose Design had their target silently replaced before the design ran -- the one
+            // moment it matters most. Select the whole track ONLY when nothing is selected,
+            // which is the case this call was actually there for.
+            try {
+                const t = selectedTrack;
+                const hasRange = (t && t.markstart != null && t.markend != null
+                    && t.markstart >= 0 && t.markend > t.markstart);
+                if (!hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq();
+            } catch (e) { }
             try {
                 await exec('baja/manchester/menu/track-design-menu.js', graph, selectedTrack, genegraph_panel_layout, modality);
             } catch (e) {

@@ -40,21 +40,50 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             click: async (sx, sy) => { try { graph.showSideMenu(items, sx, sy); } catch (e) { } }
         });
 
-        const dataItems = [
-            // rnaseq-library already scopes its load to the selection when one exists, so the
-            // dataset lands over markstart..markend only — see baja/data/rnaseq-library.js.
-            go('RNASeq Library...', async () => exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout)),
-            go('RNASeq browse (species) ...', async () => exec('baja/data/rnaseq-hierarchy-menu.js', graph, genegraph_panel_layout)),
-            go('Data Resources...', async () => exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout)),
-            go('My data...', async () => exec('baja/data/my-data.js', graph, genegraph_panel_layout))
-        ];
+        // ---- Navigate -----------------------------------------------------------------
+        // track-flexi exposes .grid, track.js exposes .tgraph. Both are MGrids with the same
+        // X()/Y() track-world -> graph-world mapping, but a helper that reaches for only one of
+        // them works on half the tracks in the app, so resolve whichever this track has.
+        const axisOf = () => (t && (t.grid || t.tgraph)) || null;
 
-        const modelItems = [
-            // presetTrack + presetRange make these run on the SELECTED sub-sequence straight
-            // away, instead of prompting for a track click and profiling the whole thing.
-            go('RNA Binding (selection)', async () => exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t, range)),
-            go('Splicing (selection)', async () => exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t, range)),
-            go('Peptide', async () => say(' Peptide model — coming soon. '))
+        // animateTo takes GRAPH-world coordinates; start/end are TRACK-world (the same space
+        // getSequenceRange uses), so both axes go through the grid's X()/Y().
+        const zoomToSpan = (a, b, padFrac) => {
+            const ax = axisOf();
+            if (!ax) { say(' That track has no coordinate axis to navigate. '); return; }
+            const lo = Math.min(a, b), hi = Math.max(a, b);
+            const span = Math.max(1, hi - lo);
+            const pad = Math.max(2, span * (padFrac == null ? 0.25 : padFrac));
+            try {
+                // y spans the track band (grid ymin/ymax are -1.5..1.5) rather than a single
+                // row, so the sequence and anything drawn above or below it stay in frame.
+                graph.animateTo(ax.X(lo - pad), ax.X(hi + pad), ax.Y(-1.2), ax.Y(1.2));
+                if (graph.wake) graph.wake();
+            } catch (e) { say(' Could not navigate: ' + e + ' '); }
+        };
+
+        const navItems = [
+            { label: (t.name || 'track') + '  ' + start + '–' + end, move: () => { }, click: () => { } },
+            go('Zoom to selection', async () => zoomToSpan(start, end, 0.25)),
+            go('Zoom to selection (tight)', async () => zoomToSpan(start, end, 0.02)),
+            go('Zoom in to read the sequence', async () => {
+                // Sequence letters only render above ~30 screen pixels per base, so framing a
+                // long selection can never show them. Frame what the canvas can actually
+                // resolve, centred on the selection, instead of pretending to zoom to it.
+                let cw = 1200;
+                try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || cw; } catch (e) { }
+                const fits = Math.max(12, Math.floor(cw / 34));
+                if (len <= fits) { zoomToSpan(start, end, 0.05); return; }
+                const mid = Math.floor((start + end) / 2);
+                const half = Math.floor(fits / 2);
+                zoomToSpan(mid - half, mid + half, 0.02);
+                say(' Showing ' + fits + ' nt of the ' + len + ' nt selection — the most the canvas can render as letters. ');
+            }),
+            go('Zoom to whole track', async () => {
+                const ax = axisOf();
+                if (!ax) { say(' That track has no coordinate axis to navigate. '); return; }
+                zoomToSpan(ax.xmin, ax.xmax, 0.02);
+            })
         ];
 
         const seqItems = [
@@ -96,11 +125,47 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // The design menu already REQUIRES a selection and designs against
         // getSequenceRange(markstart, markend), so it is correct as-is for this menu.
         const items = [
-            { label: 'Selected Sequence', move: () => { }, click: () => { } },
             { label: '  ' + start + '–' + end + '  (' + len + ' nt)', move: () => { }, click: () => { } },
+            sub('Navigate ▸', navItems),
             go('Deselect sequence', async () => deselect()),
-            sub('Data ▸', dataItems),
-            sub('Models ▸', modelItems),
+            // Layers ▸ Data | Models, matching the selected-TRACK menu: anything that puts a
+            // new band under the track lives under Layers, whether it comes from a dataset or
+            // from a model. Both branches are already scoped to THIS sequence on THIS track --
+            // the data loaders honour markstart..markend, and the models are handed (t, range) --
+            // so the layers land over the selected span rather than the whole track.
+            sub('Layers ▸', [
+                { label: 'Layers on ' + (t.name || 'track'), move: () => { }, click: () => { } },
+                { label: '  ' + start + '–' + end + '  (' + len + ' nt)', move: () => { }, click: () => { } },
+                // Data opens the Data Resources Library directly rather than expanding a short
+                // list of shortcuts to it. The library is the catalogue -- RNASeq, public data,
+                // your own uploads -- so a submenu naming three of its shelves was a second,
+                // narrower index of the same thing. Labelled '...' not '▸': it opens a panel,
+                // it is not a submenu.
+                go('Data...', async () => exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout)),
+                // Models opens the ML Models Library, the same way Data opens the Data Resources
+                // Library. The library is the catalogue -- what each model predicts, what it was
+                // measured against and what it cannot tell you -- and running it from there is
+                // one click further but starts from the documentation rather than a bare name.
+                // The runners resolve the track from the SELECTION when they are not handed one,
+                // so a model launched from the library still lands on this track.
+                go('Models...', async () => exec('baja/ml/models-library.js', graph, genegraph_panel_layout)),
+                go('Remove layers over this range', async () => {
+                    // Only layers that fall INSIDE the selection: a layer spanning the whole
+                    // track is not "a layer over this range" and dropping it here would delete
+                    // work the user did somewhere else on the same track.
+                    const before = (t.track_layers || []).length;
+                    t.track_layers = (t.track_layers || []).filter((l) => {
+                        try {
+                            const a = Math.min(+l.xi, +l.xf), b = Math.max(+l.xi, +l.xf);
+                            if (!isFinite(a) || !isFinite(b)) return true;
+                            return !(a >= start && b <= end);
+                        } catch (e) { return true; }
+                    });
+                    const gone = before - t.track_layers.length;
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                    say(' Removed ' + gone + ' layer' + (gone === 1 ? '' : 's') + ' over ' + start + '–' + end + '. ');
+                })
+            ]),
             sub('Sequence ▸', seqItems),
             go('Design ▸', async () => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout)),
             go('Off-targets...', async () => exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout)),

@@ -12,6 +12,12 @@ function (graph, genegraph_panel_layout) {
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         const restoreHover = () => {
+            // Reset the mouse BEFORE re-arming the hover. Loading a dataset can leave a
+            // click-a-track listener or a 'msg:' mouse mode behind, and re-arming on top of one
+            // leaves the canvas in a mode the user never chose -- the next click goes somewhere
+            // unexpected instead of just highlighting.
+            try { graph.clearMouseListeners(); } catch (e) { }
+            try { graph.setMouseMode('navigate'); } catch (e) { }
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
 
@@ -188,7 +194,10 @@ function (graph, genegraph_panel_layout) {
                 }
             }
             try {
-                graph.setMessage(' Added ' + d.label + ' to ' + done + ' track' + (done === 1 ? '' : 's')
+                // setResultMessage, not setMessage: the canvas only draws ERROR and RESULT messages as a
+            // toast (see flexigraph/gene.js), so a plain setMessage on completion was set and
+            // then never shown -- data appeared with no confirmation that anything had happened.
+                graph.setResultMessage(' Added ' + d.label + ' to ' + done + ' track' + (done === 1 ? '' : 's')
                     + ' (' + chosen.scope + ')'
                     + (failed ? (' — ' + failed + ' failed') : '')
                     + (skipped > 0 ? (' — ' + skipped + ' not included') : '') + '. ');

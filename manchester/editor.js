@@ -132,24 +132,33 @@ function (path, config) {
             // gate is skipped when it set the flag. Access is not what free tier limits —
             // the AI and off-target calls are, and those are capped server-side (freeGate in
             // baja-server), which is the only place a cap cannot be edited away by the user.
-            if (window['env']['auth'] === 'b2c' && !window.__bajaFreeTier) {
-                var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');
-                if (!result.allowed) {
-                    await exec('baja/datayak/ljlcheckout.js', result)
-                    return;
+            // Is this user a subscriber? Asked ONCE, here, and answered by Stripe.
+            //
+            // What this replaced was `window.env.auth === 'b2c'` guarding verifyUserPath. That
+            // conflated three different things: which AUTH MODE the deployment runs in, whether
+            // a LICENCE FILE grants access, and whether the user actually PAYS. A deployment not
+            // running b2c skipped the question entirely and everyone was treated as entitled,
+            // while under b2c a licence-file miss denied a paying subscriber.
+            //
+            // The subscription is a fact about the account, so it is read from the one system
+            // that knows it: /stripe/subscription-status, via lib/subscription.js.
+            //   true  -> subscriber: full editor, no free-tier chrome
+            //   false -> definitively not subscribed: free mode, with the free-plan bar
+            //   null  -> could not verify (no email, Stripe not configured, network): fail OPEN
+            //            and say nothing, rather than showing an upgrade bar to a paying user
+            //            because a request blipped.
+            //
+            // This decides PRESENTATION only. The 5-per-month cap on AI and off-target calls is
+            // enforced in freeGate (baja-server), which is the only place a browser cannot edit.
+            if (!window.__bajaFreeTier) {
+                try {
+                    const SUB = await exec('lib/subscription.js');
+                    const active = await SUB.checkSubscription();
+                    if (active === false) { window.__bajaFreeTier = true; }
+                } catch (e) {
+                    console.warn('subscription check failed; leaving the editor unrestricted', e);
                 }
-            } else if (window['env']['auth'] !== 'b2c') {
-
-
-
-
-
             }
-
-            if (window['env']['auth'] === 'b2c') {
-
-            }
-
             // News headlines for the startup newspaper shown INSIDE the progress bar while
             // the editor loads (server-installed via get-news.py; the widget falls back to
             // its own defaults if this is empty). Fetched here so it's ready when the bar
@@ -1925,39 +1934,7 @@ function (path, config) {
                                                             },
                                                             { label: 'Open', click: () => { graph.hideMenu(); openSaveScreen(); }, move: () => { } },
                                                             { label: 'Save', click: () => { graph.hideMenu(); saveSaveScreen(); }, move: () => { } },
-                                                            {
-                                                                // Help ▸ — the reference shelves. 'The Library' and 'Clinical Compound
-                                                                // Library' moved here from the top level; Data and ML Models are new
-                                                                // bookshelves over the layer sources and the predictive models.
-                                                                label: 'Help ▸', move: () => { },
-                                                                click: () => {
-                                                                    graph.showMenu([
-{ label: 'The Chemistry of RNA Therapeutics', move: () => { }, click: async () => { graph.hideMenu(); try { await exec('baja/lib/rna-chemistry-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } } },
-{
-                                                                    // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
-                                                                    // compound → load its sequence + chemistry onto a track.
-                                                                    label: 'Clinical Compound Library', move: () => { },
-                                                                    click: () => {
-                                                                        graph.hideMenu();
-                                                                        try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
-                                                                        catch (e) { try { graph.setMessage(' Clinical Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                                    },
-                                                                },
-                                                                        {
-                                                                            label: 'Data Library', move: () => { },
-                                                                            click: () => { graph.hideMenu(); try { exec('baja/data/data-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Data Library failed: ' + e); } catch (e2) { } } }
-                                                                        },
-                                                                        {
-                                                                            label: 'ML Models Library', move: () => { },
-                                                                            click: () => { graph.hideMenu(); try { exec('baja/ml/models-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Models Library failed: ' + e); } catch (e2) { } } }
-                                                                        },
-                                                                        {
-                                                                            label: 'Tutorials', move: () => { },
-                                                                            click: () => { graph.hideMenu(); try { graph.setMessage(' Tutorials — coming soon. '); } catch (e) { } }
-                                                                        }
-                                                                    ], 0, 0, 300);
-                                                                }
-                                                            },
+
                                                             {
                                                                 label: 'Upload', move: () => { },
                                                                 click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
@@ -1967,13 +1944,7 @@ function (path, config) {
                                                                 click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
                                                             },
                                                             {
-                                                                // Demos Library — a bookshelf of saved demo/recording scripts
-                                                                // (play / edit / delete). Sits alongside My Files & The Library.
-                                                                label: 'Demos', move: () => { },
-                                                                click: () => { graph.hideMenu(); try { exec('manchester/demos-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage('Demos failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }
-                                                            },
-                                                            {
-                                                                label: 'Share (view-only link)', move: () => { },
+                                                                label: 'Share public view-only link', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
                                                                     // Confirm PUBLIC sharing first — the resulting link needs no login.
@@ -1987,22 +1958,37 @@ function (path, config) {
                                                                 }
                                                             },
                                                             {
-                                                                // Record the user's actions, then emit a demo.js script that replays them.
-                                                                // Toggles: first click starts (shows a REC badge), Stop shows the script.
-                                                                label: 'Record actions', move: () => { },
+                                                                // Help ▸ — the reference shelves. 'The Library' and 'Clinical Compound
+                                                                // Library' moved here from the top level; Data and ML Models are new
+                                                                // bookshelves over the layer sources and the predictive models.
+                                                                // Opens the library OF the libraries: one page listing all eight,
+                                                                // split into reading rooms and working libraries. The four-item
+                                                                // menu that used to be here named a few of them and described
+                                                                // none, and left the other four with no entry point at all.
+                                                                label: 'The Library', move: () => { },
                                                                 click: () => {
                                                                     graph.hideMenu();
-                                                                    try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
-                                                                    catch (e) { try { graph.setMessage(' Recorder failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                                },
+                                                                    try { exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout); }
+                                                                    catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                                }
                                                             },
-                                                            {
-                                                                // Play script: paste a recorded JSON script (from "Record actions")
-                                                                // and run it verbatim. The script carries its own `wait` timings,
-                                                                // so the inter-step delay defaults to 0 (honor recorded pacing).
-                                                                label: 'Play script…', move: () => { },
-                                                                click: () => { graph.hideMenu(); openPlayScriptPanel(); },
-                                                            }
+                                                            // {
+                                                            //     // Record the user's actions, then emit a demo.js script that replays them.
+                                                            //     // Toggles: first click starts (shows a REC badge), Stop shows the script.
+                                                            //     label: 'Record actions', move: () => { },
+                                                            //     click: () => {
+                                                            //         graph.hideMenu();
+                                                            //         try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
+                                                            //         catch (e) { try { graph.setMessage(' Recorder failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                            //     },
+                                                            // },
+                                                            // {
+                                                            //     // Play script: paste a recorded JSON script (from "Record actions")
+                                                            //     // and run it verbatim. The script carries its own `wait` timings,
+                                                            //     // so the inter-step delay defaults to 0 (honor recorded pacing).
+                                                            //     label: 'Play script…', move: () => { },
+                                                            //     click: () => { graph.hideMenu(); openPlayScriptPanel(); },
+                                                            // }
                                                         ], 0, 0, 280);
                                                     })
                                                 },
@@ -2155,38 +2141,113 @@ function (path, config) {
                                                         // Centered menu of layer actions.
                                                         graph.showMenu([
                                                             {
+                                                                // Straight to the ML Models Library, and whatever is run from it
+                                                                // is applied to EVERY track on the canvas -- that is what the
+                                                                // board-level Layers button means, as opposed to the per-track
+                                                                // Models menu. The flag is what the runners honour; it is
+                                                                // cleared when the run finishes or the library closes.
                                                                 label: 'Models', move: () => { },
                                                                 click: () => {
                                                                     graph.showSideMenu(null);
-                                                                    // Show the predictive-models toolbar (Models | Layers).
-                                                                    exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout);
+                                                                    const n = (graph.track || []).length;
+                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
+                                                                    try {
+                                                                        window.__workStatus = 'Models · will apply to all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
+                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                                                                    } catch (e) { }
+                                                                    exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
                                                                 }
                                                             },
                                                             {
+                                                                // The Data Resources Library. Its loaders already lay a dataset
+                                                                // over every track on the board (see baja/data/rnaseq-library.js),
+                                                                // so this needs no flag -- only the status that says so.
                                                                 label: 'Data', move: () => { },
                                                                 click: () => {
                                                                     graph.showSideMenu(null);
-                                                                    // Show the data-loading toolbar.
-                                                                    exec('baja/data/data-loading-toolbar.js', graph, genegraph_panel_layout);
+                                                                    const n = (graph.track || []).length;
+                                                                    // Same flag the Models branch sets. The RNASeq library already
+                                                                    // spans the board on its own; the other loaders (public data,
+                                                                    // the RNASeq hierarchy) ask for a track click, and this is what
+                                                                    // tells them not to -- see baja/lib/for-each-track.js.
+                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
+                                                                    try {
+                                                                        window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
+                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                                                                    } catch (e) { }
+                                                                    exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
                                                                 }
                                                             },
                                                             {
+                                                                // Navigate to a track BY NAME rather than clicking one on the
+                                                                // canvas. From the board-level Layers button the tracks are
+                                                                // what you are choosing between, and a name is easier to hit
+                                                                // than a band -- especially when tracks are stacked or the
+                                                                // one you want is scrolled off screen.
                                                                 label: 'Edit', move: () => { },
                                                                 click: () => {
+                                                                    const tracks = (graph.track || []).filter((t) => t);
+                                                                    if (!tracks.length) { graph.setSunsetMessage(' Load a track first '); return; }
+
+                                                                    const openRoot = () => {
+                                                                        const items = tracks.map((t, i) => {
+                                                                            const n = ((t.track_layers || []).length);
+                                                                            return {
+                                                                                label: (t.name || ('track ' + (i + 1)))
+                                                                                    + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ') ▸',
+                                                                                move: () => { },
+                                                                                click: () => { openTrack(t); }
+                                                                            };
+                                                                        });
+                                                                        items.push({ label: '‹ Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
+                                                                        graph.showSideMenu(items);
+                                                                    };
+
+                                                                    const openTrack = (t) => {
+                                                                        const addLayer = () => {
+                                                                            graph.showSideMenu([
+                                                                                { label: 'Add to ' + (t.name || 'track'), header: true, move: () => { }, click: () => { } },
+                                                                                // Each of these writes a layer onto THIS track: the
+                                                                                // runners take it as a preset, so none of them asks
+                                                                                // for a click.
+                                                                                { label: 'RNA Binding (BajaCLIP)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t); } },
+                                                                                { label: 'Splicing (BajaSplice)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t); } },
+                                                                                { label: 'Intron retention (BajaIR)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout, t); } },
+                                                                                // Labelled honestly: the data loaders lay a dataset
+                                                                                // over EVERY track, not just this one.
+                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout); } },
+                                                                                { label: '‹ Back', move: () => { }, click: () => { openTrack(t); } }
+                                                                            ]);
+                                                                        };
+
+                                                                        const n = ((t.track_layers || []).length);
+                                                                        graph.showSideMenu([
+                                                                            { label: (t.name || 'track') + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ')', header: true, move: () => { }, click: () => { } },
+                                                                            { label: 'Add layer ▸', move: () => { }, click: () => { addLayer(); } },
+                                                                            {
+                                                                                // The existing per-track layer menu: show / hide /
+                                                                                // remove one / remove all, per layer.
+                                                                                label: 'Edit / remove layers ▸', move: () => { },
+                                                                                click: () => {
+                                                                                    try { graph.showSideMenu(null); } catch (e) { }
+                                                                                    try { exec('baja/manchester/menu/track-layers-side-menu.js', t, genegraph_panel_layout, graph); } catch (e) { graph.setMessage(' Could not open the layer menu: ' + e); }
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                label: 'Remove all layers (' + n + ')', move: () => { },
+                                                                                click: () => {
+                                                                                    t.track_layers = [];
+                                                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                                                                    graph.setMessage(' Removed ' + n + ' layer' + (n === 1 ? '' : 's') + ' from ' + (t.name || 'track') + '. ');
+                                                                                    openTrack(t);
+                                                                                }
+                                                                            },
+                                                                            { label: '‹ Back to tracks', move: () => { }, click: () => { openRoot(); } }
+                                                                        ]);
+                                                                    };
+
                                                                     graph.showSideMenu(null);
-                                                                    // Prompt to click a track, then open its layer editor.
-                                                                    graph.clearMouseListeners();
-                                                                    graph.setMouseMode("msg: Click on a track to edit its layers.");
-                                                                    graph.addMouseDownListener(async (x, y) => {
-                                                                        const ti = graph.getTrack(x, y);
-                                                                        if (ti < 0) return;
-                                                                        const track = graph.track[ti];
-                                                                        graph.clearMouseListeners();
-                                                                        graph.setMouseMode('navigate');
-                                                                        try {
-                                                                            await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js', track, genegraph_panel_layout, graph);
-                                                                        } catch (e) { graph.setMessage(' Could not open the layer editor: ' + e); }
-                                                                    });
+                                                                    openRoot();
                                                                 }
                                                             }
                                                         ]);
@@ -2241,25 +2302,41 @@ function (path, config) {
                                                                     // xoffset is where seq starts in the track (for placing primers).
                                                                     const chooseMethodAndRun = (track, seq, xoffset) => {
                                                                         if (!seq || !seq.length) { graph.setMessage(' No sequence to design on. '); return; }
+                                                                        // Design work reports the same way models do: what is running, on which
+                                                                        // track, over how much sequence, and where the result lands.
+                                                                        const __designWhere = (track.name || 'track') + '  ·  ' + ('' + seq.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt';
+                                                                        const __designSay = (tool, phase) => {
+                                                                            try { exec('baja/lib/work-status.js', tool + ' · primer design → ' + __designWhere + (phase ? ('  ·  ' + phase) : '')); } catch (e) { }
+                                                                        };
+                                                                        const __designDone = () => { try { exec('baja/lib/work-status.js', null); } catch (e) { } };
+
                                                                         const runPrimer3 = async () => {
-                                                                            graph.pushOntoHistory();
-                                                                            graph.setMessage(' Generating primers (primer3)... ');
-                                                                            let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
-                                                                            let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + seq, '', 1);
-                                                                            await exec('baja/manchester/ppsets/apply-primer3.js', r, xoffset || 0, track, graph);
-                                                                            if (graph.wake) graph.wake();
-                                                                            graph.setMessage(' Primers designed and placed on ' + (track.name || 'track') + '. ');
-                                                                            try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                            try {
+                                                                                graph.pushOntoHistory();
+                                                                                graph.setMessage(' Generating primers (primer3)... ');
+                                                                                __designSay('primer3', 'generating candidate pairs');
+                                                                                let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); __designSay('primer3', '' + msg); } catch (e) { } });
+                                                                                let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + seq, '', 1);
+                                                                                __designSay('primer3', 'placing amplicons on the track');
+                                                                                await exec('baja/manchester/ppsets/apply-primer3.js', r, xoffset || 0, track, graph);
+                                                                                if (graph.wake) graph.wake();
+                                                                                graph.setMessage(' Primers designed and placed on ' + (track.name || 'track') + '. ');
+                                                                                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                            } finally { __designDone(); }
                                                                         };
                                                                         const runDjprimer = async () => {
-                                                                            graph.pushOntoHistory();
-                                                                            graph.setMessage(' Designing primers (djPrimer)... ');
-                                                                            const gene = track.geneID || track.name || '';
-                                                                            let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + seq, '', '', JSON.stringify({ scorer: 'djprimer', gene: '' + gene }));
-                                                                            // track.ampliconResults = r;
-                                                                            await exec('baja/manchester/ppsets/apply-djprimer.js', r, xoffset || 0, track, graph);
-                                                                            if (graph.wake) graph.wake();
-                                                                            try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                            try {
+                                                                                graph.pushOntoHistory();
+                                                                                graph.setMessage(' Designing primers (djPrimer)... ');
+                                                                                const gene = track.geneID || track.name || '';
+                                                                                __designSay('djPrimer', 'designing, then ranking by predicted assay success');
+                                                                                let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + seq, '', '', JSON.stringify({ scorer: 'djprimer', gene: '' + gene }));
+                                                                                // track.ampliconResults = r;
+                                                                                __designSay('djPrimer', 'placing ranked amplicons on the track');
+                                                                                await exec('baja/manchester/ppsets/apply-djprimer.js', r, xoffset || 0, track, graph);
+                                                                                if (graph.wake) graph.wake();
+                                                                                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                                            } finally { __designDone(); }
                                                                         };
                                                                         graph.showMenu([
                                                                             { label: 'primer3', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); runPrimer3(); } },
@@ -2926,7 +3003,7 @@ function (path, config) {
                                         }
                                     }
                                 },
-                                ], [
+                            ], [
                                 {
                                     'width': '100%',
                                     'height': '100%',
@@ -3007,6 +3084,16 @@ function (path, config) {
 
                 CurrentLayout.stash('mainPanel', main_layout)
 
+                // Tell CurrentLayout that genegraph_panel_layout MEANS "put the editor back".
+                // ~460 call sites across the library restore the editor with
+                //     clearComponent('mainPanel'); setComponent('mainPanel', genegraph_panel_layout)
+                // which mounts this toolbar card instead of the stashed main_layout, so the panel
+                // cleared and the canvas never returned. Registering the object here reroutes
+                // exactly those calls through reset('mainPanel') -- see lib/core.js -- without
+                // touching a single one of them, and without affecting tools that mount their own
+                // panel into mainPanel.
+                try { CurrentLayout.registerMainRestoreAlias(genegraph_panel_layout); } catch (e) { }
+
                 // Reload-path fix: on a browser reload the file is loaded (graph.update) during the
                 // initial app boot — BEFORE this canvas is mounted and sized — so tracks get laid out
                 // against a zero-size grid and don't paint (opening the same file from My Files works
@@ -3060,20 +3147,28 @@ function (path, config) {
                 // Second access gate — same free-tier exemption as the one at the top of the
                 // file. Missing this one would let a free user open the editor and then get
                 // bounced to checkout partway through startup.
-                if (window['env']['auth'] === 'b2c' && !window.__bajaFreeTier) {
-                    var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');
-                    if (!result.allowed) {
-                        await exec('baja/datayak/ljlcheckout.js', result)
-                        return;
-                    }
+                // The subscription is already resolved at the top of this file, so there is
+                // nothing left to gate here. A second check would ask Stripe the same question
+                // again mid-startup and could contradict the first one on a network blip.
+                //
+
+                // A greeting on the EMPTY canvas, which fades out on its own.
+                //
+                // The earlier version was static and stayed put, sitting exactly where the first
+                // loaded track draws -- decoration the user could not act on or dismiss. This
+                // holds for a moment and then fades to nothing, so it greets without occupying
+                // the workspace. It only draws while there are no tracks, so opening a file
+                // removes it immediately regardless of the timer.
+                let m = window['env']['theme']
+                if (m && m !== 'bajabio') {
+                    graph.setMessageCenter(m, 40)
+                } else if (!graph.track || graph.track.length === 0) {
+                    try { graph.setCenterLogo('/assets/logos/baja-logo.png', 1400, 1800); } catch (e) { }
                 }
 
-                let m = window['env']['theme']
-                if (!m || m === 'bajabio') {
-                    graph.setCenterLogo('/assets/logos/baja-icon.svg')
-                } else {
-                    graph.setMessageCenter(m, 40)
-                }
+                // The free-plan bar is drawn by the app shell (baja/src/app/app.component), not from
+                // lionscript. It kept not appearing from here and every layer in between swallowed the
+                // reason; the shell is provably running and its bar cannot be removed by a re-mount.
 
                 setTimeout(() => {
                     graph.isPreviousState().then(r => {

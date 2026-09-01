@@ -1503,6 +1503,13 @@ function (progress, options) {
             timeout;
             // Show an ERROR message: orange glow/border, held for at least 5 seconds.
             setError(m, seconds) {
+                // Work is over, one way or the other — drop the in-progress badge.
+                try {
+                    if (window.__workStatus) {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    }
+                } catch (e) { }
                 if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
@@ -1523,6 +1530,13 @@ function (progress, options) {
             // A RESULT/summary toast (cyan) that IS shown even though ordinary working/status
             // messages are suppressed — used for "added N mutations on genes …" style outcomes.
             setResultMessage(m, seconds) {
+                // Work is over, one way or the other — drop the in-progress badge.
+                try {
+                    if (window.__workStatus) {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    }
+                } catch (e) { }
                 if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
@@ -1544,6 +1558,30 @@ function (progress, options) {
                 // While an error OR result message is showing, don't let ordinary (suppressed)
                 // status messages overwrite it — it stays until its own timeout clears it.
                 if (this.messageIsError || this.messageIsResult) return;
+
+                // ONE place for work-in-progress feedback.
+                //
+                // A message ending in an ellipsis is this codebase's existing convention for
+                // "still working" — "Designing primers (djPrimer)...", "Running splicing model…",
+                // "Loading track …". Those now drive the status badge under the canvas buttons,
+                // next to the spinner, so every in-progress message appears in the same spot
+                // instead of each caller picking its own. Nothing else has to change: hundreds of
+                // existing setMessage calls already follow the convention.
+                //
+                // A message WITHOUT the ellipsis means the work reached a conclusion, so it
+                // clears the badge — otherwise a spinner would keep turning under a finished job.
+                try {
+                    const __s = ('' + (m == null ? '' : m)).trim();
+                    const __busy = /(…|\.\.\.)$/.test(__s);
+                    if (__busy) {
+                        window.__workStatus = __s;
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    } else if (__s && window.__workStatus) {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    }
+                } catch (e) { }
+
                 if (this.wake) this.wake();
                 this.centerMessage = false;
                 this.message = m;
@@ -1632,10 +1670,22 @@ function (progress, options) {
             // Show a brand logo/icon centered on an EMPTY canvas (startup) instead of a text
             // center-message. It renders only while there are no tracks, so it disappears on
             // its own once a track is loaded. Defaults to the Baja icon.
-            setCenterLogo(url) {
+            // holdMs / fadeMs make this a SPLASH rather than a permanent mark. The static
+            // version was removed because a picture parked in the middle of the editor is
+            // decoration the user cannot act on, and it sat exactly where the first loaded
+            // track draws. Fading it out keeps the greeting and drops the obstruction: it is
+            // gone by the time anyone wants the space.
+            setCenterLogo(url, holdMs, fadeMs) {
+                this.__centerLogoAt = Date.now();
+                this.__centerLogoHold = (holdMs == null) ? 1400 : Math.max(0, +holdMs || 0);
+                this.__centerLogoFade = (fadeMs == null) ? 1800 : Math.max(1, +fadeMs || 1);
                 if (this.wake) this.wake();
-                const u = ('' + (url || '/assets/logos/baja-icon.svg')).trim();
+                // A falsy url CLEARS the mark. It used to fall back to the Baja icon, so the
+                // one call that could remove the logo -- setCenterLogo(null) -- put it back
+                // instead, and there was no way to turn it off at all.
+                const u = ('' + (url || '')).trim();
                 this.centerLogoUrl = u || null;
+                if (!this.centerLogoUrl) { this.__centerLogoImg = null; this.__centerLogoImgUrl = null; return; }
                 if (this.centerLogoUrl && (!this.__centerLogoImg || this.__centerLogoImgUrl !== this.centerLogoUrl)) {
                     try {
                         const img = new Image();
@@ -3033,7 +3083,15 @@ function (progress, options) {
                 try {
                     try {
                         const __nm = ('' + (ensembleId || 'track')).trim();
-                        window.__workStatus = 'Loading ' + (__nm || 'track') + '…';
+                        // Name the source as well as the target: "Loading UNC13A" leaves the user
+                        // wondering whether it is stuck locally or waiting on Ensembl, which is
+                        // the difference between a second and half a minute.
+                        const __src = ('' + (source || '')).trim();
+                        window.__workStatus = 'Loading track ' + (__nm || 'track')
+                            + (__src ? ('  ·  from ' + __src) : '') + '…';
+                        // Show it now. The badge polls, but a load that finishes inside one poll
+                        // interval would otherwise never appear at all.
+                        try { if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh(); } catch (e) { }
                         window.__backendWorkCount = (window.__backendWorkCount || 0) + 1;
                         __counted = true;
                         this.showSprite = true;
@@ -3046,6 +3104,13 @@ function (progress, options) {
                     if (this.__addDepth <= 0) {
                         this.__addDepth = 0;
                         try { this.showSprite = !!this.__addSpritePrev; if (this.wake) this.wake(); } catch (e) { }
+                        // Clear only at depth 0: add() recurses and callers fire several loads
+                        // without awaiting, so clearing on the first one to finish would drop the
+                        // status while the rest are still running.
+                        try {
+                            window.__workStatus = '';
+                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                        } catch (e) { }
                     }
                 }
             }
@@ -4907,11 +4972,45 @@ function (progress, options) {
                             if (hitBtn) { await this.handleControlButton(hitBtn); return; }
                         }
 
-                        // Click on the selection list card -> open its actions menu.
+                        // BOX ZOOM OWNS THE CANVAS.
+                        //
+                        // Everything below this point intercepts the press before the registered
+                        // listeners see it: the selection card, the info card, bookmarks, the
+                        // selection arrows, a click inside an existing selection. Box zoom clears
+                        // the LISTENERS when it arms, but it could not clear these, so dragging a
+                        // box that started over a selection opened that selection's menu instead
+                        // of zooming.
+                        //
+                        // In 'bpx' the user has explicitly asked to draw a rectangle, so the drag
+                        // wins wherever it starts. The control buttons above stay live -- that is
+                        // how the mode is turned off again.
+                        if (this.graph && this.graph.mode === 'bpx') {
+                            // Same dispatch the normal path uses further down -- world
+                            // coordinates, and mouseDown set so the move/up handlers that track
+                            // the drag see a press in progress.
+                            this.mouseDown = true;
+                            for (let mdl of (this.mouseDownListeners || [])) {
+                                try { mdl(xwc, ywc); } catch (e) { }
+                            }
+                            return;
+                        }
+
+                        // The selection card IS the menu: a click on a ROW opens that object's
+                        // own tree with the object as its root. A click on the header or the
+                        // "+N more" row opens the whole-selection menu instead.
                         if (this.hitSelectionPanel(xs, ys)) {
                             this.__downMenuHandled = true;   // don't let the up open a context menu
                             this.__keepSideMenu = true;      // don't let the up dismiss the menu
-                            this.openSelectionMenu();
+                            // Purely per-row: a row opens ITS object's tree, the overflow row
+                            // opens the full list, and the card's padding opens nothing. The
+                            // click is still consumed so it does not fall through to the canvas
+                            // and start a lasso on top of the selection it is showing.
+                            const row = this.hitSelectionRow(xs, ys);
+                            if (row && row.item.src) this.openSelectionMenu(row.item.src, row.y);
+                            // "+N more…" opens the maximised, scrollable list of everything
+                            // selected -- the card has room for a dozen rows, and that is where
+                            // the rest of them live.
+                            else if (row && row.item.more) this.openSelectionBrowser();
                             return;
                         }
 
@@ -7133,9 +7232,26 @@ pattern, GGGG | Required`
                     return out;
                 } catch (e) { return list; }
             }
-            showSideMenu(list, anchor) {
+            showSideMenu(list, anchor, label) {
                 try { list = this.__viewerFilterMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
+
+                // Keep the "came from the selection box" mark across a menu CHAIN.
+                //
+                // openSelectionMenu marks the lists it builds itself, which is what the
+                // selection card blurs behind. But a submenu that hands off to another script --
+                // track-layers-side-menu.js, the model runners, the design menus -- calls
+                // showSideMenu directly with a fresh list, so the mark was lost one level in and
+                // the box snapped back to sharp while a menu it had opened was still up.
+                //
+                // The chain is started by openSelectionMenu and ends the moment anything closes
+                // the menu with showSideMenu(null), which is the near-universal idiom before
+                // opening an UNRELATED menu ("graph.showSideMenu(null); exec(...)"). So an
+                // unrelated menu does not inherit the mark.
+                try {
+                    if (!list) { this.__selMenuChain = false; }
+                    else if (this.__selMenuChain && Array.isArray(list)) { list.__fromSelection = true; }
+                } catch (e) { }
                 // console.trace('showSideMenu() called', {
                 //     list,
                 //     side_menu: this.side_menu,
@@ -7270,6 +7386,10 @@ pattern, GGGG | Required`
                     const rows =
                         Math.min(itemCount, maxPerColumn);
 
+
+                    debugger;
+
+
                     const menuHeight =
                         rows * itemHeight;
 
@@ -7324,42 +7444,61 @@ pattern, GGGG | Required`
                         // pill (see menu.js draw()), so the full-screen mobile menu only opens
                         // once the user taps it.
                         if (!(list && list.__noCollapse)) {
-                            // The chip advertises WHAT IS INSIDE by naming the submenus, joined
-                            // with a pipe and closed with '...' — "Layers | Data | Models ..." —
-                            // rather than a single word that says nothing about the contents.
-                            // Only items carrying the ▸ marker are listed, since those are the
-                            // ones that lead somewhere; leaf actions would make the pill long
-                            // without making it more informative.
+                            // The chip is named after the PARENT — the item the user clicked to
+                            // get here. "Layers", "Models", "Primer probes": where they are,
+                            // in the word they chose, rather than a summary of what is inside.
+                            // menu.js records it just before running an item's click handler.
+                            //
+                            // The stem summary below is the fallback for a menu with no parent:
+                            // one opened from the canvas, a card, or a toolbar rather than from
+                            // another menu item.
                             const pillLabel = () => {
-                                let subs = [];
+                                // An explicit label wins over everything. The caller naming its
+                                // own menu knows better than any of the guesses below -- the
+                                // parent item it was opened from, or a summary of its contents.
                                 try {
-                                    subs = safeList
-                                        .map((it) => ('' + ((it && it.label) || '')).trim())
-                                        .filter((l) => /[▸►]/.test(l))
-                                        .map((l) => l.replace(/\s*[▸►]\s*$/, '').trim())
-                                        .filter((l) => l.length);
-                                } catch (e) { subs = []; }
-                                if (subs.length) {
-                                    let out = subs.join(' | ');
-                                    // Keep the pill to a sane width: drop trailing names until it
-                                    // fits, but never lose the first one.
-                                    const MAX = 46;
-                                    while (subs.length > 1 && out.length > MAX) {
-                                        subs.pop();
-                                        out = subs.join(' | ');
+                                    const explicit = ('' + (label || '')).trim();
+                                    if (explicit) return explicit;
+                                } catch (e) { }
+                                try {
+                                    const mp = this.__menuParent;
+                                    // Only a RECENT click counts. A leaf action that opened no
+                                    // menu would otherwise leave its name sitting there for
+                                    // whatever menu happened to open next.
+                                    if (mp && mp.label && (Date.now() - (mp.t || 0)) < 4000) {
+                                        return ('' + mp.label).trim();
                                     }
-                                    return out + ' ...';
+                                } catch (e) { }
+                                let stems = [];
+                                try {
+                                    stems = safeList
+                                        .map((it) => ('' + ((it && it.label) || '')).trim())
+                                        // Drop the ▸/► marker and any leading bullet, so the five
+                                        // characters come from the NAME rather than decoration.
+                                        .map((l) => l.replace(/\s*[▸►]\s*$/, '').replace(/^[•\s]+/, '').trim())
+                                        // Separators and headers carry no name to abbreviate.
+                                        .filter((l) => l.length && !/^[-—–_]+$/.test(l))
+                                        .map((l) => l.slice(0, 5).trim())
+                                        .filter((l) => l.length);
+                                } catch (e) { stems = []; }
+                                if (!stems.length) return 'Menu';
+                                let out = stems.join('/');
+                                // Keep the pill to a sane width: drop trailing stems until it
+                                // fits, but never lose the first one.
+                                const MAX = 46;
+                                while (stems.length > 1 && out.length > MAX) {
+                                    stems.pop();
+                                    out = stems.join('/');
                                 }
-                                // No submenus — fall back to the first item, then a generic name,
-                                // so a leaf-only menu still reads as something.
-                                let t0 = '';
-                                try { t0 = ('' + ((safeList[0] && safeList[0].label) || '')).replace(/\s*[▸►]\s*$/, '').trim(); } catch (e) { }
-                                return t0 ? (t0.length > 22 ? (t0.slice(0, 21) + '…') : t0) : 'Menu';
+                                return out;
                             };
                             if (!this.side_menu.title) {
                                 this.side_menu.title = pillLabel();
                                 this.side_menu.externalTitle = false;
                             }
+                            // Consumed: this menu has its name, and the next one must earn its
+                            // own from its own parent click.
+                            try { this.__menuParent = null; } catch (e) { }
                             this.side_menu.collapsible = true;
                             this.side_menu.collapsed = true;
                         }
@@ -7488,8 +7627,11 @@ pattern, GGGG | Required`
             // The zoom rect is symmetric about the track's center in x (xi + width/2) and
             // y (its two edges yi and yi+height), so the track lands in the middle.
             async zoomToTrack(t, padFrac) {
-                if (!t || !t.tgraph) return;
-                const g = t.tgraph;
+                // track.js exposes .tgraph, track-flexi exposes .grid. Reaching for only one of
+                // them made this a no-op on every flexi track, silently -- the camera simply did
+                // not move and nothing said why.
+                const g = t && (t.tgraph || t.grid);
+                if (!g) return;
                 // Horizontal margin as a fraction of the track width (default 5%); callers can
                 // request more breathing room around the framed track.
                 const pf = (padFrac != null && isFinite(padFrac)) ? padFrac : 0.05;
@@ -8827,6 +8969,7 @@ pattern, GGGG | Required`
                     if (seqEntries.length) selList = (selList || []).concat(seqEntries);
                 } catch (e) { }
                 this.__selPanelBounds = null;
+                this.__selPanelRows = null;
                 if (selList && selList.length) {
                     // Show only DISTINCT items (by kind + label); duplicates are collapsed
                     // and noted with a ×N count.
@@ -8836,58 +8979,121 @@ pattern, GGGG | Required`
                         const label = '' + (it.label || '');
                         const key = (it.kind || '') + '|' + label;
                         let e = byKey.get(key);
-                        if (!e) { e = { kind: it.kind, label: label, count: 0 }; byKey.set(key, e); distinct.push(e); }
+                        // `src` is the selection entry this row stands for. The card is a MENU:
+                        // clicking a row opens that object's own tree, so each row has to carry
+                        // the object it represents, not just its label.
+                        if (!e) { e = { kind: it.kind, label: label, count: 0, src: it }; byKey.set(key, e); distinct.push(e); }
                         e.count++;
                     }
-                    const dupTotal = selList.length;
 
+                    // COMPOUNDS ARE PACKAGED INTO ONE ROW.
+                    //
+                    // A lasso across a designed region catches every oligo under it, and listing
+                    // each one turned the card into a column of near-identical ids with the other
+                    // selected things pushed off the bottom. One row says how many were caught and
+                    // opens the compounds branch, which groups them by type and can be searched.
+                    // Annotations get the same treatment for the same reason.
+                    {
+                        const packed = [];
+                        const groups = { oligo: [], ann: [] };
+                        for (const e of distinct) {
+                            const g = (e.kind === 'oligo' || e.kind === 'amplicon') ? 'oligo'
+                                : (e.kind === 'ann' ? 'ann' : null);
+                            if (g) groups[g].push(e); else packed.push(e);
+                        }
+                        const total = (arr) => arr.reduce((n, e) => n + (e.count || 1), 0);
+                        if (groups.oligo.length) {
+                            packed.unshift({
+                                kind: 'oligo', count: 0,
+                                label: 'Compounds (' + total(groups.oligo) + ')',
+                                src: { __group: 'compounds' }
+                            });
+                        }
+                        if (groups.ann.length) {
+                            packed.unshift({
+                                kind: 'ann', count: 0,
+                                label: 'Annotations (' + total(groups.ann) + ')',
+                                src: { __group: 'annotations' }
+                            });
+                        }
+                        distinct.length = 0;
+                        for (const e of packed) distinct.push(e);
+                    }
                     const maxItems = 12;
                     const shown = distinct.slice(0, maxItems);
                     const extra = distinct.length > maxItems ? 1 : 0;
-                    const headerText = 'Selected (' + distinct.length + (dupTotal > distinct.length ? ' of ' + dupTotal : '') + ')';
                     const labelOf = (e) => e.label + (e.count > 1 ? '  ×' + e.count : '');
 
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
-                    ctx.font = '600 10px Arial';
-                    let lw = ctx.measureText(headerText + '  ⋯').width;
+                    ctx.font = '600 11.5px Arial';
+                    // No header row: the card is purely per-row, so nothing but the rows
+                    // themselves decides its width or its height.
+                    let lw = 0;
                     for (const it of shown) lw = Math.max(lw, ctx.measureText('•  ' + labelOf(it)).width + 4);
 
-                    const lpadX = 10, lpadY = 8, lrowH = 14;
+                    // Row height is the click target. At 14px the rows were close enough
+                    // together that picking the wrong one was easy -- and each row now opens a
+                    // different menu tree, so a misclick costs a wrong menu rather than nothing.
+                    // 22px is comfortable for a mouse without turning a ten-item selection into
+                    // a full-height panel. The hit rects are built from this same constant, so
+                    // the clickable area grows with what is drawn.
+                    const lpadX = 10, lpadY = 8, lrowH = 22;
                     const lX = panelX;
                     const lY = panelY + panelH + 8;
                     const lW = Math.min(240, lw + lpadX * 2);
-                    const lH = lpadY * 2 + lrowH * (shown.length + 1 + extra);
-                    // Remember the box so a click on it opens the actions menu.
+                    const lH = lpadY * 2 + lrowH * (shown.length + extra);
+                    // Remember the box so a click can be tested against its rows.
                     this.__selPanelBounds = { x: lX, y: lY, w: lW, h: lH };
 
                     paintCard(lX, lY, lW, lH);
 
                     let ry2 = lY + lpadY + lrowH / 2;
-                    ctx.font = '700 10px Arial';
-                    ctx.fillStyle = TXT_ACCENT;
-                    ctx.fillText(headerText, lX + lpadX, ry2);
-                    // Clickable hint on the right of the header.
-                    ctx.textAlign = 'right';
-                    ctx.fillText('⋯', lX + lW - lpadX, ry2);
-                    ctx.textAlign = 'left';
-                    ry2 += lrowH;
 
                     const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#ff8c42', amplicon: '#7c3aed', layer: '#a86b3e' };
-                    ctx.font = '600 10px Arial';
+                    ctx.font = '600 11.5px Arial';
+                    // Per-ROW hit rects, rebuilt every frame alongside the drawing so they cannot
+                    // drift from what is on screen. A click on a row opens THAT object's menu
+                    // tree with the object as its root; a click anywhere else on the card opens
+                    // the whole-selection menu.
+                    const rows2 = [];
+                    // Which row the pointer is over, taken from the live canvas-pixel pointer the
+                    // card already uses for its Pos readout. Computed here rather than in a mouse
+                    // handler so the highlight and the hit rects come from the same geometry and
+                    // cannot disagree by a row.
+                    let __hoverY = null;
+                    try { const pp = this.__ptrpx; if (pp) __hoverY = { sx: pp.sx, sy: pp.sy }; } catch (e) { }
                     for (const it of shown) {
+                        const rowTop = ry2 - lrowH / 2;
+                        // Highlight the row under the cursor, so it reads as clickable.
+                        const __over = !!(__hoverY && __hoverY.sx >= lX && __hoverY.sx <= lX + lW
+                            && __hoverY.sy >= rowTop && __hoverY.sy <= rowTop + lrowH);
+                        if (__over) {
+                            ctx.fillStyle = 'rgba(255,255,255,0.10)';
+                            ctx.fillRect(lX + 3, rowTop, lW - 6, lrowH);
+                        }
                         ctx.fillStyle = dotColor[it.kind] || TXT_MAIN;
                         ctx.fillText('•', lX + lpadX, ry2);
                         ctx.fillStyle = TXT_MAIN;
                         let label = labelOf(it);
                         if (label.length > 30) label = label.slice(0, 29) + '…';
                         ctx.fillText(label, lX + lpadX + 12, ry2);
+                        ctx.fillStyle = TXT_MUTED;
+                        ctx.textAlign = 'right';
+                        ctx.fillText('▸', lX + lW - lpadX, ry2);   // says the row opens something
+                        ctx.textAlign = 'left';
+                        rows2.push({ x: lX, y: rowTop, w: lW, h: lrowH, item: it });
                         ry2 += lrowH;
                     }
                     if (extra) {
                         ctx.fillStyle = TXT_MUTED;
                         ctx.fillText('+' + (distinct.length - maxItems) + ' more…', lX + lpadX, ry2);
+                        // The overflow row is the one row that is not an object: it opens the
+                        // full list. Marked so a click on it is told apart from a click on the
+                        // card's padding, which now does nothing at all.
+                        rows2.push({ x: lX, y: ry2 - lrowH / 2, w: lW, h: lrowH, item: { more: true } });
                     }
+                    this.__selPanelRows = rows2;
 
                     // While a menu OPENED FROM THIS BOX is showing, blur the box itself. The menu
                     // is the box's contents expanded, so leaving both sharp reads as two competing
@@ -8966,6 +9172,21 @@ pattern, GGGG | Required`
                 ctx.restore();
             }
 
+            // Which ROW of the selection card is the given SCREEN point on?
+            // Returns { item, y } — the row's entry AND its screen y, because the caller needs
+            // the y to line the opened menu up with the row it came from. null for the card's
+            // padding or a point outside the card.
+            hitSelectionRow(xs, ys) {
+                const rows = this.__selPanelRows;
+                if (!rows || !rows.length || !this.hitSelectionPanel(xs, ys)) return null;
+                for (const r of rows) {
+                    if (xs >= r.x && xs <= r.x + r.w && ys >= r.y && ys <= r.y + r.h) {
+                        return r.item ? { item: r.item, y: r.y } : null;
+                    }
+                }
+                return null;
+            }
+
             // Is the given SCREEN point on the selection list card?
             hitSelectionPanel(xs, ys) {
                 const b = this.__selPanelBounds;
@@ -8984,7 +9205,21 @@ pattern, GGGG | Required`
             // all oligos, and choose a chemistry.
             openInfoPanelMenu() {
                 const close = () => { try { this.showSideMenu(null); } catch (e) { } };
-                const show = (list) => { const b = this.__infoPanelBounds; if (b) this.showSideMenu(list, { x: b.x, y: b.y + b.h + 4 }); else this.showSideMenu(list); };
+                // Closing this menu to OPEN ANOTHER ONE is not the same as dismissing it: the
+                // new menu is still derived from the selection, so the box should stay blurred
+                // behind it. close() clears the chain (showSideMenu(null) does), so a handoff
+                // re-opens it. Leaves that perform an ACTION rather than opening a menu keep
+                // using plain close().
+                const closeHandoff = () => { close(); try { this.__selMenuChain = true; } catch (e) { } };
+                // 'Select…' as the chip label for every menu opened from the info panel. This
+                // menu is how you pick what to work on -- tracks, oligos, variants, a sequence --
+                // so naming it after that beats the fallbacks: it has no parent item to inherit
+                // from, and a summary of its own entries said nothing about its purpose.
+                const show = (list) => {
+                    const b = this.__infoPanelBounds;
+                    const anchor = b ? { x: b.x, y: b.y + b.h + 4 } : undefined;
+                    this.showSideMenu(list, anchor, 'Select…');
+                };
                 const tracks = this.track || [];
                 let oligoCount = 0;
                 for (const t of tracks) if (t.oligos) oligoCount += t.oligos.length;
@@ -9017,7 +9252,7 @@ pattern, GGGG | Required`
                     const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
                     sub.push({
                         label: 'Mutations (' + mutCount + ') ▸',
-                        click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
+                        click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } },
                         move: () => { }
                     });
                     // Clicking a track centers it (as before) AND opens a child menu of that
@@ -9046,10 +9281,10 @@ pattern, GGGG | Required`
                         } else {
                             const L = this.genegraph_panel_layout;
                             child = [
-                                { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                { label: 'Layers ▸', click: () => { closeHandoff(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
                                 centerItem,
-                                { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                                { label: 'Design ▸', click: () => { close(); try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                { label: 'Design ▸', click: () => { closeHandoff(); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                 back,
                             ];
                         }
@@ -9225,7 +9460,7 @@ pattern, GGGG | Required`
                     if (this.readonly) {
                         const ro = [
                             { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
-                            { label: 'Export ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                            { label: 'Export ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         ];
                         const si = sequenceItem();
                         if (si) ro.splice(1, 0, si);
@@ -9235,7 +9470,7 @@ pattern, GGGG | Required`
                     const main = [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
-                        { label: 'Variants (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                        { label: 'Variants (' + mutCount + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
                     const si = sequenceItem();
                     if (si) main.splice(1, 0, si);      // right after Tracks
@@ -9374,8 +9609,13 @@ pattern, GGGG | Required`
                 const existing = this.__lassoSelection.find((e) => e.kind === 'track' && e.ref === track);
                 if (existing) { existing.trackMenu = menuItems; }
                 else {
+                    // Graph-world extent of the track. Read from whichever grid this renderer
+                    // uses: reading .tgraph alone left every flexi track's entry at 0..0.
                     let xi = 0, xf = 0;
-                    try { if (track.tgraph) { xi = track.tgraph.xi; xf = track.tgraph.xi + track.tgraph.width; } } catch (e) { }
+                    try {
+                        const g = track.tgraph || track.grid;
+                        if (g) { xi = g.xi; xf = g.xi + g.width; }
+                    } catch (e) { }
                     this.__lassoSelection.push({ kind: 'track', label: (track.name || 'track'), track: track, chr: track.chr, xi: xi, xf: xf, ref: track, trackMenu: menuItems });
                 }
                 this.showDisplay = true;
@@ -9386,14 +9626,162 @@ pattern, GGGG | Required`
             // OBJECT TYPE — each type present in the selection gets its own button
             // that opens that type's actions (this is where amplicon/oligo options
             // now live, instead of a menu popping up from mouse-over hover).
-            openSelectionMenu() {
-                const sel = this.__lassoSelection || [];
+            // Maximised, scrollable list of EVERYTHING selected, opened from the card's
+            // "+N more…" row.
+            //
+            // The card can only show a dozen rows and a side menu is bounded by the canvas
+            // height, so with a few hundred items selected there was no view that showed them
+            // all. This one scrolls, is searchable by eye, and each row opens that object's own
+            // menu -- the same tree the card rows open -- so it is a bigger door to the same
+            // place rather than a separate feature.
+            openSelectionBrowser() {
+                const sel = (this.__lassoSelection || []).slice();
                 if (!sel.length) return;
+                try {
+                    const old = document.getElementById('baja-sel-browser');
+                    if (old && old.parentNode) old.parentNode.removeChild(old);
+                } catch (e) { }
+
+                const kindLabels = { track: 'Track', ann: 'Annotation', snp: 'SNP / Indel', oligo: 'Oligo', amplicon: 'Amplicon', layer: 'Layer item', sequence: 'Sequence' };
+                const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#ff8c42', amplicon: '#7c3aed', layer: '#a86b3e' };
+
+                // Deduped and grouped the same way the menu is, so the two agree.
+                const byKey = new Map();
+                const rows = [];
+                for (const e of sel) {
+                    if (!e) continue;
+                    const label = '' + (e.label || kindLabels[e.kind] || e.kind || 'item');
+                    const key = (e.kind || '') + '|' + label;
+                    let r = byKey.get(key);
+                    if (!r) { r = { kind: e.kind, label: label, count: 0, entry: e }; byKey.set(key, r); rows.push(r); }
+                    r.count++;
+                }
+                const perKind = new Map();
+                for (const e of sel) perKind.set(e.kind, (perKind.get(e.kind) || 0) + 1);
+                rows.sort((a, b) => ((perKind.get(b.kind) || 0) - (perKind.get(a.kind) || 0))
+                    || ('' + a.kind).localeCompare('' + b.kind));
+
+                const overlay = document.createElement('div');
+                overlay.id = 'baja-sel-browser';
+                overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483350;background:rgba(6,14,26,0.72);'
+                    + 'display:flex;align-items:stretch;justify-content:center;padding:22px;'
+                    + 'font-family:Arial,Helvetica,sans-serif;';
+
+                const pane = document.createElement('div');
+                pane.style.cssText = 'width:100%;max-width:860px;height:100%;display:flex;flex-direction:column;'
+                    + 'background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.14);'
+                    + 'border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,0.5);overflow:hidden;';
+
+                const head = document.createElement('div');
+                head.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:14px 18px;'
+                    + 'border-bottom:1px solid rgba(255,255,255,0.12);';
+                head.innerHTML = '<div style="font:700 17px Arial;">Selected items</div>'
+                    + '<div style="font:12.5px Arial;color:#9fb3c8;">' + rows.length + ' distinct of ' + sel.length
+                    + ' — click one to open its menu</div>';
+                const x = document.createElement('button');
+                x.textContent = '✕ Close';
+                x.style.cssText = 'margin-left:auto;cursor:pointer;border-radius:8px;padding:8px 14px;font:700 12.5px Arial;'
+                    + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;';
+                head.appendChild(x);
+
+                const body = document.createElement('div');
+                body.style.cssText = 'flex:1 1 auto;overflow:auto;padding:8px 0;';
+
+                const close = () => {
+                    try { document.removeEventListener('keydown', onKey, true); } catch (e) { }
+                    try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
+                };
+                const onKey = (e) => { try { if (e.key === 'Escape') close(); } catch (er) { } };
+                x.onclick = close;
+                overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+
+                let lastKind = null;
+                for (const r of rows) {
+                    // A heading each time the type changes, so the grouping is visible while
+                    // scrolling rather than only implied by the order.
+                    if (r.kind !== lastKind) {
+                        lastKind = r.kind;
+                        const h = document.createElement('div');
+                        h.textContent = (kindLabels[r.kind] || r.kind || 'item') + ' — ' + (perKind.get(r.kind) || 0);
+                        h.style.cssText = 'position:sticky;top:0;background:#0b2545;padding:9px 18px 6px;'
+                            + 'font:700 11px Arial;letter-spacing:1.4px;text-transform:uppercase;color:#7f9bb8;';
+                        body.appendChild(h);
+                    }
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 18px;cursor:pointer;'
+                        + 'border-bottom:1px solid rgba(255,255,255,0.05);font:13px Arial;';
+                    row.innerHTML = '<span style="flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:'
+                        + (dotColor[r.kind] || '#9fb3c8') + ';"></span>'
+                        + '<span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                        + ('' + r.label).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>'
+                        + (r.count > 1 ? '<span style="flex:0 0 auto;color:#9fb3c8;font:12px Arial;">×' + r.count + '</span>' : '')
+                        + '<span style="flex:0 0 auto;color:#7f9bb8;">▸</span>';
+                    row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,0.07)'; };
+                    row.onmouseleave = () => { row.style.background = 'transparent'; };
+                    row.onclick = () => {
+                        close();
+                        // Same rule as the card: the row that was clicked names the menu.
+                        try { this.__menuParent = { label: ('' + (r.label || 'Selected')).trim(), t: Date.now() }; } catch (e) { }
+                        try { this.openSelectionMenu(r.entry); } catch (e) { }
+                    };
+                    body.appendChild(row);
+                }
+
+                pane.appendChild(head); pane.appendChild(body);
+                overlay.appendChild(pane);
+                document.body.appendChild(overlay);
+                document.addEventListener('keydown', onKey, true);
+            }
+
+            // rootEntry, when given, is the selection entry whose OWN menu tree should open --
+            // the card row the user clicked. Without it the whole-selection menu opens, which is
+            // what the header and the "+N more" row do.
+            openSelectionMenu(rootEntry, rootY) {
+                // Name this menu after the CARD ROW that opened it.
+                //
+                // menu.js records the parent when one MENU ITEM opens another, but a menu opened
+                // from the selection card never passes through that dispatch -- the click is
+                // handled on the canvas -- so those menus had no parent and fell back to the
+                // summary of their own items. The row IS the parent here: "Compounds (18)" opens
+                // a menu that should read "Compounds".
+                try {
+                    const lbl = ('' + ((rootEntry && (rootEntry.label
+                        || (rootEntry.__group === 'compounds' ? 'Compounds' : '')
+                        || (rootEntry.__group === 'annotations' ? 'Annotations' : ''))) || 'Selected'))
+                        .replace(/\s*[▸►]\s*$/, '')
+                        .replace(/\s*\(\d[\d,]*\)\s*$/, '')
+                        .replace(/\s*×\s*\d+\s*$/, '')      // the ×N duplicate count is not part of the name
+                        .trim();
+                    this.__menuParent = { label: lbl || 'Selected', t: Date.now() };
+                } catch (e) { }
+                const sel = this.__lassoSelection || [];
+                // A sequence range is derived from markstart/markend rather than held in
+                // __lassoSelection, so it can be the clicked row even when nothing was lassoed.
+                if (!sel.length && !(rootEntry && rootEntry.kind === 'sequence')) return;
                 const close = () => { try { this.showSideMenu(null); } catch (e) { } };
-                const anchor = () => (this.__selPanelBounds ? { x: this.__selPanelBounds.x, aboveY: this.__selPanelBounds.y } : undefined);
+                // Closing this menu to OPEN ANOTHER ONE is not the same as dismissing it: the
+                // new menu is still derived from the selection, so the box should stay blurred
+                // behind it. close() clears the chain (showSideMenu(null) does), so a handoff
+                // re-opens it. Leaves that perform an ACTION rather than opening a menu keep
+                // using plain close().
+                const closeHandoff = () => { close(); try { this.__selMenuChain = true; } catch (e) { } };
+                // A tree opened FROM a card row lines up with THAT row: the menu reads as the
+                // row expanding rather than as a separate panel that happens to be nearby, and
+                // with several rows on the card it is unambiguous which one it belongs to.
+                // Opened from the card as a whole (the overflow row), it keeps the old placement
+                // above the card, since no single row owns it.
+                const anchor = () => {
+                    const b = this.__selPanelBounds;
+                    if (!b) return undefined;
+                    if (rootY != null && isFinite(rootY)) return { x: b.x, y: rootY };
+                    return { x: b.x, aboveY: b.y };
+                };
                 const show = (list) => {
-                    // Mark the list so the selection card can blur itself while this is open.
-                    try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
+                    // Mark the list so the selection card can blur itself while this is open,
+                    // and open the CHAIN so submenus that hand off to another script stay
+                    // marked too (see showSideMenu).
+                    // try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
+                    try { this.__selMenuChain = true; } catch (e) { }
                     const a = anchor();
                     if (a) this.showSideMenu(list, a); else this.showSideMenu(list);
                 };
@@ -9484,9 +9872,57 @@ pattern, GGGG | Required`
                     this.setMessage(' Removed ' + others.length + ' other ' + (kindLabels[k] || k) + '. ');
                 };
                 // Action menu for one picked item; backFn re-opens the picker page.
+                // Frame one selected object on its track.
+                //
+                // Every selection entry carries xi/xf in TRACK-world plus the track it came from
+                // (see the sel.push sites), so this works for annotations, SNPs, oligos,
+                // amplicons and layer intervals alike without a per-kind branch. The axis is
+                // resolved as .grid or .tgraph because the two renderers name it differently and
+                // a helper that knows only one of them works on half the tracks in the app.
+                const zoomToEntry = (p) => {
+                    // A TRACK is framed by zoomToTrack, not by the generic path below.
+                    //
+                    // Two reasons it has to be special-cased. A track entry stores xi/xf taken
+                    // from tgraph.xi + width, which are already GRAPH-world, so the generic path
+                    // put them through X() a second time and the camera flew off somewhere
+                    // meaningless. And for a flexi track the code that fills those in reads
+                    // .tgraph only, leaving xi/xf at 0 -- so it zoomed to the origin instead.
+                    // zoomToTrack works from the track's own box and now handles both renderers.
+                    if (p && p.kind === 'track' && p.ref) {
+                        try {
+                            Promise.resolve(this.zoomToTrack(p.ref, 0.05)).catch(() => { });
+                            this.setMessage(' ' + ((p.ref.name) || p.label || 'track') + ' ');
+                        } catch (e) { try { this.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
+                        return;
+                    }
+                    try {
+                        const tr = p && p.track;
+                        const ax = tr && (tr.grid || tr.tgraph);
+                        if (!ax) { this.setMessage(' That item has no track to navigate to. '); return; }
+                        // +null is 0, and 0 is finite -- so coercing first would turn "no
+                        // coordinates" into a silent zoom to position 0. Reject the empty values
+                        // before the conversion, not after.
+                        const num = (v) => (v == null || v === '' ? NaN : +v);
+                        let a = num(p.xi), b = num(p.xf);
+                        if (!isFinite(a)) { this.setMessage(' That item has no coordinates to zoom to. '); return; }
+                        if (!isFinite(b)) b = a;
+                        const lo = Math.min(a, b), hi = Math.max(a, b);
+                        // A zero-width feature (a SNP) still needs a window, so pad by a minimum
+                        // as well as a fraction -- otherwise the zoom target is a single column.
+                        const pad = Math.max(20, (hi - lo) * 0.5);
+                        this.animateTo(ax.X(lo - pad), ax.X(hi + pad), ax.Y(-1.2), ax.Y(1.2));
+                        if (this.wake) this.wake();
+                        this.setMessage(' ' + (p.label || 'item') + ' — ' + Math.round(lo) + '–' + Math.round(hi)
+                            + ' on ' + ((tr && tr.name) || 'track') + ' ');
+                    } catch (e) { try { this.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
+                };
+
                 const itemMenu = (p, k, openOne, backFn) => {
                     const single = (kindLabels[k] || k).replace(/s$/, '');
                     const list = [];
+                    // First, because finding the thing on the canvas is usually what you want
+                    // before doing anything to it. Closes the menu: the point is to look at it.
+                    list.push({ label: 'Zoom to', click: () => { close(); zoomToEntry(p); }, move: () => { } });
                     if (openOne) list.push({ label: 'Open ' + single + ' menu', click: () => { openOne(p); }, move: () => { } });
                     if (k !== 'track') list.push({ label: 'Remove', click: () => { close(); removeObject(p); this.setMessage(' Removed 1 ' + single + '. '); }, move: () => { } });
                     list.push({ label: 'Remove all others', click: () => { close(); removeAllOthers(p, k); }, move: () => { } });
@@ -9517,8 +9953,41 @@ pattern, GGGG | Required`
                     show(renderPickPage(topItems || [], pickEntries, 0, backItem));
                 };
 
-                const openTypeMenu = (k) => {
+                // `only`, when given, narrows this to a SINGLE selected entry. That is what lets
+                // the root menu list the selected objects themselves: picking one lands directly
+                // on that object's own action menu (picks.length === 1 short-circuits the picker
+                // in every branch below) while the per-kind entry point still works unchanged.
+                // Confirmed, undoable delete for a set of selected objects.
+                //
+                // Two things every delete in this menu has to do, and the existing oligo one did
+                // only the first: ASK before destroying designs, and push onto the history stack
+                // BEFORE touching anything so the answer to "I didn't mean that" is undo rather
+                // than redesign. Sharing it means a new kind cannot quietly ship without both.
+                const confirmDelete = async (targets, noun) => {
+                    if (!targets || !targets.length) return;
+                    const n = targets.length;
+                    try {
+                        const confirm = await exec('baja/lib/confirm.js',
+                            'Delete ' + n + ' selected ' + noun + (n === 1 ? '' : 's')
+                            + '? This removes ' + (n === 1 ? 'it' : 'them') + ' from the track.',
+                            async () => {
+                                close();
+                                try { this.pushOntoHistory(); } catch (e) { }
+                                let done = 0;
+                                for (const p of targets) { try { removeObject(p); done++; } catch (e) { } }
+                                try { if (this.wake) this.wake(); } catch (e) { }
+                                this.setMessage(' Deleted ' + done + ' ' + noun + (done === 1 ? '' : 's')
+                                    + '. Undo restores ' + (done === 1 ? 'it' : 'them') + '. ');
+                            });
+                        showModal(confirm);
+                    } catch (e) {
+                        try { this.setMessage(' Could not open the confirmation: ' + e + ' '); } catch (e2) { }
+                    }
+                };
+
+                const openTypeMenu = (k, only) => {
                     const kl = kindLabels[k] || k;
+                    const narrow = (arr) => (only ? arr.filter((s) => s === only || (s.ref && s.ref === only.ref)) : arr);
                     // Tracks: pick a SPECIFIC selected track, then show that track's
                     // own menu (the one that used to pop up on click, built in
                     // mouse-over-highlight.js and stashed on the selection entry).
@@ -9526,21 +9995,31 @@ pattern, GGGG | Required`
                         // Match the info-panel Tracks child menu: selecting a track centers + selects
                         // it and opens its OWN menu — the stashed track menu (Design ▸ / Layers ▸ /
                         // Variants ▸ / …) when present, else a Layers/Variants/Design fallback.
-                        const picks = sel.filter((s) => s.kind === 'track');
+                        const picks = narrow(sel.filter((s) => s.kind === 'track'));
                         const openOne = (p) => {
                             const t = p.track || p.ref;
                             // try { if (t && this.zoomToTrack) this.zoomToTrack(t, 0.15); else if (t && this.goToTrack) this.goToTrack(t); } catch (e) { }
-                            try { if (t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { }
+                            // select() marks the TRACK only. selectTrackAndSeq() also sets
+                            // markstart/markend to the whole track, which put the editor into a
+                            // sequence selection nobody asked for just for opening this submenu --
+                            // and that in turn brought up the Selected Sequence menu on top of it.
+                            // Design ▸ below still selects the range, because it needs one.
+                            try { if (t && t.select) t.select(); } catch (e) { }
                             const back = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
+                            // A track gets the same explicit "Zoom to" as every other selected
+                            // object. Explicit on purpose: opening a track's menu deliberately
+                            // does NOT move the camera, so this is how you ask it to.
+                            const zoomItem = { label: 'Zoom to', click: () => { close(); zoomToEntry(p); }, move: () => { } };
                             let child;
                             if (p.trackMenu && p.trackMenu.length) {
-                                child = p.trackMenu.concat([back]);
+                                child = [zoomItem].concat(p.trackMenu, [back]);
                             } else {
                                 const L = this.genegraph_panel_layout;
                                 child = [
-                                    { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
-                                    { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
-                                    { label: 'Design ▸', click: () => { close(); try { if (t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    zoomItem,
+                                    { label: 'Layers ▸', click: () => { closeHandoff(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                    { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
+                                    { label: 'Design ▸', click: () => { closeHandoff(); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                     back,
                                 ];
                             }
@@ -9555,7 +10034,7 @@ pattern, GGGG | Required`
                     // used to pop up on click). Falls back to the annotation-type menu
                     // for annotations selected via lasso (no stashed menu).
                     if (k === 'ann') {
-                        const picks = sel.filter((s) => s.kind === 'ann' && s.ref);
+                        const picks = narrow(sel.filter((s) => s.kind === 'ann' && s.ref));
                         const openOne = (p) => {
                             if (Array.isArray(p.annMenu) && p.annMenu.length) {
                                 show(p.annMenu.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
@@ -9569,33 +10048,38 @@ pattern, GGGG | Required`
                             }
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
-                        if (picks.length > 1) { showTypePicker(picks, 'ann', openOne, []); return; }
+                        if (picks.length > 1) {
+                            // Type-level actions above the per-annotation picks. Delete was
+                            // missing entirely for annotations: they could be removed one at a
+                            // time from an item menu, but not as the set the user had selected.
+                            const sub = [{
+                                label: 'Delete selected…',
+                                click: async () => { await confirmDelete(picks.slice(), 'annotation'); },
+                                move: () => { }
+                            }];
+                            showTypePicker(picks, 'ann', openOne, sub);
+                            return;
+                        }
                     }
                     // Oligos: pick a SPECIFIC selected oligo, then open its per-oligo
                     // (ASO) menu — moved here out of the hover menu.
                     if (k === 'oligo') {
-                        const picks = sel.filter((s) => s.kind === 'oligo' && s.ref);
+                        const picks = narrow(sel.filter((s) => s.kind === 'oligo' && s.ref));
                         const openOne = (p) => {
                             close();
                             try { Promise.resolve(exec('baja/manchester/menu/menu-for-single-aso.js', this, p.ref, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                         };
+                        // Picked as a ROOT item (one specific oligo): open its own menu rather
+                        // than a one-entry picker, which would be a click that asks the user to
+                        // choose from a list of one.
+                        if (only && picks.length === 1) { openOne(picks[0]); return; }
                         // Type-level operations that act on ALL selected oligos, listed
                         // first — before the per-oligo picks below.
                         const sub = [];
                         sub.push({
                             label: 'Delete selected…',
-                            click: async () => {
-                                const targets = picks.slice();
-                                if (!targets.length) return;
-                                const confirm = await exec('baja/lib/confirm.js',
-                                    'Delete ' + targets.length + ' selected oligo(s)? This removes them from the track.',
-                                    async () => {
-                                        close();
-                                        for (const p of targets) removeObject(p);
-                                        this.setMessage(' Deleted ' + targets.length + ' oligo(s). ');
-                                    });
-                                showModal(confirm);
-                            }, move: () => { }
+                            click: async () => { await confirmDelete(picks.slice(), 'oligo'); },
+                            move: () => { }
                         });
                         sub.push({
                             label: 'Deselect all',
@@ -9642,9 +10126,14 @@ pattern, GGGG | Required`
                     // object-specific menu (showOneAmpliconMenu). If only one is
                     // selected, skip the picker and open its menu directly.
                     if (k === 'amplicon' && typeof this.__showOneAmpliconMenu === 'function') {
-                        const picks = sel.filter((s) => s.kind === 'amplicon' && s.ref);
+                        const picks = narrow(sel.filter((s) => s.kind === 'amplicon' && s.ref));
                         const openOne = (p) => { close(); try { this.__showOneAmpliconMenu(this, p.track, p.ref, true); } catch (e) { } };
-                        const sub = [{ label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } }];
+                        // Same as the oligo branch: a root pick goes straight to that amplicon.
+                        if (only && picks.length === 1) { openOne(picks[0]); return; }
+                        const sub = [
+                            { label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } },
+                            { label: 'Delete selected…', click: async () => { await confirmDelete(picks.slice(), 'amplicon'); }, move: () => { } }
+                        ];
                         if (picks.length === 1) {
                             sub.push({ label: 'more...', click: () => { openOne(picks[0]); }, move: () => { } });
                             sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
@@ -9683,17 +10172,356 @@ pattern, GGGG | Required`
                     show(sub);
                 };
 
-                const buildMain = () => {
+                // The selection WINDOW's entries and this menu's ROOT are now the same list: each
+                // selected object is a root item that opens its own tree of actions. Previously
+                // the root was one entry per KIND ("Selected Oligos (5) ▸"), so reaching a
+                // specific object meant kind -> picker -> object, and the window listing the
+                // objects was a separate read-only card that could not be acted on. Deduped by
+                // kind+label with a xN count, exactly as the card does, so the two cannot
+                // disagree about what is selected.
+                //
+                // Kind entries are kept ONLY where they still earn their place: a kind with more
+                // than one object gets an "All <kind>" item for acting on the group at once.
+                const distinctSelection = () => {
+                    const out = [];
+                    const byKey = new Map();
+                    const perKind = new Map();
+                    for (const s of sel) {
+                        if (!s) continue;
+                        const label = '' + (s.label || (kindLabels[s.kind] || s.kind || 'item'));
+                        const key = (s.kind || '') + '|' + label;
+                        let e = byKey.get(key);
+                        if (!e) { e = { kind: s.kind, label: label, count: 0, entry: s }; byKey.set(key, e); out.push(e); }
+                        e.count++;
+                        perKind.set(s.kind, (perKind.get(s.kind) || 0) + 1);
+                    }
+                    // GROUPED BY TYPE, biggest group first.
+                    //
+                    // Ungrouped, a lasso over a busy region interleaves oligos, annotations and
+                    // SNPs in whatever order they were picked up, so related things are scattered
+                    // down the list. Ordering by how many of each kind were selected puts what
+                    // the user mostly caught at the top, which is nearly always what they were
+                    // reaching for. Ties break on the kind name so the order is stable between
+                    // openings rather than depending on iteration order.
+                    const rank = (k) => perKind.get(k) || 0;
+                    out.sort((a, b) => {
+                        const d = rank(b.kind) - rank(a.kind);
+                        if (d) return d;
+                        if (a.kind !== b.kind) return ('' + a.kind).localeCompare('' + b.kind);
+                        return 0;   // within a kind, keep selection order
+                    });
+                    return out;
+                };
+
+                // A selected sequence RANGE is derived from markstart/markend rather than stored
+                // in __lassoSelection (dragging an arrow head edits it continuously, so a stored
+                // copy goes stale). The card derives it per frame; the root does the same, so a
+                // sequence selection appears here as its own root item.
+                const sequenceRoots = () => {
+                    const out = [];
+                    try {
+                        for (const t of (this.track || [])) {
+                            if (!t || t.markstart == null || t.markend == null) continue;
+                            if (!(t.markstart >= 0 && t.markend > t.markstart)) continue;
+                            const toW = (m) => (m != null && t.xi != null && m < t.xi) ? (t.xi + m) : m;
+                            const a = Math.floor(toW(t.markstart)), b = Math.ceil(toW(t.markend));
+                            out.push({
+                                label: (t.name || 'track') + ' ' + a + '–' + b + ' (' + Math.max(0, b - a) + ' nt) ▸',
+                                click: () => {
+                                    closeHandoff();
+                                    try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, t, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
+                                },
+                                move: () => { }
+                            });
+                        }
+                    } catch (e) { }
+                    return out;
+                };
+
+                // ANNOTATIONS and COMPOUNDS are branches rather than long runs of root items.
+                // Defined at menu scope, not inside buildMain, because the selection CARD opens
+                // them directly too: a lasso over a gene packages its compounds into one row, and
+                // clicking that row has to land in the same place the menu item does.
+                const annEntries = () => distinctSelection().filter((e) => e.kind === 'ann');
+                const cpdEntries = () => distinctSelection().filter((e) => e.kind === 'oligo' || e.kind === 'amplicon');
+
+                const entryItem = (e) => ({
+                    label: e.label + (e.count > 1 ? '  ×' + e.count : '') + ' ▸',
+                    click: () => { openTypeMenu(e.kind, e.entry); },
+                    move: () => { }
+                });
+
+                // A paged list, so a branch with hundreds in it is still usable.
+                const listPage = (entries, title, offset2) => {
+                    const o2 = offset2 || 0;
+                    const page = [{ label: title + '  (' + entries.length + ')', header: true, click: () => { }, move: () => { } }];
+                    for (const e of entries.slice(o2, o2 + PAGE)) page.push(entryItem(e));
+                    if (o2 > 0) page.push({ label: '‹ Previous ' + Math.min(PAGE, o2), click: () => { show(listPage(entries, title, Math.max(0, o2 - PAGE))); }, move: () => { } });
+                    if (o2 + PAGE < entries.length) page.push({ label: 'More… (' + (entries.length - o2 - PAGE) + ' of ' + entries.length + ' remaining)', click: () => { show(listPage(entries, title, o2 + PAGE)); }, move: () => { } });
+                    page.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                    return page;
+                };
+
+                const openAnnotationsBranch = () => { show(listPage(annEntries(), 'Annotations', 0)); };
+
+                // Compounds are grouped by TYPE first -- siRNA, ASO, amplicon -- because that is
+                // how a user thinks about them, and because a mixed lasso is otherwise a single
+                // undifferentiated list of ids.
+                const openCompoundsBranch = () => {
+                    const items = cpdEntries();
+                    if (!items.length) { try { this.setMessage(' No compounds selected. '); } catch (e) { } return; }
+
+                    const refsOf = () => items.map((e) => e.entry && e.entry.ref).filter(Boolean);
+                    const typeOf = (e) => {
+                        try {
+                            const r = e.entry && e.entry.ref;
+                            const t = ('' + ((r && (r.type || r.modality || r.chemistry)) || '')).trim();
+                            if (t) return t;
+                        } catch (er) { }
+                        return e.kind === 'amplicon' ? 'Amplicon' : 'Oligo';
+                    };
+
+                    // Frame every selected compound at once. The union of their spans, so the
+                    // answer to "where are they" is one view rather than a tour.
+                    const zoomToAll = () => {
+                        try {
+                            let lo = Infinity, hi = -Infinity, tr = null;
+                            for (const e of items) {
+                                const p = e.entry;
+                                if (!p || !p.track) continue;
+                                const a = (p.xi == null || p.xi === '') ? NaN : +p.xi;
+                                const b = (p.xf == null || p.xf === '') ? a : +p.xf;
+                                if (!isFinite(a)) continue;
+                                tr = tr || p.track;
+                                lo = Math.min(lo, a, isFinite(b) ? b : a);
+                                hi = Math.max(hi, a, isFinite(b) ? b : a);
+                            }
+                            const ax = tr && (tr.grid || tr.tgraph);
+                            if (!ax || !isFinite(lo) || !isFinite(hi)) { this.setMessage(' Those compounds have no coordinates to zoom to. '); return; }
+                            const pad = Math.max(20, (hi - lo) * 0.15);
+                            this.animateTo(ax.X(lo - pad), ax.X(hi + pad), ax.Y(-1.2), ax.Y(1.2));
+                            if (this.wake) this.wake();
+                            this.setMessage(' ' + items.length + ' compound' + (items.length === 1 ? '' : 's')
+                                + ' — ' + Math.round(lo) + '–' + Math.round(hi) + ' on ' + ((tr && tr.name) || 'track') + ' ');
+                        } catch (e) { try { this.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
+                    };
+
+                    // Pick ONE by name, in the maximised searchable list rather than a side menu.
+                    // Past a handful the useful interaction is "type ASO-42", not "scroll", and a
+                    // side menu is bounded by the canvas height. The compound's TYPE rides along
+                    // as the secondary column, which is what the by-type submenu used to be for.
+                    const pickOne = () => {
+                        close();
+                        try {
+                            exec('baja/lib/pick-list.js', {
+                                title: 'Compounds',
+                                subtitle: items.length + ' selected — type to filter',
+                                items: items.map((e) => ({
+                                    label: e.label + (e.count > 1 ? '  ×' + e.count : ''),
+                                    sub: typeOf(e),
+                                    ref: e
+                                })),
+                                onPick: (it) => {
+                                    const e = it && it.ref;
+                                    if (e) openTypeMenu(e.kind, e.entry);
+                                }
+                            });
+                        } catch (er) { }
+                    };
+
+                    // The compound's TARGET site on the track (what it hybridises to), as
+                    // opposed to the molecule that was synthesised. Both are wanted, and they
+                    // are not the same string: a gapmer's synthesis sequence is the reverse
+                    // complement of its target, and carries chemistry that the target does not.
+                    const targetSeqOf = (e) => {
+                        try {
+                            const pe = e.entry, t = pe && pe.track;
+                            if (!t || !t.getSequenceRange) return '';
+                            const a = Math.min(+pe.xi, +pe.xf), b = Math.max(+pe.xi, +pe.xf);
+                            if (!isFinite(a) || !isFinite(b)) return '';
+                            return ('' + (t.getSequenceRange(a, b) || '')).toUpperCase();
+                        } catch (er) { return ''; }
+                    };
+                    const synthSeqOf = (e) => {
+                        const r = e.entry && e.entry.ref;
+                        return '' + ((r && (r.synthesisSequence || r.sequence)) || '');
+                    };
+                    const nameOf = (e, i) => ('' + (e.label || ('compound ' + (i + 1)))).trim();
+
+                    // navigator.clipboard needs a secure context; the textarea fallback keeps
+                    // copy working over plain http rather than failing silently.
+                    const copyText = async (txt, what, n) => {
+                        if (!('' + txt).trim()) { this.setMessage(' No ' + what + ' to copy. '); return; }
+                        const done = () => this.setMessage(' Copied ' + n + ' ' + what + '. ');
+                        try {
+                            if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(txt); done(); return; }
+                        } catch (e) { }
+                        try {
+                            const ta = document.createElement('textarea');
+                            ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                            document.body.appendChild(ta); ta.select();
+                            document.execCommand('copy'); document.body.removeChild(ta);
+                            done();
+                        } catch (e) { this.setMessage(' Could not copy: ' + e + ' '); }
+                    };
+
+                    const copySeqs = (which) => {
+                        const lines = [];
+                        items.forEach((e, i) => {
+                            const seq = which === 'target' ? targetSeqOf(e) : synthSeqOf(e);
+                            if (seq) lines.push(nameOf(e, i) + '\t' + seq);
+                        });
+                        // name + TAB + sequence: pastes straight into a spreadsheet as two
+                        // columns, and into a text editor as a readable list.
+                        copyText(lines.join('\n'), (which === 'target' ? 'target sequences' : 'synthesis sequences'), lines.length);
+                    };
+
+                    // Every attribute the compounds carry, not a fixed column list: a gapmer and
+                    // an siRNA do not have the same fields, and a fixed set would silently drop
+                    // whichever ones this batch happens to use.
+                    const downloadXlsx = () => {
+                        try {
+                            if (typeof XLSX === 'undefined') { this.setMessage(' XLSX library not available. '); return; }
+                            const keys = [];
+                            for (const e of items) {
+                                const r = e.entry && e.entry.ref;
+                                if (!r) continue;
+                                for (const k of Object.keys(r)) {
+                                    const v = r[k];
+                                    if (v == null || typeof v === 'function' || typeof v === 'object') continue;
+                                    if (k.indexOf('__') === 0) continue;   // internal render state
+                                    if (keys.indexOf(k) < 0) keys.push(k);
+                                }
+                            }
+                            keys.sort();
+                            const head = ['name', 'type', 'track', 'chr', 'start', 'end',
+                                'target_sequence', 'synthesis_sequence'].concat(keys);
+                            const aoa = [head];
+                            items.forEach((e, i) => {
+                                const pe = e.entry, r = (pe && pe.ref) || {};
+                                const row = [
+                                    nameOf(e, i), typeOf(e), (pe && pe.track && pe.track.name) || '',
+                                    (pe && pe.chr) || '', (pe && pe.xi != null) ? pe.xi : '',
+                                    (pe && pe.xf != null) ? pe.xf : '',
+                                    targetSeqOf(e), synthSeqOf(e)
+                                ];
+                                for (const k of keys) row.push(r[k] == null ? '' : r[k]);
+                                aoa.push(row);
+                            });
+                            const ws = XLSX.utils.aoa_to_sheet(aoa);
+                            const wb = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wb, ws, 'Compounds');
+                            XLSX.writeFile(wb, 'compounds.xlsx');
+                            this.setMessage(' Downloaded ' + items.length + ' compound'
+                                + (items.length === 1 ? '' : 's') + ' with ' + head.length + ' columns. ');
+                        } catch (e) { this.setMessage(' XLSX export failed: ' + e + ' '); }
+                    };
+
+                    const L = this.genegraph_panel_layout;
+                    const page = [
+                        // { label: 'Compounds  (' + items.length + ')', header: true, click: () => { }, move: () => { } },
+                        { label: 'Choose a compound…', click: () => { pickOne(); }, move: () => { } },
+                        { label: 'Run off-targets…', click: () => { startOffTargets('oligo'); }, move: () => { } },
+                        { label: 'Zoom into', click: () => { close(); zoomToAll(); }, move: () => { } },
+                        {
+                            label: 'Modify chemistry', click: () => {
+                                closeHandoff();
+                                try { window.current = refsOf()[0]; } catch (e) { }
+                                try { Promise.resolve(exec('baja/manchester/menu/compound-editor-panel-all.js', this, L)).catch(() => { }); } catch (e) { }
+                            }, move: () => { }
+                        },
+                        { label: 'Copy target sequences', click: () => { close(); copySeqs('target'); }, move: () => { } },
+                        { label: 'Copy synthesis sequences', click: () => { close(); copySeqs('synthesis'); }, move: () => { } },
+                        { label: 'Download XLSX', click: () => { close(); downloadXlsx(); }, move: () => { } },
+                        {
+                            label: 'Delete (' + items.length + ')', click: async () => {
+                                // Deleting designs is the one destructive action in this menu, so
+                                // it ASKS first -- and pushes onto the history stack before
+                                // touching anything, so an accepted delete is still undoable.
+                                const targets = items.slice();
+                                if (!targets.length) return;
+                                try {
+                                    const confirm = await exec('baja/lib/confirm.js',
+                                        'Delete ' + targets.length + ' selected compound'
+                                        + (targets.length === 1 ? '' : 's')
+                                        + '? This removes them from the track.',
+                                        async () => {
+                                            close();
+                                            try { this.pushOntoHistory(); } catch (e) { }
+                                            // Only the compounds, and only the SELECTED ones --
+                                            // the rest of the selection and the rest of the track
+                                            // are left alone.
+                                            let n = 0;
+                                            for (const e of targets) { try { removeObject(e.entry); n++; } catch (er) { } }
+                                            try { if (this.wake) this.wake(); } catch (e) { }
+                                            this.setMessage(' Deleted ' + n + ' compound' + (n === 1 ? '' : 's') + '. Undo restores them. ');
+                                        });
+                                    showModal(confirm);
+                                } catch (e) { this.setMessage(' Could not open the confirmation: ' + e + ' '); }
+                            }, move: () => { }
+                        },
+                        { label: '‹ Back', click: () => { openMain(); }, move: () => { } }
+                    ];
+                    show(page);
+                };
+
+                const buildMain = (offset) => {
+                    const off = offset || 0;
                     const menu = [];
                     // Make it unmistakable that this menu acts on the SELECTED items only
                     // (not everything on the canvas).
                     menu.push({ label: 'Selected  (' + sel.length + ') —', header: true, click: () => { }, move: () => { } });
-                    for (const k of kindsPresent) {
-                        const count = sel.filter((s) => s.kind === k).length;
-                        const kl = kindLabels[k] || k;
-                        menu.push({ label: 'Selected ' + kl + ' (' + count + ') ▸', click: () => { openTypeMenu(k); }, move: () => { } });
+
+                    for (const it of sequenceRoots()) menu.push(it);
+
+                    const distinct = distinctSelection();
+
+                    // Annotations and compounds are branches, built at menu scope (below).
+                    if (annEntries().length) {
+                        menu.push({
+                            label: 'Annotations (' + annEntries().length + ') ▸',
+                            click: () => { openAnnotationsBranch(); },
+                            move: () => { }
+                        });
                     }
-                    // Whole-selection actions below the per-type groups.
+                    if (cpdEntries().length) {
+                        menu.push({
+                            label: 'Compounds (' + cpdEntries().length + ') ▸',
+                            click: () => { openCompoundsBranch(); },
+                            move: () => { }
+                        });
+                    }
+                    const restEntries = distinct.filter((e) => e.kind !== 'ann' && e.kind !== 'oligo' && e.kind !== 'amplicon');
+
+                    // Everything else -- tracks, SNPs, layer items -- stays listed directly:
+                    // there are rarely many, and one click to reach them is better than two.
+                    for (const e of restEntries.slice(off, off + PAGE)) menu.push(entryItem(e));
+                    // Paged the same way the type pickers are, so a big lasso does not produce a
+                    // menu taller than the canvas.
+                    // Paging, labelled with how many are left so a long selection never looks
+                    // truncated. Every selected item is reachable: the pager walks the whole
+                    // deduped list, and the per-kind entries below open the full set for a type.
+                    if (off > 0) {
+                        menu.push({ label: '‹ Previous ' + Math.min(PAGE, off) + ' of ' + restEntries.length, click: () => { show(buildMain(Math.max(0, off - PAGE))); }, move: () => { } });
+                    }
+                    if (off + PAGE < restEntries.length) {
+                        const left = restEntries.length - off - PAGE;
+                        menu.push({ label: 'More… (' + left + ' of ' + restEntries.length + ' remaining)', click: () => { show(buildMain(off + PAGE)); }, move: () => { } });
+                    }
+
+                    // Group entries, in the same biggest-first order as the items above, so the
+                    // two halves of the menu agree about which type dominates the selection.
+                    const kindCounts = kindsPresent
+                        .map((k) => ({ k: k, n: sel.filter((s) => s.kind === k).length }))
+                        .sort((a, b) => (b.n - a.n) || ('' + a.k).localeCompare('' + b.k));
+                    for (const kc of kindCounts) {
+                        // Annotations and compounds already have a branch of their own above;
+                        // a second entry for the same set would just be two doors to one room.
+                        if (kc.k === 'ann' || kc.k === 'oligo' || kc.k === 'amplicon') continue;
+                        if (kc.n > 1) menu.push({ label: 'All ' + (kindLabels[kc.k] || kc.k) + ' (' + kc.n + ') ▸', click: () => { openTypeMenu(kc.k); }, move: () => { } });
+                    }
+
+                    // Whole-selection actions below the per-object roots.
                     menu.push({ label: 'Download all as CSV', click: () => { close(); this.exportSelection('csv'); }, move: () => { } });
                     menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });
                     menu.push({ label: 'Delete all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
@@ -9701,6 +10529,27 @@ pattern, GGGG | Required`
                     menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; this.showDisplay = false; if (this.wake) this.wake(); }, move: () => { } });
                     return menu;
                 };
+
+                // Clicked a specific card ROW: that object is the root of the tree, so open its
+                // own menu directly instead of the whole-selection list. A sequence range has no
+                // kind branch in openTypeMenu -- it is not a lassoed object -- so it goes to the
+                // Selected Sequence menu, which is exactly the tree rooted at that range.
+                if (rootEntry) {
+                    // A packaged card row ("Compounds (18)") opens the branch, not one object.
+                    if (rootEntry.__group === 'compounds') { openCompoundsBranch(); return; }
+                    if (rootEntry.__group === 'annotations') { openAnnotationsBranch(); return; }
+                    if (rootEntry.kind === 'sequence' && rootEntry.track) {
+                        this.setMessage(' ' + (rootEntry.label || 'sequence') + ' — choose an action ');
+                        closeHandoff();
+                        try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, rootEntry.track, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
+                        return;
+                    }
+                    if (rootEntry.kind) {
+                        this.setMessage(' ' + (rootEntry.label || rootEntry.kind) + ' — choose an action ');
+                        openTypeMenu(rootEntry.kind, rootEntry);
+                        return;
+                    }
+                }
 
                 this.setMessage(' ' + sel.length + ' selected — choose an action ');
                 openMain();
@@ -10265,6 +11114,21 @@ pattern, GGGG | Required`
                     // text center-message; auto-hides as soon as a track is loaded.
                     try {
                         if (this.centerLogoUrl && this.__centerLogoImg && (!this.track || this.track.length === 0)) {
+                            // Hold at full, then fade to nothing. Once faded the url is cleared
+                            // so the redraw loop stops being woken for it.
+                            const __el = Date.now() - (this.__centerLogoAt || 0);
+                            const __hold = (this.__centerLogoHold == null) ? 1400 : this.__centerLogoHold;
+                            const __fade = (this.__centerLogoFade == null) ? 1800 : this.__centerLogoFade;
+                            let __a = 1;
+                            if (__el > __hold) __a = 1 - ((__el - __hold) / __fade);
+                            if (__a <= 0) {
+                                this.centerLogoUrl = null;
+                                this.__centerLogoImg = null;
+                                this.__centerLogoImgUrl = null;
+                                return;
+                            }
+                            // Still fading: keep the loop alive so the alpha actually animates.
+                            if (this.wake) setTimeout(() => { try { this.wake(); } catch (e) { } }, 40);
                             const img = this.__centerLogoImg;
                             let iw = img.naturalWidth || 64, ih = img.naturalHeight || 64;
                             if (!iw || !ih) { iw = 64; ih = 64; }
@@ -10274,7 +11138,7 @@ pattern, GGGG | Required`
                             const dw = iw * scale, dh = ih * scale;
                             ctx.save();
                             this.resetCanvasEffects(ctx);
-                            ctx.globalAlpha = 0.92;
+                            ctx.globalAlpha = 0.92 * __a;
                             ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
                             ctx.restore();
                         }
@@ -10615,6 +11479,52 @@ pattern, GGGG | Required`
         }
         gg = new GeneGraph();
         await gg.init();
+
+        // Subscription check, run once the graph exists.
+        //
+        // Asked HERE as well as in the app shell because this is the object every editor and
+        // viewer builds on: whatever route the user came in by, this has run. The shell polls
+        // /free-quota for the live answer; this is the backstop that makes sure the question is
+        // asked at all.
+        //
+        // TWO tries. One failure is a blip and must not label a paying user; a second says the
+        // check is not answering, and the honest position then is that the subscription is
+        // unproven -- the user is treated as free-tier and the badge says so. It is a display
+        // decision: the metered calls are capped server-side either way.
+        //
+        // A later successful check clears both flags, so a subscriber who tripped this during a
+        // network wobble gets the badge removed on the shell's next 20-second poll.
+        try {
+            setTimeout(async () => {
+                let tries = 0;
+                const attempt = async () => {
+                    tries++;
+                    try {
+                        const SUB = await exec('lib/subscription.js');
+                        const active = await SUB.checkSubscription();   // true / false / null
+                        if (active === true) {
+                            try { window.__bajaFreeTier = false; window.__bajaFreeUnverified = false; } catch (e) { }
+                            return;
+                        }
+                        if (active === false) {
+                            // A definite answer: not subscribed. Free tier, and not "unverified"
+                            // -- the check worked, the user simply does not pay.
+                            try { window.__bajaFreeTier = true; window.__bajaFreeUnverified = false; } catch (e) { }
+                            return;
+                        }
+                    } catch (e) { }
+                    // null or threw: unverified.
+                    if (tries < 2) { setTimeout(attempt, 4000); return; }
+                    try {
+                        window.__bajaFreeTier = true;
+                        window.__bajaFreeUnverified = true;
+                        console.warn('subscription could not be verified after ' + tries + ' tries; treating as free tier');
+                    } catch (e) { }
+                };
+                attempt();
+            }, 1500);
+        } catch (e) { }
+
         return resolve(gg)
     })
 

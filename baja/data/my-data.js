@@ -729,11 +729,18 @@ function (graph, genegraph_panel_layout) {
                     layer.setIntervalColor(x1, x2, y, label, color);
                   } 
                   selectedTrack.addLayer(layer);
-                  graph.setMessage("Loaded BED layer: " + rs_base + " with " + count + " items.");
+                  // Toast, so the user sees that the data landed.
+                  graph.setResultMessage(" Loaded BED layer: " + rs_base + " with " + count + " items. ");
                 } catch (exception) {
                   console.log(exception);
                   graph.setMessage("Failed to load BED data for " + selectedTrack.name);
                 }
+                // Hand the canvas back to the hover highlight, whether the load worked or not.
+                // This file had no restore at all, so after loading here the mouse stayed in
+                // whatever mode the picker left it in.
+                try { graph.clearMouseListeners(); } catch (e) { }
+                try { graph.setMouseMode('navigate'); } catch (e) { }
+                try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
               }),
               "ionfunction.openfile": createIonFunction(async (file, text) => {}),
               "ionfunction.path": createIonFunction(async (path, nodes) => {}),

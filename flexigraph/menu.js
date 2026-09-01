@@ -326,7 +326,29 @@ function () {
                     this.highlight = column * itemsPerColumn + row + this.scrollIndex;
                     if (this.highlight < this.list.length) {
                         if (this.list[this.highlight] && this.list[this.highlight].click) {
-                            return await this.list[this.highlight].click(x, y);
+                            // Remember the item being clicked. A submenu opened from inside this
+                            // handler is titled after it -- "Layers", "Models" -- which is the
+                            // name the user just chose and so the one that says where they are.
+                            //
+                            // Kept with a TIMESTAMP rather than cleared on the next tick. Most
+                            // submenus open through showSideMenuDelayed, which defers by 100ms,
+                            // so a next-tick clear wiped the name before the menu it belonged to
+                            // ever opened -- the title worked only for menus shown immediately.
+                            // showSideMenu consumes it, and the timestamp stops a click that
+                            // opened no menu from leaving a name behind for an unrelated one.
+                            const __it = this.list[this.highlight];
+                            try {
+                                // Strip the decoration so the chip carries the NAME: the ▸ or
+                                // ... that says it opens something, and a trailing "(12)" count
+                                // that belongs to the parent list rather than to this menu.
+                                const __lbl = ('' + ((__it && __it.label) || ''))
+                                    .replace(/\s*[▸►]\s*$/, '')
+                                    .replace(/\.\.\.$/, '')
+                                    .replace(/\s*\(\d[\d,]*\)\s*$/, '')
+                                    .trim();
+                                graph.__menuParent = __lbl ? { label: __lbl, t: Date.now() } : null;
+                            } catch (e) { }
+                            return await __it.click(x, y);
                         }
                     }
                 }

@@ -1168,6 +1168,12 @@ function (price) {
             clear();
             CurrentLayout.stash('mainPanel', main_layout)
 
+            // Same mismatch as manchester/editor.js: what is stashed for mainPanel is
+            // main_layout, but the shared menus restore by mounting genegraph_panel_layout.
+            // Registering the object routes those restores through reset('mainPanel').
+            // Every other host stashes genegraph_panel_layout itself, so they need nothing.
+            try { CurrentLayout.registerMainRestoreAlias(genegraph_panel_layout); } catch (e) { }
+
             showWidget(
                 main_layout
             );

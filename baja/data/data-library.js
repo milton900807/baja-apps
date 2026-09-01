@@ -42,12 +42,6 @@ function (graph, genegraph_panel_layout) {
                 }
             },
             {
-                title: 'RNASeq — browse by species', badge: 'Coverage', ready: true,
-                blurb: 'The same RNASeq tree as a cascading menu: species → tissue → dataset. '
-                    + 'Pick a file, then click one track to add it there only.',
-                open: () => exec('baja/data/rnaseq-hierarchy-menu.js', graph, L)
-            },
-            {
                 title: 'Variants', badge: 'Variants', ready: true,
                 blurb: 'ClinVar, dbSNP, gnomAD and COSMIC variants over the track region, drawn '
                     + 'as lollipops you can drill into.',

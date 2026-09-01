@@ -372,15 +372,16 @@ return new Promise(async (resolve, reject) => {
             const alreadyExists = this.intervals.some(interval => interval.x1 === x1 && interval.x2 === x2)
             if (!alreadyExists) {
 
-                if (!color) {
+                // The two branches used to be inverted: a caller that PASSED a colour got an
+                // interval stored without one, and the renderer below (`else if (int.color)`)
+                // then fell back to the layer colour, so per-interval colours were silently
+                // dropped. Callers that pass no colour behave exactly as before.
+                if (color) {
                     this.intervals.push({ x1: x1, x2: x2, y: y, t: t, color: color });
-                    this.lastedit = new Date().getTime();
-
                 } else {
                     this.intervals.push({ x1: x1, x2: x2, y: y, t: t });
-                    this.lastedit = new Date().getTime();
-
                 }
+                this.lastedit = new Date().getTime();
 
             }
         }

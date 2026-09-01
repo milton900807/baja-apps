@@ -46,31 +46,108 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     const __sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
     // A small working spinner badge in the UPPER-RIGHT (opposite the top button row) shown while
     // a design runs. Returns a handle with .stop(). Non-blocking (pointer-events:none).
-    const __showSpinner = (label) => {
-        try {
-            const old = document.getElementById('baja-design-spinner'); if (old && old.parentNode) old.parentNode.removeChild(old);
-            if (!document.getElementById('baja-spin-style')) {
-                const st = document.createElement('style'); st.id = 'baja-spin-style';
-                st.textContent = '@keyframes bajaSpin{to{transform:rotate(360deg)}}';
-                (document.head || document.documentElement).appendChild(st);
+    // Design progress goes to the ONE status indicator, centred below the canvas buttons.
+    //
+    // This used to build its own spinner pinned to the top-right corner, so a design run showed
+    // its progress somewhere different from every other long operation in the app -- two
+    // spinners, two positions, and two bits of code to keep in step. The shared indicator
+    // (io-engine.ts) measures the live button row and centres itself under it, so delegating
+    // means this can never drift out of position again.
+    //
+    // Same contract as before: returns { stop } and the caller does not care how it is drawn.
+    // Design progress goes to the ONE status indicator, centred below the canvas buttons.
+    //
+    // This used to build its own spinner pinned to the top-right corner, so a design run showed
+    // its progress somewhere different from every other long operation in the app. The shared
+    // indicator (io-engine.ts) measures the live button row and centres itself under it.
+    //
+    // After a minute it also offers a CANCEL button. Read what that does before relying on it:
+    // there is no way to stop the work. EngineMonitor has no cancel, the /py bridge has no
+    // per-job kill, and the only thing that stops a python run is the server's own runtime cap.
+    // Cancel therefore means "stop waiting": the status clears, the editor is handed back, and
+    // the result is DISCARDED if it ever arrives. The job keeps running server-side and the
+    // message says so, because a button that silently left work running while implying it had
+    // been killed would be worse than no button.
+    //
+    // Same contract as before, plus `cancelled` for callers to check before applying a result.
+    const __showSpinner = (label, script) => {
+        const ID = 'baja-design-cancel';
+        const handle = { cancelled: false };
+        // Ask the server to kill the python job behind this design. The client never receives a
+        // job id -- exec rebuilds its URL from new URL(path).pathname, which drops a query
+        // string -- so the job is identified by SCRIPT plus the signed-in user, which is what
+        // /py-cancel matches on. Without this the button could only stop the browser waiting
+        // while the work carried on holding a slot and a CPU.
+        const killJob = async () => {
+            const sc = ('' + (script || '')).trim();
+            if (!sc) return;
+            try {
+                const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+                const user = (typeof getUser === 'function' ? (getUser() || '') : '');
+                const r = await fetch(host + '/py-cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script: sc, user: user })
+                });
+                const j = r.ok ? await r.json() : null;
+                const n = (j && j.cancelled) || 0;
+                graph.setMessage(n
+                    ? ' Design cancelled — the job was stopped on the server. '
+                    : ' Design cancelled — no running job matched, so it may already have finished. ');
+            } catch (e) {
+                graph.setMessage(' Design cancelled here, but the server could not be reached to stop the job. ');
             }
-            const wrap = document.createElement('div');
-            wrap.id = 'baja-design-spinner';
-            wrap.style.cssText = 'position:fixed;top:12px;right:14px;z-index:2147483200;display:flex;align-items:center;gap:8px;background:rgba(11,37,69,0.92);color:#e8f0fb;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:7px 12px;font:600 12px Arial;box-shadow:0 8px 26px rgba(0,0,0,0.35);pointer-events:none;';
-            const sp = document.createElement('span');
-            sp.style.cssText = 'width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);border-top-color:#4fd0e6;animation:bajaSpin 0.8s linear infinite;display:inline-block;';
-            wrap.appendChild(sp);
-            const txt = document.createElement('span'); txt.textContent = label || 'Designing…'; wrap.appendChild(txt);
-            (document.body || document.documentElement).appendChild(wrap);
-            return { stop: () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } } };
-        } catch (e) { return { stop: () => { } }; }
+        };
+        const dropBtn = () => {
+            try { const e = document.getElementById(ID); if (e && e.parentNode) e.parentNode.removeChild(e); } catch (er) { }
+        };
+        const say = (text) => {
+            try {
+                window.__workStatus = text || '';
+                if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+            } catch (e) { }
+        };
+        // The trailing ellipsis is what marks a message as work-in-progress, which is what the
+        // indicator keys off (see setMessage in flexigraph/gene.js).
+        let text = ('' + (label || 'Designing')).trim();
+        if (!/(…|\.\.\.)$/.test(text)) text += '…';
+        say(text);
+
+        const finish = () => { try { clearTimeout(timer); } catch (e) { } dropBtn(); say(''); };
+
+        // Only after a MINUTE. Offering it immediately would invite cancelling runs that were
+        // about to finish, and most designs are done well inside that.
+        const timer = setTimeout(() => {
+            try {
+                dropBtn();
+                const b = document.createElement('button');
+                b.id = ID;
+                b.textContent = 'Cancel design';
+                        b.title = 'Stop this design. The python job is killed on the server.';
+                b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:64px;'
+                    + 'z-index:2147483300;cursor:pointer;background:#7f1d1d;color:#fee2e2;'
+                    + 'border:1px solid rgba(255,255,255,0.22);border-radius:9px;padding:8px 16px;'
+                    + 'font:700 12.5px Arial,Helvetica,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,0.4);';
+                b.onclick = () => {
+                    handle.cancelled = true;
+                    finish();
+                    try { Promise.resolve(killJob()).catch(() => { }); } catch (e) { }
+                    // Hand the editor back rather than leaving it in whatever mode the design set.
+                    try {
+                        graph.clearMouseListeners();
+                        graph.setMouseMode('navigate');
+                        exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                    } catch (e) { }
+                };
+                (document.body || document.documentElement).appendChild(b);
+            } catch (e) { }
+        }, 60000);
+
+        handle.stop = finish;
+        return handle;
     };
 
     return (async () => {
-        graph.setMessage("Loading chemistry database...");
-        // Designing on THIS track: select the whole track and its sequence so the
-        // design tools operate on it.
-        try { if (selectedTrack) { selectedTrack.selectTrackAndSeq(); } } catch (e) { }
         const selected = async (v) => {
             graph.props.selected_chemistry = v;
             setTimeout(async () => {
@@ -207,7 +284,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
 
 
-                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    // Cancelled while it ran: drop the result rather than tiling designs
+                    // onto a track the user has already moved on from.
+                    if (__sp.cancelled) { return; }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let the view settle
                     // so the siRNAs are seen landing on the framed track.
@@ -407,7 +487,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "exclude_gap_cleavage_motif_hits": true
                     }
 
-                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    // Cancelled while it ran: drop the result rather than tiling designs
+                    // onto a track the user has already moved on from.
+                    if (__sp.cancelled) { return; }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
                     __focusTrack();
@@ -605,7 +688,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         annotations: [] // optional: populate if you have site annotations
                     };
 
-                    const __sp = __showSpinner(); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    // Cancelled while it ran: drop the result rather than tiling designs
+                    // onto a track the user has already moved on from.
+                    if (__sp.cancelled) { return; }
 
                     // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
                     __focusTrack();
@@ -837,33 +923,61 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // Primer-probe assay design (primer3 / djPrimer / exon-exon) on the
         // highlighted region of this track — brought up under "Primer probes ▸".
         const __ppRefresh = () => { graph.setMouseMode('navigate'); try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
-        const __needMark = () => { if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) return true; infoPrompt(' Highlight a region on the track first. '); return false; };
+        // Design targets the ENTIRE TRACK.
+        //
+        // The therapeutic designers already worked this way -- they read selectedTrack.sequence
+        // -- but the primer designers took getSequenceRange(markstart, markend), so the same
+        // menu designed over the whole track in one branch and over a highlight in another.
+        // They now all use the full sequence, and a highlighted region no longer narrows them.
+        //
+        // Nothing here reads or writes markstart/markend any more, so opening Design cannot
+        // disturb a selection the user made for something else.
+        const __wholeTrackSequence = () => {
+            const t = selectedTrack;
+            if (!t) return '';
+            if (t.sequence) return t.sequence;
+            // Some tracks expose their sequence only through the range accessor.
+            try {
+                const g = t.grid || t.tgraph;
+                if (g && t.getSequenceRange) return t.getSequenceRange(g.xmin, g.xmax) || '';
+            } catch (e) { }
+            return '';
+        };
+        // Results are placed from the track origin, since the design spans the whole track.
+        const __designOffset = () => 0;
+        // Was __needMark, which refused to run without a highlight. The only precondition left
+        // is having a sequence at all.
+        const __needSequence = () => {
+            if (__wholeTrackSequence()) return true;
+            infoPrompt(' That track has no sequence to design against. ');
+            return false;
+        };
         const runPrimer3 = async () => {
-            if (!__needMark()) return;
+            if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
-            const sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+            const sequence = __wholeTrackSequence();
             graph.setMessage(' Generating primers (primer3)... ');
             const em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
             const r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
-            await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+            await exec('baja/manchester/ppsets/apply-primer3.js', r, __designOffset(), selectedTrack, graph);
             if (graph.wake) graph.wake();
             __ppRefresh();
         };
         const runDjprimer = async () => {
-            if (!__needMark()) return;
+            if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
-            const sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+            const sequence = __wholeTrackSequence();
             const gene = selectedTrack.geneID || selectedTrack.name || '';
             const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
             graph.setMessage(' Designing primers (djPrimer)... ');
             const r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
             selectedTrack.ampliconResults = r;
-            await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+            await exec('baja/manchester/ppsets/apply-djprimer.js', r, __designOffset(), selectedTrack, graph);
             if (graph.wake) graph.wake();
             __ppRefresh();
         };
         const runExonExon = async () => {
-            if (!__needMark()) return;
+            if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
             const r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', selectedTrack);
             selectedTrack.ampliconResults = r;
@@ -886,19 +1000,66 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             label: 'Therapeutics ▸', move: () => { },
             click: () => { showSideMenuDelayed(therapeutics.concat([backToDesign])); }
         };
+        // Compounds ▸ Highlight — make every compound on the track twinkle magenta.
+        //
+        // o.highlight__ is not a boolean: the renderer passes it straight to
+        // drawVerticalLineScreen as the COLOUR of the markers at each oligo's start and end
+        // (baja/bio/track-flexi.js), so setting it to a colour is what draws them. Toggling it
+        // on and off is the twinkle -- a static highlight is easy to miss on a busy track,
+        // whereas motion is what the eye actually catches.
+        //
+        // Whatever each oligo had before is restored at the end, so this cannot clobber a
+        // highlight something else set (an off-target run marks its hits the same way).
+        const highlightCompounds = () => {
+            const t = selectedTrack;
+            const list = (t && t.oligos) ? t.oligos.slice() : [];
+            if (!list.length) {
+                infoPrompt(' There are no compounds on this track to highlight. ');
+                return;
+            }
+            const MAGENTA = '#ff2fd6';
+            const prev = list.map((o) => o.highlight__);
+            let on = false, ticks = 0;
+            const timer = setInterval(() => {
+                on = !on;
+                for (const o of list) { try { o.highlight__ = on ? MAGENTA : false; } catch (e) { } }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+                ticks++;
+                if (ticks >= 12) {            // 12 x 450ms, a little over five seconds
+                    try { clearInterval(timer); } catch (e) { }
+                    list.forEach((o, i) => { try { o.highlight__ = prev[i]; } catch (e) { } });
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                }
+            }, 450);
+            try {
+                graph.setMessage(' Highlighting ' + list.length + ' compound'
+                    + (list.length === 1 ? '' : 's') + ' on ' + ((t && t.name) || 'track') + '. ');
+            } catch (e) { }
+        };
+
+        const compoundsItem = {
+            label: 'Compounds ▸', move: () => { },
+            click: () => {
+                showSideMenuDelayed([
+                    { label: 'Highlight', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } highlightCompounds(); } },
+                    backToDesign
+                ]);
+            }
+        };
+
         const clinicalLibraryItem = {
             label: 'Clinical Library', move: () => { },
             click: () => { try { graph.showSideMenu(null); } catch (e) { } try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); } catch (e) { } }
         };
 
-        // Design ▸  Primer probes ▸ | Therapeutics ▸ | Off-targets | Clinical Library
+        // Design ▸  Compounds ▸ | Primer probes ▸ | Therapeutics ▸ | Off-targets | Clinical Library
         const submenu = [primerProbesItem, therapeuticsItem, offTargetsItem, clinicalLibraryItem];
 
         setTimeout(() => {
 
             showSideMenuDelayed(submenu)
 
-        }, 1000)
+        }, 100)
 
     })();
 }

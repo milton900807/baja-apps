@@ -215,9 +215,40 @@ function (graph, genegraph_panel_layout, oligos, options) {
 
             let sp = splitArray(seqList);
             let index = 0;
+            // Progress in the shared status indicator (centred under the canvas buttons), not
+            // just a transient canvas message. An off-target run is the longest thing in the
+            // app: it walks every selected oligo against every chosen index, and without this
+            // the only sign it was working was oligos glowing one at a time.
+            //
+            // The index NAMES are in the message because they are what makes the wait long --
+            // human_premrna is an 8 GB index and takes far longer than a cDNA one -- and the
+            // count/total says how much of the run is left.
+            const __idxLabel = (Array.isArray(genomes) ? genomes : []).join(', ') || 'the selected index';
+            const __total = sp.length;
+            let __done = 0;
+            const __say = (phase) => {
+                try {
+                    window.__workStatus = 'Off-targets · ' + __idxLabel
+                        + ' · ' + Math.min(__done + 1, __total) + ' of ' + __total
+                        + (phase ? ('  ·  ' + phase) : '');
+                    if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                } catch (e) { }
+            };
+            const __sayDone = () => {
+                try {
+                    window.__workStatus = '';
+                    if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                } catch (e) { }
+            };
+
             let __framePrev = null;   // previously-completed oligo (camera trails one behind)
             for (let s of sp) {
                 if (__cancelled) break;
+                // Name the oligo being searched, so the message tracks the glowing one.
+                try {
+                    const __first = __idToOligo.get(String((s && s[0] && s[0].id)));
+                    __say(__first ? ('' + (__first.name || __first.id || 'oligo')) : '');
+                } catch (e) { __say(''); }
                 // Glow the oligos in THIS chunk purple while their off-targets are
                 // computed, so progress is visible in real time. Cleared once the
                 // chunk's result returns.
@@ -250,6 +281,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 } finally {
                     // This oligo finished (or errored) — clear its gunsight + glow.
                     for (const o of __chunkOligos) { try { o.__gunsight = false; o.highlight__ = false; } catch (e) { } }
+                    __done++;
                     try { if (graph.wake) graph.wake(); } catch (e) { }
                 }
 
@@ -325,8 +357,10 @@ function (graph, genegraph_panel_layout, oligos, options) {
             // Frame the LAST completed oligo so its results are shown (the camera trailed by one).
             try { if (!__cancelled && __framePrev) await centerOnOligo(__framePrev); } catch (e) { }
 
-            // Run finished (or was cancelled) — unblock the app.
+            // Run finished (or was cancelled) — unblock the app and drop the status, whichever
+            // way it ended. Every return below this point is after the run is over.
             __finishRun();
+            __sayDone();
             if (__cancelled) { graph.setMessage(' Off-target run cancelled. '); return; }
 
             // Live-filter mode: everything was removed in real time as chunks
