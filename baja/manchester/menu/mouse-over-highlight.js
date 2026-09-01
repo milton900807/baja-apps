@@ -4208,6 +4208,56 @@ function (graph, genegraph_panel_layout) {
                                     click: () => {
                                         let data_menu = []
                                         let data_items = window['env']['data']
+
+                                        // These load straight onto THE TRACK THIS MENU BELONGS TO.
+                                        // The track is passed as a one-element list, which is the
+                                        // contract every loader now takes, so there is no click to
+                                        // pick a track: the user already picked it by opening this
+                                        // menu. Each loader clips to markstart..markend on its own,
+                                        // so a track with a selected sequence gets the layer over
+                                        // that sequence only.
+                                        const __only = () => (selectedTrack ? [selectedTrack] : []);
+                                        const __runData = async (fn) => {
+                                            graph.clearMouseListeners();
+                                            graph.setMouseMode('navigate');
+                                            graph.showSideMenu(null);
+                                            try { await fn(); } catch (e) {
+                                                try { graph.setResultMessage(' Could not load: ' + e + ' '); } catch (e2) { }
+                                            }
+                                        };
+                                        for (const __m of [
+                                            { label: 'Validated miRNA sites (strong evidence)', key: 'mirtarbase10_strong' },
+                                            { label: 'All reported miRNA sites (incl. CLIP)', key: 'mirtarbase10_all' }
+                                        ]) {
+                                            data_menu.push({
+                                                'label': __m.label, click: () => __runData(async () => {
+                                                    const SETS = await exec('baja/data/layer-sets.js');
+                                                    await exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                                                        SETS[__m.key], __only());
+                                                })
+                                            });
+                                        }
+                                        data_menu.push({
+                                            'label': 'Patents', click: () => __runData(async () => {
+                                                await exec('baja/data/patents.js', graph, genegraph_panel_layout, __only());
+                                            })
+                                        });
+                                        data_menu.push({
+                                            'label': 'RNASeq…', click: () => __runData(async () => {
+                                                await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, __only());
+                                            })
+                                        });
+                                        data_menu.push({
+                                            'label': 'Conservation…', click: () => __runData(async () => {
+                                                await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, __only());
+                                            })
+                                        });
+                                        data_menu.push({
+                                            'label': 'Data Library…', click: () => __runData(async () => {
+                                                await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, __only());
+                                            })
+                                        });
+
                                         data_menu.push({
                                             'label': 'My data', click: async (scx, scy) => {
                                                 graph.clearMouseListeners();
