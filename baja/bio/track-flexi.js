@@ -4671,33 +4671,51 @@ return new Promise(async (resolve, reject) => {
                 // so it pops off the canvas. save/restore keeps the shadow from
                 // bleeding onto everything drawn after it.
                 ctx.save();
-                ctx.strokeStyle = '#e0703b';   // darker tropical-orange edge
-                ctx.fillStyle = '#ff8c42';     // tropical orange
-                ctx.shadowBlur = 6;
-                ctx.shadowColor = 'rgba(0,0,0,0.45)';
-                ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 2;
-                ctx.lineWidth = 3;
-                ctx.lineCap = 'round';
                 let arrowheadLength = 15;
                 let arrowheadWidth = 7;
 
-                ctx.beginPath();
-                ctx.moveTo(screenStartX, yPosition);
-                ctx.lineTo(screenStartX + arrowheadLength, yPosition - arrowheadWidth);
-                ctx.lineTo(screenStartX + arrowheadLength, yPosition + arrowheadWidth);
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.beginPath();
-                ctx.moveTo(screenEndX, yPosition);
-                ctx.lineTo(screenEndX - arrowheadLength, yPosition - arrowheadWidth);
-                ctx.lineTo(screenEndX - arrowheadLength, yPosition + arrowheadWidth);
-                ctx.closePath();
-                ctx.fill();
-
-                // Arrow HEADS only — no connecting line body (the heads mark the selection ends,
-                // and each can be grabbed to resize the selection).
+                // Arrow HEADS only — no connecting line body. Each head is a grab handle for
+                // resizing that edge, so it is drawn to read as a raised, physical control:
+                // a cast shadow lifts it off the canvas, a vertical gradient gives the face
+                // curvature (lit from above), a dark edge keeps it crisp against pale tracks,
+                // and a specular streak along the top sells the highlight.
+                const __drawGrabHead = (tipX, dir) => {
+                    const L = arrowheadLength, H = arrowheadWidth;
+                    ctx.save();
+                    // Cast shadow — warm rather than neutral black, so it reads as depth under
+                    // an orange object instead of dirt.
+                    ctx.shadowColor = 'rgba(120,52,0,0.50)';
+                    ctx.shadowBlur = 9;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 3;
+                    const g = ctx.createLinearGradient(0, yPosition - H, 0, yPosition + H);
+                    g.addColorStop(0, '#ffc07a');     // lit top
+                    g.addColorStop(0.45, '#ff8c2f');  // body
+                    g.addColorStop(1, '#dd5f14');     // shaded underside
+                    ctx.beginPath();
+                    ctx.moveTo(tipX, yPosition);
+                    ctx.lineTo(tipX + dir * L, yPosition - H);
+                    ctx.lineTo(tipX + dir * L, yPosition + H);
+                    ctx.closePath();
+                    ctx.fillStyle = g;
+                    ctx.fill();
+                    // Edge and highlight must not inherit the cast shadow or they smear.
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                    ctx.lineJoin = 'round';
+                    ctx.lineWidth = 1.25;
+                    ctx.strokeStyle = '#9c4409';
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(tipX + dir * (L * 0.20), yPosition - H * 0.26);
+                    ctx.lineTo(tipX + dir * (L * 0.84), yPosition - H * 0.70);
+                    ctx.lineWidth = 1.5;
+                    ctx.lineCap = 'round';
+                    ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+                    ctx.stroke();
+                    ctx.restore();
+                };
+                __drawGrabHead(screenStartX, 1);    // start head opens to the right
+                __drawGrabHead(screenEndX, -1);     // end head opens to the left
                 ctx.restore();
 
                 drawString(

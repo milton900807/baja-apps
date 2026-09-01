@@ -7359,25 +7359,51 @@ return new Promise(async (resolve, reject) => {
 
           // Arrow HEADS ONLY — one at markstart, one at markend, no connecting shaft. The
           // selected span is already shown by the translucent wash above, so a bar between
-          // the heads only added a line across the track. Matches track-flexi.js.
+          // the heads only added a line across the track.
+          // Each head is a grab handle for resizing that edge, so it is drawn to read as a
+          // raised physical control: cast shadow for lift, a vertical gradient lit from above
+          // for curvature, a dark edge to stay crisp on pale tracks, and a specular streak.
+          // Orange rather than the theme gene/exon colours so the handles never blend into the
+          // features underneath them. Identical treatment to track-flexi.js.
           // Heads keep a floor size so a very short selection still shows two marks rather
           // than collapsing to nothing (the old code drew a min-width bar for that case).
           {
-            const hL = Math.max(headLen, 8);
-            const hW = Math.max(headWid, 5);
-            ctx.beginPath();
-            ctx.moveTo(screenStartX, yPosition);
-            ctx.lineTo(screenStartX + hL, yPosition - hW);
-            ctx.lineTo(screenStartX + hL, yPosition + hW);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.moveTo(screenEndX, yPosition);
-            ctx.lineTo(screenEndX - hL, yPosition - hW);
-            ctx.lineTo(screenEndX - hL, yPosition + hW);
-            ctx.closePath();
-            ctx.fill();
+            const hL = Math.max(headLen, 9);
+            const hW = Math.max(headWid, 6);
+            const drawGrabHead = (tipX, dir) => {
+              ctx.save();
+              ctx.shadowColor = 'rgba(120,52,0,0.50)';
+              ctx.shadowBlur = 9;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 3;
+              const g = ctx.createLinearGradient(0, yPosition - hW, 0, yPosition + hW);
+              g.addColorStop(0, '#ffc07a');
+              g.addColorStop(0.45, '#ff8c2f');
+              g.addColorStop(1, '#dd5f14');
+              ctx.beginPath();
+              ctx.moveTo(tipX, yPosition);
+              ctx.lineTo(tipX + dir * hL, yPosition - hW);
+              ctx.lineTo(tipX + dir * hL, yPosition + hW);
+              ctx.closePath();
+              ctx.fillStyle = g;
+              ctx.fill();
+              // Edge and highlight must not inherit the cast shadow or they smear.
+              ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+              ctx.lineJoin = 'round';
+              ctx.lineWidth = 1.25;
+              ctx.strokeStyle = '#9c4409';
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(tipX + dir * (hL * 0.20), yPosition - hW * 0.26);
+              ctx.lineTo(tipX + dir * (hL * 0.84), yPosition - hW * 0.70);
+              ctx.lineWidth = 1.5;
+              ctx.lineCap = 'round';
+              ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+              ctx.stroke();
+              ctx.restore();
+            };
+            drawGrabHead(screenStartX, 1);
+            drawGrabHead(screenEndX, -1);
           }
           ctx.restore();
 

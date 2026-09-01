@@ -310,17 +310,27 @@ function (graph, layout, compound) {
             await sleep(2000);                                  // wait 2s after loading
             if (graph.viewAllTracks) await graph.viewAllTracks();   // view all
             await sleep(500);
-            if (onTarget) {
-                // zoomToTrack would frame the whole transcript, which on a real gene leaves the
-                // compound a few pixels wide — zoom to the binding site itself instead.
-                const g = t.tgraph;
-                const xpad = Math.max(4, (xf - xi) * 0.25);
-                const yA = g ? g.yi : 0, yB = g ? (g.yi + (g.height || 0)) : 1;
-                const cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 1, yhalf = span * 1.6;
-                if (graph.zoomRect) await graph.zoomRect(xi - xpad, xf + xpad, cy + yhalf, cy - yhalf, 340);
-                else if (graph.zoomToTrack) await graph.zoomToTrack(t);
-            } else if (graph.zoomToTrack) {
-                await graph.zoomToTrack(t);                     // then zoom into the compound
+            // zoomRect/animateTo take GRAPH-world coordinates, but xi/xf are TRACK-world
+            // (t.xi + offset). Passing them straight through sent the camera to wherever those
+            // numbers happen to land in graph space — off in the white. t.tgraph.X() is the
+            // track-world -> graph-world map; the Y band is derived the same way zoomToTrack
+            // does it, which is the only in-tree example of framing a track correctly.
+            const __ti = (graph.track || []).indexOf(t);
+            const __g = t && t.tgraph;
+            if (__g && typeof __g.X === 'function') {
+                const gx0 = __g.X(xi), gx1 = __g.X(xf);
+                if (isFinite(gx0) && isFinite(gx1)) {
+                    const pad = Math.max(Math.abs(gx1 - gx0) * 0.35, 1e-6);
+                    const yBand = __g.yi + (__g.height || 0);
+                    if (onTarget && graph.zoomRect) {
+                        await graph.zoomRect(gx0 - pad, gx1 + pad, yBand - 0.5, yBand + 0.5, 340);
+                    } else if (graph.zoomToTrack && __ti >= 0) {
+                        // zoomToTrack takes a track INDEX, not the track object.
+                        await graph.zoomToTrack(__ti, xi, xf);
+                    }
+                }
+            } else if (graph.zoomToTrack && __ti >= 0) {
+                await graph.zoomToTrack(__ti, t.xi, t.xf);
             }
             // Magenta landing burst so it's obvious where the compound landed (visible zoomed out).
             try { if (compoundObj && compoundObj.landingBurst) compoundObj.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }

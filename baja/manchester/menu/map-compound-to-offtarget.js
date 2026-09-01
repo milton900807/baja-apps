@@ -86,14 +86,28 @@ function (graph, oligo, hit, editDistance) {
         try { if (graph.wake) graph.wake(); } catch (e) { }
         try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
         await sleep(2000);
+        // zoomRect/animateTo take GRAPH-world coordinates; xi/xf here are TRACK-world
+        // (track.xi + offset). Passing them through unconverted throws the camera off into
+        // empty space. track.tgraph.X() is the track-world -> graph-world map, and the Y band
+        // is derived the way zoomToTrack does it. zoomToTrack also takes a track INDEX, not
+        // the track object, so the old fallback silently did nothing.
         try {
             const g = track.tgraph;
-            const xpad = Math.max(4, (xf - xi) * 0.25);
-            const yA = g.yi, yB = g.yi + (g.height || 0);
-            const cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 1, yhalf = span * 1.6;
-            if (graph.zoomRect) await graph.zoomRect(xi - xpad, xf + xpad, cy + yhalf, cy - yhalf, 340);
-            else if (graph.zoomToTrack) await graph.zoomToTrack(track);
-        } catch (e) { try { if (graph.zoomToTrack) await graph.zoomToTrack(track); } catch (e2) { } }
+            const ti = (graph.track || []).indexOf(track);
+            const gx0 = g.X(xi), gx1 = g.X(xf);
+            if (isFinite(gx0) && isFinite(gx1) && graph.zoomRect) {
+                const pad = Math.max(Math.abs(gx1 - gx0) * 0.35, 1e-6);
+                const yBand = g.yi + (g.height || 0);
+                await graph.zoomRect(gx0 - pad, gx1 + pad, yBand - 0.5, yBand + 0.5, 340);
+            } else if (graph.zoomToTrack && ti >= 0) {
+                await graph.zoomToTrack(ti, xi, xf);
+            }
+        } catch (e) {
+            try {
+                const ti = (graph.track || []).indexOf(track);
+                if (graph.zoomToTrack && ti >= 0) await graph.zoomToTrack(ti, xi, xf);
+            } catch (e2) { }
+        }
         // Magenta landing burst once the view settles on the mapped compound (visible zoomed out).
         try { if (clone && clone.landingBurst) clone.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
