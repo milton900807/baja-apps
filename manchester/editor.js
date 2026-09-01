@@ -120,13 +120,17 @@ function (path, config) {
 
 
 
-            if (window['env']['auth'] === 'b2c') {
+            // free/editor.js runs this same editor for non-subscribers, so the subscription
+            // gate is skipped when it set the flag. Access is not what free tier limits —
+            // the AI and off-target calls are, and those are capped server-side (freeGate in
+            // baja-server), which is the only place a cap cannot be edited away by the user.
+            if (window['env']['auth'] === 'b2c' && !window.__bajaFreeTier) {
                 var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');
                 if (!result.allowed) {
                     await exec('baja/datayak/ljlcheckout.js', result)
                     return;
                 }
-            } else {
+            } else if (window['env']['auth'] !== 'b2c') {
 
 
 
@@ -3116,7 +3120,10 @@ function (path, config) {
                 //     }
                 // } catch (e) { }
 
-                if (window['env']['auth'] === 'b2c') {
+                // Second access gate — same free-tier exemption as the one at the top of the
+                // file. Missing this one would let a free user open the editor and then get
+                // bounced to checkout partway through startup.
+                if (window['env']['auth'] === 'b2c' && !window.__bajaFreeTier) {
                     var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');
                     if (!result.allowed) {
                         await exec('baja/datayak/ljlcheckout.js', result)
