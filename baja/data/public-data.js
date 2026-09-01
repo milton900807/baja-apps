@@ -58,6 +58,16 @@ function (graph, genegraph_panel_layout, presetResource) {
             return null;
         };
 
+        // Terminal outcomes go out as RESULT toasts -- the canvas draws only error and result
+        // messages, so anything said with setMessage alone is invisible to the user.
+        const say = (m) => { try { graph.setResultMessage(m); } catch (e) { try { graph.setMessage(m); } catch (e2) { } } };
+        const status = (m) => {
+            try {
+                window.__workStatus = m || '';
+                if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+            } catch (e) { }
+        };
+
         const restoreHover = () => {
             // Reset the mouse BEFORE re-arming the hover. Loading a dataset can leave a
             // click-a-track listener or a 'msg:' mouse mode behind, and re-arming on top of one
@@ -70,8 +80,14 @@ function (graph, genegraph_panel_layout, presetResource) {
         // Read a bigWig / VCF endpoint over the track's region and drop the result
         // in as a polygon track layer (values = [[genomicPos, value], …], the same
         // shape view-bigwig.py returns).
+        // Returns TRUE only when a layer was actually added to the track. Every terminal
+        // outcome is reported through setResultMessage rather than setMessage: the canvas
+        // draws only error and result toasts, so the plain messages this used for "no data
+        // returned" and "load error" were never visible -- the load simply appeared to do
+        // nothing at all.
         const loadEndpointAsLayer = async (track, name, cand, gr, chr) => {
             try {
+                status('Public data · ' + (cand.label || name) + ' → ' + ((track && track.name) || 'track') + '…');
                 graph.setMessage(' Loading ' + (cand.label || name) + '… ');
                 const server = window['env']['apiUrl'];
                 // Surface backend messages (e.g. the first-time download/cache notice).
@@ -82,8 +98,11 @@ function (graph, genegraph_panel_layout, presetResource) {
                 let rv = [];
                 try { rv = JSON.parse((data && data.values) || '[]'); } catch (e) { rv = []; }
                 if (!rv.length) {
-                    graph.setMessage(' No data returned for ' + (cand.label || name) + '. ');
-                    restoreHover(); return;
+                    status('');
+                    say(' ' + (cand.label || name) + ' returned no data over '
+                        + ((track && track.name) || 'that track') + ' ('
+                        + gr.start + '-' + gr.end + '). ');
+                    restoreHover(); return false;
                 }
 
                 const TrackLayer = await exec('baja/bio/track-layer.js');
@@ -127,24 +146,38 @@ function (graph, genegraph_panel_layout, presetResource) {
                 track.addLayer(layer);
                 if (track.fitYAxis) { try { track.fitYAxis(); } catch (e) { } }
                 // Toast, so the user sees that the data landed.
-                graph.setResultMessage(' Loaded ' + (cand.label || name) + ' onto ' + (track.name || 'track') + '. ');
+                status('');
+                graph.setResultMessage(' Loaded ' + (cand.label || name) + ' onto ' + (track.name || 'track')
+                    + ' — ' + rv.length + ' point' + (rv.length === 1 ? '' : 's') + '. ');
                 if (graph.wake) graph.wake();
+                restoreHover();
+                return true;
             } catch (e) {
-                graph.setMessage(' Load error: ' + e);
+                status('');
+                say(' Could not load ' + (cand.label || name) + ': ' + e + ' ');
             }
             restoreHover();
+            return false;
         };
 
         // Selecting a resource arms a track click: click a track, find its bigWig /
         // VCF endpoints, let the user pick one (if several), then load it as a layer.
-        const armLoad = (name) => {
+        const armLoad = async (name) => {
             if (!name) return;
             CurrentLayout.clearComponent('mainPanel');
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
+            // Run tally, so a board-wide load that put nothing anywhere says so once at the
+            // end instead of leaving the user to infer it from an unchanged canvas.
+            //   attempted  tracks we finished a load attempt on
+            //   landed     tracks that actually gained a layer
+            //   pending    tracks waiting on the user to pick a file -- the outcome is not
+            //              known yet, so the summary must not be drawn
+            const tally = { attempted: 0, landed: 0, pending: 0 };
+
             // One clicked track, or every track on the canvas when the board-level Layers
             // button asked for it -- see baja/lib/for-each-track.js.
-            exec('baja/lib/for-each-track.js', graph, 'Click on a track to load data.', async (track) => {
+            await exec('baja/lib/for-each-track.js', graph, 'Click on a track to load data.', async (track) => {
                 try {
                     const chr = track.chr || '';
                     // Tracks display in genomic coordinates (local x == genomic), so
@@ -156,6 +189,9 @@ function (graph, genegraph_panel_layout, presetResource) {
                     }
                     const genome = track.species || 'human';
 
+                    // The BIG_DATA walk is the slow half of this, so it gets its own status
+                    // line in the shared badge rather than only a canvas message.
+                    status('Public data · finding ' + name + ' files · ' + ((track && track.name) || 'track') + '…');
                     graph.setMessage(' Finding ' + name + ' data files in BIG_DATA… ');
                     const server = window['env']['apiUrl'];
                     let em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
@@ -165,12 +201,16 @@ function (graph, genegraph_panel_layout, presetResource) {
                     try { candidates = JSON.parse((res && res.candidates) || '[]'); } catch (e) { candidates = []; }
 
                     if (!candidates.length) {
-                        graph.setMessage(' No ' + name + ' data files found in BIG_DATA: ' + ((res && res.error) || '') + ' ');
+                        tally.attempted++;
+                        status('');
+                        say(' No ' + name + ' data files found in BIG_DATA'
+                            + ((res && res.error) ? (': ' + res.error) : '') + '. ');
                         restoreHover();
                         return;
                     }
                     if (candidates.length === 1) {
-                        await loadEndpointAsLayer(track, name, candidates[0], gr, chr);
+                        tally.attempted++;
+                        if (await loadEndpointAsLayer(track, name, candidates[0], gr, chr)) tally.landed++;
                         return;
                     }
                     // Multiple candidates — prompt the user to pick the specific
@@ -181,16 +221,32 @@ function (graph, genegraph_panel_layout, presetResource) {
                         return {
                             label: '[' + (c.type || '?').toUpperCase() + '] ' + (c.label || '') + (fn ? '  —  ' + fn : ''),
                             move: () => { },
-                            click: () => { try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { } loadEndpointAsLayer(track, name, c, gr, chr); }
+                            click: () => { try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { } loadEndpointAsLayer(track, name, c, gr, chr); }   // outcome reported by the loader itself
                         };
                     });
+                    // Waiting on a human choice: the outcome for this track is not known when
+                    // the sweep ends, so it must not count towards "nothing was loaded".
+                    tally.pending++;
+                    status('');
                     graph.setMessage(' Pick a ' + name + ' file to load. ');
                     graph.showWindowMenu(menu, 10, 10, 420);
                 } catch (e) {
-                    graph.setMessage(' Load error: ' + e);
+                    tally.attempted++;
+                    status('');
+                    say(' Could not load ' + name + ': ' + e + ' ');
                     restoreHover();
                 }
             });
+
+            status('');
+            // Nothing landed anywhere, and nothing is still being chosen: say so plainly.
+            // attempted is 0 on the click path (the click has not happened yet), so this
+            // cannot fire before the user has actually asked for anything.
+            if (!tally.pending && tally.attempted > 0 && tally.landed === 0) {
+                say(' No data was loaded onto any track. ');
+            } else if (!tally.pending && tally.attempted > 1 && tally.landed > 0) {
+                say(' ' + name + ' loaded onto ' + tally.landed + ' of ' + tally.attempted + ' tracks. ');
+            }
         };
         const loadResource = (name) => armLoad(name);
 
