@@ -30,10 +30,18 @@ function (path, config) {
 
         try { window.__bajaFreeQuota = quota; } catch (e) { }
 
-        // A subscriber who lands here should just get the normal editor, unmetered — no
-        // badge, no flag.
-        if (quota && quota.subscribed) {
-            try { window.__bajaFreeTier = false; } catch (e) { }
+        // A subscriber who lands here gets the editor with no free-tier chrome — but the FLAG
+        // STAYS SET. Clearing it handed them to the normal editor's paywall, and the two checks
+        // do not agree on what "subscribed" means:
+        //     /free-quota  -> determineLicenseStatus()  (the license file)
+        //     enforce(true) -> checkSubscription()      (Stripe)
+        // An account granted by licence but without an active Stripe subscription cleared the
+        // flag here, failed the Stripe check there, and got the paywall carousel — on the FREE
+        // url. The flag only skips gates; it never grants anything, and metering is enforced
+        // server-side where subscribers are exempt anyway. So leaving it set is safe for a
+        // subscriber and removes the disagreement entirely.
+        const subscribed = !!(quota && quota.subscribed);
+        if (subscribed) {
             return await exec('manchester/editor.js', path, config);
         }
 

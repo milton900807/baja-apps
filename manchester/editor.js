@@ -1907,20 +1907,6 @@ function (path, config) {
                                                     label: 'File', ionFunction: createIonFunction(() => {
                                                         graph.showMenu([
                                                             {
-                                                                label: 'Upload', move: () => { },
-                                                                click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
-                                                            },
-                                                            {
-                                                                label: 'My Files', move: () => { },
-                                                                click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
-                                                            },
-                                                            {
-                                                                // Demos Library — a bookshelf of saved demo/recording scripts
-                                                                // (play / edit / delete). Sits alongside My Files & The Library.
-                                                                label: 'Demos', move: () => { },
-                                                                click: () => { graph.hideMenu(); try { exec('manchester/demos-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage('Demos failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }
-                                                            },
-                                                            {
                                                                 label: 'New', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
@@ -1940,6 +1926,109 @@ function (path, config) {
                                                             { label: 'Open', click: () => { graph.hideMenu(); openSaveScreen(); }, move: () => { } },
                                                             { label: 'Save', click: () => { graph.hideMenu(); saveSaveScreen(); }, move: () => { } },
                                                             {
+                                                                // Help ▸ — the reference shelves. 'The Library' and 'Clinical Compound
+                                                                // Library' moved here from the top level; Data and ML Models are new
+                                                                // bookshelves over the layer sources and the predictive models.
+                                                                label: 'Help ▸', move: () => { },
+                                                                click: () => {
+                                                                    graph.showMenu([
+{
+                                                                    label: 'The Library', move: () => { },
+                                                                    click: async () => {
+                                                                        graph.hideMenu();
+                                                                        let path_j = '.'
+                                                                        let commands = await exec('manchester/controls/cmds')
+                                                                        let userfiles = {
+                                                                            wid: 'pdf-bookshelf',
+                                                                            title: 'RNA Therapeutics Library',
+                                                                            width: '100%',
+                                                                            height: '100%',
+                                                                            data: {
+                                                                                width: '100%',
+                                                                                drive: 'wd',
+                                                                                user: getUser(),
+                                                                                root: 'library',
+                                                                                columns: 3,
+                                                                                showSearch: true,
+                                                                                "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
+                                                                                "ionfunction.fileClick": createIonFunction(async (element) => {
+                                                                                    path_j = element.path;
+                                                                                    let host_ = window['env']['apiUrl']
+                                                                                    const user = getUser();
+                                                                                    const key = 'library';
+                                                                                    const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
+                                                                                    window.open(pdfUrl, "_blank", "noopener,noreferrer");
+                                                                                }),
+                                                                                "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+                                                                                "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
+                                                                            }
+                                                                        }
+                                                                        const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
+                                                                        CurrentLayout.clearComponent('mainPanel')
+                                                                        CurrentLayout.setComponent('mainPanel', tu);
+                                                                        // Close (✕) pinned upper-left → reset the mainPanel back to the editor canvas.
+                                                                        try {
+                                                                            const __p = document.getElementById('baja-editor-lib-close');
+                                                                            if (__p && __p.parentNode) __p.parentNode.removeChild(__p);
+                                                                            const xb = document.createElement('div');
+                                                                            xb.id = 'baja-editor-lib-close';
+                                                                            xb.title = 'Back to the editor';
+                                                                            xb.textContent = '✕';
+                                                                            xb.style.cssText = 'position:fixed;top:44px;left:12px;z-index:2147483000;width:30px;height:30px;border-radius:50%;'
+                                                                                + 'display:flex;align-items:center;justify-content:center;background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;'
+                                                                                + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                                                                            xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.2)'; } catch (e) { } };
+                                                                            xb.onmouseleave = () => { try { xb.style.filter = ''; } catch (e) { } };
+                                                                            xb.onclick = () => {
+                                                                                try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
+                                                                                // Reset back to the editor canvas.
+                                                                                try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                                                                                try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
+                                                                            };
+                                                                            document.body.appendChild(xb);
+                                                                        } catch (e) { }
+                                                                    },
+                                                                },
+{
+                                                                    // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
+                                                                    // compound → load its sequence + chemistry onto a track.
+                                                                    label: 'Clinical Compound Library', move: () => { },
+                                                                    click: () => {
+                                                                        graph.hideMenu();
+                                                                        try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
+                                                                        catch (e) { try { graph.setMessage(' Clinical Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                                                                    },
+                                                                },
+                                                                        {
+                                                                            label: 'Data Library', move: () => { },
+                                                                            click: () => { graph.hideMenu(); try { exec('baja/data/data-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Data Library failed: ' + e); } catch (e2) { } } }
+                                                                        },
+                                                                        {
+                                                                            label: 'ML Models Library', move: () => { },
+                                                                            click: () => { graph.hideMenu(); try { exec('baja/ml/models-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Models Library failed: ' + e); } catch (e2) { } } }
+                                                                        },
+                                                                        {
+                                                                            label: 'Tutorials', move: () => { },
+                                                                            click: () => { graph.hideMenu(); try { graph.setMessage(' Tutorials — coming soon. '); } catch (e) { } }
+                                                                        }
+                                                                    ], 0, 0, 300);
+                                                                }
+                                                            },
+                                                            {
+                                                                label: 'Upload', move: () => { },
+                                                                click: async () => { graph.hideMenu(); await exec('baja/manchester/menu/file-extract.js', graph, genegraph_panel_layout); }
+                                                            },
+                                                            {
+                                                                label: 'My Files', move: () => { },
+                                                                click: () => { graph.hideMenu(); exec('manchester/fb.js'); }
+                                                            },
+                                                            {
+                                                                // Demos Library — a bookshelf of saved demo/recording scripts
+                                                                // (play / edit / delete). Sits alongside My Files & The Library.
+                                                                label: 'Demos', move: () => { },
+                                                                click: () => { graph.hideMenu(); try { exec('manchester/demos-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage('Demos failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }
+                                                            },
+                                                            {
                                                                 label: 'Share (view-only link)', move: () => { },
                                                                 click: async () => {
                                                                     graph.hideMenu();
@@ -1952,74 +2041,6 @@ function (path, config) {
                                                                         showModal(c);
                                                                     } catch (e) { shareScreen(); }
                                                                 }
-                                                            },
-
-                                                            {
-                                                                label: 'The Library', move: () => { },
-                                                                click: async () => {
-                                                                    graph.hideMenu();
-                                                                    let path_j = '.'
-                                                                    let commands = await exec('manchester/controls/cmds')
-                                                                    let userfiles = {
-                                                                        wid: 'pdf-bookshelf',
-                                                                        title: 'RNA Therapeutics Library',
-                                                                        width: '100%',
-                                                                        height: '100%',
-                                                                        data: {
-                                                                            width: '100%',
-                                                                            drive: 'wd',
-                                                                            user: getUser(),
-                                                                            root: 'library',
-                                                                            columns: 3,
-                                                                            showSearch: true,
-                                                                            "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
-                                                                            "ionfunction.fileClick": createIonFunction(async (element) => {
-                                                                                path_j = element.path;
-                                                                                let host_ = window['env']['apiUrl']
-                                                                                const user = getUser();
-                                                                                const key = 'library';
-                                                                                const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
-                                                                                window.open(pdfUrl, "_blank", "noopener,noreferrer");
-                                                                            }),
-                                                                            "ionfunction.openfile": createIonFunction(async (file, text) => { }),
-                                                                            "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
-                                                                        }
-                                                                    }
-                                                                    const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
-                                                                    CurrentLayout.clearComponent('mainPanel')
-                                                                    CurrentLayout.setComponent('mainPanel', tu);
-                                                                    // Close (✕) pinned upper-left → reset the mainPanel back to the editor canvas.
-                                                                    try {
-                                                                        const __p = document.getElementById('baja-editor-lib-close');
-                                                                        if (__p && __p.parentNode) __p.parentNode.removeChild(__p);
-                                                                        const xb = document.createElement('div');
-                                                                        xb.id = 'baja-editor-lib-close';
-                                                                        xb.title = 'Back to the editor';
-                                                                        xb.textContent = '✕';
-                                                                        xb.style.cssText = 'position:fixed;top:44px;left:12px;z-index:2147483000;width:30px;height:30px;border-radius:50%;'
-                                                                            + 'display:flex;align-items:center;justify-content:center;background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;'
-                                                                            + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-                                                                        xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.2)'; } catch (e) { } };
-                                                                        xb.onmouseleave = () => { try { xb.style.filter = ''; } catch (e) { } };
-                                                                        xb.onclick = () => {
-                                                                            try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
-                                                                            // Reset back to the editor canvas.
-                                                                            try { CurrentLayout.reset('mainPanel'); } catch (e) { }
-                                                                            try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
-                                                                        };
-                                                                        document.body.appendChild(xb);
-                                                                    } catch (e) { }
-                                                                },
-                                                            },
-                                                            {
-                                                                // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
-                                                                // compound → load its sequence + chemistry onto a track.
-                                                                label: 'Clinical Compound Library', move: () => { },
-                                                                click: () => {
-                                                                    graph.hideMenu();
-                                                                    try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
-                                                                    catch (e) { try { graph.setMessage(' Clinical Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                                },
                                                             },
                                                             {
                                                                 // Record the user's actions, then emit a demo.js script that replays them.
@@ -2037,7 +2058,7 @@ function (path, config) {
                                                                 // so the inter-step delay defaults to 0 (honor recorded pacing).
                                                                 label: 'Play script…', move: () => { },
                                                                 click: () => { graph.hideMenu(); openPlayScriptPanel(); },
-                                                            },
+                                                            }
                                                         ], 0, 0, 280);
                                                     })
                                                 },
