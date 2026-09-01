@@ -1,6 +1,12 @@
 function (graph, genegraph_panel_layout) {
     // Data toolbar (menu bar) docked in the button panel — shown from the Layers
-    // center menu's "Data" item. Menus: RNASeq | IP | Edit Layer.
+    // center menu's "Data" item. Menus: RNASeq | Patents | microRNA | Variants | Protein |
+    // Edit Layer.
+    //
+    // Every /bd/ interval dataset here comes from baja/data/layer-sets.js, which the ?layer=
+    // deep-link handler reads too — one definition, so the menu and a link can't disagree.
+    return (async () => {
+    const SETS = await exec('baja/data/layer-sets.js');
     const server = window['env']['apiUrl'];
     const go = (fn) => createIonFunction(async () => {
         try { await fn(); } catch (e) { try { graph.setMessage(' ' + e); } catch (_e) { } }
@@ -20,32 +26,17 @@ function (graph, genegraph_panel_layout) {
     ];
 
     // ---- Patents -------------------------------------------------------------
-    // Only the ASO / siRNA / gene-therapy patent set is offered. Clicking it opens a
-    // side menu of the patent-index years that are built in BIG_DATA; picking a year
-    // loads that year's BED via the shared bed-hits.js. Only the 2026 index exists
-    // today (it maps to the current, un-dated file); future years get a dated BED.
-    const asoBase = {
-        key: 'aso_sirna_gt',
-        label: 'ASO / siRNA / gene therapy',
-        // Dedicated ASO/siRNA/gene-therapy index, built by the pipeline in
-        // py/sequence/patent-pipeline (see its README) and deployed to /bd/. `assignees` is the
-        // metadata TSV read-bed-region.py joins in — bed-hits.js renders it on-zoom. The
-        // deployed TSV is still the plain 'US<number> <assignee>' label, so the callout shows
-        // one Patent line; rerun stage 4 for the packed
-        // number‖title‖date‖assignee‖inventors form and point this at the _meta.tsv it writes.
-        assignees: '/bd/aso_sirna_gt_assignees.tsv',
-        color: 'rgba(160,80,160,0.55)',
-        noun: 'ASO/siRNA/gene-therapy hit',
-    };
+    // Clicking the ASO / siRNA / gene-therapy set opens a side menu of the patent-index
+    // years built in BIG_DATA; picking one loads its BED via the shared bed-hits.js. Only
+    // one index exists today (the un-dated file); future years get a dated BED and a row here.
+    const asoBase = SETS.aso_sirna_gt;
     const asoYears = [
-        // The dated file the pipeline is meant to emit does not exist yet, so this maps to
-        // the current un-dated index, as the comment above always claimed it did.
-        { year: '2020–2026', bed: '/bd/aso_sirna_gt_hg38_transcript_hits.bed.gz' },
+        { year: '2020–2026', bed: asoBase.bed },
     ];
 
     const ipItems = [
         {
-            'label': 'ASO / siRNA / gene therapy', 'ionfunction': go(async () => {
+            'label': asoBase.label, 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
                 // Side menu of available patent-index years — pick one to load its BED.
@@ -54,11 +45,11 @@ function (graph, genegraph_panel_layout) {
                     move: () => { },
                     click: () => {
                         graph.showSideMenu(null);
-                        const cfg = Object.assign({}, asoBase, {
-                            bed: y.bed,
-                            label: asoBase.label + ' (' + y.year + ')',
-                        });
-                        exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, cfg);
+                        exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                            Object.assign({}, asoBase, {
+                                bed: y.bed,
+                                label: asoBase.label + ' (' + y.year + ')',
+                            }));
                     }
                 }));
                 graph.showSideMenu(items);
@@ -67,16 +58,10 @@ function (graph, genegraph_panel_layout) {
         {
             // 2020–2025 patents — the comprehensive transcript-keyed patent index. Click a
             // track to drop its patent hits in as an interval layer (shared bed-hits.js).
-            'label': 'Patents 2020–2025', 'ionfunction': go(async () => {
+            'label': SETS.patents_2020_2025.label, 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, {
-                    key: 'patents_2020_2025',
-                    label: 'Patents 2020–2025',
-                    bed: '/bd/patent_hg38_transcript_hits.bed.gz',
-                    color: 'rgba(70,130,180,0.55)',
-                    noun: 'patent hit',
-                });
+                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.patents_2020_2025);
             })
         },
     ];
@@ -88,35 +73,12 @@ function (graph, genegraph_panel_layout) {
     // reporter-assay / western-blot evidence on that specific miRNA-gene pair, the full
     // set adds the CLIP-derived "(Weak)" tier and the pairs that were tested and did
     // NOT repress (the metadata callout names the tier per site).
-    const mirnaBase = {
-        // Packed label built by the pipeline: miRNA‖gene‖evidence‖assays‖PMIDs‖MIRT id.
-        meta: '/bd/mirtarbase10_hsa_meta.tsv',
-        fields: ['miRNA', 'Target gene', 'Evidence', 'Assays', 'PMIDs', 'miRTarBase'],
-        idLabel: 'miRNA',
-    };
-    const mirnaSets = [
-        {
-            key: 'mirtarbase10_strong',
-            label: 'Validated miRNA sites (strong evidence)',
-            bed: '/bd/mirtarbase10_hsa_strong_hg38_transcript_hits.bed.gz',
-            color: 'rgba(40,150,120,0.55)',
-            noun: 'validated miRNA site',
-        },
-        {
-            key: 'mirtarbase10_all',
-            label: 'All reported miRNA sites (incl. CLIP)',
-            bed: '/bd/mirtarbase10_hsa_all_hg38_transcript_hits.bed.gz',
-            color: 'rgba(120,170,70,0.45)',
-            noun: 'miRNA site',
-        },
-    ];
-    const mirnaItems = mirnaSets.map((m) => ({
-        'label': m.label, 'ionfunction': go(async () => {
+    const mirnaItems = [SETS.mirtarbase10_strong, SETS.mirtarbase10_all].map((cfg) => ({
+        'label': cfg.label, 'ionfunction': go(async () => {
             graph.clearMouseListeners();
             graph.setMouseMode('navigate');
             // Click a track -> drop that transcript's miRNA target sites in as a layer.
-            exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                Object.assign({}, mirnaBase, m));
+            exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, cfg);
         })
     }));
 
@@ -203,4 +165,5 @@ function (graph, genegraph_panel_layout) {
 
     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel');
     CurrentLayout.setComponent('buttonMenuPanel', bpanel);
+    })();
 }

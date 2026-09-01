@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout, patentSet) {
+function (graph, genegraph_panel_layout, patentSet, targetTrack) {
     // Transcript-keyed BED hits — click a track, read one BED from BIG_DATA over that
     // track, and drop the hits in as an interval layer. Parameterised so a new dataset
     // (patents, miRNA target sites, …) is a config object, not another copy of this file.
@@ -15,6 +15,10 @@ function (graph, genegraph_panel_layout, patentSet) {
     //             file reusable for non-patent datasets (the miRTarBase target-site layer
     //             passes miRNA / Target gene / Evidence / …). Defaults to the patent fields.
     //   idLabel   prefix for the bare id when no metadata TSV was joined
+    //
+    // targetTrack is optional: pass a track and the layer loads onto it straight away
+    // (that is how baja/data/deep-link.js resolves ?layer=), otherwise the user is asked
+    // to click the track they want.
     //
     // The BED is transcript-keyed, so hits map to genomic x through the track's exons
     // (split at intron boundaries). Overlapping hits are lane-packed.
@@ -36,23 +40,15 @@ function (graph, genegraph_panel_layout, patentSet) {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
     };
 
-    graph.clearMouseListeners();
-    graph.setMouseMode('msg: Click on a track to load ' + LAYER_LABEL + '.');
-    CurrentLayout.clearComponent('mainPanel');
-    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-
-    graph.addMouseDownListener(async (x, y) => {
-        const ti = graph.getTrack(x, y);
-        if (ti < 0) return;
-        const track = graph.track[ti];
-        graph.clearMouseListeners();
-        graph.setMouseMode('navigate');
+    // The whole load, given a track. Returns how many hits went on, so a caller that did
+    // not ask for one (a deep link) can report it.
+    const loadOnto = async (track) => {
         try {
             // Query by this track's transcript, in transcript (sequence-index) space.
             const tid = track.transcriptID || track.geneID || track.name || '';
             if (!tid) {
                 graph.setMessage(' That track has no transcript id to look up. ');
-                restoreHover(); return;
+                return 0;
             }
             const seqLen = (track.sequence && track.sequence.length) || Math.abs(track.xf - track.xi);
             let t0 = 0, t1 = seqLen;
@@ -72,7 +68,7 @@ function (graph, genegraph_panel_layout, patentSet) {
             try { rv = JSON.parse((res && res.values) || '[]'); } catch (e) { rv = []; }
             if (!rv.length) {
                 graph.setMessage(' No ' + LAYER_LABEL + ' hits found for ' + tid + '. ');
-                restoreHover(); return;
+                return 0;
             }
 
             const TrackLayer = await exec('baja/bio/track-layer.js');
@@ -187,9 +183,28 @@ function (graph, genegraph_panel_layout, patentSet) {
 
             if (graph.wake) graph.wake();
             graph.setMessage(' ' + hits.length + ' ' + NOUN + (hits.length === 1 ? '' : 's') + ' loaded onto ' + (track.name || 'track') + '. ');
+            return hits.length;
         } catch (e) {
             graph.setMessage(' Could not load ' + LAYER_LABEL + ': ' + e + ' (is ' + BED + ' present in BIG_DATA?) ');
         }
+        return 0;
+    };
+
+    // Deep link: the track is already known, so skip the click entirely.
+    if (targetTrack) return loadOnto(targetTrack);
+
+    graph.clearMouseListeners();
+    graph.setMouseMode('msg: Click on a track to load ' + LAYER_LABEL + '.');
+    CurrentLayout.clearComponent('mainPanel');
+    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+
+    graph.addMouseDownListener(async (x, y) => {
+        const ti = graph.getTrack(x, y);
+        if (ti < 0) return;
+        const track = graph.track[ti];
+        graph.clearMouseListeners();
+        graph.setMouseMode('navigate');
+        await loadOnto(track);
         restoreHover();
     });
 }

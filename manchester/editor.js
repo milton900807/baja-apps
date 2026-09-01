@@ -3183,6 +3183,11 @@ function (path, config) {
                         graph.add(ensembl)
                 }
 
+                // Deep link: ?gene=PDCD4&layer=mirtarbase10_strong on the URL opens those
+                // genes and drops those data layers on them. With no recognised param the
+                // handler returns immediately, so this costs a normal startup nothing.
+                try { exec('baja/data/deep-link.js', graph, genegraph_panel_layout); } catch (e) { }
+
             })
 
         })

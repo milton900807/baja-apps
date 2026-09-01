@@ -28,6 +28,17 @@ function (path, config) {
         const __isBaja = (s) => { try { return /\.baja$/i.test(decodeURIComponent('' + (s || ''))); } catch (e) { return /\.baja$/i.test('' + (s || '')); } };
         let __code = '';
         try { __code = new URL(window.location.href).searchParams.get('s') || ''; } catch (e) { }
+        // Deep-link params, captured BEFORE the URL is cleaned below (that rewrite would
+        // otherwise take ?gene=/?layer= with it). Handed to baja/data/deep-link.js at the end.
+        let __deep = {};
+        try {
+            const __u = new URL(window.location.href).searchParams;
+            __deep = {
+                gene: __u.get('gene') || __u.get('genes') || __u.get('transcript') || '',
+                layer: __u.get('layer') || __u.get('layers') || '',
+                species: __u.get('species') || '',
+            };
+        } catch (e) { }
         let __p = '';
         if (__code) {
             try {
@@ -159,5 +170,8 @@ function (path, config) {
         try { graph.showDisplay = false; } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
         try { __spin.stop(); } catch (e) { }
+        // ?gene=…&layer=… also works on a shared screen: open those genes and drop those
+        // layers on top of whatever the .baja already contains.
+        try { exec('baja/data/deep-link.js', graph, genegraph_panel_layout, __deep); } catch (e) { }
     })();
 }
