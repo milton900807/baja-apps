@@ -402,6 +402,13 @@ function (graph, genegraph_panel_layout, __path) {
                                                 label: 'Cancel', ionFunction: createIonFunction(async () => {
                                                     CurrentLayout.clearComponent('mainPanel');
                                                     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                                                    // Same as save-obj.js: restoring the mainPanel does not re-arm any
+                                                    // canvas interaction, so back out of Open and the hover highlight
+                                                    // and track menus are gone until the next click.
+                                                    try { graph.clearMouseListeners(); } catch (e) { }
+                                                    try { graph.setMouseMode('navigate'); } catch (e) { }
+                                                    try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
                                                 })
                                             },
                                         ]

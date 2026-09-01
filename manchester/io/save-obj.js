@@ -471,6 +471,14 @@ function (graph, main_layout, path) {
                                             progressBar(90)
                                             CurrentLayout.clearComponent('mainPanel')
                                             CurrentLayout.setComponent('mainPanel', main_layout);
+                                            // Hand the canvas back: putting the mainPanel back does not re-arm any
+                                            // interaction, so after a save the user was left with a live-looking
+                                            // canvas that had no hover highlight and no track menus until they
+                                            // clicked something. setMouseMode('navigate') re-arms mouse-over-highlight.
+                                            try { graph.clearMouseListeners(); } catch (e) { }
+                                            try { graph.setMouseMode('navigate'); } catch (e) { }
+                                            try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, main_layout); } catch (e) { }
+                                            try { if (graph.wake) graph.wake(); } catch (e) { }
                                         })
                                     },
 
@@ -479,6 +487,11 @@ function (graph, main_layout, path) {
 
                                             CurrentLayout.clearComponent('mainPanel')
                                             CurrentLayout.setComponent('mainPanel', main_layout);
+                                            // Cancelling leaves the canvas just as dead as saving did — re-arm here too.
+                                            try { graph.clearMouseListeners(); } catch (e) { }
+                                            try { graph.setMouseMode('navigate'); } catch (e) { }
+                                            try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, main_layout); } catch (e) { }
+                                            try { if (graph.wake) graph.wake(); } catch (e) { }
 
                                         })
                                     }
