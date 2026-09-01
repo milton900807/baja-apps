@@ -1,4 +1,12 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, tracks) {
+
+    // `tracks` is what this library applies its models to, decided by whoever opened it:
+    // the track menu passes that track, the board-level Layers button passes every track on
+    // the canvas. The library does not decide -- it hands the list to the runner, which takes
+    // a single track or an array in the same parameter.
+    //
+    // Opened with nothing (a bare menu entry), the runners fall back to the selection, then to
+    // asking for a click, exactly as before.
 
     // ML Models Library — a bookshelf of the predictive models that write their output onto a
     // track as a layer.
@@ -18,12 +26,14 @@ function (graph, genegraph_panel_layout) {
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
         const L = genegraph_panel_layout;
+        // Normalised once: a single track, an array, or nothing.
+        const __targets = () => (Array.isArray(tracks) ? tracks.filter(Boolean) : (tracks ? [tracks] : []));
 
         const BOOKS = [
             {
                 title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
                 blurb: 'Per-position RBP binding profile across the track.',
-                open: () => exec('baja/bio/rbp/rbp-profile.js', graph, L),
+                open: () => exec('baja/bio/rbp/rbp-profile.js', graph, L, __targets()),
                 docs: {
                     summary: 'Predicts where an RNA-binding protein footprints on the sequence. A '
                         + 'sphere-CNN scores 64-nt windows for 170 RBPs; sliding that window along the '
@@ -43,7 +53,7 @@ function (graph, genegraph_panel_layout) {
             {
                 title: 'Splicing — site strength', badge: 'BajaSplice', ready: true,
                 blurb: 'Donor / acceptor splice-site strength at every position.',
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L),
+                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
                 docs: {
                     summary: 'A dilated residual CNN over 2,000 nt of context predicts donor, acceptor '
                         + 'or neither at EVERY position of a pre-mRNA — so it scores sites de novo '
@@ -75,7 +85,7 @@ function (graph, genegraph_panel_layout) {
             {
                 title: 'Splicing — PSI', badge: 'BajaSplice', ready: true,
                 blurb: 'Percent-spliced-in for cassette exons, across 54 tissues.',
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L),
+                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
                 docs: {
                     summary: 'Given the four splice-site windows of a cassette event and its geometry, '
                         + 'predicts inclusion in each of 54 tissues — how often the exon is kept rather '
@@ -106,7 +116,7 @@ function (graph, genegraph_panel_layout) {
             {
                 title: 'Intron retention', badge: 'BajaIR', ready: true,
                 blurb: 'How retention-prone each intron is, from sequence alone.',
-                open: () => exec('baja/bio/splicing/intron-retention.js', graph, L),
+                open: () => exec('baja/bio/splicing/intron-retention.js', graph, L, __targets()),
                 docs: {
                     summary: 'Scores how retention-prone each intron is from sequence alone — no reads '
                         + 'and no expression data. Twenty features: fifteen describing intron geometry '

@@ -48,7 +48,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
         // showResizeBar is the selected flag on both renderers (track.js and track-flexi.js);
         // marks are used raw, exactly as selected-sequence-menu.js passes them.
         const pickedTrack = () => {
-            if (presetTrack) return presetTrack;
+            if (__presetList.length === 1) return __presetList[0];
             try {
                 const sel = (graph.track || []).filter((t) => t && t.showResizeBar);
                 // Only an unambiguous selection. With several tracks selected there is no way
@@ -168,9 +168,15 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
         // The flag is consumed on entry so a later run from a track menu is a single-track run
         // again -- a mode that silently persisted would be worse than one that has to be asked
         // for each time.
-        const runAllTracks = (rbp) => {
+        // `list` is the tracks to run against. Passed in by the caller -- the library hands
+        // down whatever it was given -- and only falls back to the whole canvas when nobody
+        // said. That fallback is the old behaviour, kept so an older call site still works.
+        const runAllTracks = (rbp, list) => {
             let all = [];
-            try { all = (graph.track || []).filter((t) => t && (t.grid || t.tgraph)); } catch (e) { }
+            try {
+                all = (Array.isArray(list) && list.length ? list : (graph.track || []))
+                    .filter((t) => t && (t.grid || t.tgraph));
+            } catch (e) { }
             if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
             (async () => {
                 for (let i = 0; i < all.length; i++) {
@@ -190,8 +196,27 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             })();
         };
 
+        // The TRACKS this run applies to, decided by whoever launched it.
+        //
+        // presetTrack takes a single track or an ARRAY of them, so one parameter carries both
+        // cases: the track menu passes the track it belongs to, the board-level Layers button
+        // passes every track on the canvas, and the library in between just hands along what it
+        // was given. That is why there is no separate "apply to all" argument.
+        //
+        // The __bajaApplyAllTracks flag is still honoured for callers that have not been
+        // updated, but an explicit list always wins over it.
+        const __presetList = Array.isArray(presetTrack)
+            ? presetTrack.filter(Boolean)
+            : (presetTrack ? [presetTrack] : []);
+
         const armTrackClick = (rbp) => {
             graph.clearMouseListeners();
+            if (__presetList.length > 1) {
+                try { graph.setMouseMode('navigate'); } catch (e) { }
+                restoreEditor();
+                runAllTracks(rbp, __presetList);
+                return;
+            }
             let __all = false;
             try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
             if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(rbp); return; }

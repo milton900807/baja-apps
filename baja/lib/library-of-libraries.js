@@ -121,10 +121,11 @@ function (graph, genegraph_panel_layout) {
                 // Close this one first: two full-screen overlays stacked would leave the user
                 // closing twice to get back to the canvas.
                 close();
-                try { graph.setMessage(' Opening ' + it.name + '… '); } catch (e) { }
-                try { Promise.resolve(exec(it.path, graph, genegraph_panel_layout)).catch((e) => {
-                    try { graph.setMessage(' ' + it.name + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
-                }); } catch (e) {
+                try {
+                    Promise.resolve(exec(it.path, graph, genegraph_panel_layout)).catch((e) => {
+                        try { graph.setMessage(' ' + it.name + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                    });
+                } catch (e) {
                     try { graph.setMessage(' ' + it.name + ' failed: ' + e + ' '); } catch (e2) { }
                 }
             };

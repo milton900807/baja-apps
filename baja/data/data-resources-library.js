@@ -1,4 +1,7 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, tracks) {
+
+    // Same contract as the ML Models Library: `tracks` is the set this library loads onto,
+    // handed down from whoever opened it rather than decided here.
 
     // Data Resources — the shelf the user lands on from a track's Layers menu. Each card is
     // a class of data that can be added to the board as track layers; RNASeq opens the
@@ -25,7 +28,7 @@ function (graph, genegraph_panel_layout) {
                 ready: true,
                 blurb: 'Per-base read depth from the RNASeq reference tree, organised by species and tissue. '
                     + 'Choosing a dataset adds it as a coverage layer to every track on the board.',
-                open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout); }
+                open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
             },
             {
                 key: 'mydata',
@@ -34,7 +37,7 @@ function (graph, genegraph_panel_layout) {
                 ready: true,
                 blurb: 'Files you have uploaded to your own big-data folder — bigwig coverage, '
                     + 'intervals and tables you can drop onto a track as a layer.',
-                open: async () => { await exec('baja/data/my-data.js', graph, genegraph_panel_layout); }
+                open: async () => { await exec('baja/data/my-data.js', graph, genegraph_panel_layout, tracks); }
             },
             {
                 key: 'public',
@@ -42,7 +45,7 @@ function (graph, genegraph_panel_layout) {
                 badge: 'Reference',
                 ready: true,
                 blurb: 'Shared public reference tracks configured for this deployment.',
-                open: async () => { await exec('baja/data/public-data.js', graph, genegraph_panel_layout); }
+                open: async () => { await exec('baja/data/public-data.js', graph, genegraph_panel_layout, tracks); }
             }
         ];
 

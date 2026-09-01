@@ -3241,7 +3241,7 @@ function (graph, genegraph_panel_layout) {
                                 move: () => { },
                                 click: async () => {
                                     graph.showSideMenu(null);
-                                    await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                    await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                 }
                             });
 
@@ -3255,7 +3255,9 @@ function (graph, genegraph_panel_layout) {
                                 move: () => { },
                                 click: async () => {
                                     graph.showSideMenu(null);
-                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
+                                    // From a TRACK menu: this track is the target, so it is passed in rather than
+                                    // left to be guessed from the selection.
+                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                 }
                             });
 
@@ -4247,7 +4249,7 @@ function (graph, genegraph_panel_layout) {
                                     move: () => { },
                                     click: async () => {
                                         graph.showSideMenu(null);
-                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                     }
                                 },
                                 {
@@ -4260,7 +4262,7 @@ function (graph, genegraph_panel_layout) {
                                     move: () => { },
                                     click: async () => {
                                         graph.showSideMenu(null);
-                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
+                                        await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                     }
                                 },
                                 {
@@ -4273,7 +4275,9 @@ function (graph, genegraph_panel_layout) {
                                     move: () => { },
                                     click: async () => {
                                         graph.showSideMenu(null);
-                                        await exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
+                                        // From a TRACK menu: this track is the target, so it is passed in rather than
+                                    // left to be guessed from the selection.
+                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                     }
                                 },
                                 {

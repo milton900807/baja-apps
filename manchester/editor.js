@@ -2023,6 +2023,138 @@ function (path, config) {
                                                         ]);
                                                     })
                                                 },
+
+
+                                                {
+                                                    label: 'Layers', ionFunction: createIonFunction(() => {
+
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ")
+                                                            return;
+                                                        }
+
+
+
+                                                        // Show the layers-tools toolbar in the button/label panel.
+                                                        // exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
+                                                        // Centered menu of layer actions.
+                                                        graph.showMenu([
+                                                            {
+                                                                // Straight to the ML Models Library, and whatever is run from it
+                                                                // is applied to EVERY track on the canvas -- that is what the
+                                                                // board-level Layers button means, as opposed to the per-track
+                                                                // Models menu. The flag is what the runners honour; it is
+                                                                // cleared when the run finishes or the library closes.
+                                                                label: 'Models', move: () => { },
+                                                                click: () => {
+                                                                    graph.showSideMenu(null);
+                                                                    const n = (graph.track || []).length;
+                                                                    // Pass the tracks explicitly. The flag stays set for the data
+                                                                    // loaders that still read it, but the models library is now told
+                                                                    // its targets rather than inferring them from ambient state.
+                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
+                                                                    try {
+                                                                        window.__workStatus = 'Models · will apply to all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
+                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                                                                    } catch (e) { }
+                                                                    exec('baja/ml/models-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
+                                                                }
+                                                            },
+                                                            {
+                                                                // The Data Resources Library. Its loaders already lay a dataset
+                                                                // over every track on the board (see baja/data/rnaseq-library.js),
+                                                                // so this needs no flag -- only the status that says so.
+                                                                label: 'Data', move: () => { },
+                                                                click: () => {
+                                                                    graph.showSideMenu(null);
+                                                                    const n = (graph.track || []).length;
+                                                                    // Same flag the Models branch sets. The RNASeq library already
+                                                                    // spans the board on its own; the other loaders (public data,
+                                                                    // the RNASeq hierarchy) ask for a track click, and this is what
+                                                                    // tells them not to -- see baja/lib/for-each-track.js.
+                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
+                                                                    try {
+                                                                        window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
+                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                                                                    } catch (e) { }
+                                                                    exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
+                                                                }
+                                                            },
+                                                            {
+                                                                // Navigate to a track BY NAME rather than clicking one on the
+                                                                // canvas. From the board-level Layers button the tracks are
+                                                                // what you are choosing between, and a name is easier to hit
+                                                                // than a band -- especially when tracks are stacked or the
+                                                                // one you want is scrolled off screen.
+                                                                label: 'Edit', move: () => { },
+                                                                click: () => {
+                                                                    const tracks = (graph.track || []).filter((t) => t);
+                                                                    if (!tracks.length) { graph.setSunsetMessage(' Load a track first '); return; }
+
+                                                                    const openRoot = () => {
+                                                                        const items = tracks.map((t, i) => {
+                                                                            const n = ((t.track_layers || []).length);
+                                                                            return {
+                                                                                label: (t.name || ('track ' + (i + 1)))
+                                                                                    + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ') ▸',
+                                                                                move: () => { },
+                                                                                click: () => { openTrack(t); }
+                                                                            };
+                                                                        });
+                                                                        items.push({ label: '‹ Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
+                                                                        graph.showSideMenu(items);
+                                                                    };
+
+                                                                    const openTrack = (t) => {
+                                                                        const addLayer = () => {
+                                                                            graph.showSideMenu([
+                                                                                { label: 'Add to ' + (t.name || 'track'), header: true, move: () => { }, click: () => { } },
+                                                                                // Each of these writes a layer onto THIS track: the
+                                                                                // runners take it as a preset, so none of them asks
+                                                                                // for a click.
+                                                                                { label: 'RNA Binding (BajaCLIP)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t); } },
+                                                                                { label: 'Splicing (BajaSplice)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t); } },
+                                                                                { label: 'Intron retention (BajaIR)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout, t); } },
+                                                                                // Labelled honestly: the data loaders lay a dataset
+                                                                                // over EVERY track, not just this one.
+                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout); } },
+                                                                                { label: '‹ Back', move: () => { }, click: () => { openTrack(t); } }
+                                                                            ]);
+                                                                        };
+
+                                                                        const n = ((t.track_layers || []).length);
+                                                                        graph.showSideMenu([
+                                                                            { label: (t.name || 'track') + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ')', header: true, move: () => { }, click: () => { } },
+                                                                            { label: 'Add layer ▸', move: () => { }, click: () => { addLayer(); } },
+                                                                            {
+                                                                                // The existing per-track layer menu: show / hide /
+                                                                                // remove one / remove all, per layer.
+                                                                                label: 'Edit / remove layers ▸', move: () => { },
+                                                                                click: () => {
+                                                                                    try { graph.showSideMenu(null); } catch (e) { }
+                                                                                    try { exec('baja/manchester/menu/track-layers-side-menu.js', t, genegraph_panel_layout, graph); } catch (e) { graph.setMessage(' Could not open the layer menu: ' + e); }
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                label: 'Remove all layers (' + n + ')', move: () => { },
+                                                                                click: () => {
+                                                                                    t.track_layers = [];
+                                                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                                                                    graph.setMessage(' Removed ' + n + ' layer' + (n === 1 ? '' : 's') + ' from ' + (t.name || 'track') + '. ');
+                                                                                    openTrack(t);
+                                                                                }
+                                                                            },
+                                                                            { label: '‹ Back to tracks', move: () => { }, click: () => { openRoot(); } }
+                                                                        ]);
+                                                                    };
+
+                                                                    graph.showSideMenu(null);
+                                                                    openRoot();
+                                                                }
+                                                            }
+                                                        ]);
+                                                    })
+                                                },
                                                 {
                                                     label: 'Draw', ionFunction: createIonFunction(() => {
                                                         // Entering Draw: hide the info / selection panel and clear any selection.
@@ -2126,428 +2258,15 @@ function (path, config) {
                                                         ]);
                                                     })
                                                 },
+
                                                 {
-                                                    label: 'Layers', ionFunction: createIonFunction(() => {
-
-                                                        if (!graph.track || graph.track.length === 0) {
-                                                            graph.setSunsetMessage(" Load a track first ")
-                                                            return;
-                                                        }
-
-
-
-                                                        // Show the layers-tools toolbar in the button/label panel.
-                                                        // exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
-                                                        // Centered menu of layer actions.
-                                                        graph.showMenu([
-                                                            {
-                                                                // Straight to the ML Models Library, and whatever is run from it
-                                                                // is applied to EVERY track on the canvas -- that is what the
-                                                                // board-level Layers button means, as opposed to the per-track
-                                                                // Models menu. The flag is what the runners honour; it is
-                                                                // cleared when the run finishes or the library closes.
-                                                                label: 'Models', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    const n = (graph.track || []).length;
-                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
-                                                                    try {
-                                                                        window.__workStatus = 'Models · will apply to all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
-                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                                                                    } catch (e) { }
-                                                                    exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
-                                                            {
-                                                                // The Data Resources Library. Its loaders already lay a dataset
-                                                                // over every track on the board (see baja/data/rnaseq-library.js),
-                                                                // so this needs no flag -- only the status that says so.
-                                                                label: 'Data', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    const n = (graph.track || []).length;
-                                                                    // Same flag the Models branch sets. The RNASeq library already
-                                                                    // spans the board on its own; the other loaders (public data,
-                                                                    // the RNASeq hierarchy) ask for a track click, and this is what
-                                                                    // tells them not to -- see baja/lib/for-each-track.js.
-                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
-                                                                    try {
-                                                                        window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
-                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                                                                    } catch (e) { }
-                                                                    exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
-                                                            {
-                                                                // Navigate to a track BY NAME rather than clicking one on the
-                                                                // canvas. From the board-level Layers button the tracks are
-                                                                // what you are choosing between, and a name is easier to hit
-                                                                // than a band -- especially when tracks are stacked or the
-                                                                // one you want is scrolled off screen.
-                                                                label: 'Edit', move: () => { },
-                                                                click: () => {
-                                                                    const tracks = (graph.track || []).filter((t) => t);
-                                                                    if (!tracks.length) { graph.setSunsetMessage(' Load a track first '); return; }
-
-                                                                    const openRoot = () => {
-                                                                        const items = tracks.map((t, i) => {
-                                                                            const n = ((t.track_layers || []).length);
-                                                                            return {
-                                                                                label: (t.name || ('track ' + (i + 1)))
-                                                                                    + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ') ▸',
-                                                                                move: () => { },
-                                                                                click: () => { openTrack(t); }
-                                                                            };
-                                                                        });
-                                                                        items.push({ label: '‹ Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
-                                                                        graph.showSideMenu(items);
-                                                                    };
-
-                                                                    const openTrack = (t) => {
-                                                                        const addLayer = () => {
-                                                                            graph.showSideMenu([
-                                                                                { label: 'Add to ' + (t.name || 'track'), header: true, move: () => { }, click: () => { } },
-                                                                                // Each of these writes a layer onto THIS track: the
-                                                                                // runners take it as a preset, so none of them asks
-                                                                                // for a click.
-                                                                                { label: 'RNA Binding (BajaCLIP)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t); } },
-                                                                                { label: 'Splicing (BajaSplice)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t); } },
-                                                                                { label: 'Intron retention (BajaIR)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout, t); } },
-                                                                                // Labelled honestly: the data loaders lay a dataset
-                                                                                // over EVERY track, not just this one.
-                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout); } },
-                                                                                { label: '‹ Back', move: () => { }, click: () => { openTrack(t); } }
-                                                                            ]);
-                                                                        };
-
-                                                                        const n = ((t.track_layers || []).length);
-                                                                        graph.showSideMenu([
-                                                                            { label: (t.name || 'track') + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ')', header: true, move: () => { }, click: () => { } },
-                                                                            { label: 'Add layer ▸', move: () => { }, click: () => { addLayer(); } },
-                                                                            {
-                                                                                // The existing per-track layer menu: show / hide /
-                                                                                // remove one / remove all, per layer.
-                                                                                label: 'Edit / remove layers ▸', move: () => { },
-                                                                                click: () => {
-                                                                                    try { graph.showSideMenu(null); } catch (e) { }
-                                                                                    try { exec('baja/manchester/menu/track-layers-side-menu.js', t, genegraph_panel_layout, graph); } catch (e) { graph.setMessage(' Could not open the layer menu: ' + e); }
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                label: 'Remove all layers (' + n + ')', move: () => { },
-                                                                                click: () => {
-                                                                                    t.track_layers = [];
-                                                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
-                                                                                    graph.setMessage(' Removed ' + n + ' layer' + (n === 1 ? '' : 's') + ' from ' + (t.name || 'track') + '. ');
-                                                                                    openTrack(t);
-                                                                                }
-                                                                            },
-                                                                            { label: '‹ Back to tracks', move: () => { }, click: () => { openRoot(); } }
-                                                                        ]);
-                                                                    };
-
-                                                                    graph.showSideMenu(null);
-                                                                    openRoot();
-                                                                }
-                                                            }
-                                                        ]);
-                                                    })
-                                                },
-                                                {
+                                                    // Opens the Institute for RNA Therapeutics Design: the map of the
+                                                    // design space in three centres. Everything in it is marked as in
+                                                    // preparation, so the button leads somewhere honest rather than
+                                                    // doing nothing at all, which is what it did before.
                                                     label: 'Design', ionFunction: createIonFunction(() => {
-
-                                                        // Clinical Library — always available (it can bootstrap a track by loading a compound).
-                                                        const clinicalItem = {
-                                                            label: 'Clinical Library', move: () => { },
-                                                            click: () => { if (graph.hideMenu) graph.hideMenu(); exec('manchester/clinical-library.js', graph, genegraph_panel_layout); }
-                                                        };
-
-                                                        if (!graph.track || graph.track.length === 0) {
-                                                            // No track yet — still offer the Clinical Library so it can create one.
-                                                            graph.showMenu([clinicalItem]);
-                                                            return;
-                                                        }
-                                                        // Also show the compound editor in the button/label panel.
-                                                        // exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout);
-                                                        graph.showMenu([
-                                                            clinicalItem,
-                                                            {
-                                                                label: 'Select sequence', move: () => { },
-                                                                click: () => {
-                                                                    graph.showMenu([
-                                                                        {
-                                                                            label: 'Click and drag on a track', move: () => { }, click: () => {
-                                                                                if (graph.hideMenu) graph.hideMenu();
-                                                                                exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Box drag', move: () => { }, click: () => {
-                                                                                if (graph.hideMenu) graph.hideMenu();
-                                                                                exec('baja/manchester/menu/select-box-sequence.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        }
-                                                                    ]);
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'Primer-probe', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-
-                                                                    // Design primers on a sequence, letting the user pick the method:
-                                                                    //  - primer3: the primer3 python package (generate-ppsets.py) with the
-                                                                    //    designed primers placed on the track (apply-primer3.js).
-                                                                    //  - djPrimer: primer3 design ranked by the assay-success model (JSON).
-                                                                    // xoffset is where seq starts in the track (for placing primers).
-                                                                    const chooseMethodAndRun = (track, seq, xoffset) => {
-                                                                        if (!seq || !seq.length) { graph.setMessage(' No sequence to design on. '); return; }
-                                                                        // Design work reports the same way models do: what is running, on which
-                                                                        // track, over how much sequence, and where the result lands.
-                                                                        const __designWhere = (track.name || 'track') + '  ·  ' + ('' + seq.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt';
-                                                                        const __designSay = (tool, phase) => {
-                                                                            try { exec('baja/lib/work-status.js', tool + ' · primer design → ' + __designWhere + (phase ? ('  ·  ' + phase) : '')); } catch (e) { }
-                                                                        };
-                                                                        const __designDone = () => { try { exec('baja/lib/work-status.js', null); } catch (e) { } };
-
-                                                                        const runPrimer3 = async () => {
-                                                                            try {
-                                                                                graph.pushOntoHistory();
-                                                                                graph.setMessage(' Generating primers (primer3)... ');
-                                                                                __designSay('primer3', 'generating candidate pairs');
-                                                                                let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); __designSay('primer3', '' + msg); } catch (e) { } });
-                                                                                let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + seq, '', 1);
-                                                                                __designSay('primer3', 'placing amplicons on the track');
-                                                                                await exec('baja/manchester/ppsets/apply-primer3.js', r, xoffset || 0, track, graph);
-                                                                                if (graph.wake) graph.wake();
-                                                                                graph.setMessage(' Primers designed and placed on ' + (track.name || 'track') + '. ');
-                                                                                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                                                            } finally { __designDone(); }
-                                                                        };
-                                                                        const runDjprimer = async () => {
-                                                                            try {
-                                                                                graph.pushOntoHistory();
-                                                                                graph.setMessage(' Designing primers (djPrimer)... ');
-                                                                                const gene = track.geneID || track.name || '';
-                                                                                __designSay('djPrimer', 'designing, then ranking by predicted assay success');
-                                                                                let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + seq, '', '', JSON.stringify({ scorer: 'djprimer', gene: '' + gene }));
-                                                                                // track.ampliconResults = r;
-                                                                                __designSay('djPrimer', 'placing ranked amplicons on the track');
-                                                                                await exec('baja/manchester/ppsets/apply-djprimer.js', r, xoffset || 0, track, graph);
-                                                                                if (graph.wake) graph.wake();
-                                                                                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                                                            } finally { __designDone(); }
-                                                                        };
-                                                                        graph.showMenu([
-                                                                            { label: 'primer3', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); runPrimer3(); } },
-                                                                            { label: 'djPrimer ', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); runDjprimer(); } }
-                                                                        ]);
-                                                                    };
-
-                                                                    // Step 1: click a track. Step 2: whole track or a drag-selected range.
-                                                                    const startDesignNew = () => {
-                                                                        graph.clearMouseListeners();
-                                                                        graph.setMouseMode('msg: Click on a track to design primers.');
-                                                                        graph.addMouseDownListener(async (x, y) => {
-                                                                            const ti = graph.getTrack(x, y);
-                                                                            if (ti < 0) return;
-                                                                            const track = graph.track[ti];
-                                                                            graph.clearMouseListeners();
-                                                                            graph.setMouseMode('navigate');
-                                                                            graph.showMenu([
-                                                                                {
-                                                                                    label: 'Design on entire track', move: () => { },
-                                                                                    click: () => {
-                                                                                        if (graph.hideMenu) graph.hideMenu();
-                                                                                        // xoffset is the 0-based offset into the track sequence where the
-                                                                                        // designed region starts. createPrimerProbe already adds track.xi, so
-                                                                                        // the whole track starts at offset 0 (not track.xi).
-                                                                                        chooseMethodAndRun(track, track.getSequenceRange(track.xi, track.xf), 0);
-                                                                                    }
-                                                                                },
-                                                                                {
-                                                                                    label: 'Select sequence range', move: () => { },
-                                                                                    click: () => {
-                                                                                        if (graph.hideMenu) graph.hideMenu();
-                                                                                        // Drag on the track to mark a range, then design on it.
-                                                                                        try { graph.showSideMenu(null); } catch (e) { }
-                                                                                        graph.side_menu = null;   // else the engine skips move listeners
-                                                                                        graph.clearMouseListeners();
-                                                                                        graph.deselectAllTracks();
-                                                                                        graph.setMouseMode('msg: Click and drag to select the sequence range.');
-                                                                                        let md = false, s = 0, e = 0;
-                                                                                        graph.addMouseDownListener((mx, my) => {
-                                                                                            md = true;
-                                                                                            s = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
-                                                                                            e = s;
-                                                                                            track.select();
-                                                                                        });
-                                                                                        graph.addMouseMoveListener((mx, my) => {
-                                                                                            if (md && track.tgraph) {
-                                                                                                e = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
-                                                                                                track.highlight(Math.min(s, e), Math.max(s, e));
-                                                                                                if (graph.wake) graph.wake();
-                                                                                            }
-                                                                                        });
-                                                                                        graph.addMouseUpListener((mx, my) => {
-                                                                                            md = false;
-                                                                                            e = Math.ceil(track.tgraph.Xwc(mx) - track.tgraph.xi * 2);
-                                                                                            graph.clearMouseListeners();
-                                                                                            graph.setMouseMode('navigate');
-                                                                                            const a = Math.min(s, e), b = Math.max(s, e);
-                                                                                            if (b - a < 40) { graph.setMessage(' Selection too small — drag a wider range. '); return; }
-                                                                                            // xoffset = 0-based offset into the track sequence (a is track.xi-based).
-                                                                                            chooseMethodAndRun(track, track.getSequenceRange(a, b), a - track.xi);
-                                                                                        });
-                                                                                    }
-                                                                                }
-                                                                            ]);
-                                                                        });
-                                                                    };
-
-                                                                    // Edit mode: click any existing amplicon's primer/probe and drag it in X.
-                                                                    // Re-reads the sequence under the primer so Tm/GC update as it moves.
-                                                                    const startEditExisting = () => {
-                                                                        graph.clearMouseListeners();
-                                                                        try { graph.showSideMenu(null); } catch (e) { }
-                                                                        graph.side_menu = null;   // else the engine skips move listeners
-                                                                        graph.setMouseMode('msg: Edit primer-probes — click a primer and drag left/right. Click empty space to finish.');
-                                                                        let grab = null;
-                                                                        const findHit = (mx) => {
-                                                                            for (let t of (graph.track || [])) {
-                                                                                if (!t || !t.tgraph || !Array.isArray(t.oligos)) continue;
-                                                                                const tg = t.tgraph;
-                                                                                const wx = (mx - tg.xinset - tg.xi) / (tg.xscale || 1) - tg.xshift;
-                                                                                for (let o of t.oligos) {
-                                                                                    if (!o || o.type !== 'amplicon') continue;
-                                                                                    for (let p of [o.left, o.right, o.mid]) {
-                                                                                        if (!p) continue;
-                                                                                        const lo = Math.min(+p.xi, +p.xf), hi = Math.max(+p.xi, +p.xf);
-                                                                                        const tol = Math.max(1, (hi - lo) * 0.15);
-                                                                                        if (wx >= lo - tol && wx <= hi + tol) return { track: t, amp: o, part: p, wx };
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            return null;
-                                                                        };
-                                                                        graph.addMouseDownListener((mx, my) => {
-                                                                            const h = findHit(mx);
-                                                                            if (!h) { graph.clearMouseListeners(); graph.setMouseMode('navigate'); if (graph.wake) graph.wake(); return; }
-                                                                            try { graph.pushOntoHistory(); } catch (e) { }
-                                                                            grab = { track: h.track, amp: h.amp, part: h.part, startXi: +h.part.xi, startXf: +h.part.xf, down: h.wx };
-                                                                        });
-                                                                        graph.addMouseMoveListener((mx, my) => {
-                                                                            if (!grab) return;
-                                                                            const tg = grab.track.tgraph;
-                                                                            const wx = (mx - tg.xinset - tg.xi) / (tg.xscale || 1) - tg.xshift;
-                                                                            const d = Math.round(wx - grab.down);
-                                                                            grab.part.xi = grab.startXi + d;
-                                                                            grab.part.xf = grab.startXf + d;
-                                                                            try {
-                                                                                const lo = Math.min(grab.part.xi, grab.part.xf), hi = Math.max(grab.part.xi, grab.part.xf);
-                                                                                const seq = grab.track.getSequenceRange(lo, hi);
-                                                                                if (seq && seq.length) grab.part.sequence = seq;
-                                                                            } catch (e) { }
-                                                                            if (grab.amp.left && grab.amp.right) {
-                                                                                grab.amp.xi = Math.min(+grab.amp.left.xi, +grab.amp.right.xi);
-                                                                                grab.amp.xf = Math.max(+grab.amp.left.xf, +grab.amp.right.xf);
-                                                                            }
-                                                                            if (graph.wake) graph.wake();
-                                                                        });
-                                                                        graph.addMouseUpListener(() => { grab = null; if (graph.wake) graph.wake(); });
-                                                                    };
-
-                                                                    // If amplicons already exist on any track, offer design-new vs edit-existing.
-                                                                    const hasAmplicons = () => (graph.track || []).some(t => Array.isArray(t?.oligos) && t.oligos.some(o => o && o.type === 'amplicon'));
-                                                                    if (hasAmplicons()) {
-                                                                        graph.showMenu([
-                                                                            { label: 'Design new...', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); startDesignNew(); } },
-                                                                            { label: 'Edit existing...', move: () => { }, click: () => { if (graph.hideMenu) graph.hideMenu(); startEditExisting(); } }
-                                                                        ]);
-                                                                    } else {
-                                                                        startDesignNew();
-                                                                    }
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'ASO/siRNA', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu([
-                                                                        {
-                                                                            label: 'Choose chemistry', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Drop on track location', move: () => { },
-                                                                            click: async () => {
-                                                                                graph.showSideMenu(null);
-                                                                                const hasChem = () => !!(graph.props && graph.props.selected_chemistry);
-                                                                                if (hasChem()) {
-                                                                                    exec('baja/manchester/menu/draw-oligos.js', graph);
-                                                                                    return;
-                                                                                }
-                                                                                // No chemistry chosen — prompt for one, then resume the drop flow.
-                                                                                graph.setMessage(' Select a chemistry, then click a track to drop the compound. ');
-                                                                                await exec('manchester/choose-chemistry.js', graph, genegraph_panel_layout);
-                                                                                let waited = 0;
-                                                                                const resume = () => {
-                                                                                    if (hasChem()) {
-                                                                                        // Let choose-chemistry's own follow-up settle, then take over the
-                                                                                        // mouse listeners for click-to-drop.
-                                                                                        setTimeout(() => exec('baja/manchester/menu/draw-oligos.js', graph), 1500);
-                                                                                    } else if (waited < 120000) {
-                                                                                        waited += 500;
-                                                                                        setTimeout(resume, 500);
-                                                                                    }
-                                                                                };
-                                                                                setTimeout(resume, 800);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Select sequence range', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout, true);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Design by rules (tile & score)', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/tile-oligos-design.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Filter by off-targets', move: () => { },
-                                                                            click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                // Click a track, enter a max off-target count, and any oligo
-                                                                                // exceeding it is auto-removed (reports "removed ${id} with OT #").
-                                                                                exec('baja/manchester/menu/filter-oligos-by-offtargets.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                    ]);
-                                                                }
-                                                            },
-                                                            {
-                                                                // "edit" dismisses the center menu (same as Cancel), leaving
-                                                                // the compound editor in the button/label panel to work in.
-                                                                label: 'Edit...', move: () => { },
-                                                                click: () => { graph.hideMenu(); try { graph.setMouseMode('navigate'); } catch (e) { } }
-                                                            },
-                                                            { label: 'The Chemistry of RNA Therapeutics', move: () => { }, click: async () => { graph.hideMenu(); try { await exec('baja/lib/rna-chemistry-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } } },
-
-
-
-
-
-
-
-
-                                                        ], 0, 0, 300);
+                                                        try { exec('baja/lib/institute-rna-design.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setMessage(' Design institute failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                     })
                                                 },
                                                 {
