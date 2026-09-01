@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, presetTrack, presetRange) {
     // Splicing profile — pick a magnitude mode, then click a track to send its
     // sequence to the local bajasplice-lib models (py/bio/splice/splicing-profile.py,
     // run via exec rather than the old POSTJSON TF-serving call) and draw the
@@ -16,14 +16,24 @@ function (graph, genegraph_panel_layout) {
             try { exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout); } catch (e) { }
         };
 
-        const runOnTrack = async (track, mode) => {
+        const runOnTrack = async (track, mode, range) => {
             try {
-                const seq = track && track.sequence;
+                // A range scopes the model to the SELECTED sequence: send that sub-sequence and
+                // shift xi to the range start so the scores land at the right coordinates.
+                // PSI is left on the whole track — it needs the transcript's exon structure,
+                // which a cut-out range no longer describes (see exonsArg below).
+                let seq = track && track.sequence;
+                let xi = (track && track.xi != null) ? track.xi : 0;
+                if (range && mode !== 'psi' && Number.isFinite(+range.start) && Number.isFinite(+range.end) && +range.end > +range.start) {
+                    try {
+                        const sub = track.getSequenceRange ? track.getSequenceRange(range.start, range.end) : null;
+                        if (sub && sub.length) { seq = sub; xi = Math.floor(+range.start); }
+                    } catch (e) { }
+                }
                 if (!seq || !seq.length) {
                     graph.setMessage(' That track has no sequence to profile. ');
                     restoreHover(); return;
                 }
-                const xi = (track.xi != null) ? track.xi : 0;
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
                 // PSI mode needs real exon structure — send the track's annotated
@@ -113,6 +123,12 @@ function (graph, genegraph_panel_layout) {
             graph.setMouseMode('msg: Click on a track to build a splicing sashimi plot.');
             CurrentLayout.clearComponent('mainPanel');
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+            // Launched from the Selected Sequence menu — track and range already known.
+            if (presetTrack && presetRange) {
+                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+                runOnTrack(presetTrack, mode, presetRange);
+                return;
+            }
             graph.addMouseDownListener(async (x, y) => {
                 const ti = graph.getTrack(x, y);
                 if (ti < 0) return;

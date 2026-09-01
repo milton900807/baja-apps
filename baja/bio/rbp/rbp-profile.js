@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, presetTrack, presetRange) {
     // RBP binding profile — pick an RBP, click a track, send its sequence to the
     // local bajaclip-lib model (py/bio/rbp/rbp-profile.py) and draw the per-position
     // binding score as a coverage-style track layer (like the RNASeq coverage).
@@ -16,14 +16,23 @@ function (graph, genegraph_panel_layout) {
             [201, 76, 140], [210, 160, 40], [70, 130, 180], [150, 90, 60]
         ];
 
-        const runOnTrack = async (track, rbp) => {
+        // presetRange {start,end} scopes the model to the SELECTED sequence instead of the
+        // whole track: the sequence sent is that range and xi becomes the range start, so the
+        // returned per-position scores land at the right coordinates.
+        const runOnTrack = async (track, rbp, range) => {
             try {
-                const seq = track && track.sequence;
+                let seq = track && track.sequence;
+                let xi = (track && track.xi != null) ? track.xi : 0;
+                if (range && Number.isFinite(+range.start) && Number.isFinite(+range.end) && +range.end > +range.start) {
+                    try {
+                        const sub = track.getSequenceRange ? track.getSequenceRange(range.start, range.end) : null;
+                        if (sub && sub.length) { seq = sub; xi = Math.floor(+range.start); }
+                    } catch (e) { }
+                }
                 if (!seq || !seq.length) {
                     graph.setMessage(' That track has no sequence to profile. ');
                     restoreHover(); return;
                 }
-                const xi = (track.xi != null) ? track.xi : 0;
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
                 graph.setMessage(' Running RBP model (' + rbp + ')… ');
@@ -92,13 +101,20 @@ function (graph, genegraph_panel_layout) {
             graph.setMouseMode('msg: Click on a track to build an RBP binding profile.');
             CurrentLayout.clearComponent('mainPanel');
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+            // Launched from the Selected Sequence menu: the track and range are already known,
+            // so run straight away rather than asking the user to click a track.
+            if (presetTrack && presetRange) {
+                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+                runOnTrack(presetTrack, rbp, presetRange);
+                return;
+            }
             graph.addMouseDownListener(async (x, y) => {
                 const ti = graph.getTrack(x, y);
                 if (ti < 0) return;
                 const track = graph.track[ti];
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                await runOnTrack(track, rbp);
+                await runOnTrack(track, rbp, null);
             });
         };
 

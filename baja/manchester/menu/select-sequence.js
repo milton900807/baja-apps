@@ -120,13 +120,12 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                     currentx = x;
                     currenty = y;
                 }
-                // When requested, show the annotation tools for the selected sequence.
-                const __seltrack = track;
-                if (showMenuOptions && __seltrack && __seltrack.markstart >= 0 && __seltrack.markend > __seltrack.markstart) {
-                    setTimeout(() => {
-                        try { exec('baja/manchester/menu/selected-sequence-tools.js', graph, genegraph_panel_layout, __seltrack); } catch (e) { }
-                    }, 80);
-                }
+                // NO automatic menu on mouse-up. Finishing a drag used to pop the
+                // selected-sequence tools open 80ms later, which covered the selection just as
+                // the user wanted to look at it or grab an arrow head to adjust the ends. The
+                // selection stays on the track; the tools are reachable on demand from the
+                // track menu (Sequence ▸ → Selected-sequence tools). showMenuOptions is kept in
+                // the signature so the existing call sites still work, but no longer opens it.
                 track = null;
                 // On mouse-up, hand the mouse back to the normal mouse-over-highlight
                 // behavior (the selection persists on the track, so the design menu

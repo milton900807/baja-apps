@@ -3014,7 +3014,43 @@ function (progress, options) {
                 return sub;
             }
 
+            // Loading a track is an Ensembl lookup plus sequence and annotations, which can run
+            // for several seconds with no feedback. Drive the app's EXISTING upper-left work
+            // spinner rather than adding a bespoke one: the redraw loop shows/hides that DOM
+            // node from `showSprite` on every frame, so calling _showWorkSpinner() directly
+            // would be wiped on the very next frame. __backendWorkCount keeps the redraw loop
+            // awake so the ring keeps turning while the user sits idle.
+            //
+            // Depth-counted because add() recurses (an NM_/NC_ id maps then re-enters add) and
+            // callers fire several loads concurrently without awaiting them — the spinner has
+            // to survive until the LAST one finishes, not the first. The previous showSprite
+            // value is restored rather than forced false, so a load that overlaps another
+            // owner of the flag (snp-menu) does not switch their spinner off.
             async add(ensembleId, x, y, source, __noAiResolve) {
+                if (!this.__addDepth) { this.__addDepth = 0; this.__addSpritePrev = !!this.showSprite; }
+                this.__addDepth++;
+                let __counted = false;
+                try {
+                    try {
+                        const __nm = ('' + (ensembleId || 'track')).trim();
+                        window.__workStatus = 'Loading ' + (__nm || 'track') + '…';
+                        window.__backendWorkCount = (window.__backendWorkCount || 0) + 1;
+                        __counted = true;
+                        this.showSprite = true;
+                        if (this.wake) this.wake();
+                    } catch (e) { }
+                    return await this.__addTrack(ensembleId, x, y, source, __noAiResolve);
+                } finally {
+                    if (__counted) { try { window.__backendWorkCount = Math.max(0, (window.__backendWorkCount || 1) - 1); } catch (e) { } }
+                    this.__addDepth--;
+                    if (this.__addDepth <= 0) {
+                        this.__addDepth = 0;
+                        try { this.showSprite = !!this.__addSpritePrev; if (this.wake) this.wake(); } catch (e) { }
+                    }
+                }
+            }
+
+            async __addTrack(ensembleId, x, y, source, __noAiResolve) {
                 ensembleId = ensembleId.trim();
 
                 if (ensembleId.startsWith('NM_') || ensembleId.startsWith('NC_')) {
@@ -4905,6 +4941,17 @@ function (progress, options) {
                         try {
                             const __hit = this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
                             if (__hit) { this.__dragMark = __hit; this.__downMenuHandled = true; return; }
+                        } catch (e) { }
+                        // Click INSIDE an existing selection (but not on a head — the drag above
+                        // already claimed those) opens the Selected Sequence side menu: the same
+                        // shape as the track menu, scoped to markstart..markend.
+                        try {
+                            const __selT = this.__trackAtSelection(xwc, ywc);
+                            if (__selT) {
+                                this.__downMenuHandled = true;
+                                exec('baja/manchester/menu/selected-sequence-menu.js', this, __selT, this.genegraph_panel_layout);
+                                return;
+                            }
                         } catch (e) { }
                         // A center (context) menu is open: the press does NOTHING — the item's
                         // action runs on mouse-UP only. Consume the down so it can't start a
@@ -7332,30 +7379,84 @@ pattern, GGGG | Required`
             // Hit-test a SCREEN point against any track's selection arrow heads — the ends of the
             // orange selected-sequence arrow drawn at grid.Y(-20) (see track-flexi draw). Returns
             // { track, edge:'start'|'end' } when the point is on a head, else null.
+            // The track whose SELECTION contains this world point, or null. Used to open the
+            // Selected Sequence menu on a click inside a selection. Vertical containment is
+            // tested against the track's own band so a click on a different track does not
+            // match, and markstart/markend are normalized the way track.js draws them (they
+            // may be 0-based offsets rather than world coords).
+            __trackAtSelection(xwc, ywc) {
+                try {
+                    for (const t of (this.track || [])) {
+                        if (!t || t.markstart == null || t.markend == null) continue;
+                        if (t.markstart < 0 || !(t.markend > t.markstart)) continue;
+                        const g = t.tgraph || t.grid;
+                        if (!g) continue;
+                        const toWorld = (m) => (m != null && t.xi != null && m < t.xi) ? (t.xi + m) : m;
+                        const a = toWorld(t.markstart), b = toWorld(t.markend);
+                        const wx = (typeof g.Xwc === 'function') ? g.Xwc(xwc) : xwc;
+                        if (!(wx >= Math.min(a, b) && wx <= Math.max(a, b))) continue;
+                        try {
+                            const yTop = g.Y(g.getymax()), yBot = g.Y(g.getymin());
+                            const sy = this.graph.Y(ywc);
+                            const y1 = this.graph.Y(Math.max(yTop, yBot)), y2 = this.graph.Y(Math.min(yTop, yBot));
+                            if (sy < Math.min(y1, y2) - 6 || sy > Math.max(y1, y2) + 6) continue;
+                        } catch (e) { }
+                        return t;
+                    }
+                } catch (e) { }
+                return null;
+            }
             __hitSelectionArrow(sx, sy) {
                 try {
-                    const PADX = 16, PADY = 14, HEAD = 15;
+                    const PADX = 16, PADY = 16, HEAD = 18;
                     let best = null, bestD = Infinity;
                     for (const t of (this.track || [])) {
-                        if (!t || !t.grid) continue;
+                        if (!t) continue;
                         if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
-                        const yPos = this.graph.Y(t.grid.Y(-20));
-                        if (Math.abs(sy - yPos) > PADY) continue;
-                        // Mirror exactly what track-flexi.js draws: both heads point OUTWARD, the
-                        // start head spanning [sxStart, sxStart+HEAD] and the end head
-                        // [sxEnd-HEAD, sxEnd]. markend is used unfloored, as in the draw.
-                        const sxStart = this.graph.X(t.grid.X(Math.floor(t.markstart)));
-                        const sxEnd = this.graph.X(t.grid.X(t.markend));
-                        // Nearest head wins: on a short selection the two hit boxes overlap, and
-                        // taking the closer one lets you still grab the edge you pointed at
-                        // (the old order-dependent test always handed back 'start').
-                        if (sx >= sxStart - PADX && sx <= sxStart + HEAD + PADX) {
-                            const d = Math.abs(sx - (sxStart + HEAD / 2));
-                            if (d < bestD) { bestD = d; best = { track: t, edge: 'start' }; }
-                        }
-                        if (sx >= sxEnd - HEAD - PADX && sx <= sxEnd + PADX) {
-                            const d = Math.abs(sx - (sxEnd - HEAD / 2));
-                            if (d < bestD) { bestD = d; best = { track: t, edge: 'end' }; }
+
+                        // The two track renderers draw the selection heads in DIFFERENT places,
+                        // so collect a candidate {y, xStart, xEnd} from each mapping the track
+                        // actually has and test them all:
+                        //   track-flexi.js  heads at grid.Y(-20), x via grid.X
+                        //   track.js        heads a quarter of the way up the track, x via
+                        //                   tgraph.X, and markstart/markend may be 0-based
+                        //                   offsets rather than world coords (see __toWorld)
+                        const cands = [];
+                        try {
+                            if (t.grid && typeof t.grid.Y === 'function') {
+                                cands.push({
+                                    y: this.graph.Y(t.grid.Y(-20)),
+                                    xs: this.graph.X(t.grid.X(Math.floor(t.markstart))),
+                                    xe: this.graph.X(t.grid.X(t.markend))
+                                });
+                            }
+                        } catch (e) { }
+                        try {
+                            if (t.tgraph && typeof t.tgraph.Y === 'function') {
+                                const yMin = t.tgraph.getymin(), yMax = t.tgraph.getymax();
+                                const toWorld = (m) => (m != null && m < t.xi) ? (t.xi + m) : m;
+                                cands.push({
+                                    y: this.graph.Y(t.tgraph.Y(yMin + (yMax - yMin) * 0.25)),
+                                    xs: this.graph.X(Math.round(t.tgraph.X(toWorld(t.markstart)))),
+                                    xe: this.graph.X(Math.round(t.tgraph.X(toWorld(t.markend))))
+                                });
+                            }
+                        } catch (e) { }
+
+                        for (const c of cands) {
+                            if (!isFinite(c.y) || !isFinite(c.xs) || !isFinite(c.xe)) continue;
+                            if (Math.abs(sy - c.y) > PADY) continue;
+                            // Both heads point OUTWARD: start spans [xs, xs+HEAD], end [xe-HEAD, xe].
+                            // Nearest head wins, so on a short selection whose hit boxes overlap you
+                            // still grab the edge you actually pointed at.
+                            if (sx >= c.xs - PADX && sx <= c.xs + HEAD + PADX) {
+                                const d = Math.abs(sx - (c.xs + HEAD / 2));
+                                if (d < bestD) { bestD = d; best = { track: t, edge: 'start' }; }
+                            }
+                            if (sx >= c.xe - HEAD - PADX && sx <= c.xe + PADX) {
+                                const d = Math.abs(sx - (c.xe - HEAD / 2));
+                                if (d < bestD) { bestD = d; best = { track: t, edge: 'end' }; }
+                            }
                         }
                     }
                     return best;
