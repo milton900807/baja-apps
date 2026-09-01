@@ -2117,7 +2117,7 @@ function (path, config) {
                                                                                 { label: 'Intron retention (BajaIR)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout, t); } },
                                                                                 // Labelled honestly: the data loaders lay a dataset
                                                                                 // over EVERY track, not just this one.
-                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout); } },
+                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice()); } },
                                                                                 { label: '‹ Back', move: () => { }, click: () => { openTrack(t); } }
                                                                             ]);
                                                                         };

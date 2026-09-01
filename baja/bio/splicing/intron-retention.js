@@ -254,6 +254,9 @@ function (graph, genegraph_panel_layout, presetTrack) {
             if (__presetList.length > 1) {
                 try { graph.setMouseMode('navigate'); } catch (e) { }
                 restoreEditor();
+                // An explicit list satisfies the board-level request: consume the flag so it does
+                // not turn the next per-track action into a board-wide one.
+                try { window.__bajaApplyAllTracks = false; } catch (e) { }
                 runAllTracks(tier, __presetList);
                 return;
             }

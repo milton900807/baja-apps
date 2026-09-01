@@ -145,7 +145,10 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Primer design — djPrimer', badge: 'djPrimer', ready: true,
                 blurb: 'primer3 designs ranked by predicted assay success, not by design score.',
-                open: () => exec('baja/manchester/menu/track-design-menu.js', graph, (graph.track || [])[0], L),
+                // Was track-design-menu.js on graph.track[0]: the Design MENU, opened against the
+                // first track on the canvas whatever list this library was handed. Every other book
+                // here passes __targets(); this one now runs djPrimer over them the same way.
+                open: () => exec('baja/manchester/ppsets/run-djprimer.js', graph, L, __targets()),
                 docs: {
                     summary: 'Designs primer pairs with primer3, then ranks them by how likely each '
                         + 'assay is to actually WORK at the bench. The distinction matters: a design '

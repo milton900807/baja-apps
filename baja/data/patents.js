@@ -130,6 +130,10 @@ function (graph, genegraph_panel_layout, tracks) {
             return exec('baja/lib/for-each-track.js', graph,
                 'Click on a track to load patents.', loadOne);
         }
+        // An explicit list satisfies the board-level request, so consume the flag here too.
+        // Left set, it would silently turn the NEXT per-track action into a board-wide one.
+        try { window.__bajaApplyAllTracks = false; } catch (e) { }
+
         // Sequential: each track is a server read, and firing them together would queue
         // behind the server's own cap while making the progress line meaningless.
         try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
