@@ -71,16 +71,34 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 const n = (q.match(/N/g) || []).length;
                 say(' Selection: ' + q.length + ' nt — GC ' + ((gc / q.length) * 100).toFixed(1) + '%' + (n ? (' — ' + n + ' N') : '') + '. ');
             }),
-            go('Clear selection', async () => {
-                try { t.markstart = -1; t.markend = -1; if (graph.wake) graph.wake(); say(' Selection cleared. '); } catch (e) { }
-            })
         ];
+
+        // Deselect: drop the marked range and hand the canvas back. Lives at the TOP level —
+        // it is the one action you reach for when the selection itself is what is in the way,
+        // so burying it in a submenu was wrong. markstart/markend are set to -1, which is the
+        // "no selection" value every renderer and hit-test already tests for.
+        const deselect = () => {
+            try {
+                t.markstart = -1;
+                t.markend = -1;
+            } catch (e) { }
+            // Clear it everywhere, not just on this track: a stale mark on another track would
+            // keep the selection panel and the Sequence menu entry alive after a deselect.
+            try {
+                if (graph.deselectAllTracks) graph.deselectAllTracks();
+            } catch (e) { }
+            try { graph.showSideMenu(null); } catch (e) { }
+            try { graph.setMouseMode('navigate'); } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            say(' Selection cleared. ');
+        };
 
         // The design menu already REQUIRES a selection and designs against
         // getSequenceRange(markstart, markend), so it is correct as-is for this menu.
         const items = [
             { label: 'Selected Sequence', move: () => { }, click: () => { } },
             { label: '  ' + start + '–' + end + '  (' + len + ' nt)', move: () => { }, click: () => { } },
+            go('Deselect sequence', async () => deselect()),
             sub('Data ▸', dataItems),
             sub('Models ▸', modelItems),
             sub('Sequence ▸', seqItems),

@@ -1932,63 +1932,7 @@ function (path, config) {
                                                                 label: 'Help ▸', move: () => { },
                                                                 click: () => {
                                                                     graph.showMenu([
-{
-                                                                    label: 'The Library', move: () => { },
-                                                                    click: async () => {
-                                                                        graph.hideMenu();
-                                                                        let path_j = '.'
-                                                                        let commands = await exec('manchester/controls/cmds')
-                                                                        let userfiles = {
-                                                                            wid: 'pdf-bookshelf',
-                                                                            title: 'RNA Therapeutics Library',
-                                                                            width: '100%',
-                                                                            height: '100%',
-                                                                            data: {
-                                                                                width: '100%',
-                                                                                drive: 'wd',
-                                                                                user: getUser(),
-                                                                                root: 'library',
-                                                                                columns: 3,
-                                                                                showSearch: true,
-                                                                                "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
-                                                                                "ionfunction.fileClick": createIonFunction(async (element) => {
-                                                                                    path_j = element.path;
-                                                                                    let host_ = window['env']['apiUrl']
-                                                                                    const user = getUser();
-                                                                                    const key = 'library';
-                                                                                    const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
-                                                                                    window.open(pdfUrl, "_blank", "noopener,noreferrer");
-                                                                                }),
-                                                                                "ionfunction.openfile": createIonFunction(async (file, text) => { }),
-                                                                                "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
-                                                                            }
-                                                                        }
-                                                                        const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
-                                                                        CurrentLayout.clearComponent('mainPanel')
-                                                                        CurrentLayout.setComponent('mainPanel', tu);
-                                                                        // Close (✕) pinned upper-left → reset the mainPanel back to the editor canvas.
-                                                                        try {
-                                                                            const __p = document.getElementById('baja-editor-lib-close');
-                                                                            if (__p && __p.parentNode) __p.parentNode.removeChild(__p);
-                                                                            const xb = document.createElement('div');
-                                                                            xb.id = 'baja-editor-lib-close';
-                                                                            xb.title = 'Back to the editor';
-                                                                            xb.textContent = '✕';
-                                                                            xb.style.cssText = 'position:fixed;top:44px;left:12px;z-index:2147483000;width:30px;height:30px;border-radius:50%;'
-                                                                                + 'display:flex;align-items:center;justify-content:center;background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;'
-                                                                                + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-                                                                            xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.2)'; } catch (e) { } };
-                                                                            xb.onmouseleave = () => { try { xb.style.filter = ''; } catch (e) { } };
-                                                                            xb.onclick = () => {
-                                                                                try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
-                                                                                // Reset back to the editor canvas.
-                                                                                try { CurrentLayout.reset('mainPanel'); } catch (e) { }
-                                                                                try { CurrentLayout.clearComponent('mainPanel'); CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
-                                                                            };
-                                                                            document.body.appendChild(xb);
-                                                                        } catch (e) { }
-                                                                    },
-                                                                },
+{ label: 'The Chemistry of RNA Therapeutics', move: () => { }, click: async () => { graph.hideMenu(); try { await exec('baja/lib/rna-chemistry-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } } },
 {
                                                                     // Clinical Library: a bookshelf of clinical RNA-targeting compounds. Click a
                                                                     // compound → load its sequence + chemistry onto a track.
@@ -2517,43 +2461,7 @@ function (path, config) {
                                                                 label: 'Edit...', move: () => { },
                                                                 click: () => { graph.hideMenu(); try { graph.setMouseMode('navigate'); } catch (e) { } }
                                                             },
-                                                            {
-                                                                label: 'The Library', move: () => { },
-                                                                click: async () => {
-                                                                    graph.hideMenu();
-                                                                    let path_j = '.'
-                                                                    let commands = await exec('manchester/controls/cmds')
-                                                                    let userfiles = {
-                                                                        wid: 'pdf-bookshelf',
-                                                                        title: 'RNA Therapeutics Library',
-                                                                        width: '100%',
-                                                                        height: '100%',
-                                                                        data: {
-                                                                            width: '100%',
-                                                                            drive: 'wd',
-                                                                            user: getUser(),
-                                                                            root: 'library',
-                                                                            columns: 3,
-                                                                            showSearch: true,
-                                                                            "ionfunction.cmd": createIonFunction((element) => { commands.go(path_j, element.cmd); }),
-                                                                            "ionfunction.fileClick": createIonFunction(async (element) => {
-                                                                                path_j = element.path;
-                                                                                let host_ = window['env']['apiUrl']
-                                                                                const user = getUser();
-                                                                                const key = 'library';
-                                                                                const pdfUrl = `${host_}/load-pdf?path=${encodeURIComponent(element.path)}&key=${encodeURIComponent(key)}&user=${encodeURIComponent(user)}`;
-                                                                                window.open(pdfUrl, "_blank", "noopener,noreferrer");
-                                                                            }),
-                                                                            "ionfunction.openfile": createIonFunction(async (file, text) => { }),
-                                                                            "ionfunction.path": createIonFunction(async (path) => { path_j = path; })
-                                                                        }
-                                                                    }
-                                                                    const tu = { wid: 'card', height: '100%', width: '100%', data: { cards: [[{ 'component': userfiles, 'width': '100%' }]] } };
-                                                                    clear();
-                                                                    showWidget(tu);
-
-                                                                },
-                                                            },
+                                                            { label: 'The Chemistry of RNA Therapeutics', move: () => { }, click: async () => { graph.hideMenu(); try { await exec('baja/lib/rna-chemistry-library.js', graph, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } } },
 
 
 

@@ -8777,7 +8777,27 @@ pattern, GGGG | Required`
                 }
 
                 // ---- Lasso selection list, below the panel ----
-                const selList = this.__lassoSelection;
+                // A sequence selection is shown here too, so the panel reflects everything the
+                // user currently has selected rather than only lasso-picked objects. Derived
+                // from markstart/markend each frame instead of being pushed into
+                // __lassoSelection, because the selection is edited continuously by dragging an
+                // arrow head — a stored copy would go stale on every mouse move.
+                let selList = this.__lassoSelection;
+                try {
+                    const seqEntries = [];
+                    for (const t of (this.track || [])) {
+                        if (!t || t.markstart == null || t.markend == null) continue;
+                        if (!(t.markstart >= 0 && t.markend > t.markstart)) continue;
+                        const toW = (m) => (m != null && t.xi != null && m < t.xi) ? (t.xi + m) : m;
+                        const a = Math.floor(toW(t.markstart)), b = Math.ceil(toW(t.markend));
+                        seqEntries.push({
+                            kind: 'sequence',
+                            label: (t.name || 'track') + ' ' + a + '–' + b + ' (' + Math.max(0, b - a) + ' nt)',
+                            track: t, ref: t
+                        });
+                    }
+                    if (seqEntries.length) selList = (selList || []).concat(seqEntries);
+                } catch (e) { }
                 this.__selPanelBounds = null;
                 if (selList && selList.length) {
                     // Show only DISTINCT items (by kind + label); duplicates are collapsed
@@ -9100,21 +9120,74 @@ pattern, GGGG | Required`
                     show(sub);
                 };
 
+                // A selected SEQUENCE is a first-class thing to act on, so it belongs in this
+                // menu next to Tracks / Oligos / Variants rather than only being reachable by
+                // clicking the selection on the canvas. Opens the same Selected Sequence menu
+                // (Data / Models / Sequence / Design / Export…), scoped to markstart..markend.
+                const seqTracks = () => (this.track || []).filter(
+                    (t) => t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart);
+                const openSequenceFor = (t) => {
+                    close();
+                    try { exec('baja/manchester/menu/selected-sequence-menu.js', this, t, this.genegraph_panel_layout); } catch (e) { }
+                };
+                const sequenceItem = () => {
+                    const st = seqTracks();
+                    if (!st.length) return null;
+                    const span = (t) => {
+                        const toW = (m) => (m != null && t.xi != null && m < t.xi) ? (t.xi + m) : m;
+                        const a = Math.floor(toW(t.markstart)), b = Math.ceil(toW(t.markend));
+                        return { a: a, b: b, n: Math.max(0, b - a) };
+                    };
+                    if (st.length === 1) {
+                        const sp = span(st[0]);
+                        return {
+                            label: 'Sequence (' + sp.n + ' nt) ▸',
+                            click: () => openSequenceFor(st[0]),
+                            move: () => { }
+                        };
+                    }
+                    return {
+                        label: 'Sequences (' + st.length + ') ▸',
+                        move: () => { },
+                        click: () => {
+                            const sub = st.map((t) => {
+                                const sp = span(t);
+                                return {
+                                    label: (t.name || 'track') + '  ' + sp.a + '–' + sp.b + '  (' + sp.n + ' nt)',
+                                    click: () => openSequenceFor(t),
+                                    move: () => { }
+                                };
+                            });
+                            sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
+                            show(sub);
+                        }
+                    };
+                };
+
                 const buildMain = () => {
                     // Read-only (viewer): only navigation (center on a track) and Export —
-                    // no oligo selection, chemistry, or off-target (modifying) actions.
+                    // no oligo selection, chemistry, or off-target (modifying) actions. The
+                    // sequence entry is still offered: what a viewer may DO with it is gated
+                    // centrally by __viewerDenied, which strips design and the board-modifying
+                    // items from the menu it opens.
                     if (this.readonly) {
-                        return [
+                        const ro = [
                             { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
                             { label: 'Export ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/track-export-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                         ];
+                        const si = sequenceItem();
+                        if (si) ro.splice(1, 0, si);
+                        return ro;
                     }
                     const mutCount = (this.track || []).reduce((n, t) => n + ((t && t.snpindels || []).length), 0);
-                    return [
+                    const main = [
                         { label: 'Tracks (' + tracks.length + ') ▸', click: () => { openTracks(); }, move: () => { } },
                         { label: 'Oligos (' + oligoCount + ') ▸', click: () => { openOligos(); }, move: () => { } },
                         { label: 'Variants (' + mutCount + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { } }, move: () => { } },
                     ];
+                    const si = sequenceItem();
+                    if (si) main.splice(1, 0, si);      // right after Tracks
+                    return main;
                 };
 
                 openMain();
