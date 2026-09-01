@@ -4940,7 +4940,13 @@ function (progress, options) {
                         // the press so it doesn't also start a new lasso/selection.
                         try {
                             const __hit = this.__hitSelectionArrow(this.graph.X(xwc), this.graph.Y(ywc));
-                            if (__hit) { this.__dragMark = __hit; this.__downMenuHandled = true; return; }
+                            if (__hit) {
+                                this.__dragMark = __hit;
+                                this.__downMenuHandled = true;
+                                // Freeze panning for the duration of the drag (see graph.js).
+                                try { if (this.graph) this.graph.__suppressPan = true; } catch (e) { }
+                                return;
+                            }
                         } catch (e) { }
                         // Click INSIDE an existing selection (but not on a head — the drag above
                         // already claimed those) opens the Selected Sequence side menu: the same
@@ -4987,6 +4993,11 @@ function (progress, options) {
                     if (!isMobile()) {
                         this.prev = null;
                         // Finish an arrow-head drag: commit the resized selection.
+                        // Release the pan freeze on ANY mouse-up, not just one that ends a drag.
+                        // If a mouseup were ever missed while __dragMark was set (pointer leaving
+                        // the window mid-drag), a conditional release would leave panning dead for
+                        // the rest of the session.
+                        try { if (this.graph) this.graph.__suppressPan = false; } catch (e) { }
                         if (this.__dragMark) {
                             this.__dragMark = null;
                             this.__downMenuHandled = false;
@@ -5083,14 +5094,37 @@ function (progress, options) {
                     if (this.__dragMark) {
                         try {
                             const dm = this.__dragMark, t = dm.track;
-                            if (t && t.grid) {
-                                let v = Math.round(t.grid.Xwc(xwc));
-                                const lo = Math.max(0, Math.floor(t.grid.getxmin ? t.grid.getxmin() : 0));
-                                const hi = Math.floor(t.grid.getxmax ? t.grid.getxmax() : v);
+                            // Use whichever mapping the track has. track.js tracks expose tgraph
+                            // and NO grid, so the old `if (t && t.grid)` skipped them entirely and
+                            // the edge never moved — the same blind spot the hit-test had.
+                            const g = t && (t.tgraph || t.grid);
+                            if (t && g && typeof g.Xwc === 'function') {
+                                // Graph-world -> track-world.
+                                let v = Math.round(g.Xwc(xwc));
+                                // Clamp inside the track itself. xi/xf are the real bounds; fall
+                                // back to the grid extents when a track does not carry them.
+                                let lo = Number.isFinite(+t.xi) ? Math.floor(+t.xi)
+                                    : (g.getxmin ? Math.floor(g.getxmin()) : 0);
+                                let hi = Number.isFinite(+t.xf) ? Math.floor(+t.xf)
+                                    : (g.getxmax ? Math.floor(g.getxmax()) : v);
+                                if (hi < lo) { const tmp = lo; lo = hi; hi = tmp; }
                                 v = Math.max(lo, Math.min(hi, v));
-                                if (dm.edge === 'start') t.markstart = Math.min(v, Math.floor(t.markend) - 1);
-                                else t.markend = Math.max(v, Math.floor(t.markstart) + 1);
-                                try { this.setMessage(' Selection ' + Math.floor(t.markstart) + '–' + Math.floor(t.markend) + ' (' + (Math.floor(t.markend) - Math.floor(t.markstart)) + ' nt) '); } catch (e) { }
+
+                                // markstart/markend may be stored as 0-based OFFSETS from the
+                                // track start rather than world coords (see __toWorld in
+                                // track.js). Write back in whatever representation is already in
+                                // use, or the value would jump by xi on the first drag.
+                                const asOffset = (t.markstart != null && Number.isFinite(+t.xi) && t.markstart < t.xi);
+                                const toStore = (world) => asOffset ? (world - Math.floor(+t.xi)) : world;
+                                const curStart = asOffset ? (Math.floor(t.markstart) + Math.floor(+t.xi)) : Math.floor(t.markstart);
+                                const curEnd = asOffset ? (Math.floor(t.markend) + Math.floor(+t.xi)) : Math.floor(t.markend);
+
+                                if (dm.edge === 'start') t.markstart = toStore(Math.min(v, curEnd - 1));
+                                else t.markend = toStore(Math.max(v, curStart + 1));
+
+                                const sNow = asOffset ? (Math.floor(t.markstart) + Math.floor(+t.xi)) : Math.floor(t.markstart);
+                                const eNow = asOffset ? (Math.floor(t.markend) + Math.floor(+t.xi)) : Math.floor(t.markend);
+                                try { this.setMessage(' Selection ' + sNow + '–' + eNow + ' (' + (eNow - sNow) + ' nt) '); } catch (e) { }
                                 if (this.wake) this.wake();
                             }
                         } catch (e) { }

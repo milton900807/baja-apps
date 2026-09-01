@@ -269,7 +269,12 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                                 if (mdel.getPriority())
                                     return;
                             }
-                            if (this.mode == 'navigate' && mouse_down && !this.__touchActive) {
+                            // __suppressPan is set by gene.js while a selection arrow head is
+                            // being dragged. Without it the canvas pans under the drag, because
+                            // this navigate-mode pan runs BEFORE the gene-level move listener
+                            // that moves the selection edge — so the arrow and the view moved
+                            // together and the edge never appeared to reach the cursor.
+                            if (this.mode == 'navigate' && mouse_down && !this.__touchActive && !this.__suppressPan) {
                                 // Motion LOD: while actively panning, drop the chemistry to simple
                                 // beads (skip sugar rings / phosphate glyphs / labels) so dragging
                                 // stays smooth; restore full detail ~180ms after motion stops, and
