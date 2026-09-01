@@ -7273,6 +7273,26 @@ pattern, GGGG | Required`
                             this.side_menu.externalTitle = true;
                         }
                     } catch (e) { }
+                    // Open DISCREETLY: just a title chip, expanding on hover. A side menu that
+                    // appears at full size covers the canvas the user is working on.
+                    // Opt out per-menu with list.__noCollapse = true.
+                    try {
+                        // Mobile collapses too — into a bottom tap-bar rather than an inline
+                        // pill (see menu.js draw()), so the full-screen mobile menu only opens
+                        // once the user taps it.
+                        if (!(list && list.__noCollapse)) {
+                            // The chip needs a label. Fall back to the first item's text, then a
+                            // generic one, so a menu without __menuTitle still reads as something.
+                            if (!this.side_menu.title) {
+                                let t0 = '';
+                                try { t0 = ('' + ((safeList[0] && safeList[0].label) || '')).replace(/\s*[▸►]\s*$/, '').trim(); } catch (e) { }
+                                this.side_menu.title = t0 ? (t0.length > 22 ? (t0.slice(0, 21) + '…') : t0) : 'Menu';
+                                this.side_menu.externalTitle = false;
+                            }
+                            this.side_menu.collapsible = true;
+                            this.side_menu.collapsed = true;
+                        }
+                    } catch (e) { }
                 }, 10);
             }
             showMenu(list, x, y, width) {

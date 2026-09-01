@@ -212,6 +212,14 @@ function () {
             yoffset = 0;
             menu_width = 300;
             title = ''
+            // Discreet mode: a side menu opens as just its title chip and expands to the full
+            // item list only while the pointer is over it. A menu that pops open at full size
+            // covers the canvas the user is working on. Set by showSideMenu(); center menus and
+            // mobile menus are never collapsed.
+            collapsible = false
+            collapsed = false
+            collapsedW = 0
+            collapsedH = 26
             sg = '#eef2f8'
             sf = '#1d4ed8'
             bg = 'rgba(255,255,255,0)'
@@ -260,20 +268,30 @@ function () {
                 if (fg) this.fg = fg;
 
             }
+            // Bounds of whatever is currently on screen: the title chip when collapsed, the
+            // full panel when expanded. Everything (hit-testing, hover, click) works off this
+            // so collapsed and expanded stay consistent.
+            __bounds(graph) {
+                const xot = graph.X(this.x);
+                const yot = graph.Y(this.y);
+                if (this.collapsible && this.collapsed) {
+                    // Prefer the rect actually drawn — on mobile the bar is bottom-anchored in
+                    // screen space and bears no relation to this.x / this.y.
+                    if (this.__chipRect) return this.__chipRect;
+                    return { x: xot, y: yot, w: (this.collapsedW || this.menu_width || 140), h: this.collapsedH };
+                }
+                const w = this.menu_width * this.columns + 20 * (this.columns - 1);
+                const h = this.getItemsPerColumn() * this.mheight;
+                return { x: xot, y: yot, w: w, h: h };
+            }
             isIn(graph, xwc, ywc) {
 
                 let xin = graph.X(xwc) + this.xoffset;
                 let yin = graph.Y(ywc) + this.yoffset;
-                let xot = graph.X(this.x);
-                let yot = graph.Y(this.y);
+                const b = this.__bounds(graph);
 
-                let totalMenuWidth = this.menu_width * this.columns + 20 * (this.columns - 1);
-                let itemsPerColumn = this.getItemsPerColumn();
-
-                let totalMenuHeight = itemsPerColumn * this.mheight;
-
-                if (xin > xot && xin < (xot + totalMenuWidth) &&
-                    yin > yot && yin < (yot + totalMenuHeight)) {
+                if (xin > b.x && xin < (b.x + b.w) &&
+                    yin > b.y && yin < (b.y + b.h)) {
                     return true;
                 }
                 this.highlight = -1;
@@ -284,6 +302,17 @@ function () {
             }
             async mouseUp(graph, x, y) {
                 if (this.y === undefined) {
+                    return;
+                }
+                // Collapsed: the chip is a target for hovering, not for choosing an item —
+                // clicking it must not fire whatever item happens to sit under the pointer.
+                if (this.collapsible && this.collapsed) {
+                    if (this.isIn(graph, x, y)) {
+                        this.collapsed = false;
+                        // Repaint now: on mobile this is what opens the full menu, and without a
+                        // wake the tap appears to do nothing until some other event redraws.
+                        try { const g = CurrentLayout.getStashed('graph'); if (g && g.wake) g.wake(); } catch (e) { }
+                    }
                     return;
                 }
                 if (this.isIn(graph, x, y)) {
@@ -306,6 +335,17 @@ function () {
             mouseMove(graph, x, y) {
                 if (this.y === undefined) {
                     return;
+                }
+
+                // Expand on hover, collapse again on leave. isIn() is evaluated against the
+                // CURRENT state, so a collapsed menu only expands when the pointer is over the
+                // title chip, and an expanded one only collapses when the pointer leaves the
+                // whole panel — not the moment it leaves the chip.
+                if (this.collapsible && !((typeof isMobile === 'function') && isMobile())) {
+                    const over = this.isIn(graph, x, y);
+                    if (over && this.collapsed) { this.collapsed = false; this.highlight = -1; return; }
+                    if (!over && !this.collapsed) { this.collapsed = true; this.highlight = -1; this.stopScrolling(); return; }
+                    if (this.collapsed) { this.highlight = -1; return; }
                 }
 
                 if (this.isIn(graph, x, y)) {
@@ -359,7 +399,7 @@ function () {
 
             draw(ctx, grid) {
 
-                if (isMobile() && !this.isdisplayed) {
+                if (isMobile() && !(this.collapsible && this.collapsed) && !this.isdisplayed) {
                     const genegraph_panel_layout = CurrentLayout.getStashed('mainPanel')
                     const graph = CurrentLayout.getStashed('graph')
 
@@ -387,6 +427,86 @@ function () {
                         ctx.fillRect(0, 0, cnv.width, cnv.height);
                         ctx.restore();
                     } catch (e) { }
+                }
+
+                // ---- Collapsed: draw ONLY the title chip -------------------------------
+                // A small pill with the menu's title and a chevron. Hovering it expands the
+                // full panel (see mouseMove); this keeps a side menu from covering the canvas
+                // until the user actually reaches for it.
+                if (this.collapsible && this.collapsed) {
+                    const __mob = (typeof isMobile === 'function') && isMobile();
+                    const label = ('' + (this.title || 'Menu'));
+                    ctx.font = this.titleFont || (__mob ? '700 15px Arial' : '700 12px Arial');
+                    const tw = ctx.measureText(label).width;
+                    let w, h, cx, cy;
+                    if (__mob) {
+                        // Anchor to the BOTTOM of the canvas, centred and finger-sized: on a
+                        // phone the menu's own x/y can be anywhere (or off-screen), and a small
+                        // inline pill is neither reachable nor tappable.
+                        const cw = (ctx.canvas && ctx.canvas.width) || 360;
+                        const ch = (ctx.canvas && ctx.canvas.height) || 640;
+                        h = 44;
+                        w = Math.min(Math.max(Math.ceil(tw + 56), 180), Math.max(160, cw - 32));
+                        cx = Math.round((cw - w) / 2);
+                        cy = Math.round(ch - h - 18);
+                    } else {
+                        h = this.collapsedH;
+                        w = Math.ceil(tw + 34);
+                        cx = grid.X(this.x) + this.xoffset;
+                        cy = grid.Y(this.y) + this.yoffset;
+                    }
+                    // Remember exactly what was drawn so hit-testing matches it (the bar is in
+                    // screen space and has no relation to this.x / this.y).
+                    this.__chipRect = { x: cx, y: cy, w: w, h: h };
+                    this.collapsedW = w;
+                    const r = h / 2;
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(16,24,40,0.22)';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowOffsetY = 3;
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(cx, cy, w, h, r);
+                    else {
+                        ctx.moveTo(cx + r, cy); ctx.lineTo(cx + w - r, cy);
+                        ctx.quadraticCurveTo(cx + w, cy, cx + w, cy + r);
+                        ctx.lineTo(cx + w, cy + h - r);
+                        ctx.quadraticCurveTo(cx + w, cy + h, cx + w - r, cy + h);
+                        ctx.lineTo(cx + r, cy + h);
+                        ctx.quadraticCurveTo(cx, cy + h, cx, cy + h - r);
+                        ctx.lineTo(cx, cy + r);
+                        ctx.quadraticCurveTo(cx, cy, cx + r, cy);
+                    }
+                    ctx.closePath();
+                    ctx.fillStyle = this.sunset ? '#ffb45c' : 'rgba(255,255,255,0.98)';
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(16,24,40,0.22)';
+                    ctx.stroke();
+                    ctx.fillStyle = this.titleColor || '#111827';
+                    ctx.textBaseline = 'middle';
+                    if (__mob) {
+                        ctx.textAlign = 'center';
+                        ctx.fillText(label, cx + w / 2, cy + h / 2 + 0.5);
+                    } else {
+                        ctx.textAlign = 'left';
+                        ctx.fillText(label, cx + 12, cy + h / 2 + 0.5);
+                    }
+                    ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.strokeStyle = this.titleColor || '#111827';
+                    ctx.beginPath();
+                    if (__mob) {
+                        // Chevron UP — the full menu opens upward from the bottom bar.
+                        const ax = cx + w - 20, ay = cy + h / 2;
+                        ctx.moveTo(ax - 5, ay + 3); ctx.lineTo(ax, ay - 2); ctx.lineTo(ax + 5, ay + 3);
+                    } else {
+                        const ax = cx + w - 15, ay = cy + h / 2;
+                        ctx.moveTo(ax - 3, ay - 3); ctx.lineTo(ax + 1, ay); ctx.lineTo(ax - 3, ay + 3);
+                    }
+                    ctx.stroke();
+                    ctx.restore();
+                    ctx.restore();     // matches the ctx.save() at the top of draw()
+                    return;
                 }
 
                 const itemsPerColumn = this.getItemsPerColumn();
