@@ -27,7 +27,7 @@ function (graph, genegraph_panel_layout) {
         // Any submenu opened from a menu-item click is deferred ~1s so it does not
         // collide with the in-progress canvas mouse interaction that triggered the
         // click. Closing a menu (null) still happens immediately.
-        const MENU_OPEN_DELAY_MS = 1000;
+        const MENU_OPEN_DELAY_MS = 100;
         // Consistent menu ordering: items that open a SUBMENU (label carries the ▸ marker) are
         // grouped FIRST, then leaf actions, with navigation (‹ Back / Cancel / Close / Done) last.
         // Header rows stay pinned at the very top. Applied to every menu this file shows.
