@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, tracks) {
     // Patents — click a track, read patent_hg38_transcript_hits.bed.gz from the
     // local BIG_DATA folder over the track's region (view-bed.py resolves the
     // /bd/ path against BIGDATA), and drop the patent hits in as an interval
@@ -9,25 +9,24 @@ function (graph, genegraph_panel_layout) {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
     };
 
-    graph.clearMouseListeners();
-    graph.setMouseMode('msg: Click on a track to load patents.');
     CurrentLayout.clearComponent('mainPanel');
     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
-    graph.addMouseDownListener(async (x, y) => {
-        const ti = graph.getTrack(x, y);
-        if (ti < 0) return;
-        const track = graph.track[ti];
-        graph.clearMouseListeners();
-        graph.setMouseMode('navigate');
+    // `tracks`, when given, is the explicit set this run applies to -- the same contract the
+    // rest of the libraries use. Falling back to for-each-track.js covers the two older
+    // routes: the board-level Layers button (which sets __bajaApplyAllTracks) and a plain
+    // call from a menu, which still asks for one click.
+    const loadOne = async (track) => {
         try {
             // The BED is keyed by transcript id with TRANSCRIPT-relative coords, so
             // query by this track's transcript and in transcript (sequence-index)
             // space — position i maps to local x = track.xi + i.
             const tid = track.transcriptID || track.geneID || track.name || '';
             if (!tid) {
-                graph.setMessage(' That track has no transcript id for patent lookup. ');
-                restoreHover(); return;
+                // Skip, do not abort: an all-tracks run must get through the rest of the
+                // canvas rather than stopping at the first track without an id.
+                graph.setMessage(' ' + (track.name || 'That track') + ' has no transcript id for patent lookup. ');
+                return;
             }
             const seqLen = (track.sequence && track.sequence.length) || Math.abs(track.xf - track.xi);
             let t0 = 0, t1 = seqLen;
@@ -47,7 +46,7 @@ function (graph, genegraph_panel_layout) {
             try { rv = JSON.parse((res && res.values) || '[]'); } catch (e) { rv = []; }
             if (!rv.length) {
                 graph.setMessage(' No patents found for ' + tid + '. ');
-                restoreHover(); return;
+                return;
             }
 
             const TrackLayer = await exec('baja/bio/track-layer.js');
@@ -123,5 +122,32 @@ function (graph, genegraph_panel_layout) {
             graph.setMessage(' Patent load error: ' + e + ' ');
         }
         restoreHover();
-    });
+    };
+
+    return (async () => {
+        const list = (tracks && tracks.length) ? tracks.filter(Boolean) : null;
+        if (!list) {
+            return exec('baja/lib/for-each-track.js', graph,
+                'Click on a track to load patents.', loadOne);
+        }
+        // Sequential: each track is a server read, and firing them together would queue
+        // behind the server's own cap while making the progress line meaningless.
+        try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+        const status = (m) => {
+            try {
+                window.__workStatus = m || '';
+                if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+            } catch (e) { }
+        };
+        for (let i = 0; i < list.length; i++) {
+            const t = list[i];
+            status('Patents · ' + ((t && t.name) || ('track ' + (i + 1)))
+                + ' · ' + (i + 1) + ' of ' + list.length + '…');
+            await loadOne(t);
+        }
+        status('');
+        try { graph.setResultMessage(' Patents loaded onto ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. '); } catch (e) { }
+        return graph;
+    })();
 }
+

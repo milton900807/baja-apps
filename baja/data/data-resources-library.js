@@ -31,6 +31,16 @@ function (graph, genegraph_panel_layout, tracks) {
                 open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
             },
             {
+                key: 'patents',
+                title: 'Patents',
+                badge: 'IP',
+                ready: true,
+                blurb: 'Sequence-matched patent hits from the 2020-2026 transcript-keyed index. '
+                    + 'Adds the hits as an interval layer, stacked into lanes, so published IP '
+                    + 'claims sit alongside the region you are designing against.',
+                open: async () => { await exec('baja/data/patents.js', graph, genegraph_panel_layout, tracks); }
+            },
+            {
                 key: 'mydata',
                 title: 'My data',
                 badge: 'Personal',
@@ -45,7 +55,11 @@ function (graph, genegraph_panel_layout, tracks) {
                 badge: 'Reference',
                 ready: true,
                 blurb: 'Shared public reference tracks configured for this deployment.',
-                open: async () => { await exec('baja/data/public-data.js', graph, genegraph_panel_layout, tracks); }
+                // NB: public-data.js takes (graph, layout, presetResource) -- it has no tracks
+                // parameter. Passing the array here made presetResource truthy, so the card
+                // skipped its own list and tried to arm the track array as a resource. It
+                // picks its targets up from the all-tracks flag instead, via for-each-track.
+                open: async () => { await exec('baja/data/public-data.js', graph, genegraph_panel_layout); }
             }
         ];
 
