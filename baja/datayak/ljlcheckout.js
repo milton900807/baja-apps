@@ -56,7 +56,7 @@ function (result) {
             + '</ul>'
             + '<button id="bc-free" style="margin-top:auto;cursor:pointer;border-radius:9px;padding:11px 16px;'
             + 'font:700 14px Arial;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#e8f0fb;">'
-            + 'Use the free version</button>'
+            + 'Continue with free version</button>'
             + '</div>'
 
             // ---- Subscription ---------------------------------------------------------
