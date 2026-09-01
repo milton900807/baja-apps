@@ -334,10 +334,22 @@ function (graph, layout, compound) {
                 // target sequence AND the compound's own residues are legible at the end.
                 let cw = 1200;
                 try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || 1200; } catch (e) { }
-                const lettersCap = Math.max(8, Math.floor(cw / 34));
-                let visible = L + 10;                       // ~5 bases of context either side
-                if (lettersCap > L) visible = Math.min(visible, lettersCap);
-                visible = Math.max(visible, L + 2);         // never clip the compound itself
+                // chem-draw.js gates the per-residue chemistry on screen px per residue:
+                // sugar rings at SUGAR_PER = 34, phosphate/backbone at CHEM_PER = 30, base
+                // letters at 11. Targeting 34 landed exactly ON the sugar boundary, so the
+                // chemistry was a coin flip; aim well above it instead.
+                // Preferred framing: the whole compound plus ~3 residues of context either side.
+                // HARD CAP: never show more residues than fit at SUGAR_MIN_PX, so the sugar
+                // rings always render. Seeing the chemistry is the point of this zoom, so on a
+                // long compound (14 of 132 here run 30-36 nt) a couple of residues off the edge
+                // is the right trade against losing the chemistry on all of them.
+                const CHEM_TARGET_PX = 48;   // comfortable target, well clear of SUGAR_PER (34)
+                const SUGAR_MIN_PX = 35;     // hard floor — just above SUGAR_PER
+                const chemCap = Math.max(6, Math.floor(cw / CHEM_TARGET_PX));
+                const hardCap = Math.max(8, Math.floor(cw / SUGAR_MIN_PX));
+                let visible = L + 6;
+                if (chemCap > L) visible = Math.min(visible, chemCap);
+                visible = Math.min(visible, hardCap);
                 const half = visible / 2;
 
                 const gx0 = g.X(mid - half), gx1 = g.X(mid + half);

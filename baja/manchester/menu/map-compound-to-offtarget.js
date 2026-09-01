@@ -102,14 +102,23 @@ function (graph, oligo, hit, editDistance) {
             if (g && typeof g.X === 'function') {
                 const L = Math.max(1, Math.abs(xf - xi));
                 const mid = (xi + xf) / 2;
-                // Sequence letters render above ~30 screen px per base (screencell), so keep the
-                // visible span under that to leave the target and compound residues legible.
+                // chem-draw.js gates per-residue chemistry on screen px per residue: sugar rings
+                // at SUGAR_PER = 34, phosphate/backbone at CHEM_PER = 30, base letters at 11.
+                // Aim well above the sugar threshold so the chemistry actually renders.
                 let cw = 1200;
                 try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || 1200; } catch (e) { }
-                const lettersCap = Math.max(8, Math.floor(cw / 34));
-                let visible = L + 10;
-                if (lettersCap > L) visible = Math.min(visible, lettersCap);
-                visible = Math.max(visible, L + 2);
+                // Preferred framing: the whole compound plus ~3 residues of context either side.
+                // HARD CAP: never show more residues than fit at SUGAR_MIN_PX, so the sugar
+                // rings always render. Seeing the chemistry is the point of this zoom, so on a
+                // long compound (14 of 132 here run 30-36 nt) a couple of residues off the edge
+                // is the right trade against losing the chemistry on all of them.
+                const CHEM_TARGET_PX = 48;   // comfortable target, well clear of SUGAR_PER (34)
+                const SUGAR_MIN_PX = 35;     // hard floor — just above SUGAR_PER
+                const chemCap = Math.max(6, Math.floor(cw / CHEM_TARGET_PX));
+                const hardCap = Math.max(8, Math.floor(cw / SUGAR_MIN_PX));
+                let visible = L + 6;
+                if (chemCap > L) visible = Math.min(visible, chemCap);
+                visible = Math.min(visible, hardCap);
                 const half = visible / 2;
                 const gx0 = g.X(mid - half), gx1 = g.X(mid + half);
 
