@@ -9920,9 +9920,33 @@ pattern, GGGG | Required`
                 const itemMenu = (p, k, openOne, backFn) => {
                     const single = (kindLabels[k] || k).replace(/s$/, '');
                     const list = [];
+
+
+                    const centerTrack = (t) => {
+                        try {
+                            const tg = t.tgraph;
+                            const m = Math.max(100, tg.width * 0.05);   // small horizontal margin
+                            // Fit the ENTIRE track (full width) centered, framed vertically.
+                            this.animateTo(tg.xi - m, tg.xi + tg.width + m, tg.Y(-3), tg.Y(3));
+                        } catch (e) {
+                            try { this.goToTrack(t); } catch (e2) { }
+                        }
+                    };
+
+
                     // First, because finding the thing on the canvas is usually what you want
                     // before doing anything to it. Closes the menu: the point is to look at it.
-                    list.push({ label: 'Zoom to', click: () => { close(); zoomToEntry(p); }, move: () => { } });
+                    //
+                    // A track frames whole: centerTrack fits its full width. Everything else
+                    // here (annotation, SNP, oligo, amplicon, layer item) has no tgraph of its
+                    // own, so it goes through zoomToEntry, which zooms to its coordinates on
+                    // whichever track carries it. Sending those through centerTrack threw on
+                    // tg.width and left the row doing nothing at all.
+                    list.push({
+                        label: 'Zoom to',
+                        click: () => { close(); if (k === 'track') centerTrack(p); else zoomToEntry(p); },
+                        move: () => { }
+                    });
                     if (openOne) list.push({ label: 'Open ' + single + ' menu', click: () => { openOne(p); }, move: () => { } });
                     if (k !== 'track') list.push({ label: 'Remove', click: () => { close(); removeObject(p); this.setMessage(' Removed 1 ' + single + '. '); }, move: () => { } });
                     list.push({ label: 'Remove all others', click: () => { close(); removeAllOthers(p, k); }, move: () => { } });
