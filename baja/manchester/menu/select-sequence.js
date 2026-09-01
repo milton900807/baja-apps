@@ -5,6 +5,17 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
     let track = null;
     hide_menu = false;
     let md = false;
+
+    // Locate the hit segment under the cursor. Tracks that carry no discoveries
+    // simply have no hitSegments, so tolerate a missing/short list.
+    function findHit(hitSegments, x, y) {
+        if (!hitSegments || !hitSegments.length) return null;
+        for (let i = 0; i < hitSegments.length; i++) {
+            const h = hitSegments[i];
+            if (x >= h.x1 && x <= h.x2 && y >= h.y1 && y <= h.y2) return h;
+        }
+        return null;
+    }
     graph.menu = null;
     try { graph.showSideMenu(null); } catch (e) { }
     graph.side_menu = null;
@@ -63,7 +74,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                             track = ttrack;
                             const hit = findHit(track.hitSegments, graph.X(x), graph.Y(y));
                             if (hit) {
-                                graph.mouse_message = hit.discoveries[0].motif
+                                graph.mouse_message = (hit.discoveries && hit.discoveries[0]) ? hit.discoveries[0].motif : null
                                 graph.mousex = graph.X(x);
                                 graph.mousey = graph.Y(y);
                             }
