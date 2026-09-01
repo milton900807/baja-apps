@@ -877,6 +877,7 @@ return new Promise(async (resolve, reject) => {
                 ctx.strokeStyle = "transparent";
 
                 ctx.fillStyle = this.color;
+                this.__vlabLast = null;
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -913,21 +914,44 @@ return new Promise(async (resolve, reject) => {
                             text = this.name;
                         }
                         ctx.fillStyle = 'black';
-
-                        ctx.fillStyle = 'black';
-                        const maxWidth = 300;
-                        const lineHeight = 15;
-                        const lines = this.wrapText(ctx, text, maxWidth);
                         let screeny = this.tgraph.Y(int.y);
                         let screenx = this.tgraph.X(int.x2 + 1)
-                        if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
 
-                            lines.forEach((line) => {
-                                ctx.fillText(line, screenx, screeny);
-                                screeny += 15;
-                            });
+                        if (this.verticalLabels) {
+                            // Rotated a quarter turn, reading bottom-to-top, anchored at the
+                            // interval. Sites sit close together along a transcript, so a
+                            // horizontal name would overlap its neighbours within a few pixels;
+                            // turned on its side each name occupies almost no width.
+                            //
+                            // Only the FIRST line is drawn: the full metadata block is many
+                            // lines and is what the hover panel is for. Vertically that block
+                            // would run the height of the canvas and off the top.
+                            const one = ('' + text).split('\n')[0];
+                            // Suppress a name that would land on top of the previous one.
+                            if (!(this.__vlabLast != null && Math.abs(screenx - this.__vlabLast) < 11)) {
+                                this.__vlabLast = screenx;
+                                ctx.save();
+                                ctx.translate(screenx, screeny);
+                                ctx.rotate(-Math.PI / 2);
+                                ctx.textAlign = 'left';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(one, 4, 0);
+                                ctx.restore();
+                            }
                             ctx.fillStyle = this.defaultColor;
+                        } else {
+                            const maxWidth = 300;
+                            const lineHeight = 15;
+                            const lines = this.wrapText(ctx, text, maxWidth);
+                            if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
 
+                                lines.forEach((line) => {
+                                    ctx.fillText(line, screenx, screeny);
+                                    screeny += 15;
+                                });
+                                ctx.fillStyle = this.defaultColor;
+
+                            }
                         }
                         ctx.stroke();
                     }
@@ -1121,6 +1145,7 @@ return new Promise(async (resolve, reject) => {
 
                 ctx.strokeStyle = "rgba(100,100,0,1)";
                 ctx.fillStyle = this.color;
+                this.__vlabLast = null;
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -1157,21 +1182,44 @@ return new Promise(async (resolve, reject) => {
                             text = this.name;
                         }
                         ctx.fillStyle = 'black';
-
-                        ctx.fillStyle = 'black';
-                        const maxWidth = 300;
-                        const lineHeight = 15;
-                        const lines = this.wrapText(ctx, text, maxWidth);
                         let screeny = this.tgraph.Y(int.y);
                         let screenx = this.tgraph.X(int.x2 + 1)
-                        if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
 
-                            lines.forEach((line) => {
-                                ctx.fillText(line, screenx, screeny);
-                                screeny += 15;
-                            });
+                        if (this.verticalLabels) {
+                            // Rotated a quarter turn, reading bottom-to-top, anchored at the
+                            // interval. Sites sit close together along a transcript, so a
+                            // horizontal name would overlap its neighbours within a few pixels;
+                            // turned on its side each name occupies almost no width.
+                            //
+                            // Only the FIRST line is drawn: the full metadata block is many
+                            // lines and is what the hover panel is for. Vertically that block
+                            // would run the height of the canvas and off the top.
+                            const one = ('' + text).split('\n')[0];
+                            // Suppress a name that would land on top of the previous one.
+                            if (!(this.__vlabLast != null && Math.abs(screenx - this.__vlabLast) < 11)) {
+                                this.__vlabLast = screenx;
+                                ctx.save();
+                                ctx.translate(screenx, screeny);
+                                ctx.rotate(-Math.PI / 2);
+                                ctx.textAlign = 'left';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(one, 4, 0);
+                                ctx.restore();
+                            }
                             ctx.fillStyle = this.defaultColor;
+                        } else {
+                            const maxWidth = 300;
+                            const lineHeight = 15;
+                            const lines = this.wrapText(ctx, text, maxWidth);
+                            if (screenx > 0 || screenx < graph.grid.width - 100 || screeny > 0 || screeny < graph.grid.height - 100) {
 
+                                lines.forEach((line) => {
+                                    ctx.fillText(line, screenx, screeny);
+                                    screeny += 15;
+                                });
+                                ctx.fillStyle = this.defaultColor;
+
+                            }
                         }
                         ctx.stroke();
                     }

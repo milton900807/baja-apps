@@ -14,6 +14,10 @@ function () {
             fields: ['miRNA', 'Target gene', 'Evidence', 'Assays', 'PMIDs', 'miRTarBase'],
             idLabel: 'miRNA',
             color: 'rgba(40,150,120,0.55)',
+            // Drawn on their side: target sites cluster along a transcript, so horizontal
+            // names would overlap within a few pixels of each other.
+            verticalLabels: true,
+            labelZoomThreshold: 0.4,
             noun: 'validated miRNA site',
         },
         mirtarbase10_all: {
@@ -24,6 +28,10 @@ function () {
             fields: ['miRNA', 'Target gene', 'Evidence', 'Assays', 'PMIDs', 'miRTarBase'],
             idLabel: 'miRNA',
             color: 'rgba(120,170,70,0.45)',
+            // Drawn on their side: target sites cluster along a transcript, so horizontal
+            // names would overlap within a few pixels of each other.
+            verticalLabels: true,
+            labelZoomThreshold: 0.4,
             noun: 'miRNA site',
         },
         aso_sirna_gt: {

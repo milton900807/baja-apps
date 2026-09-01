@@ -129,6 +129,21 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             // pipeline in py/sequence/patent-pipeline). Expand it into labeled lines; otherwise
             // the name is just the patent id/number.
             const SEP = '‖';   // ‖
+            // A row whose id was not in the metadata DB keeps the raw BED name, which for the
+            // miRTarBase sets is 'MIRT732379|hsa-miR-135a-5p|' -- the join key first, the
+            // readable name second. Show the readable half.
+            const displayName = (raw) => {
+                const v = '' + (raw || '');
+                if (v.indexOf(SEP) >= 0) return v.split(SEP)[0];
+                if (v.indexOf('|') >= 0) {
+                    const parts = v.split('|').map((x) => x.trim()).filter(Boolean);
+                    // Match the NAMING pattern (hsa-miR-135a-5p, mmu-let-7a-5p), not the bare
+                    // letters: a loose /mir/i also matches the join key MIRT732379, which sits
+                    // first and would win.
+                    return parts.find((x) => /(^|-)(mir|let)-/i.test(x)) || parts[0] || v;
+                }
+                return v;
+            };
             const buildLabel = (p) => {
                 const txLen = Math.max(0, p.te - p.ts);
                 const head = [];
@@ -138,8 +153,11 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
                         if (f[i]) head.push((FIELDS[i] || ('Field ' + (i + 1))) + ': ' + f[i]);
                     }
                 } else {
-                    head.push(ID_LABEL + ': ' + (p.name || '—'));
+                    head.push(ID_LABEL + ': ' + (displayName(p.name) || '—'));
                 }
+                // The vertical renderer draws only the first line, so the name has to be it.
+                // buildLabel already leads with the id/first metadata field, which for the
+                // miRTarBase sets is the miRNA itself.
                 return head.concat([
                     LAYER_LABEL,
                     'Gene: ' + (track.name || tid),
@@ -169,12 +187,19 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
                 // Full metadata on the first (5'-most) segment; other exonic segments of the same
                 // patent carry just the number so a multi-exon hit doesn't repeat the whole block.
                 const full = buildLabel(p);
-                p.segs.forEach((g, i) => layer.addInterval(g[0], g[1], yv, i === 0 ? full : p.name));
+                // Later segments of a multi-exon hit carried p.name verbatim, which for a
+                // record with joined metadata is the packed 'a‖b‖c' string -- separators and
+                // all. Use the first field, which is the actual name (the miRNA id).
+                const short = displayName(p.name);
+                p.segs.forEach((g, i) => layer.addInterval(g[0], g[1], yv, i === 0 ? full : short));
             }
             // Only reveal the full metadata labels once the view is zoomed in enough to SEE THE
             // SEQUENCE (≈>5 px/base, the same threshold track.js uses to draw bases) — so at gene
             // scale you see colored patent bars, and up close each one shows all its metadata.
-            layer.labelZoomThreshold = 5;
+            // Vertical labels are compact enough to show at gene scale; the multi-line
+            // horizontal block still waits until the sequence is visible.
+            layer.verticalLabels = !!cfg.verticalLabels;
+            layer.labelZoomThreshold = (cfg.labelZoomThreshold != null) ? cfg.labelZoomThreshold : 5;
             track.addLayer(layer);
 
             // Flash the intervals for ~10s so they're easy to spot when zoomed out.
