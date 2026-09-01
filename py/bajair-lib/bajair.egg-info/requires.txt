@@ -1,0 +1,8 @@
+numpy
+pandas
+pysam
+scikit-learn
+joblib
+
+[dev]
+pytest

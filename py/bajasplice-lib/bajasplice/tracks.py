@@ -11,11 +11,16 @@ The payload matches what an AttributionLayer-style client consumes directly:
                        set for attribution layers, null for whole-gene score
                        tracks, exactly as the client's constructor expects
 
-Two kinds of layer are produced:
+Three kinds of layer are produced:
 
   score        per-position acceptor or donor probability across the transcript
   attribution  per-base support for one chosen site, from in-silico mutagenesis
                or gradient x input
+  feature      sparse intervals with a written description each -- currently
+               BajaIR retained introns. A feature layer carries `features`
+               instead of `points`, and is omitted entirely when nothing clears
+               its threshold, so a gene with no retention-prone introns draws
+               nothing rather than an empty axis.
 """
 from __future__ import annotations
 
@@ -28,8 +33,8 @@ import numpy as np
 from bajasplice.config import paths
 from bajasplice.genome import GenomeReader
 
-__all__ = ["gene_track", "score_layers", "attribution_layers", "build_payload",
-           "render_png"]
+__all__ = ["gene_track", "score_layers", "attribution_layers", "retention_layer",
+           "build_payload", "render_png"]
 
 BASES = ("A", "T", "C", "G")
 
@@ -154,10 +159,57 @@ def attribution_layers(gene, sites, which="acceptor", window=100, method="ism",
     return layers, track
 
 
+def retention_layer(gene, tier="notable", transcript="canonical", clean_only=True,
+                    limit=0, ckpt=None, device=None):
+    """BajaIR retained introns as a sparse feature layer, or None if there are none.
+
+    Returning None rather than an empty layer is the point of this track: most
+    introns in most genes are not retention-prone, and a layer that draws
+    something for all of them is intron structure redrawn in a second colour.
+    The caller records that the model ran in payload meta, so "nothing shown"
+    stays distinguishable from "never ran".
+    """
+    from bajasplice.bajair import score_gene
+    track, (chrom, gs, ge, strand) = gene_track(gene, transcript=transcript)
+    hits = score_gene(gene, tier=tier, clean_only=clean_only, limit=limit,
+                      ckpt=ckpt, device=device)
+    if not hits:
+        return None, track, 0
+    from bajair.model import load_model
+    scorer = load_model()
+    feats = []
+    for h in hits:
+        feats.append({
+            "xi": int(h["start"]), "xf": int(h["end"]),
+            "y": float(h["score"]), "tier": h["tier"],
+            "label": f"intron {h['intron_number']}/{h['n_introns']}",
+            "headline": h["headline"], "evidence": h["evidence"],
+            "expect": h["expect"], "caveat": h["caveat"], "text": h["text"],
+            "length": h["length"], "gc": h["gc"],
+            "ss_donor": h["ss_donor"], "ss_acceptor": h["ss_acceptor"],
+            "transcript": h["transcript"],
+        })
+    layer = {
+        "name": f"{gene} retained introns",
+        "type": "FeatureLayer",
+        "attribution_type": "intron_retention",
+        "attribution_site": None, "window": None,
+        "xmin": int(gs), "xmax": int(ge), "ymin": 0.0, "ymax": 1.0,
+        "showScore": True,
+        "tier": tier, "threshold": scorer.threshold(tier),
+        "clean_only": bool(clean_only),
+        "n_features": len(feats),
+        "features": feats,
+    }
+    return layer, track, len(feats)
+
+
 def build_payload(gene, sites=(), which="acceptor", window=100, method="ism",
                   min_score=1e-3, ckpt=None, device=None, scores=True,
-                  transcript="canonical"):
+                  transcript="canonical", retention=False, tier="notable",
+                  clean_only=True):
     layers, track = ([], None)
+    bajair_meta = None
     if scores:
         layers, track = score_layers(gene, ckpt=ckpt, device=device,
                                      min_score=min_score, transcript=transcript)
@@ -167,6 +219,17 @@ def build_payload(gene, sites=(), which="acceptor", window=100, method="ism",
                                         transcript=transcript)
         layers = layers + al
         track = track or track2
+    if retention:
+        rl, track3, n_hits = retention_layer(gene, tier=tier, transcript=transcript,
+                                             clean_only=clean_only, ckpt=ckpt,
+                                             device=device)
+        track = track or track3
+        if rl is not None:
+            layers = layers + [rl]
+        # recorded whether or not anything was drawn, so a silent track is
+        # distinguishable from a model that never ran
+        bajair_meta = {"ran": True, "tier": tier, "clean_only": bool(clean_only),
+                       "n_hits": n_hits}
     if track is None:
         track, _ = gene_track(gene, transcript=transcript)
     return {
@@ -175,7 +238,8 @@ def build_payload(gene, sites=(), which="acceptor", window=100, method="ism",
         "track": track,
         "layers": layers,
         "meta": {"model": str(__import__("bajasplice.scan", fromlist=["x"]).resolve_checkpoint(ckpt)),
-                 "n_layers": len(layers)},
+                 "n_layers": len(layers),
+                 **({"bajair": bajair_meta} if bajair_meta else {})},
     }
 
 
@@ -199,6 +263,22 @@ def render_png(payload, out, dpi=140):
     ax0.set_yticks([]); ax0.set_title(f"{tr['name']}  {tr['chrom']}:{tr['xmin']:,}-{tr['xmax']:,} ({tr['strand']})",
                                       fontsize=10, loc="left")
     for ax, L in zip(axes[1:], layers):
+        if L.get("type") == "FeatureLayer":
+            for f in L["features"]:
+                w = max(f["xf"] - f["xi"], 1)
+                ax.add_patch(plt.Rectangle((f["xi"], 0), w, f["y"],
+                                           color="#0B6E5F", alpha=0.75))
+                ax.annotate(f'{f["label"]}  {f["y"]:.2f}',
+                            xy=(f["xi"] + w / 2, f["y"]), xytext=(0, 3),
+                            textcoords="offset points", ha="center",
+                            fontsize=6.5, color="#0B6E5F")
+            ax.set_xlim(L["xmin"], L["xmax"])
+            ax.set_ylim(0, max(1e-3, max(f["y"] for f in L["features"]) * 1.35))
+            ax.set_ylabel("retention\npropensity", fontsize=7)
+            ax.set_title(f'{L["name"]}  ({L["n_features"]} at tier '
+                         f'"{L["tier"]}", threshold {L["threshold"]:.2f})',
+                         fontsize=8, loc="left")
+            continue
         for b in BASES:
             pts = L["points"][b]
             if not pts:
@@ -231,6 +311,16 @@ def main():
     ap.add_argument("--min-score", type=float, default=1e-3,
                     help="drop score-track points below this; keeps payloads small")
     ap.add_argument("--no-scores", action="store_true", help="attribution layers only")
+    ap.add_argument("--retention", action="store_true",
+                    help="add a BajaIR retained-intron layer; it is omitted "
+                         "entirely when no intron clears the tier")
+    ap.add_argument("--tier", default="notable",
+                    choices=["elevated", "notable", "strong", "exceptional"],
+                    help="how strong a hit must be to be reported (default notable, "
+                         "~6x background)")
+    ap.add_argument("--all-introns", action="store_true",
+                    help="do not restrict to MANE introns with strong splice sites; "
+                         "expect minor-transcript artifacts at the top")
     ap.add_argument("--transcript", default="canonical",
                     help="'canonical' (MANE where available), 'all', or a transcript id")
     ap.add_argument("--ckpt")
@@ -246,16 +336,27 @@ def main():
 
     payload = build_payload(a.gene, sites=sites, which=a.which, window=a.window,
                             method=a.method, min_score=a.min_score, ckpt=a.ckpt,
-                            scores=not a.no_scores, transcript=a.transcript)
+                            scores=not a.no_scores, transcript=a.transcript,
+                            retention=a.retention, tier=a.tier,
+                            clean_only=not a.all_introns)
     js = json.dumps(payload)
     if a.out:
         with open(a.out, "w") as f:
             f.write(js)
-        n = sum(L["n_points"] for L in payload["layers"])
+        n = sum(L.get("n_points", 0) for L in payload["layers"])
         print(f"wrote {a.out}  ({len(payload['layers'])} layers, {n:,} points, "
               f"{len(js)/1e6:.2f} MB)")
     else:
         print(js)
+    if a.retention:
+        b = payload["meta"].get("bajair", {})
+        if b.get("n_hits"):
+            for f in next(L for L in payload["layers"]
+                          if L["type"] == "FeatureLayer")["features"]:
+                print(f'  [{f["tier"]}] {f["label"]}  {f["xi"]}-{f["xf"]}  '
+                      f'score {f["y"]:.3f}\n     {f["text"]}')
+        else:
+            print(f'  no introns reached tier "{b.get("tier")}" -- nothing to show')
     if a.png:
         render_png(payload, a.png)
         print(f"wrote {a.png}")

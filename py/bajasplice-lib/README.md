@@ -284,6 +284,7 @@ bajasplice/
   models.py        SpliceNet, PSINet, AltSSNet, RBPBindingNet
   datasets.py      the four torch Datasets
   bajaclip.py      adapter for an external eCLIP binding predictor
+  bajair.py        adapter for BajaIR, the intron-retention scorer
   scan.py          gene/interval scanning and cryptic candidate ranking
   attribution.py   in-silico mutagenesis and gradient x input
   tracks.py        client plot payloads and static PNG rendering
@@ -291,6 +292,21 @@ bajasplice/
   train/           splicesite, psi, altss, rbp
   evaluate/        baselines, metrics, vastdb, eclip, cryptic, report
 ```
+
+## Retained introns
+
+`bajasplice plot --gene UNC13A --retention` adds a BajaIR layer: intron
+retention propensity from sequence, reported only for introns that clear a
+calibrated tier, each with a written description of why. The layer is omitted
+entirely when nothing clears it, so most genes draw nothing; `meta.bajair` in
+the payload still records that the model ran.
+
+BajaIR lives in `~/baja-apps/py/bajair-lib` and is free of torch — the five
+splice-site features it needs come from `bajasplice/bajair.py`, the same adapter
+shape BajaCLIP uses. Held out it reaches AUC 0.83 on well-annotated introns and
+0.63 against VastDB; at the default tier about a quarter of reported introns
+have measurable retention, six times background. It is a shortlist, not a
+caller, and the descriptions say so.
 
 ## Pitfalls this package encodes
 
@@ -312,3 +328,7 @@ in the module that hit it.
   alternative subset separately.
 - **Positive controls.** Of three TDP-43 knockdown studies, one showed no STMN2
   induction. Check a known event fires before trusting a dataset.
+- **Donor and acceptor are transcript-oriented.** On the minus strand the donor
+  is the genomic RIGHT end of the intron. Scoring both ends as if plus-strand
+  mis-scores every minus-strand intron and still returns plausible numbers; the
+  MANE positive control (both sites ~0.9997) is what catches it.

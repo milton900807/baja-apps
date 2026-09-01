@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+bajair/__init__.py
+bajair/describe.py
+bajair/features.py
+bajair/model.py
+bajair/scan.py
+bajair.egg-info/PKG-INFO
+bajair.egg-info/SOURCES.txt
+bajair.egg-info/dependency_links.txt
+bajair.egg-info/requires.txt
+bajair.egg-info/top_level.txt
+bajair/weights/__init__.py
+bajair/weights/ir_scorer.joblib
+bajair/weights/ir_scorer.json
+bajair/weights/ir_scorer_calibration.json
+tests/test_contract.py

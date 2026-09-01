@@ -1,0 +1,22 @@
+[project]
+name = "bajair"
+version = "0.1.0"
+description = "Intron retention propensity from sequence, as a track layer"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pysam",
+    "scikit-learn",
+    "joblib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["bajair*"]
+
+[tool.setuptools.package-data]
+"bajair.weights" = ["*.joblib", "*.json"]
