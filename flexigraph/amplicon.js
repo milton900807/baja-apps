@@ -2,6 +2,51 @@ function () {
 
     return new Promise(async (resolve, reject) => {
 
+        // A small rounded chip carrying a primer's metrics, in the same palette as the rest
+        // of the app's chrome (navy text on a pale ground, thin border) -- see the track tab
+        // in baja/bio/track-flexi.js. The accent is the primer's own colour, so a chip is
+        // read against the primer it belongs to without repeating its name.
+        //
+        // Returns the box it occupied, so the caller can keep two chips from colliding.
+        function drawMetricChip(ctx, text, x, yBottom, accent, align) {
+            if (!text) return null;
+            ctx.save();
+            ctx.font = '10px Arial, Helvetica, sans-serif';
+            const padX = 6, h = 14, r = 4;
+            const w = ctx.measureText(text).width + padX * 2;
+            const left = (align === 'right') ? (x - w) : x;
+            const top = yBottom - h;
+
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+
+            ctx.beginPath();
+            ctx.moveTo(left + r, top);
+            ctx.lineTo(left + w - r, top);
+            ctx.quadraticCurveTo(left + w, top, left + w, top + r);
+            ctx.lineTo(left + w, top + h - r);
+            ctx.quadraticCurveTo(left + w, top + h, left + w - r, top + h);
+            ctx.lineTo(left + r, top + h);
+            ctx.quadraticCurveTo(left, top + h, left, top + h - r);
+            ctx.lineTo(left, top + r);
+            ctx.quadraticCurveTo(left, top, left + r, top);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(245,248,251,0.95)';
+            ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = accent || 'rgba(11,37,69,0.35)';
+            ctx.stroke();
+
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#0b2545';
+            ctx.fillText(text, left + padX, top + h / 2 + 0.5);
+            ctx.restore();
+            return { left: left, right: left + w, top: top, bottom: top + h };
+        }
+
         function truncateFloat(input) {
             let numStr = input.toString();
 
@@ -201,14 +246,11 @@ function () {
                     if (gc != null) part.gc = gc;
                     if (tm != null) part.tm = tm;
                 }
-                if (graph && graph.canvas) {
-                    let ctx = graph.canvas.getCTX();
-                    ctx.shadowColor = "#000000";
-                    ctx.shadowBlur = 2;
-                    ctx.font = 'bold 20px serif';
-                    ctx.fillStyle = 'lightGray';
+                // The block that used to sit here set a drop shadow, 'bold 20px serif' and a
+                // light-grey fill on the shared context and drew nothing with them. Every
+                // label below then had to undo the shadow by hand before it could be read.
+                // Each piece of text now sets what it needs and restores the context.
 
-                }
 
                 if (this.selected) {
                     this.ampColor = 'magenta'
@@ -241,54 +283,40 @@ function () {
                     let rxf = graph.X(tgraph.X(this.right.xf));
                     let lxi = graph.X(tgraph.X(this.left.xi));
 
-                    if (this.left && this.left['tm']) {
-                        let lxf = graph.X(tgraph.X(this.left.xf));
-
-                        ctx.shadowColor = 'transparent';
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = 'black';
-                        ctx.fillText('tm:' + truncateFloat(this.left['tm']), lxi - 40, ys - 23);
-
+                    // Tm and GC for a primer belong together and belong ON the primer. They
+                    // were four separate runs of bare black text pinned 40px outside the
+                    // amplicon (lxi - 40, rxf + 10), so they floated away from what they
+                    // described, collided with each other on a short amplicon, and read as
+                    // 'gc45' with no unit. One chip per primer now sits above its own span.
+                    const metrics = (part) => {
+                        if (!part) return '';
+                        const bits = [];
+                        if (part['tm']) bits.push('Tm ' + truncateFloat(part['tm']) + '°C');
+                        if (part['gc']) bits.push('GC ' + truncateFloat(part['gc']) + '%');
+                        return bits.join('  ·  ');
+                    };
+                    // Anchored INSIDE the amplicon: the forward chip from the left primer's
+                    // start, the reverse chip back from the right primer's end. A short
+                    // amplicon would overlap them, so the reverse chip steps up a row.
+                    const fwdBox = drawMetricChip(ctx, metrics(this.left), lxi, ys - 12, FWD_COLOR, 'left');
+                    let revY = ys - 12;
+                    const revText = metrics(this.right);
+                    if (fwdBox && revText) {
+                        ctx.save();
+                        ctx.font = '10px Arial, Helvetica, sans-serif';
+                        const revW = ctx.measureText(revText).width + 12;
+                        ctx.restore();
+                        if ((rxf - revW) < fwdBox.right + 4) revY = ys - 28;
                     }
+                    drawMetricChip(ctx, revText, rxf, revY, REV_COLOR, 'right');
 
-                    if (this.right && this.right['tm']) {
-                        ctx.shadowColor = 'transparent';
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = 'black';
-                        ctx.fillText('tm:' + truncateFloat(this.right['tm']), rxf + 10, ys - 23);
-
-                    }
-
-                    if (this.left && this.left['gc']) {
-
-                        ctx.shadowColor = 'transparent';
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = 'black';
-                        ctx.fillText('gc' + truncateFloat(this.left['gc']), lxi - 40, ys - 12);
-
-                    }
-
-                    if (this.right && this.right['gc']) {
-                        ctx.shadowColor = 'transparent';
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.fillStyle = 'black';
-                        ctx.fillText('gc' + truncateFloat(this.right['gc']), rxf + 10, ys - 12);
-
-                        if ( this.right.offtarget ){
-                            this.right.y = this.y;
-                            this.right.showOfftargets = true;
-
-                            this.right.draw(graph, tgraph, y);
-                        }
-
+                    // Was nested inside `if (this.right['gc'])`, so the reverse primer's
+                    // off-targets only drew when its GC happened to be truthy -- while the
+                    // left and mid blocks below draw theirs unconditionally. Made symmetric.
+                    if ( this.right && this.right.offtarget ){
+                        this.right.y = this.y;
+                        this.right.showOfftargets = true;
+                        this.right.draw(graph, tgraph, y);
                     }
 
                     if ( this.left && this.left.offtarget ){
@@ -305,6 +333,25 @@ function () {
                         this.mid.draw ( graph, tgraph, y );
 
                     }
+
+                    // The amplicon length is the number a primer pair is judged on, and it was
+                    // nowhere on the drawing. Centred on the body, and only when the body is
+                    // wide enough to hold the chip without covering the primers.
+                    try {
+                        const ampBp = Math.abs(Math.round(this.right.xf - this.left.xi));
+                        if (ampBp > 0) {
+                            const spanPx = Math.abs(rxf - lxi);
+                            const txt = ampBp + ' bp';
+                            ctx.save();
+                            ctx.font = '10px Arial, Helvetica, sans-serif';
+                            const need = ctx.measureText(txt).width + 12;
+                            ctx.restore();
+                            if (spanPx > need + 24) {
+                                drawMetricChip(ctx, txt, (lxi + rxf) / 2 - need / 2, ys + 26,
+                                    'rgba(128,0,0,0.55)', 'left');
+                            }
+                        }
+                    } catch (e) { }
 
                     let screencell = graph.screenWidth(tgraph.screenWidth(1));
                     if (screencell > 1) {
