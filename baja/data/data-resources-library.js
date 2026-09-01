@@ -41,6 +41,38 @@ function (graph, genegraph_panel_layout, tracks) {
                 open: async () => { await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks); }
             },
             {
+                key: 'mirna',
+                title: 'microRNA target sites',
+                badge: 'miRTarBase',
+                ready: true,
+                blurb: 'Experimentally reported miRNA target sites from miRTarBase 10, keyed by '
+                    + 'transcript. Adds them as an interval layer carrying the miRNA, the evidence '
+                    + 'type and the PMIDs behind each site.',
+                open: async () => {
+                    const SETS = await exec('baja/data/layer-sets.js');
+                    // Two sets: validated (strong evidence) and everything reported including
+                    // CLIP. Ask which, rather than silently picking the broader one.
+                    graph.showSideMenu([
+                        {
+                            label: SETS.mirtarbase10_strong.label, move: () => { },
+                            click: () => {
+                                graph.showSideMenu(null);
+                                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                                    SETS.mirtarbase10_strong, tracks);
+                            }
+                        },
+                        {
+                            label: SETS.mirtarbase10_all.label, move: () => { },
+                            click: () => {
+                                graph.showSideMenu(null);
+                                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                                    SETS.mirtarbase10_all, tracks);
+                            }
+                        }
+                    ], null, 'microRNA');
+                }
+            },
+            {
                 key: 'patents',
                 title: 'Patents',
                 badge: 'IP',

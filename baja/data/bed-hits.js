@@ -190,6 +190,46 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
         return 0;
     };
 
+    // targetTrack may be ONE track or an ARRAY, the same contract the model runners use:
+    // deep-link.js passes the single track it resolved, the Layers button passes every track
+    // on the canvas. Given a list, work through it sequentially -- each track is a server read,
+    // and firing them together would queue behind the server's own cap anyway.
+    if (Array.isArray(targetTrack) && targetTrack.length) {
+        const list = targetTrack.filter(Boolean);
+        return (async () => {
+            // An explicit list satisfies the board-level request, so consume the flag: left
+            // set it would turn the next per-track action into a board-wide one.
+            try { window.__bajaApplyAllTracks = false; } catch (e) { }
+            // One history entry for the whole load, so a single undo takes back the board.
+            try { graph.pushOntoHistory(); } catch (e) { }
+            try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+            let done = 0, total = 0;
+            for (let i = 0; i < list.length; i++) {
+                const t = list[i];
+                try {
+                    window.__workStatus = LAYER_LABEL + ' · ' + ((t && t.name) || ('track ' + (i + 1)))
+                        + ' · ' + (i + 1) + ' of ' + list.length + '…';
+                    if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                } catch (e) { }
+                let n = 0;
+                try { n = (await loadOnto(t)) || 0; } catch (e) { n = 0; }
+                if (n > 0) done++;
+                total += n;
+            }
+            try {
+                window.__workStatus = '';
+                if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+            } catch (e) { }
+            restoreHover();
+            // setResultMessage, not setMessage: the canvas draws only error and result toasts,
+            // so a plain message at the end of a board run was never visible.
+            const msg = ' ' + LAYER_LABEL + ': ' + total + ' ' + NOUN + (total === 1 ? '' : 's')
+                + ' on ' + done + ' of ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. ';
+            try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
+            return total;
+        })();
+    }
+
     // Deep link: the track is already known, so skip the click entirely.
     if (targetTrack) return loadOnto(targetTrack);
 
