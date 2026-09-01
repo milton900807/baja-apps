@@ -31,6 +31,16 @@ function (graph, genegraph_panel_layout, tracks) {
                 open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
             },
             {
+                key: 'conservation',
+                title: 'Conservation',
+                badge: 'Comparative',
+                ready: true,
+                blurb: 'Cross-species conservation score as a coverage layer, for judging whether a '
+                    + 'target site is under selective constraint. Needs phyloP / phastCons bigwigs '
+                    + 'in BIG_DATA; the browser is empty until they are installed.',
+                open: async () => { await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks); }
+            },
+            {
                 key: 'patents',
                 title: 'Patents',
                 badge: 'IP',

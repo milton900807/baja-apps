@@ -1,5 +1,21 @@
-function (datapath, server, graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, tracks, datapath, server) {
+
+    // Conservation — a bigwig browser whose chosen file is laid over the tracks as a
+    // coverage layer.
+    //   exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks)
+    //
+    // The parameter order used to be (datapath, server, graph, layout), and the one caller
+    // in baja/data/data-library.js passed (graph, L) -- so datapath got the graph, server got
+    // the layout, and graph itself was undefined. Nothing here could ever have run. The
+    // signature now matches every other data loader, and the two optional trailing arguments
+    // fall back to the values that call was never supplying.
+    server = server || (window['env'] && window['env']['apiUrl']) || '';
+    datapath = datapath || 'Conservation';
+
     return new Promise(async (resolve, reject) => {
+        // The tracks this load applies to: the explicit list when one was handed down,
+        // otherwise everything on the board.
+        const __universe = () => ((Array.isArray(tracks) && tracks.length) ? tracks.filter(Boolean) : (graph.track || []));
         let columns = 4;
         if (isMobile()) {
             columns = 1;
@@ -51,7 +67,18 @@ function (datapath, server, graph, genegraph_panel_layout) {
                         return;
                     }
                     let TrackLayer = await exec('baja/bio/track-layer.js')
-                    for (let __selectedTrack of graph.track) {
+                    const __list = __universe();
+                    // One history entry for the whole load, so a single undo takes it all back.
+                    try { graph.pushOntoHistory(); } catch (e) { }
+                    let __done = 0;
+                    for (let i = 0; i < __list.length; i++) {
+                        const __selectedTrack = __list[i];
+                        if (!__selectedTrack) continue;
+                        try {
+                            window.__workStatus = 'Conservation · ' + (__selectedTrack.name || ('track ' + (i + 1)))
+                                + ' · ' + (i + 1) + ' of ' + __list.length + '…';
+                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                        } catch (e) { }
                         if (loadmode === 'selected_only') {
                             if (__selectedTrack.isSelected() || __selectedTrack.getHighlightedSequence() != null) {
                                 if (__selectedTrack.track_type === 'CDNA') {
@@ -59,6 +86,7 @@ function (datapath, server, graph, genegraph_panel_layout) {
                                 } else {
                                     await loadData(__selectedTrack, element)
                                 }
+                                __done++;
                             }
                         } else {
                             if (__selectedTrack.track_type === 'CDNA') {
@@ -66,9 +94,18 @@ function (datapath, server, graph, genegraph_panel_layout) {
                             } else {
                                 await loadData(__selectedTrack, element)
                             }
+                            __done++;
                         }
-                        graph.setMessage("Conservation data added to  " + __selectedTrack.name);
                     }
+                    try {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                    } catch (e) { }
+                    // setResultMessage, not setMessage: the canvas draws only error and result
+                    // toasts, so the per-track line inside the loop was never visible.
+                    const __msg = ' Conservation applied to ' + __done + ' of ' + __list.length
+                        + ' track' + (__list.length === 1 ? '' : 's') + '. ';
+                    try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
                     let button_canvas = await exec('manchester/controls/navigation-panel.js', graph)
                     CurrentLayout.clearComponent('buttonMenuPanel|labelPanel');
                     CurrentLayout.setComponent('buttonMenuPanel', button_canvas);
@@ -281,7 +318,9 @@ function (datapath, server, graph, genegraph_panel_layout) {
                 start: selectedTrack.xi,
                 end: selectedTrack.xf,
             }
-            if (selectedTrack.markstart > 0 && selectedTrack.markend > 0) {
+            // markend > markstart, not just > 0: the other two checks in this file already
+            // read it that way, and an inverted drag would otherwise ask for a backwards range.
+            if (selectedTrack.markstart > 0 && selectedTrack.markend > selectedTrack.markstart) {
                 range.start = selectedTrack.markstart;
                 range.end = selectedTrack.markend;
             }

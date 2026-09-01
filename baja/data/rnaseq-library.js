@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, tracks) {
 
     // RNASeq Library — a browsable shelf of every RNASeq dataset under BIG_DATA/RNASeq,
     // with species / tissue and a short description on each card. Clicking a dataset loads
@@ -52,7 +52,14 @@ function (graph, genegraph_panel_layout) {
         overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:#071a30;color:#fff;'
             + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
 
-        const nTracks = (graph.track || []).length;
+        // The tracks this library may load onto: the explicit list when one was handed down
+        // (the Layers button passes every track on the canvas, a track menu passes its own),
+        // and otherwise whatever is on the board. Selection narrows it further below.
+        // Declared here, above its first use: a const is in the temporal dead zone until its
+        // own line runs, so defining it further down would throw when the header is built.
+        const universe = () => ((Array.isArray(tracks) && tracks.length) ? tracks.filter(Boolean) : (graph.track || []));
+
+        const nTracks = universe().length;
         // Say up front where a click will land — a selection silently narrowing the load is
         // worse than no narrowing at all.
         let __scopeText = 'all ' + nTracks + ' track' + (nTracks === 1 ? '' : 's') + ' on the board';
@@ -126,7 +133,7 @@ function (graph, genegraph_panel_layout) {
         //   3. nothing selected — every track, full length
         // Returns [{track, start, end}], plus a label describing what was chosen.
         const loadTargets = () => {
-            const all = (graph.track || []).filter((t) => t && t.chr !== undefined && t.chr !== null);
+            const all = universe().filter((t) => t && t.chr !== undefined && t.chr !== null);
             let marked = [];
             try { marked = (graph.getMarkSelectedTracks() || []).filter((t) => all.indexOf(t) >= 0); } catch (e) { marked = []; }
             if (marked.length) {
@@ -153,7 +160,7 @@ function (graph, genegraph_panel_layout) {
         const loadOntoAllTracks = async (d) => {
             const chosen = loadTargets();
             const items = chosen.items;
-            const skipped = (graph.track || []).length - items.length;
+            const skipped = universe().length - items.length;
             if (!items.length) {
                 status.textContent = 'Nothing to load ' + d.label + ' onto — no track with a chromosome is selected or on the board.';
                 return;
@@ -162,6 +169,9 @@ function (graph, genegraph_panel_layout) {
             let TrackLayer;
             try { TrackLayer = await exec('baja/bio/track-layer.js'); }
             catch (e) { try { graph.setMessage(' Could not load the layer type: ' + e + ' '); } catch (e2) { } return; }
+
+            // One history entry for the whole load, so a single undo takes back the board.
+            try { graph.pushOntoHistory(); } catch (e) { }
 
             let done = 0, failed = 0;
             for (const it of items) {

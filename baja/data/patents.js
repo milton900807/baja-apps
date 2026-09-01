@@ -134,6 +134,9 @@ function (graph, genegraph_panel_layout, tracks) {
         // Left set, it would silently turn the NEXT per-track action into a board-wide one.
         try { window.__bajaApplyAllTracks = false; } catch (e) { }
 
+        // One history entry for the whole load, so a single undo takes back the board.
+        try { graph.pushOntoHistory(); } catch (e) { }
+
         // Sequential: each track is a server read, and firing them together would queue
         // behind the server's own cap while making the progress line meaningless.
         try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }

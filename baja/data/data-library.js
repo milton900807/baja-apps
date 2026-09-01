@@ -23,7 +23,7 @@ function (graph, genegraph_panel_layout) {
                 title: 'RNASeq', badge: 'Coverage', ready: true,
                 blurb: 'Per-base read depth by species and tissue. Adds a coverage layer to the '
                     + 'selected tracks, or to every track when nothing is selected.',
-                open: () => exec('baja/data/rnaseq-library.js', graph, L),
+                open: () => exec('baja/data/rnaseq-library.js', graph, L, (graph.track || []).slice()),
                 docs: {
                     summary: 'Per-base RNA-seq read depth, organised by species and tissue. Use it to '
                         + 'see whether the region you are targeting is actually transcribed, and how '
@@ -77,7 +77,7 @@ function (graph, genegraph_panel_layout) {
                 title: 'Conservation', badge: 'Comparative', ready: true,
                 blurb: 'Cross-species conservation score as a track layer — useful for judging '
                     + 'whether a target site is under selective constraint.',
-                open: () => exec('baja/data/conservation-data.js', graph, L),
+                open: () => exec('baja/data/conservation-data.js', graph, L, (graph.track || []).slice()),
                 docs: {
                     summary: 'Cross-species conservation along the track. A target site under strong '
                         + 'constraint is more likely to be functional — and more likely to be conserved '
