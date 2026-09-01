@@ -7091,7 +7091,31 @@ pattern, GGGG | Required`
                 return menu;
             }
 
+            // VIEWER gate: a read-only screen must not offer design. Design entries are spread
+            // across many menus (gene.js itself, mouse-over-highlight, selected-sequence-menu,
+            // track-design-menu, …), and new ones get added over time, so filter centrally at
+            // the three menu entry points rather than editing every list — a menu added later
+            // is covered automatically. Applies only when graph.viewer is set.
+            __viewerFilterMenu(list) {
+                try {
+                    if (!this.viewer || !Array.isArray(list)) return list;
+                    const out = list.filter((it) => {
+                        try {
+                            const l = '' + ((it && it.label) || '');
+                            return !/design/i.test(l);
+                        } catch (e) { return true; }
+                    });
+                    // Preserve the marker properties menus hang off the array itself.
+                    try {
+                        for (const k of ['__menuTitle', '__compactCols', '__noCollapse']) {
+                            if (list[k] !== undefined) out[k] = list[k];
+                        }
+                    } catch (e) { }
+                    return out;
+                } catch (e) { return list; }
+            }
             showSideMenu(list, anchor) {
+                try { list = this.__viewerFilterMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
                 // console.trace('showSideMenu() called', {
                 //     list,
@@ -7296,6 +7320,7 @@ pattern, GGGG | Required`
                 }, 10);
             }
             showMenu(list, x, y, width) {
+                try { list = this.__viewerFilterMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
                 // The center (context) menu takes over — dismiss any side menu.
                 this.side_menu = null;
@@ -7380,6 +7405,7 @@ pattern, GGGG | Required`
             }
 
             showWindowMenu(list, x, y, width) {
+                try { list = this.__viewerFilterMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
                 exec('flexigraph/show-mobile-menu.js', x, y, list, this.graph, this.genegraph_panel_layout, true)
             }

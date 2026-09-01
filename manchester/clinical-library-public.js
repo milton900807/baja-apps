@@ -12,15 +12,12 @@ function (path, config) {
     // load-clinical-compound.js with them, so handing it a viewer graph is all that is needed.
 
     return (async () => {
-        let progressBar;
-        try {
-            await showWidget({
-                wid: 'progress',
-                componentRef: 'progressBar',
-                data: { progress: 1, progressBar: createIonFunction((pb) => { progressBar = pb; }) }
-            });
-            progressBar(0);
-        } catch (e) { }
+        // Upper-right spinning badge instead of a `wid: 'progress'` widget — the progress
+        // widget mounts into the button-menu panel, which a read-only screen otherwise has no
+        // use for. Same treatment as manchester/viewer.js.
+        const __spin = await exec('baja/lib/work-spinner.js', 'Loading library…');
+        const progressBar = (pct) => { try { __spin.progress(pct); } catch (e) { } };
+        try { progressBar(0); } catch (e) { }
 
         const graph = await exec('flexigraph/gene.js', progressBar);
         // Read-only, and viewer:true gates editor-only actions (e.g. run-off-targets).
@@ -56,9 +53,12 @@ function (path, config) {
         try { graph.clearMouseListeners(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
         try { if (graph.selectOff) graph.selectOff(); } catch (e) { }
-        try { graph.showDisplay = true; } catch (e) { }
+        // Info/stats card hidden by default, same as manchester/viewer.js — chrome a public
+        // visitor did not ask for, and its menu leads into track actions.
+        try { graph.showDisplay = false; } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
         try { progressBar(100); } catch (e) { }
+        try { __spin.stop(); } catch (e) { }
 
         // Keep the URL clean so the page is shareable as-is.
         try {

@@ -10,16 +10,15 @@ function (path, config) {
     // Async IIFE so top-level await compiles on both exec()/run() engine paths.
     return (async () => {
 
-        let progressBar;
-        const progW = {
-            wid: 'progress',
-            componentRef: 'progressBar',
-            data: {
-                progress: 1,
-                progressBar: createIonFunction((pb) => { progressBar = pb; })
-            }
-        };
-        await showWidget(progW);
+        // Progress shows as a small spinning badge in the UPPER-RIGHT rather than a
+        // `wid: 'progress'` widget. showWidget() mounted that progress bar into the
+        // button-menu panel, which on a read-only screen exists for nothing else — so the
+        // viewer opened with a toolbar-shaped strip that was only ever a progress bar. The
+        // badge is fixed-position, occupies no layout and is pointer-events:none.
+        const __spin = await exec('baja/lib/work-spinner.js', 'Loading…');
+        // Same call signature as the progress-widget callback, so it can be handed straight
+        // to gene.js below in its place.
+        const progressBar = (pct) => { try { __spin.progress(pct); } catch (e) { } };
         try { progressBar(0); } catch (e) { }
 
         // Resolve the .baja path. PREFER a share CODE (?s=…) resolved server-side, so the
@@ -90,6 +89,7 @@ function (path, config) {
 
             const hasContent = rs && (rs.viewport || rs.track || rs.tracks || rs.shapes);
             if (!hasContent) {
+                try { __spin.stop(); } catch (e) { }
                 await showWidget({ wid: 'html', data: '<hr> Could not open this shared screen. ' + ((rs && rs.msg) ? rs.msg : '') });
                 return;
             }
@@ -98,10 +98,12 @@ function (path, config) {
                 await graph.update(rs);
                 graph.file = path.substring(path.lastIndexOf('/') + 1);
             } catch (e) {
+                try { __spin.stop(); } catch (e2) { }
                 await showWidget({ wid: 'html', data: '<hr> Failed to render the shared screen: ' + e });
                 return;
             }
         } else {
+            try { __spin.stop(); } catch (e) { }
             await showWidget({ wid: 'html', data: '<hr> Not a shareable screen.' });
             return;
         }
@@ -147,10 +149,10 @@ function (path, config) {
         try { graph.clearMouseListeners(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
         try { if (graph.selectOff) graph.selectOff(); } catch (e) { }
-        // Show the small stats card — in a read-only screen its menu offers only
-        // navigation (center on a track) and Export, giving the viewer an export entry
-        // point without any modifying menus.
-        try { graph.showDisplay = true; } catch (e) { }
+        // The info/stats card stays HIDDEN by default on a read-only screen — it is chrome a
+        // viewer did not ask for, and its menu is an entry point into track actions.
+        try { graph.showDisplay = false; } catch (e) { }
         try { if (graph.wake) graph.wake(); } catch (e) { }
+        try { __spin.stop(); } catch (e) { }
     })();
 }
