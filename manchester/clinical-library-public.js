@@ -48,10 +48,12 @@ function (path, config) {
         try { CurrentLayout.stash('mainPanel', main_layout); } catch (e) { }
         try { progressBar(80); } catch (e) { }
 
-        // Pan/zoom only. Deliberately NOT arming mouse-over-highlight: that is the editing
-        // hover menu (edit / delete / design), which must not appear on a public screen.
+        // Arm the track hover/menu so a public visitor can add data and run models
+        // (Layers ▸ -> Data ▸ / Models ▸). graph.viewer + __viewerDenied (gene.js) strip design
+        // and every board-modifying entry from all menus, so this does not expose editing.
         try { graph.clearMouseListeners(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
+        try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         try { if (graph.selectOff) graph.selectOff(); } catch (e) { }
         // Info/stats card hidden by default, same as manchester/viewer.js — chrome a public
         // visitor did not ask for, and its menu leads into track actions.

@@ -7091,6 +7091,24 @@ pattern, GGGG | Required`
                 return menu;
             }
 
+            // What a VIEWER may not do. An explicit deny-list rather than a broad match, so it
+            // is auditable and so read-only look-alikes survive: "Copy to new track" modifies
+            // the board and is denied, while "Copy sequence" / "Copy reverse complement" only
+            // touch the clipboard and are kept.
+            //
+            // Adding data and running models IS allowed — Layers ▸ / Data ▸ / Models ▸ stay,
+            // along with Go to, Sequence (its read-only entries), Properties, Protein, Compounds,
+            // Variants, Synthesis cost and Export.
+            __viewerDenied = [
+                /design/i,          // no designing, anywhere
+                /^delete\b/i,       // Delete track
+                /^edit\b/i,         // Edit track / Edit sequence / Edit
+                /^move\b/i,         // Move track
+                /^create\b/i,       // Create mRNA
+                /^copy to\b/i,      // Copy to new track (NOT "Copy sequence")
+                /^mutate\b/i        // Mutate from sequence
+            ]
+
             // VIEWER gate: a read-only screen must not offer design. Design entries are spread
             // across many menus (gene.js itself, mouse-over-highlight, selected-sequence-menu,
             // track-design-menu, …), and new ones get added over time, so filter centrally at
@@ -7101,8 +7119,9 @@ pattern, GGGG | Required`
                     if (!this.viewer || !Array.isArray(list)) return list;
                     const out = list.filter((it) => {
                         try {
-                            const l = '' + ((it && it.label) || '');
-                            return !/design/i.test(l);
+                            const l = ('' + ((it && it.label) || '')).trim();
+                            for (const re of this.__viewerDenied) { if (re.test(l)) return false; }
+                            return true;
                         } catch (e) { return true; }
                     });
                     // Preserve the marker properties menus hang off the array itself.
@@ -8933,19 +8952,30 @@ pattern, GGGG | Required`
                     // track's actions. Prefer the track's FULL menu (Layers / Variants / Design /
                     // …) stashed when it was interacted with on the canvas; otherwise a compact
                     // fallback built from the standalone per-track modules.
+                    // Opening a track's entry just opens ITS MENU. It used to also centre/zoom the
+                    // camera and select the whole track + sequence, so browsing the Tracks list
+                    // moved the view and clobbered any selection the user already had — a
+                    // destructive side effect of what reads as pure navigation. Centring is still
+                    // available deliberately via the child menu's own "Center on track".
                     const openTrackChild = (t, i) => {
-                        centerTrack(t);
-                        try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { }
                         const back = { label: '‹ Back', click: () => { openTracks(); }, move: () => { } };
                         let stashed = null;
                         try { const e = (this.__lassoSelection || []).find((s) => s.kind === 'track' && s.ref === t); stashed = e && e.trackMenu; } catch (e) { }
+                        // Centring is now something the user ASKS for, rather than a side effect of
+                        // opening the menu. Offered in both child shapes so it is never lost.
+                        const centerItem = {
+                            label: 'Center on track',
+                            click: () => { close(); centerTrack(t); },
+                            move: () => { }
+                        };
                         let child;
                         if (stashed && stashed.length) {
-                            child = stashed.concat([back]);
+                            child = stashed.concat([centerItem, back]);
                         } else {
                             const L = this.genegraph_panel_layout;
                             child = [
                                 { label: 'Layers ▸', click: () => { close(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
+                                centerItem,
                                 { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { close(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                 { label: 'Design ▸', click: () => { close(); try { if (t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                 back,

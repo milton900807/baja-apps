@@ -144,10 +144,15 @@ function (path, config) {
         try { CurrentLayout.stash('mainPanel', main_layout); } catch (e) { }
         try { progressBar(100); } catch (e) { }
 
-        // Read-only interaction: pan/zoom only. Intentionally do NOT arm the editing
-        // mouse-over-highlight (which exposes edit/delete menus) — this keeps it view-only.
+        // Arm the normal track hover/menu so a viewer can still ADD DATA and RUN MODELS
+        // (Layers ▸ -> Data ▸ / Models ▸). What a viewer may not do is enforced centrally by
+        // graph.viewer + __viewerDenied in gene.js, which strips design and the board-modifying
+        // entries (delete / edit / move / create / copy-to-new-track / mutate) from EVERY menu,
+        // including submenus built lazily inside click handlers. Arming the menu here without
+        // that gate would hand a public visitor Delete track.
         try { graph.clearMouseListeners(); } catch (e) { }
         try { graph.setMouseMode('navigate'); } catch (e) { }
+        try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         try { if (graph.selectOff) graph.selectOff(); } catch (e) { }
         // The info/stats card stays HIDDEN by default on a read-only screen — it is chrome a
         // viewer did not ask for, and its menu is an entry point into track actions.
