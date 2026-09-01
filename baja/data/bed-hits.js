@@ -83,10 +83,21 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             const exons = (track.getExons ? (track.getExons() || []) : []).slice();
             if (track.strand >= 0) exons.sort((a, b) => a.xi - b.xi);
             else exons.sort((a, b) => b.xi - a.xi);
-            const hasExons = exons.length > 0;
+
+            // WHICH MAPPING depends on what the track's sequence IS, not on whether it has
+            // exons drawn on it -- a pre-mRNA track carries exon annotations too.
+            //   mRNA      the BED's coordinates are transcript-relative, so map them back
+            //             out through the exons and split at each intron boundary
+            //   pre-mRNA  the coordinates are already linear along the track, so place them
+            //             directly; splicing them would shift every hit by the intron length
+            //             accumulated before it
+            // Running exon mapping over a pre-mRNA track was the previous behaviour whenever
+            // exons happened to be present.
+            const spliced = (track.isSplicedTranscript ? track.isSplicedTranscript() : (exons.length > 0));
+            const hasExons = spliced && exons.length > 0;
 
             const segsFor = (s, e) => {
-                if (!hasExons) return [[track.xi + s, track.xi + e]];   // fallback: no exons
+                if (!hasExons) return [[track.xi + s, track.xi + e]];   // pre-mRNA: linear
                 let cum = 0;
                 const segs = [];
                 for (const ex of exons) {

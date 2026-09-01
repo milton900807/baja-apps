@@ -13,6 +13,16 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
     datapath = datapath || 'Conservation';
 
     return new Promise(async (resolve, reject) => {
+        // mRNA vs pre-mRNA decides the coordinate mapping, the same question the other
+        // loaders ask. Falls back to the old track_type check for anything that predates
+        // the method.
+        const __isSpliced = (t) => {
+            try {
+                if (t && typeof t.isSplicedTranscript === 'function') return t.isSplicedTranscript();
+            } catch (e) { }
+            return !!(t && t.track_type === 'CDNA');
+        };
+
         // The tracks this load applies to: the explicit list when one was handed down,
         // otherwise everything on the board.
         const __universe = () => ((Array.isArray(tracks) && tracks.length) ? tracks.filter(Boolean) : (graph.track || []));
@@ -81,7 +91,13 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
                         } catch (e) { }
                         if (loadmode === 'selected_only') {
                             if (__selectedTrack.isSelected() || __selectedTrack.getHighlightedSequence() != null) {
-                                if (__selectedTrack.track_type === 'CDNA') {
+                                // Spliced -> exon-aware (loadExonData); unspliced -> linear
+                            // (loadData). Was keyed on track_type === 'CDNA', which only the
+                            // buildCdna path sets: a transcript loaded by Ensembl id carries
+                            // no track_type at all and took the linear branch even when its
+                            // sequence was the spliced mRNA. isSplicedTranscript asks what
+                            // the sequence actually is.
+                            if (__isSpliced(__selectedTrack)) {
                                     await loadExonData(__selectedTrack, element)
                                 } else {
                                     await loadData(__selectedTrack, element)
@@ -89,7 +105,13 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
                                 __done++;
                             }
                         } else {
-                            if (__selectedTrack.track_type === 'CDNA') {
+                            // Spliced -> exon-aware (loadExonData); unspliced -> linear
+                            // (loadData). Was keyed on track_type === 'CDNA', which only the
+                            // buildCdna path sets: a transcript loaded by Ensembl id carries
+                            // no track_type at all and took the linear branch even when its
+                            // sequence was the spliced mRNA. isSplicedTranscript asks what
+                            // the sequence actually is.
+                            if (__isSpliced(__selectedTrack)) {
                                 await loadExonData(__selectedTrack, element)
                             } else {
                                 await loadData(__selectedTrack, element)

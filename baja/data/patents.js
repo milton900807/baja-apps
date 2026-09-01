@@ -62,10 +62,15 @@ function (graph, genegraph_panel_layout, tracks) {
             const exons = (track.getExons ? (track.getExons() || []) : []).slice();
             if (track.strand >= 0) exons.sort((a, b) => a.xi - b.xi);
             else exons.sort((a, b) => b.xi - a.xi);
-            const hasExons = exons.length > 0;
+
+            // Exon mapping applies to a SPLICED track only. A pre-mRNA track carries exon
+            // annotations as well, and running its already-linear coordinates through them
+            // shifts every hit by the introns accumulated before it.
+            const spliced = (track.isSplicedTranscript ? track.isSplicedTranscript() : (exons.length > 0));
+            const hasExons = spliced && exons.length > 0;
 
             const segsFor = (s, e) => {
-                if (!hasExons) return [[track.xi + s, track.xi + e]];   // fallback: no exons
+                if (!hasExons) return [[track.xi + s, track.xi + e]];   // pre-mRNA: linear
                 let cum = 0;
                 const segs = [];
                 for (const ex of exons) {

@@ -2047,6 +2047,32 @@ return new Promise(async (resolve, reject) => {
             }
             return temp;
         }
+
+        // Is this track's sequence the SPLICED transcript (mRNA / cDNA), or the full
+        // intron-containing span (pre-mRNA)?
+        //
+        // It decides how a data layer's coordinates reach the canvas:
+        //   mRNA      positions are transcript-relative, so they must be mapped back out
+        //             through the exons and split at every intron boundary
+        //   pre-mRNA  positions are already linear along the track, so they are placed
+        //             directly -- running them through the exons would move every one
+        //
+        // Told apart by length: compare the sequence against the summed exon length and
+        // against the genomic span, and take whichever it is closer to. The same test was
+        // already inline in buildCdna(); it lives here now so the loaders and the renderer
+        // cannot drift apart on what counts as spliced.
+        isSplicedTranscript() {
+            try {
+                const seqLen = (this.sequence && this.sequence.length) || 0;
+                if (!seqLen) return false;
+                const exons = this.getExons() || [];
+                if (!exons.length) return false;   // nothing to splice through
+                const totalExonLen = exons.reduce((t, a) => t + Math.max(0, Math.floor(a.xf - a.xi)), 0);
+                const spanLen = Math.abs(Math.floor(this.xf - this.xi));
+                if (!totalExonLen || !spanLen) return false;
+                return Math.abs(seqLen - totalExonLen) <= Math.abs(seqLen - spanLen);
+            } catch (e) { return false; }
+        }
         getAnnotations(annotation_type) {
             let temp = []
             for (let a of this.annotations) {
@@ -2798,9 +2824,7 @@ return new Promise(async (resolve, reject) => {
             // include introns and overshoot after the first exon — so only one exon
             // comes through. Detect that case and index the cDNA by cumulative exon
             // length instead.
-            let totalExonLen = exons.reduce((s, a) => s + Math.max(0, Math.floor(a.xf - a.xi)), 0);
-            let spanLen = Math.abs(Math.floor(this.xf - this.xi));
-            let isCdna = Math.abs(this.sequence.length - totalExonLen) <= Math.abs(this.sequence.length - spanLen);
+            let isCdna = this.isSplicedTranscript();
 
             let cum = 0;
             for (let a of exons) {
