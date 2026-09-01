@@ -60,11 +60,11 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 const axis = axisOf(track);
                 if (!gene) {
                     graph.setMessage(' That track has no gene name to score. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
                 if (!axis) {
                     graph.setMessage(' That track has no coordinate axis to draw on. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
 
                 // Context-specific status: which model, which gene, at which tier. Cleared in
@@ -84,7 +84,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
 
                 if (data && data.error) {
                     graph.setMessage(' Intron retention: ' + data.error + ' ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
                 let hits = [];
                 try { hits = JSON.parse((data && data.hits) || '[]'); } catch (e) { hits = []; }
@@ -93,7 +93,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 if (!hits.length) {
                     graph.setMessage(' No intron of ' + gene + ' reaches the "' + tier
                         + '" tier, which is the usual answer for most genes. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
 
                 const TrackLayer = await exec('baja/bio/track-layer.js');
@@ -103,14 +103,27 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 layer.color = 'rgba(26,163,189,0.55)';
                 layer.fillstyle = layer.color;
 
+                // A SELECTED SEQUENCE narrows the layer to that region: introns are clipped to
+                // the selection when the track has one, and to the whole axis when it does not.
+                let __lo = axis.xmin, __hi = axis.xmax, __sel = false;
+                try {
+                    if (track.markstart != null && track.markend != null
+                        && track.markstart >= 0 && track.markend > track.markstart) {
+                        __lo = Math.max(axis.xmin, Math.floor(track.markstart));
+                        __hi = Math.min(axis.xmax, Math.ceil(track.markend));
+                        __sel = __hi > __lo;
+                    }
+                } catch (e) { }
+
                 let added = 0, skipped = 0, best = 0;
                 hits.forEach((h, i) => {
                     if (!h) return;
                     let a = Math.min(+h.start, +h.end), b = Math.max(+h.start, +h.end);
                     if (!isFinite(a) || !isFinite(b) || !(b > a)) { skipped++; return; }
                     // The library may report introns of a transcript that extends past this
-                    // track's window. Clip to the axis, and drop anything wholly outside it.
-                    a = Math.max(a, axis.xmin); b = Math.min(b, axis.xmax);
+                    // track's window. Clip to the window -- the selection when there is one --
+                    // and drop anything wholly outside it.
+                    a = Math.max(a, __lo); b = Math.min(b, __hi);
                     if (!(b > a)) { skipped++; return; }
 
                     const sc = Math.max(0, Math.min(1, +h.score || 0));
@@ -132,8 +145,9 @@ function (graph, genegraph_panel_layout, presetTrack) {
 
                 if (!added) {
                     graph.setMessage(' ' + gene + ': ' + hits.length + ' intron'
-                        + (hits.length === 1 ? '' : 's') + ' scored, but none fall inside this track\'s range. ');
-                    restoreHover(); return;
+                        + (hits.length === 1 ? '' : 's') + ' scored, but none fall inside '
+                        + (__sel ? 'the selected sequence' : 'this track\'s range') + '. ');
+                    restoreHover(); return false;
                 }
 
                 track.addLayer(layer);
@@ -148,11 +162,15 @@ function (graph, genegraph_panel_layout, presetTrack) {
                     + (skipped ? (', ' + skipped + ' outside this track') : '')
                     + ', ranked (top score ' + best.toFixed(2) + '). Read the rank, not the score. ');
                 resetModelsToolbar();
+                try { exec('baja/lib/work-status.js', null); } catch (e) { }
+                restoreHover();
+                return true;
             } catch (e) {
                 graph.setMessage(' Intron retention error: ' + ((e && e.message) ? e.message : e) + ' ');
             }
             try { exec('baja/lib/work-status.js', null); } catch (e) { }
             restoreHover();
+            return false;
         };
 
         // Going back to the editor is CurrentLayout.reset('mainPanel'), not a clear + set.
@@ -218,7 +236,10 @@ function (graph, genegraph_panel_layout, presetTrack) {
                     .filter((t) => t && (t.grid || t.tgraph));
             } catch (e) { }
             if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
+            // One history entry for the whole board run, so a single undo takes it all back.
+            try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
+                let done = 0;
                 for (let i = 0; i < all.length; i++) {
                     const t = all[i];
                     try {
@@ -226,13 +247,18 @@ function (graph, genegraph_panel_layout, presetTrack) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { await runOnTrack(t, tier, null); } catch (e) { }
+                    try { if (await runOnTrack(t, tier, null)) done++; } catch (e) { }
                 }
                 try {
                     window.__workStatus = '';
                     if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                 } catch (e) { }
-                graph.setMessage(' Applied to all ' + all.length + ' track' + (all.length === 1 ? '' : 's') + '. ');
+                // setResultMessage, not setMessage: the canvas draws only error and result
+                // toasts, so the plain message was never visible and a board run looked as
+                // though it had finished without saying anything.
+                const __msg = ' BajaIR applied to ' + done + ' of ' + all.length
+                    + ' track' + (all.length === 1 ? '' : 's') + '. ';
+                try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
             })();
         };
 

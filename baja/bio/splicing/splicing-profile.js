@@ -171,6 +171,18 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             } catch (e) { }
             return null;
         };
+        // A board run must read EACH track's own selection. pickedRange prefers presetRange,
+        // which is one range from the launching context -- correct for a single track, wrong
+        // when applied to every track on the canvas.
+        const ownRange = (t) => {
+            try {
+                if (t && t.markstart != null && t.markend != null
+                    && t.markstart >= 0 && t.markend > t.markstart) {
+                    return { start: Math.floor(t.markstart), end: Math.ceil(t.markend) };
+                }
+            } catch (e) { }
+            return null;
+        };
         const pickedRange = (t) => {
             if (presetRange) return presetRange;
             try {
@@ -208,7 +220,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { await runOnTrack(t, mode, null); } catch (e) { }
+                    // A track with a selected sequence is scored over that selection only:
+                    // pickedRange reads the track's own markstart/markend, so a board run
+                    // honours each track's selection instead of scoring all of every track.
+                    try { await runOnTrack(t, mode, ownRange(t)); } catch (e) { }
                 }
                 try {
                     window.__workStatus = '';

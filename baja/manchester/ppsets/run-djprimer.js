@@ -34,21 +34,34 @@ function (graph, genegraph_panel_layout, presetTrack) {
             } catch (e) { }
         };
 
-        // Same rule as the Design menu: design against the WHOLE track, and read the sequence
-        // through the range accessor when the track does not carry one directly.
-        const sequenceOf = (t) => {
-            if (!t) return '';
-            if (t.sequence) return t.sequence;
+        // A track with a SELECTED SEQUENCE is designed over that selection only; a track
+        // without one is designed over its whole length. Returns the sequence and the offset
+        // its first base sits at, since results are placed relative to where the design began.
+        const designTarget = (t) => {
+            if (!t) return { seq: '', offset: 0 };
+            const xi = (t.xi != null) ? t.xi : 0;
+            try {
+                if (t.markstart != null && t.markend != null
+                    && t.markstart >= 0 && t.markend > t.markstart && t.getSequenceRange) {
+                    const sub = t.getSequenceRange(t.markstart, t.markend);
+                    if (sub && sub.length) {
+                        // Offset is measured from the track origin, the same space
+                        // apply-djprimer.js places amplicons in.
+                        return { seq: sub, offset: Math.max(0, Math.floor(t.markstart - xi)) };
+                    }
+                }
+            } catch (e) { }
+            if (t.sequence) return { seq: t.sequence, offset: 0 };
             try {
                 const g = t.grid || t.tgraph;      // track-flexi exposes .grid, track.js .tgraph
-                if (g && t.getSequenceRange) return t.getSequenceRange(g.xmin, g.xmax) || '';
+                if (g && t.getSequenceRange) return { seq: t.getSequenceRange(g.xmin, g.xmax) || '', offset: 0 };
             } catch (e) { }
-            return '';
+            return { seq: '', offset: 0 };
         };
 
         // Returns true when the track was actually designed against.
         const runOne = async (t) => {
-            const sequence = sequenceOf(t);
+            const { seq: sequence, offset } = designTarget(t);
             if (!sequence) {
                 // Skip, do not abort: one track without a sequence must not end a board run.
                 try { graph.setMessage(' ' + ((t && t.name) || 'That track') + ' has no sequence to design against. '); } catch (e) { }
@@ -59,8 +72,9 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
                 const r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
                 t.ampliconResults = r;
-                // xoffset 0: the design spans the whole track, so results are placed from its origin.
-                await exec('baja/manchester/ppsets/apply-djprimer.js', r, 0, t, graph);
+                // Placed from where the design actually began: 0 for a whole track, the
+                // selection's start for a selected one.
+                await exec('baja/manchester/ppsets/apply-djprimer.js', r, offset, t, graph);
                 if (graph.wake) graph.wake();
                 return true;
             } catch (e) {

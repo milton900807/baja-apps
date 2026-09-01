@@ -57,6 +57,18 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             } catch (e) { }
             return null;
         };
+        // A board run must read EACH track's own selection. pickedRange prefers presetRange,
+        // which is one range from the launching context -- correct for a single track, wrong
+        // when applied to every track on the canvas.
+        const ownRange = (t) => {
+            try {
+                if (t && t.markstart != null && t.markend != null
+                    && t.markstart >= 0 && t.markend > t.markstart) {
+                    return { start: Math.floor(t.markstart), end: Math.ceil(t.markend) };
+                }
+            } catch (e) { }
+            return null;
+        };
         const pickedRange = (t) => {
             if (presetRange) return presetRange;
             try {
@@ -82,8 +94,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     } catch (e) { }
                 }
                 if (!seq || !seq.length) {
-                    graph.setMessage(' That track has no sequence to profile. ');
-                    restoreHover(); return;
+                    graph.setMessage(' ' + ((track && track.name) || 'That track') + ' has no sequence to profile. ');
+                    restoreHover(); return false;
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
@@ -111,7 +123,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 try { sites = JSON.parse((data && data.sites) || '[]'); } catch (e) { sites = []; }
                 if (!sites.length) {
                     graph.setMessage(' No ' + rbp + ' binding sites predicted for that track. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
 
                 // Interval layer — one block per predicted binding site (start,end).
@@ -142,7 +154,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 }
                 if (!added) {
                     graph.setMessage(' No ' + rbp + ' binding sites scoring above 0.95 for that track. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
                 track.addLayer(layer);
 
@@ -153,11 +165,15 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 if (graph.wake) graph.wake();
                 graph.setMessage(' ' + name + ': ' + added + ' binding site' + (added === 1 ? '' : 's') + ' (score > 0.95) added to ' + (track.name || 'track') + '. ');
                 resetModelsToolbar();
+                try { exec('baja/lib/work-status.js', null); } catch (e) { }
+                restoreHover();
+                return true;
             } catch (e) {
                 graph.setMessage(' RBP error: ' + e + ' ');
             }
             try { exec('baja/lib/work-status.js', null); } catch (e) { }
             restoreHover();
+            return false;
         };
 
         // BOARD-LEVEL run: the Layers button on the canvas sets __bajaApplyAllTracks, meaning
@@ -178,7 +194,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     .filter((t) => t && (t.grid || t.tgraph));
             } catch (e) { }
             if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
+            // One history entry for the whole board run, so a single undo takes it all back.
+            try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
+                let done = 0;
                 for (let i = 0; i < all.length; i++) {
                     const t = all[i];
                     try {
@@ -186,13 +205,21 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    try { await runOnTrack(t, rbp, null); } catch (e) { }
+                    // A track with a selected sequence is scored over that selection only:
+                    // pickedRange reads the track's own markstart/markend, so a board run
+                    // honours each track's selection instead of scoring all of every track.
+                    try { if (await runOnTrack(t, rbp, ownRange(t))) done++; } catch (e) { }
                 }
                 try {
                     window.__workStatus = '';
                     if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                 } catch (e) { }
-                graph.setMessage(' Applied to all ' + all.length + ' track' + (all.length === 1 ? '' : 's') + '. ');
+                // setResultMessage, not setMessage: the canvas draws only error and result
+                // toasts, so the plain message was never visible and a board run looked as
+                // though it had finished without saying anything.
+                const __msg = ' ' + rbp + ' applied to ' + done + ' of ' + all.length
+                    + ' track' + (all.length === 1 ? '' : 's') + '. ';
+                try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
             })();
         };
 
