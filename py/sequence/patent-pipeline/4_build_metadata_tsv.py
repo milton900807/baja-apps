@@ -6,7 +6,7 @@ Output: <work>/aso_sirna_gt_2020_2026_meta.tsv
 Row:  <publication_number>\t<number>‖<title>‖<filing_date>‖<assignee>‖<inventors>
 
 The app's read-bed-region.py replaces the BED's col-4 (the patent number) with this label, and
-baja/data/patent-hits.js splits it on ‖ into the on-zoom metadata callout. Fields are sanitized
+baja/data/bed-hits.js splits it on ‖ into the on-zoom metadata callout. Fields are sanitized
 so they never contain a tab, '|', or '‖'. A header row is written (the reader skips it).
 """
 import argparse

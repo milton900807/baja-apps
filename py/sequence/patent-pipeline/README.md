@@ -122,4 +122,4 @@ bash 5_package.sh --work $WORK
   sequences; PatSeq/ENA coverage of very recent (2025–2026) filings lags. The BED reflects what
   the source has; the metadata TSV still carries every filtered patent.
 - Everything downstream (the on-zoom metadata callout, lane packing, exon-splitting) is already
-  built in `baja/data/patent-hits.js` — you only produce the two files.
+  built in `baja/data/bed-hits.js` — you only produce the two files.
