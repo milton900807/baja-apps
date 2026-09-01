@@ -2878,8 +2878,15 @@ function (path, config) {
                 // holds for a moment and then fades to nothing, so it greets without occupying
                 // the workspace. It only draws while there are no tracks, so opening a file
                 // removes it immediately regardless of the timer.
+                // The theme string names a WHITE-LABEL deployment, whose name is drawn in the
+                // middle of an empty canvas instead of our logo. Compared with case, spaces and
+                // punctuation stripped: this tested for the literal 'bajabio' while production's
+                // env.js says "Baja Bio", so on production the name was drawn and the splash
+                // silently never appeared. env.js is excluded from the deploy rsync and edited on
+                // the server, so the two spellings could drift without anything failing.
                 let m = window['env']['theme']
-                if (m && m !== 'bajabio') {
+                const isHouseBrand = ('' + (m || '')).replace(/[\s._-]/g, '').toLowerCase() === 'bajabio';
+                if (m && !isHouseBrand) {
                     graph.setMessageCenter(m, 40)
                 } else if (!graph.track || graph.track.length === 0) {
                     try { graph.setCenterLogo('/assets/logos/baja-logo.png', 1400, 1800); } catch (e) { }

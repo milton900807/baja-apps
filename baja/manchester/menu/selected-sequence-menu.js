@@ -173,7 +173,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Synthesis cost', async () => exec('baja/manchester/menu/synthesis-cost.js', graph, t, genegraph_panel_layout))
         ];
 
-        try { graph.showSideMenu(items); } catch (e) { }
+        try { graph.showSideMenu(items, null, selectedTrack.name); } catch (e) { }
         return graph;
     })();
 }
