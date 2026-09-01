@@ -99,11 +99,14 @@ def fuzzy_find(seq, pat, max_mm):
     return (best_i, best_mm)
 
 
+MIN_LEN = 13          # keep in step with annotate-clinical-targets.py MIN_LEN
+
+
 def strands(raw):
     out = []
     for part in str(raw or "").split("|"):
         p = to_dna(part)
-        if len(p) >= 15:
+        if len(p) >= MIN_LEN:
             out.append(p)
     return out
 
@@ -188,6 +191,7 @@ def main():
     ap.add_argument("--index", default=DEFAULT_INDEX)
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--only", default="", help="comma-separated compound_ids to verify (others left untouched)")
     args = ap.parse_args()
 
     with open(args.manifest) as f:
@@ -196,7 +200,10 @@ def main():
     index = {}
     ok = remote = empty = nosite = skipped = 0
 
+    only = {x.strip().lower() for x in args.only.split(",") if x.strip()} if args.only else None
     for i, c in enumerate(compounds, 1):
+        if only is not None and str(c.get("compound_id", "")).lower() not in only:
+            continue
         gene = str(c.get("target_gene") or "").strip()
         tid = str(c.get("target_transcript") or "").strip()
         if not gene or not tid:
@@ -360,10 +367,23 @@ def main():
     with open(args.manifest, "w") as f:
         json.dump(compounds, f, indent=2)
         f.write("\n")
-    with open(args.index, "w") as f:
-        json.dump(index, f, indent=2)
-        f.write("\n")
-    print("wrote %s\nwrote %s" % (args.manifest, args.index), flush=True)
+    if only is None:
+        with open(args.index, "w") as f:
+            json.dump(index, f, indent=2)
+            f.write("\n")
+        print("wrote %s\nwrote %s" % (args.manifest, args.index), flush=True)
+    else:
+        # A partial run must not overwrite the full transcript index — merge instead.
+        try:
+            with open(args.index) as f:
+                existing = json.load(f)
+        except Exception:
+            existing = {}
+        existing.update(index)
+        with open(args.index, "w") as f:
+            json.dump(existing, f, indent=2)
+            f.write("\n")
+        print("wrote %s\nmerged %d entr(y/ies) into %s" % (args.manifest, len(index), args.index), flush=True)
     return 0
 
 

@@ -38,7 +38,14 @@ DEFAULT_MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "..", "data", "clinical", "manifest.json")
 DEFAULT_HOST = "https://oligodesigner.com"
 GENOMES = ["human_premrna", "human_cdna_all"]
-MIN_LEN = 15          # below this a match is not specific enough to call a target
+# A SHORT oligo is not specific enough against the pre-mRNA index: 4^13 is ~67M against a
+# multi-hundred-Mb search space, so imetelstat's 13-mer returns 43 hits across 41 unrelated
+# genes there and the top symbol is noise (ARMC9). The same query against the ncRNA index
+# returns 2 hits — TERC — because short oligos in this library are anti-miR / ncRNA binders.
+# So route them to the indexes where they are actually specific.
+SHORT_GENOMES = ["human_ncrna", "human_all_transcripts"]
+SHORT_LEN = 15        # strands shorter than this are searched against SHORT_GENOMES
+MIN_LEN = 13          # below this a match is not specific enough to call a target at all
 TIMEOUT = 300
 RETRIES = 3
 
@@ -53,11 +60,11 @@ def normalize_strands(raw):
     return out
 
 
-def search(host, sequences):
+def search(host, sequences, genomes=None):
     body = json.dumps({
         "editDistance": 0,
         "strand": "+-",
-        "genomes": GENOMES,
+        "genomes": genomes or GENOMES,
         "sequences": sequences,
         "runMode": "editdistance",
     }).encode()
@@ -80,12 +87,16 @@ def main():
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="only process the first N compounds")
+    ap.add_argument("--only", default="", help="comma-separated compound_ids to process (others left untouched)")
     args = ap.parse_args()
 
     with open(args.manifest) as f:
         compounds = json.load(f)
 
     todo = compounds[: args.limit] if args.limit else compounds
+    if args.only:
+        want = {x.strip().lower() for x in args.only.split(",") if x.strip()}
+        todo = [c for c in compounds if str(c.get("compound_id", "")).lower() in want]
     found = missing = errored = 0
 
     for i, c in enumerate(todo, 1):
@@ -96,8 +107,10 @@ def main():
             print("%3d/%d  %-24s no usable sequence" % (i, len(todo), cid), flush=True)
             continue
 
+        # Short strands go to the ncRNA / all-transcript indexes (see SHORT_GENOMES).
+        genomes = SHORT_GENOMES if max(len(x) for x in strands) < SHORT_LEN else GENOMES
         try:
-            res = search(args.host, strands)
+            res = search(args.host, strands, genomes)
         except Exception as e:
             errored += 1
             print("%3d/%d  %-24s ERROR %s" % (i, len(todo), cid, e), flush=True)
@@ -141,15 +154,25 @@ def main():
                 c["target_transcript"] = gene_ids[0]
             c["target_evidence"] = {
                 "edit_distance": 0,
-                "datasets": GENOMES,
+                "datasets": genomes,
                 "premrna_hits": premrna,
                 "cdna_hits": cdna,
                 "total_hits": premrna + cdna,
                 "strands_matched": matched,
             }
-            # Never overwrite a curated target_gene — only fill a blank one.
-            if not str(c.get("target_gene") or "").strip():
+            # Never overwrite a curated target_gene — only fill a blank one. When one IS
+            # curated and appears among the hits, promote it to the front so the transcript
+            # chosen downstream belongs to the intended gene rather than to symbols[0].
+            curated = str(c.get("target_gene") or "").strip()
+            if not curated:
                 c["target_gene"] = symbols[0]
+            else:
+                key = re.split(r"[^A-Za-z0-9-]", curated)[0].upper()
+                for i2, sym in enumerate(symbols):
+                    if str(sym).upper() == key and i2:
+                        symbols.insert(0, symbols.pop(i2))
+                        c["target_symbols"] = symbols
+                        break
             print("%3d/%d  %-24s %-22s premrna=%-4d cdna=%-4d %s" %
                   (i, len(todo), cid, ",".join(symbols[:3]), premrna, cdna,
                    c.get("target_transcript", "-")), flush=True)

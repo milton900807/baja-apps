@@ -7357,43 +7357,25 @@ return new Promise(async (resolve, reject) => {
           ctx.shadowBlur = 10;
           ctx.shadowOffsetY = 3;
 
-          ctx.beginPath();
-          if (pxDist < minDist) {
-            const cx = (screenStartX + screenEndX) / 2;
-            const w = minDist;
-            const x0 = cx - w / 2;
-            const x1 = cx + w / 2;
-
-            ctx.lineCap = "round";
-            ctx.moveTo(x0, yPosition);
-            ctx.lineTo(x1, yPosition);
-            ctx.stroke();
-          } else {
-            ctx.lineCap = "round";
-            ctx.moveTo(screenStartX + barInset, yPosition);
-            ctx.lineTo(screenEndX - barInset, yPosition);
-            ctx.stroke();
-
-            ctx.shadowColor = "transparent";
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-
-            ctx.lineCap = "round";
-            ctx.moveTo(screenStartX + barInset, yPosition);
-            ctx.lineTo(screenEndX - barInset, yPosition);
-            ctx.stroke();
-
+          // Arrow HEADS ONLY — one at markstart, one at markend, no connecting shaft. The
+          // selected span is already shown by the translucent wash above, so a bar between
+          // the heads only added a line across the track. Matches track-flexi.js.
+          // Heads keep a floor size so a very short selection still shows two marks rather
+          // than collapsing to nothing (the old code drew a min-width bar for that case).
+          {
+            const hL = Math.max(headLen, 8);
+            const hW = Math.max(headWid, 5);
             ctx.beginPath();
             ctx.moveTo(screenStartX, yPosition);
-            ctx.lineTo(screenStartX + headLen, yPosition - headWid);
-            ctx.lineTo(screenStartX + headLen, yPosition + headWid);
+            ctx.lineTo(screenStartX + hL, yPosition - hW);
+            ctx.lineTo(screenStartX + hL, yPosition + hW);
             ctx.closePath();
             ctx.fill();
 
             ctx.beginPath();
             ctx.moveTo(screenEndX, yPosition);
-            ctx.lineTo(screenEndX - headLen, yPosition - headWid);
-            ctx.lineTo(screenEndX - headLen, yPosition + headWid);
+            ctx.lineTo(screenEndX - hL, yPosition - hW);
+            ctx.lineTo(screenEndX - hL, yPosition + hW);
             ctx.closePath();
             ctx.fill();
           }
