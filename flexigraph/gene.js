@@ -9933,6 +9933,70 @@ pattern, GGGG | Required`
                     };
 
 
+                    // Frame the region the compounds occupy, and flash them so the eye lands on
+                    // them once the camera stops. Zooming to a track shows the whole track; the
+                    // compounds on it can sit inside a few hundred bases of it, and finding
+                    // them by hand is the thing this saves.
+                    //
+                    // The span is the union of what is there: an amplicon runs left.xi..right.xf,
+                    // an oligo xi..xf. Highlight colours match the ones the selection window
+                    // already uses (cyan for amplicons, tropical orange for oligos), so a flash
+                    // here reads the same as a selection there. They are restored afterwards,
+                    // so this only ever borrows the highlight.
+                    const compoundsOf = (t) => {
+                        const out = [];
+                        try {
+                            for (const o of (t && t.oligos) || []) {
+                                if (!o) continue;
+                                const isAmp = (o.type === 'amplicon' && o.left && o.right);
+                                const a = isAmp ? +o.left.xi : +o.xi;
+                                const b = isAmp ? +o.right.xf : +o.xf;
+                                if (!isFinite(a) || !isFinite(b)) continue;
+                                out.push({ ref: o, isAmp: isAmp, lo: Math.min(a, b), hi: Math.max(a, b) });
+                            }
+                        } catch (e) { }
+                        return out;
+                    };
+                    // The track an entry belongs to. Entries carry it as .track; a raw track
+                    // (should this menu ever be handed one) is recognised by carrying oligos
+                    // or an axis of its own.
+                    const trackOf = (e) => {
+                        if (!e) return null;
+                        if (e.track) return e.track;
+                        if (e.oligos || e.tgraph || e.grid) return e;
+                        if (e.ref && e.ref.oligos) return e.ref;
+                        return null;
+                    };
+                    const zoomToCompounds = (t) => {
+                        try {
+                            const ax = t && (t.grid || t.tgraph);
+                            if (!ax) { this.setResultMessage(' No track to look for compounds on. '); return; }
+                            const cs = compoundsOf(t);
+                            if (!cs.length) {
+                                this.setResultMessage(' No compounds on ' + ((t && t.name) || 'that track') + '. ');
+                                return;
+                            }
+                            let lo = Infinity, hi = -Infinity;
+                            for (const c of cs) { lo = Math.min(lo, c.lo); hi = Math.max(hi, c.hi); }
+                            // A single compound still needs a window around it, so pad by a
+                            // minimum as well as a fraction.
+                            const pad = Math.max(50, (hi - lo) * 0.15);
+                            this.animateTo(ax.X(lo - pad), ax.X(hi + pad), ax.Y(-1.2), ax.Y(1.2));
+
+                            // Flash, then put every highlight back exactly as it was.
+                            const prev = cs.map((c) => ({ ref: c.ref, hi: c.ref.highlight__ }));
+                            for (const c of cs) { try { c.ref.highlight__ = c.isAmp ? 'cyan' : '#ff8c42'; } catch (e) { } }
+                            if (this.wake) this.wake();
+                            setTimeout(() => {
+                                for (const q of prev) { try { q.ref.highlight__ = q.hi; } catch (e) { } }
+                                try { if (this.wake) this.wake(); } catch (e) { }
+                            }, 4000);
+
+                            this.setResultMessage(' ' + cs.length + ' compound' + (cs.length === 1 ? '' : 's')
+                                + ' on ' + ((t && t.name) || 'track') + ' — ' + Math.round(lo) + '–' + Math.round(hi) + ' ');
+                        } catch (e) { try { this.setMessage(' Could not navigate: ' + e + ' '); } catch (e2) { } }
+                    };
+
                     // First, because finding the thing on the canvas is usually what you want
                     // before doing anything to it. Closes the menu: the point is to look at it.
                     //
@@ -9944,6 +10008,16 @@ pattern, GGGG | Required`
                     list.push({
                         label: 'Zoom to',
                         click: () => { close(); if (k === 'track') centerTrack(p); else zoomToEntry(p); },
+                        move: () => { }
+                    });
+                    // Every row here belongs to a track, and the compounds live on that track:
+                    // an entry carries it as p.track. Note showTypePicker sends TRACK rows
+                    // straight to openOne(p), so this menu only ever sees annotations, SNPs,
+                    // oligos, amplicons and layer items -- keying this off k === 'track' would
+                    // have added a row nothing could reach.
+                    list.push({
+                        label: 'Zoom to compounds',
+                        click: () => { close(); zoomToCompounds(trackOf(p)); },
                         move: () => { }
                     });
                     if (openOne) list.push({ label: 'Open ' + single + ' menu', click: () => { openOne(p); }, move: () => { } });
