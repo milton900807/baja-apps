@@ -32,7 +32,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 }
                 if (!seq || !seq.length) {
                     graph.setMessage(' That track has no sequence to profile. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
@@ -68,7 +68,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
 
                 if (data && data.error) {
                     graph.setMessage(' Splicing error: ' + data.error + ' ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
                 let junc = [];
                 try { junc = JSON.parse((data && data.junctions) || '[]'); } catch (e) { junc = []; }
@@ -76,7 +76,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     graph.setMessage(mode === 'psi'
                         ? ' No cassette-exon events detected in that sequence. '
                         : ' No splice junctions predicted for that sequence. ');
-                    restoreHover(); return;
+                    restoreHover(); return false;
                 }
 
                 // Build a base TrackLayer carrying the sashimi arcs as plain
@@ -122,11 +122,15 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     ' — ' + junc.length + ' junctions, magnitude = ' + magLabel + '. ');
                 // Model finished and the layer is added — bring the Models toolbar back.
                 resetModelsToolbar();
+                try { exec('baja/lib/work-status.js', null); } catch (e) { }
+                restoreHover();
+                return true;
             } catch (e) {
                 graph.setMessage(' Splicing error: ' + e + ' ');
             }
             try { exec('baja/lib/work-status.js', null); } catch (e) { }
             restoreHover();
+            return false;
         };
 
         // Going back to the editor is CurrentLayout.reset('mainPanel'), not a clear + set.
@@ -212,7 +216,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                     .filter((t) => t && (t.grid || t.tgraph));
             } catch (e) { }
             if (!all.length) { graph.setMessage(' No tracks on the canvas to run on. '); return; }
+            // One history entry for the whole board run, so a single undo takes it all back.
+            try { graph.pushOntoHistory(); } catch (e) { }
             (async () => {
+                let done = 0;
                 for (let i = 0; i < all.length; i++) {
                     const t = all[i];
                     try {
@@ -220,16 +227,22 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    // A track with a selected sequence is scored over that selection only:
-                    // pickedRange reads the track's own markstart/markend, so a board run
-                    // honours each track's selection instead of scoring all of every track.
-                    try { await runOnTrack(t, mode, ownRange(t)); } catch (e) { }
+                    // A track with a selected sequence is scored over that selection only.
+                    // ownRange reads THAT track's markstart/markend -- not pickedRange, which
+                    // prefers the launching context's presetRange and would stamp one range
+                    // across every track on the canvas.
+                    try { if (await runOnTrack(t, mode, ownRange(t))) done++; } catch (e) { }
                 }
                 try {
                     window.__workStatus = '';
                     if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                 } catch (e) { }
-                graph.setMessage(' Applied to all ' + all.length + ' track' + (all.length === 1 ? '' : 's') + '. ');
+                // setResultMessage, not setMessage: the canvas draws only error and result
+                // toasts, so the plain message was never visible and a board run looked as
+                // though it had finished without saying anything.
+                const __msg = ' BajaSplice applied to ' + done + ' of ' + all.length
+                    + ' track' + (all.length === 1 ? '' : 's') + '. ';
+                try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
             })();
         };
 

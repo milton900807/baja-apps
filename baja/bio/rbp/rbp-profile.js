@@ -205,9 +205,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                             + ' · ' + (i + 1) + ' of ' + all.length + '…';
                         if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     } catch (e) { }
-                    // A track with a selected sequence is scored over that selection only:
-                    // pickedRange reads the track's own markstart/markend, so a board run
-                    // honours each track's selection instead of scoring all of every track.
+                    // A track with a selected sequence is scored over that selection only.
+                    // ownRange reads THAT track's markstart/markend -- not pickedRange, which
+                    // prefers the launching context's presetRange and would stamp one range
+                    // across every track on the canvas.
                     try { if (await runOnTrack(t, rbp, ownRange(t))) done++; } catch (e) { }
                 }
                 try {
