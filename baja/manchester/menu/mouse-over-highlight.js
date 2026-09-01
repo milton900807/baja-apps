@@ -3141,83 +3141,6 @@ function (graph, genegraph_panel_layout) {
                             graph.showSideMenu(null)
 
                             const golist = [
-                                {
-                                    label: 'Edit',
-                                    click: async (scx, scy) => {
-                                        if (!selectedTrack) return;
-
-                                        graph.showSideMenu(null);
-
-                                        let track_layers_panel = selectedTrack.track_layers;
-
-                                        let zoom_to = {
-                                            wid: 'card',
-                                            componentRef: 'bottomPanel',
-                                            height: '240px',
-                                            data: {
-                                                height: '240px',
-                                                cards: [[
-                                                    {
-                                                        title: ' ',
-                                                        body: ``,
-                                                        width: '90%',
-                                                        component: {
-                                                            wid: 'html',
-                                                            data: `<font color=red> Edit track layers for: ${selectedTrack.name || 'Track'} </font>`
-                                                        }
-                                                    },
-                                                    {
-                                                        title: 'Current Layers',
-                                                        width: '100%',
-                                                        component: {
-                                                            wid: 'html',
-                                                            data: `
-                                            <div style="padding:8px;">
-                                                ${Array.isArray(track_layers_panel)
-                                                                    ? track_layers_panel.map((l, i) => `<div>${i + 1}. ${l.name || JSON.stringify(l)}</div>`).join('')
-                                                                    : `<pre>${JSON.stringify(track_layers_panel, null, 2)}</pre>`
-                                                                }
-                                            </div>
-                                        `
-                                                        }
-                                                    },
-                                                    {
-                                                        title: '',
-                                                        width: '100%',
-                                                        component: {
-                                                            wid: 'mt-button',
-                                                            data: {
-                                                                buttons: [
-                                                                    {
-                                                                        label: 'Edit',
-                                                                        ionFunction: createIonFunction(() => {
-                                                                            // Put your real layer editor launch here
-                                                                            // Example:
-                                                                            // graph.currentTrack = selectedTrack;
-                                                                            // openTrackLayersEditor(selectedTrack);
-
-                                                                            hideAllModal();
-                                                                            graph.showSideMenu(null);
-                                                                        })
-                                                                    },
-                                                                    {
-                                                                        label: 'Cancel',
-                                                                        ionFunction: createIonFunction(() => {
-                                                                            hideAllModal();
-                                                                            graph.showSideMenu(null);
-                                                                        })
-                                                                    }
-                                                                ]
-                                                            }
-                                                        }
-                                                    }
-                                                ]]
-                                            }
-                                        };
-
-                                        showModal(zoom_to);
-                                    },
-                                },
                             ];
 
                             golist.push({
@@ -3261,7 +3184,7 @@ function (graph, genegraph_panel_layout) {
                                 }
                             });
 
-                            showSideMenuDelayed(golist);
+                            graph.showSideMenu(golist, null, "Layers");
                         }
                     },
                     {
@@ -4276,8 +4199,8 @@ function (graph, genegraph_panel_layout) {
                                     click: async () => {
                                         graph.showSideMenu(null);
                                         // From a TRACK menu: this track is the target, so it is passed in rather than
-                                    // left to be guessed from the selection.
-                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
+                                        // left to be guessed from the selection.
+                                        await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
                                     }
                                 },
                                 {
@@ -4310,17 +4233,6 @@ function (graph, genegraph_panel_layout) {
                                         showSideMenuDelayed(data_menu);
                                     }
                                 },
-                                {
-                                    label: 'Edit',
-                                    click: async (scx, scy) => {
-                                        if (selectedTrack) {
-                                            let track_layers_panel = await exec('baja/manchester/menu/select-track-action-layers-edit-panel.js',
-                                                selectedTrack, genegraph_panel_layout)
-                                            CurrentLayout.clearComponent('mainPanel')
-                                            CurrentLayout.setComponent('mainPanel', track_layers_panel);
-                                        }
-                                    },
-                                },
                             ]
                             golist.push({
                                 label: selectedTrack.showLayers ? 'Hide' : 'Show',
@@ -4333,7 +4245,7 @@ function (graph, genegraph_panel_layout) {
                             setTimeout(() => {
                                 showSideMenuDelayed(golist);
 
-                            }, 1000)
+                            }, 100)
 
                         },
                     },
@@ -4567,7 +4479,7 @@ function (graph, genegraph_panel_layout) {
                                     }
                                 });
                                 items.push({ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
-                                graph.showSideMenu(orderMenu(items));
+                                graph.showSideMenu(orderMenu(items), null, 'Compounds');
                             }
                         });
                     }
@@ -4595,7 +4507,8 @@ function (graph, genegraph_panel_layout) {
                 // added to the selection box as its own object type; the menu is shown
                 // only when the user opens it there (selection box → Tracks → track).
                 if (graph.addTrackToSelection) graph.addTrackToSelection(selectedTrack, __trackMenu);
-                else graph.showSideMenu(__trackMenu);
+                // Same value as __menuTitle above, so the panel label and the chip agree.
+                else graph.showSideMenu(__trackMenu, null, (selectedTrack && selectedTrack.name) || 'Track');
             }
 
         };
