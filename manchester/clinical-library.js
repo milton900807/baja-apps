@@ -24,7 +24,16 @@ function (graph, layout) {
                 const active = await SUB.checkSubscription();
                 if (active === false) {
                     const msg = ' The Clinical Library is available to subscribers. ';
-                    try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+                    // CENTRED, not the result toast. That toast is drawn 16px from the bottom
+                    // of the canvas (see the messageIsResult block in flexigraph/gene.js), and
+                    // the free-plan bar is fixed to the bottom of the window -- so the one
+                    // notice a free user sees landed underneath the other notice a free user
+                    // sees. setSunsetMessage puts it in the middle of the canvas, where nothing
+                    // else is competing for the space.
+                    try { graph.setSunsetMessage(msg, 6); }
+                    catch (e) {
+                        try { graph.setResultMessage(msg); } catch (e2) { try { graph.setMessage(msg); } catch (e3) { } }
+                    }
                     return graph;
                 }
             } catch (e) { /* could not ask -- fail open, as above */ }
