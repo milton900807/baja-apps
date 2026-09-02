@@ -3332,6 +3332,58 @@ function (graph, genegraph_panel_layout) {
                         // menu cannot disagree about what exists, and the choice is written to
                         // track.theme -- which travels through the standard toJSON/fromJSON
                         // route, so a themed board comes back themed.
+                        // What the track SHOWS, beside the theme that decides how it looks.
+                        // Each row states the state it is in, so the menu answers "is it on?"
+                        // without the user having to look at the canvas and infer it.
+                        label: 'Track display ▸',
+                        move: () => { },
+                        click: () => {
+                            const t = selectedTrack;
+                            if (!t) { try { graph.setResultMessage(' No track selected. '); } catch (e) { } return; }
+                            // Default ON: a flag nobody has set yet means "shown", so an
+                            // untouched track looks exactly as it always did.
+                            const on = (k) => t[k] !== false;
+                            const toggle = (k, label) => ({
+                                label: (on(k) ? '☑ ' : '☐ ') + label,
+                                move: () => { },
+                                click: () => {
+                                    graph.showSideMenu(null);
+                                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                    t[k] = !on(k);
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    try { graph.setResultMessage(' ' + label + (t[k] ? ' shown. ' : ' hidden. ')); } catch (e) { }
+                                }
+                            });
+                            const items = [
+                                toggle('showExonNumbers', 'Exon numbers'),
+                                toggle('showGenomicCoords', 'Genomic coordinates (g.)'),
+                                toggle('showCdnaCoords', 'cDNA coordinates (c.)'),
+                                {
+                                    // Not a visibility toggle: it REPLACES the compounds with a
+                                    // glow whose brightness follows how many fall in each column.
+                                    // With hundreds on a track the individual marks overlap into
+                                    // a solid band, and where they concentrate is the question
+                                    // that actually gets asked.
+                                    label: (t.compoundDensity ? '☑ ' : '☐ ') + 'Compounds as density glow',
+                                    move: () => { },
+                                    click: () => {
+                                        graph.showSideMenu(null);
+                                        try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                        t.compoundDensity = !t.compoundDensity;
+                                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                                        try {
+                                            graph.setResultMessage(t.compoundDensity
+                                                ? ' Compounds shown as a density glow. '
+                                                : ' Compounds shown individually. ');
+                                        } catch (e) { }
+                                    }
+                                },
+                                { label: '‹ Back', move: () => { }, click: () => { showSideMenuDelayed(track_list, undefined, undefined, 'Track ▸'); } }
+                            ];
+                            graph.showSideMenu(items, null, 'Track display ▸');
+                        }
+                    },
+                    {
                         label: 'Track theme ▸',
                         move: () => { },
                         click: () => {
@@ -4772,7 +4824,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Track display ▸', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;

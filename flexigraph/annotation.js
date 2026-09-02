@@ -121,7 +121,11 @@ function () {
                 let tf = tgrid.X(this.xf)
                 let ti = tgrid.X(this.xi)
 
-                if (this.annotations) {
+                // The exon's own label (its number). Hidden when the track says so; drawn when
+                // the track is silent, so a track that never heard of the flag is unaffected.
+                let __showExonNums = true;
+                try { if (track && track.showExonNumbers === false) __showExonNums = false; } catch (e) { }
+                if (this.annotations && __showExonNums) {
                     graph.drawString45('' + this.annotations, ti + ((tf - ti) / 2), tgrid.Y(this.y + this.labelY), 'black');
                 }
                 if (this.shapeFunction) {

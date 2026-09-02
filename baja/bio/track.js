@@ -378,7 +378,10 @@ return new Promise(async (resolve, reject) => {
 
 
 
-  const drawExonMajorTickAt = (ctx, graph, tgraph, pos, exonIndex, color, font, drawnXs = null, minimumSpacing = 55) => {
+  const drawExonMajorTickAt = (ctx, graph, tgraph, pos, exonIndex, color, font, drawnXs = null, minimumSpacing = 55, track = null) => {
+    // The c. ruler. Suppressed when the track asks for it; drawn when it is silent, so a
+    // caller that does not pass a track behaves as before.
+    try { if (track && track.showCdnaCoords === false) return; } catch (e) { }
     const label = "c." + exonIndex;
     const xWorld = Math.round(tgraph.X(pos));
 
@@ -2605,6 +2608,68 @@ return new Promise(async (resolve, reject) => {
         }
       }
       return null;
+    }
+
+    // Draw the compounds as a glow instead of individually: bin them across the visible
+    // width, then paint each bin at an alpha that follows its share of the busiest bin. Bins
+    // rather than a blur so the cost does not grow with the number of compounds -- a track
+    // with two thousand oligos paints the same number of rectangles as one with ten.
+    __drawCompoundDensity(graph, oligos) {
+        const ctx = graph && graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
+        if (!ctx || !oligos || !oligos.length) return;
+
+        const BINS = 160;
+        const bins = new Array(BINS).fill(0);
+        const lo = this.tgraph.xmin, hi = this.tgraph.xmax;
+        const span = (hi - lo) || 1;
+        let total = 0;
+        for (const o of oligos) {
+            if (!o) continue;
+            const isAmp = (o.type === 'amplicon' && o.left && o.right);
+            const a = isAmp ? +o.left.xi : +o.xi;
+            const b = isAmp ? +o.right.xf : +o.xf;
+            if (!isFinite(a) || !isFinite(b)) continue;
+            // Spread an interval across every bin it touches, so a long amplicon reads as wide
+            // rather than as a single tall spike at its start.
+            const i0 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.min(a, b) - lo) / span) * BINS)));
+            const i1 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.max(a, b) - lo) / span) * BINS)));
+            for (let i = i0; i <= i1; i++) { bins[i]++; }
+            total++;
+        }
+        if (!total) return;
+
+        let peak = 0;
+        for (const v of bins) if (v > peak) peak = v;
+        if (!peak) return;
+
+        const T = this.themeColors();
+        const yTop = graph.Y(this.tgraph.Y(1));
+        const yBot = graph.Y(this.tgraph.Y(0));
+        const top = Math.min(yTop, yBot), height = Math.abs(yBot - yTop);
+        const xLeft = graph.X(this.tgraph.X(lo));
+        const xRight = graph.X(this.tgraph.X(hi));
+        const width = (xRight - xLeft);
+        const bw = width / BINS;
+
+        ctx.save();
+        for (let i = 0; i < BINS; i++) {
+            if (!bins[i]) continue;
+            const f = bins[i] / peak;
+            // Floor the alpha so a single compound still registers; the eye should be able to
+            // find one outlier, not only the crowd.
+            ctx.globalAlpha = 0.14 + 0.55 * f;
+            ctx.fillStyle = T.exon;
+            ctx.fillRect(xLeft + i * bw, top, Math.max(1, bw + 0.5), height);
+        }
+        ctx.globalAlpha = 1;
+        // Say what is being shown, so a glow is never mistaken for data on the track.
+        try {
+            ctx.font = '10px Arial, Helvetica, sans-serif';
+            ctx.fillStyle = T.gtag;
+            ctx.textAlign = 'left';
+            ctx.fillText(total + ' compound' + (total === 1 ? '' : 's') + ' · density', xLeft + 4, top + 11);
+        } catch (e) { }
+        ctx.restore();
     }
 
     // The themes this track can draw with. On the class so the menu builds itself from the
@@ -6260,6 +6325,20 @@ return new Promise(async (resolve, reject) => {
 
         let visOligos = this.getVisibleOligos(twcxs, twcxf);
 
+        // COMPOUND DENSITY MAP.
+        //
+        // With many compounds on a track the individual marks stop telling you anything: they
+        // overlap into a solid band and the question you actually have -- WHERE are they
+        // concentrated -- gets harder to answer, not easier. This replaces them with a glow
+        // whose brightness follows how many fall in each column.
+        //
+        // Emptying visOligos is what hides them: both draw loops below iterate it, so one
+        // assignment covers each without a flag threaded into either.
+        if (this.compoundDensity && visOligos && visOligos.length) {
+            try { this.__drawCompoundDensity(graph, visOligos); } catch (e) { }
+            visOligos = [];
+        }
+
         let snpsv = [];
         if (this.showSnpIndels) snpsv = this.getVisibleSNPs(twcxs, twcxf);
 
@@ -6624,6 +6703,7 @@ return new Promise(async (resolve, reject) => {
                           this.detail_ffont6,
                           _trackMajorXs,
                           minimumLabelSpacing
+                          , this
                         );
                       }
 
@@ -6651,6 +6731,7 @@ return new Promise(async (resolve, reject) => {
                           this.detail_ffont6,
                           _trackMajorXs,
                           minimumLabelSpacing
+                          , this
                         );
                       }
 
@@ -6926,7 +7007,7 @@ return new Promise(async (resolve, reject) => {
                 if (__fb) {
                   try {
                     graph.drawString(__fb, Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
-                    if (screencell > 30 && !__clinical) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_T.gtag, this.detail_ffont6);
+                    if (screencell > 30 && !__clinical && this.showGenomicCoords !== false) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_T.gtag, this.detail_ffont6);
                   } catch (e) { }
                 } else {
                   graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);

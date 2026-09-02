@@ -943,7 +943,9 @@ return new Promise(async (resolve, reject) => {
                 "description", "genomicsCoord", "showName", "targetPhase", "targetVariant",
                 "hideTrackCoords", "showResizeBar", "showTrackRefMap",
                 "chr", "species", "showSnpIndels", "showLayers", "showOfftargets", "showOligoMap", "showArc",
-                "transcriptID", "theme", "highlightIndex", "default_track_height", "showAnnotaions"
+                "transcriptID", "theme",
+                "showExonNumbers", "showGenomicCoords", "showCdnaCoords", "compoundDensity",
+                "highlightIndex", "default_track_height", "showAnnotaions"
             ].forEach(copyIfDefined);
 
             if ("sequence" in data) t.sequence = data.sequence;
@@ -1075,6 +1077,10 @@ return new Promise(async (resolve, reject) => {
                 // Themes are presentation, but they are a CHOICE the user made, so they travel
                 // with the track through the same JSON route as everything else here.
                 theme: this.theme,
+                showExonNumbers: this.showExonNumbers,
+                showGenomicCoords: this.showGenomicCoords,
+                showCdnaCoords: this.showCdnaCoords,
+                compoundDensity: this.compoundDensity,
                 highlightIndex: this.highlightIndex,
                 default_track_height: this.default_track_height,
                 showAnnotaions: this.showAnnotaions
