@@ -51,7 +51,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 }
             },
             {
-                title: 'Splicing — site strength', badge: 'BajaSplice', ready: true,
+                title: 'Splicing — site strength', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Donor / acceptor splice-site strength at every position.',
                 open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
                 docs: {
@@ -83,7 +83,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 }
             },
             {
-                title: 'Splicing — PSI', badge: 'BajaSplice', ready: true,
+                title: 'Splicing — PSI', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Percent-spliced-in for cassette exons, across 54 tissues.',
                 open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
                 docs: {
@@ -114,7 +114,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 }
             },
             {
-                title: 'Intron retention', badge: 'BajaIR', ready: true,
+                title: 'Intron retention', badge: 'BajaIR', ready: true, group: 'splicing',
                 blurb: 'How retention-prone each intron is, from sequence alone.',
                 open: () => exec('baja/bio/splicing/intron-retention.js', graph, L, __targets()),
                 docs: {
@@ -200,11 +200,51 @@ function (graph, genegraph_panel_layout, tracks) {
             }
         ];
 
+        // ---- Grouped into libraries, where there is a real group to make ------------------
+        // The three splicing models are one body of work on one question -- where the
+        // spliceosome acts on this transcript -- and belong behind one card. The rest are each
+        // their own category, and a library holding a single book is a click that asks nothing,
+        // so they stay at the top level. Grouping is driven by the `group` field on the books
+        // rather than by matching titles here, so adding a fourth splicing model is one word.
+        const GROUPS = [
+            {
+                key: 'splicing',
+                title: 'Splicing',
+                badge: 'BajaSplice / BajaIR',
+                subtitle: 'Pick a splicing model',
+                blurb: 'Three models over one question — where the spliceosome acts on this '
+                    + 'transcript: donor / acceptor strength at every position, inclusion level for '
+                    + 'each exon, and whether an intron is retained.'
+            }
+        ];
+        const grouped = GROUPS.map((g) => {
+            const members = BOOKS.filter((b) => b.group === g.key);
+            if (!members.length) return null;
+            return {
+                title: g.title, badge: g.badge, subtitle: g.subtitle, blurb: g.blurb,
+                books: () => members
+            };
+        }).filter(Boolean);
+        const ungrouped = BOOKS.filter((b) => !GROUPS.some((g) => g.key === b.group));
+
+        // Say up front what a model will run against. A model quietly running on one track when
+        // the user meant the board -- or over a selection they had forgotten about -- is the
+        // kind of thing only noticed after the layer lands in the wrong place.
+        const scopeNote = () => {
+            const ts = __targets();
+            let marked = 0;
+            try { marked = ts.filter((t) => t && t.selectedRange && t.selectedRange()).length; } catch (e) { }
+            if (marked) return 'the selected sequence on ' + marked + ' track' + (marked === 1 ? '' : 's');
+            if (ts.length) return ts.length + ' track' + (ts.length === 1 ? '' : 's');
+            return 'the track you pick';
+        };
+
         return await exec('baja/lib/shelf.js', {
             id: 'baja-models-library',
             title: 'ML Models Library',
-            subtitle: BOOKS.length + ' models — each adds its prediction to a track as a layer',
-            books: BOOKS,
+            subtitle: BOOKS.length + ' models — each adds its prediction as a layer, over '
+                + scopeNote(),
+            books: grouped.concat(ungrouped),
             graph: graph,
             onClose: restoreHover
         });
