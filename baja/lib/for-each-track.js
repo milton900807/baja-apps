@@ -27,7 +27,12 @@ function (graph, prompt, fn) {
         };
 
         if (all) {
-            const tracks = (graph.track || []).filter(Boolean);
+            // "Apply to the board" still yields to a SELECTION. A highlighted sequence, or a
+            // selected track, is the user pointing at one place; running over everything anyway
+            // put data on tracks they were not looking at. baja/lib/target-tracks.js owns that
+            // precedence so every loader answers it the same way.
+            const __t = await exec('baja/lib/target-tracks.js', graph, null);
+            const tracks = __t.items;
             if (!tracks.length) { try { graph.setMessage(' No tracks on the canvas. '); } catch (e) { } return 0; }
             try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
             let done = 0;
@@ -37,7 +42,11 @@ function (graph, prompt, fn) {
                 try { await fn(t, i, tracks.length); done++; } catch (e) { }
             }
             status('');
-            try { graph.setMessage(' Applied to ' + done + ' of ' + tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + '. '); } catch (e) { }
+            try {
+                graph.setResultMessage(' Applied to ' + done + ' of ' + tracks.length + ' track'
+                    + (tracks.length === 1 ? '' : 's')
+                    + (__t.narrowed ? ' (' + __t.scope + ')' : '') + '. ');
+            } catch (e) { }
             return done;
         }
 

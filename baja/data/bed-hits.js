@@ -244,8 +244,13 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
     // on the canvas. Given a list, work through it sequentially -- each track is a server read,
     // and firing them together would queue behind the server's own cap anyway.
     if (Array.isArray(targetTrack) && targetTrack.length) {
-        const list = targetTrack.filter(Boolean);
         return (async () => {
+            // A SELECTION WINS over the list we were handed -- see baja/lib/target-tracks.js.
+            // The board-level Layers button passes every track on the canvas, so without this
+            // a highlighted sequence on one track still put hits on all of them.
+            const __t = await exec('baja/lib/target-tracks.js', graph, targetTrack.filter(Boolean));
+            const list = __t.items;
+            if (!list.length) { try { graph.setMessage(' No track to load ' + LAYER_LABEL + ' onto. '); } catch (e) { } return 0; }
             // An explicit list satisfies the board-level request, so consume the flag: left
             // set it would turn the next per-track action into a board-wide one.
             try { window.__bajaApplyAllTracks = false; } catch (e) { }
@@ -272,8 +277,11 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             restoreHover();
             // setResultMessage, not setMessage: the canvas draws only error and result toasts,
             // so a plain message at the end of a board run was never visible.
+            // The SCOPE too, so a load a selection narrowed reads as narrowed rather than as
+            // one that quietly missed most of the board.
             const msg = ' ' + LAYER_LABEL + ': ' + total + ' ' + NOUN + (total === 1 ? '' : 's')
-                + ' on ' + done + ' of ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. ';
+                + ' on ' + done + ' of ' + list.length + ' track' + (list.length === 1 ? '' : 's')
+                + (__t.narrowed ? ' (' + __t.scope + ')' : '') + '. ';
             try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
             return total;
         })();

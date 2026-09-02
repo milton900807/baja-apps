@@ -218,8 +218,19 @@ function (graph, genegraph_panel_layout, tracks) {
     // this returns, so it resolves to whatever for-each-track gives. Anything counting hits
     // (deep-link.js) passes a list.
     return (async () => {
-        const list = (tracks && tracks.length) ? tracks.filter(Boolean) : null;
-        if (!list) {
+        let list = (tracks && tracks.length) ? tracks.filter(Boolean) : null;
+        let scopeText = '';
+        if (list) {
+            // A SELECTION WINS over the list we were handed. The board-level Layers button
+            // passes every track on the canvas, and this used to load patents onto all of them
+            // even when the user had a sequence highlighted on one -- the highlight was then
+            // applied only as a coordinate window per track, so it narrowed WHAT was read while
+            // doing nothing about WHERE it landed. Same rule the RNASeq library follows.
+            const __t = await exec('baja/lib/target-tracks.js', graph, list);
+            list = __t.items;
+            scopeText = __t.scope;
+        }
+        if (!list || !list.length) {
             // Only the CLICK path needs the panel mounted: it is what the user looks at while
             // choosing a track. Given an explicit list there is no choosing, and swapping
             // mainPanel there was blanking the editor behind the selection window.
@@ -253,9 +264,11 @@ function (graph, genegraph_panel_layout, tracks) {
         status('');
         try {
             // The count, not just the track total: "Patents loaded onto 4 tracks" read as
-            // success even when every one of them came back empty.
+            // success even when every one of them came back empty. And the SCOPE, so a load
+            // that a selection narrowed says so rather than looking like it missed tracks.
             graph.setResultMessage(' ' + placed + ' patent hit' + (placed === 1 ? '' : 's')
-                + ' loaded onto ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. ');
+                + ' loaded onto ' + list.length + ' track' + (list.length === 1 ? '' : 's')
+                + (scopeText ? ' (' + scopeText + ')' : '') + '. ');
         } catch (e) { }
         return placed;
     })();
