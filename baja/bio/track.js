@@ -6651,8 +6651,19 @@ return new Promise(async (resolve, reject) => {
 
                 const { start, end } = getSpan();
 
+                // The per-base index numbers along the sequence -- drawn bare, without the "c."
+                // prefix, at high zoom. Hidden with Exon numbers.
+                //
+                // The flag gates the DRAWING inside this branch, not the branch itself. Putting
+                // it in the condition sent a hidden-numbers track down the else, which draws the
+                // "c." major ticks -- so turning the numbers off would have turned a different
+                // set of labels on.
                 if (screencell > 30 && exonIndex < stopIndex) {
-                  if (this.strand < 0) {
+                  if (this.showExonNumbers === false) {
+                    // Nothing to draw, and deliberately nothing pushed to _trackNumXs either:
+                    // that list is the overlap reservation, and holding space for numbers
+                    // nobody draws would push the remaining labels apart for no reason.
+                  } else if (this.strand < 0) {
                     const lo = Math.min(start, end);
                     const hi = Math.max(start, end);
 
