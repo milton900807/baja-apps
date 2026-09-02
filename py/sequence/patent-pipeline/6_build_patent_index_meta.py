@@ -181,15 +181,38 @@ def main():
                      % (rows, len(ids), lo, hi))
 
     if args.probe:
-        # The one thing a probe is for: saying whether these look like patent numbers at all.
-        # US grant numbers are 7-8 digits and publication numbers carry a year prefix; a dense
-        # run of small integers is neither.
-        small = sum(1 for i in ids if i.isdigit() and int(i) < 1000000)
-        sys.stderr.write("  ids under 1,000,000: %d (%.1f%%)\n"
-                         % (small, 100.0 * small / max(1, len(ids))))
-        sys.stderr.write("  -> these are %s\n" % (
-            "record ids, NOT patent numbers - a --map is required"
-            if small else "plausibly patent numbers - check a few by hand before mapping"))
+        # What a probe is for: saying what these identifiers ARE, from their distribution.
+        #
+        # The discriminator is the TOP of the range, not the bottom. A US grant number is 7-8
+        # digits and the series has only reached ~12.6M (2025), so any corpus whose ids run well
+        # past that is not numbering patents. US pre-grant publication numbers are 11 digits
+        # beginning with the year (20210123456), which is a different shape again.
+        US_GRANT_CEILING = 13_000_000     # generous; the real series is around 12.6M in 2025
+        digits = [int(i) for i in ids if i.isdigit()]
+        bands = [
+            ("< 1,000,000", sum(1 for v in digits if v < 1_000_000)),
+            ("1M - 13M (US grant range)", sum(1 for v in digits if 1_000_000 <= v < US_GRANT_CEILING)),
+            ("> 13M (past the grant series)", sum(1 for v in digits if v >= US_GRANT_CEILING)),
+        ]
+        pubnum = sum(1 for v in digits if 20_000_000_000 <= v < 21_000_000_000)
+        sys.stderr.write("  numeric ids: %d of %d\n" % (len(digits), len(ids)))
+        for label, cnt in bands:
+            sys.stderr.write("    %-32s %9d  (%.1f%%)\n"
+                             % (label, cnt, 100.0 * cnt / max(1, len(digits))))
+        if pubnum:
+            sys.stderr.write("    look like US publication numbers  %d\n" % pubnum)
+
+        over = bands[2][1]
+        if pubnum > len(digits) * 0.5:
+            verdict = "US pre-grant publication numbers - joinable to metadata directly"
+        elif over:
+            verdict = ("a RECORD id space, not patent numbers: %d ids sit above the US grant\n"
+                       "     series (max %s). A --map from the source database is required."
+                       % (over, "{:,}".format(hi or 0)))
+        else:
+            verdict = ("possibly US grant numbers - every id fits the series. Check a handful\n"
+                       "     by hand (patents.google.com/patent/US<id>) before trusting it.")
+        sys.stderr.write("  -> %s\n" % verdict)
         return
 
     if not args.map or not args.meta:
