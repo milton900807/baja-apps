@@ -63,6 +63,79 @@ function (graph, genegraph_panel_layout) {
             setTimeout(() => { if (graph && graph.showWindowMenu) graph.showWindowMenu(menu, a, b, c); }, MENU_OPEN_DELAY_MS);
         };
 
+        // Show a set of DESIGN strategies as a library (baja/lib/shelf.js) rather than a side
+        // menu. Every design entry point goes through this now: a strategy is a choice worth
+        // describing -- what tiling on secondary structure does that tiling across a selection
+        // does not -- and a one-word row in a popup has nowhere to say it.
+        //
+        // Deliberately an ADAPTER over the existing menu items: it takes the same
+        // {label, click} objects the strategies are already written as, and an `about` table
+        // supplying the badge and description per label. The handlers below are untouched, so
+        // this changes the navigation and nothing about what any designer does. An item may
+        // instead carry `books` for a nested level, which the shelf walks into with its own
+        // breadcrumb and Back.
+        const showDesignLibrary = async (title, subtitle, items, about) => {
+            const isNav = (l) => /^(‹|«|<|←|✓|↩)/.test(l) || /^(Back|Cancel|Close|Done)\b/i.test(l);
+            const books = (items || []).filter(Boolean).map((it) => {
+                const lbl = ('' + (it.label || it['label'] || '')).trim();
+                if (isNav(lbl)) return null;       // the shelf owns Back and Close
+                const a = (about && about[lbl]) || {};
+                const book = {
+                    title: a.title || lbl,
+                    badge: a.badge || 'Strategy',
+                    blurb: a.blurb || '',
+                    subtitle: a.subtitle
+                };
+                if (it.books) book.books = it.books;
+                else book.open = () => it.click();
+                return book;
+            }).filter(Boolean);
+            await exec('baja/lib/shelf.js', {
+                id: 'baja-design-strategies',
+                title: title,
+                subtitle: subtitle,
+                books: books,
+                graph: graph,
+                onClose: () => {
+                    try { graph.clearMouseListeners(); } catch (e) { }
+                    try { graph.setMouseMode('navigate'); } catch (e) { }
+                    try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                }
+            });
+        };
+        const DESIGN_ABOUT = {
+            'Primer-probes': {
+                badge: 'qPCR', subtitle: 'Pick a primer designer',
+                blurb: 'Primer / probe sets over the selected sequence, placed on the track as amplicons.'
+            },
+            'primer3': {
+                badge: 'Standard',
+                blurb: 'The reference designer — melting temperature, product size and '
+                    + 'self-complementarity constraints.'
+            },
+            'djPrimer (assay success)': {
+                badge: 'Scored',
+                blurb: 'primer3 design ranked by the assay-success model, so the sets come back in '
+                    + 'the order most likely to work.'
+            },
+            'Exon-exon Primer-probes': {
+                badge: 'Junction',
+                blurb: 'Probes spanning an exon-exon junction, so genomic DNA cannot amplify. '
+                    + 'Results open as JSON rather than on the track.'
+            },
+            'Tile across selected sequence...': {
+                badge: 'Systematic',
+                blurb: 'Walk the selected sequence with the current chemistry, laying a compound at '
+                    + 'every position. The exhaustive starting point before any scoring.'
+            },
+            'Tile on secondary structure': {
+                badge: 'Structure-aware',
+                blurb: 'Tile only where the predicted fold leaves the target accessible, above an '
+                    + 'openness threshold you set — far fewer compounds, biased towards ones that '
+                    + 'can actually bind.'
+            }
+        };
+
         // If a SNP was selected on mouse-down, fold its menu into the context menu
         // that mouse-up is about to show, as a leading item that opens the snp-menu.
         const mergePendingSnp = (items) => {
@@ -1966,59 +2039,57 @@ function (graph, genegraph_panel_layout) {
                                 },
                                 {
                                     'label': 'Design Assay', click: (async () => {
+                                        // The two primer methods:
+                                        //  - primer3: the primer3 python package (generate-ppsets.py),
+                                        //    designed primers placed on the track (apply-primer3.js).
+                                        //  - djPrimer: primer3 design ranked by the assay-success model.
+                                        // Hoisted out of the Primer-probes item so that item can be a
+                                        // nested LIBRARY level rather than a click that opens a menu.
+                                const runPrimer3 = async () => {
+                                    graph.pushOntoHistory();
+                                    graph.clearMouseListeners();
+                                    for (let selectedTrack of graph.track) {
+                                        if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                            let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                            graph.setMessage(' Generating primers (primer3)... ');
+                                            let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
+                                            let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
+                                            await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                            if (graph.wake) graph.wake();
+                                        }
+                                    }
+                                    // Primers placed — return to mouse-over-highlight + navigate mode.
+                                    graph.setMouseMode('navigate');
+                                    try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                };
+                                const runDjprimer = async () => {
+                                    graph.pushOntoHistory();
+                                    graph.clearMouseListeners();
+                                    for (let selectedTrack of graph.track) {
+                                        if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                            let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                            const gene = selectedTrack.geneID || selectedTrack.name || '';
+                                            const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
+                                            graph.setMessage(' Designing primers (djPrimer)... ');
+                                            let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                                            selectedTrack.ampliconResults = r;
+                                            await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                            if (graph.wake) graph.wake();
+                                        }
+                                    }
+                                    // Primers placed — return to mouse-over-highlight + navigate mode.
+                                    graph.setMouseMode('navigate');
+                                    try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                };
                                         const lll = [
                                             {
-                                                'label': 'Primer-probes', click: (async () => {
-                                                    // After choosing "Primer-probes", pick the method:
-                                                    //  - primer3: the primer3 python package (generate-ppsets.py),
-                                                    //    designed primers placed on the track (apply-primer3.js).
-                                                    //  - djPrimer: primer3 design ranked by the assay-success model.
-                                                    const runPrimer3 = async () => {
-                                                        graph.pushOntoHistory();
-                                                        graph.clearMouseListeners();
-                                                        for (let selectedTrack of graph.track) {
-                                                            if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
-                                                                let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
-                                                                graph.setMessage(' Generating primers (primer3)... ');
-                                                                let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
-                                                                let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
-                                                                await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
-                                                                if (graph.wake) graph.wake();
-                                                            }
-                                                        }
-                                                        // Primers placed — return to mouse-over-highlight + navigate mode.
-                                                        graph.setMouseMode('navigate');
-                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                                    };
-                                                    const runDjprimer = async () => {
-                                                        graph.pushOntoHistory();
-                                                        graph.clearMouseListeners();
-                                                        for (let selectedTrack of graph.track) {
-                                                            if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
-                                                                let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
-                                                                const gene = selectedTrack.geneID || selectedTrack.name || '';
-                                                                const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-                                                                graph.setMessage(' Designing primers (djPrimer)... ');
-                                                                let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
-                                                                selectedTrack.ampliconResults = r;
-                                                                await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
-                                                                if (graph.wake) graph.wake();
-                                                            }
-                                                        }
-                                                        // Primers placed — return to mouse-over-highlight + navigate mode.
-                                                        graph.setMouseMode('navigate');
-                                                        try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                                    };
-                                                    graph.showSideMenu([
-                                                        {
-                                                            label: 'primer3', move: () => { },
-                                                            click: () => { graph.showSideMenu(null); runPrimer3(); }
-                                                        },
-                                                        {
-                                                            label: 'djPrimer (assay success)', move: () => { },
-                                                            click: () => { graph.showSideMenu(null); runDjprimer(); }
-                                                        }
-                                                    ], null, 'Primer probes ▸');
+                                                'label': 'Primer-probes',
+                                                books: () => [
+                                                    { label: 'primer3', click: () => runPrimer3() },
+                                                    { label: 'djPrimer (assay success)', click: () => runDjprimer() }
+                                                ].map((it) => {
+                                                    const a = DESIGN_ABOUT[it.label] || {};
+                                                    return { title: it.label, badge: a.badge || 'Strategy', blurb: a.blurb || '', open: it.click };
                                                 })
                                             }, {
                                                 'label': 'Exon-exon Primer-probes', click: (async () => {
@@ -2038,7 +2109,8 @@ function (graph, genegraph_panel_layout) {
                                                     }
                                                 })
                                             }]
-                                        showSideMenuDelayed(lll)
+                                        await showDesignLibrary('Design Assay',
+                                            'Primer and probe design over the selected sequence', lll, DESIGN_ABOUT);
                                     })
                                 },
                                 {
@@ -2217,7 +2289,8 @@ function (graph, genegraph_panel_layout) {
                                                     })
                                                 })
                                             }]
-                                        showSideMenuDelayed(lll)
+                                        await showDesignLibrary('Design Tx',
+                                            'Pick a tiling strategy for the selected sequence', lll, DESIGN_ABOUT);
 
                                     })
                                 }

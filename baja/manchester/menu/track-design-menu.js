@@ -1,35 +1,18 @@
 function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
-    // Standalone "Design ▸" menu for a single track — Primer probes ▸ | Therapeutics ▸ |
-    // Off-targets | Clinical Library. Extracted verbatim from the track menu in
-    // mouse-over-highlight.js so BOTH the on-canvas track menu and the info-panel Tracks
-    // child menu (gene.js openTracks) open the identical designer.
+    // The Design LIBRARY for a single track — Therapeutics, Primer probes, Off-targets,
+    // Compounds and the Clinical Library, each a shelf of described strategies rather than a
+    // row in a popup. Both entry points (the on-canvas track menu in mouse-over-highlight.js
+    // and the info-panel Tracks child menu in gene.js openTracks) open this same file, so they
+    // cannot drift apart.
     //   exec('baja/manchester/menu/track-design-menu.js', graph, track, genegraph_panel_layout)
-
-    // --- menu helpers (copied from mouse-over-highlight.js so ordering/timing match) ---
-    const MENU_OPEN_DELAY_MS = 100;
-    const orderMenu = (list) => {
-        try {
-            if (!Array.isArray(list) || list.length < 2) return list;
-            const lab = (it) => ('' + (it && (it.label || it.name || ''))).trim();
-            const isHeader = (it) => !!(it && it.header);
-            const isNav = (it) => { const l = lab(it); return /^(‹|«|<|←|✓|↩)/.test(l) || /(^|\s)(Back|Cancel|Close|Done)\b/i.test(l) || /Back$/i.test(l) || l === 'more...' || l === 'Refresh menu' || l === 'Close menu'; };
-            const isSub = (it) => /[▸►]/.test(lab(it));
-            const headers = [], subs = [], leaves = [], navs = [];
-            for (const it of list) {
-                if (!it) { leaves.push(it); continue; }
-                if (isHeader(it)) headers.push(it);
-                else if (isNav(it)) navs.push(it);
-                else if (isSub(it)) subs.push(it);
-                else leaves.push(it);
-            }
-            return headers.concat(subs, leaves, navs);
-        } catch (e) { return list; }
-    };
-    const showSideMenuDelayed = (menu, x, y) => {
-        if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
-        setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y); }, MENU_OPEN_DELAY_MS);
-    };
+    //
+    // It was a cascade of side menus, with its own copies of orderMenu / showSideMenuDelayed
+    // carried over from mouse-over-highlight.js to keep the ordering and timing matching. Those
+    // are gone with the cascade: baja/lib/shelf.js owns the navigation now -- the breadcrumb,
+    // Back, Escape and the walk in and out of each level -- and the designers themselves are
+    // untouched. Every leaf still opens its own Default / Advanced dialog and runs the same
+    // python it always did.
     // Called BEFORE a design tiles its oligos onto the track: dismiss EVERY on-canvas menu
     // (side + center) and zoom in (with margin) to frame the track, so the oligos are then
     // visibly added onto the framed track with their landing bling.
@@ -849,75 +832,63 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             }
         }
 
-        const offTargetsItem = {
-            label: "Off-targets",
-            move: () => { },
-            click: async (scx, scy) => {
-                // Off-target count for an oligo — matches the on-canvas badge:
-                // distinct off-target GENES, else offtargetsymbols count, else
-                // the raw Levenshtein hit count.
-                const otCount = (o) => {
-                    if (!o) return 0;
-                    let ot = (o.offtarget != null) ? o.offtarget : o._offtarget;
-                    if (ot == null) return 0;
-                    if (Array.isArray(ot)) {
-                        const genes = new Set(ot.map((h) => h && h.symbol).filter(Boolean)).size;
-                        if (genes) return genes;
-                        if (o.offtargetsymbols && o.offtargetsymbols.length) return o.offtargetsymbols.length;
-                        return ot.length;
-                    }
-                    if (typeof ot === 'number') return ot;
-                    if (typeof ot === 'string') {
-                        const n = parseInt(ot, 10);
-                        if (!isNaN(n)) return n;
-                        return (o.offtargetsymbols && o.offtargetsymbols.length) ? o.offtargetsymbols.length : 0;
-                    }
-                    return 0;
-                };
-                const otSub = [
-                    {
-                        label: "Filter by off-target count",
-                        move: () => { },
-                        click: async () => {
-                            const vap = await prompt("Maximum allowable off-targets:", ["Max"], { "Max": 5 }, 520, 300);
-                            if (!vap) return;
-                            const max = parseInt(vap["Max"], 10);
-                            if (!Number.isInteger(max) || max < 0) {
-                                infoPrompt("Please enter a non-negative integer.");
-                                return;
-                            }
-                            graph.pushOntoHistory();
-                            const removed = [];
-                            const kept = [];
-                            for (const o of (selectedTrack.oligos || [])) {
-                                const isAmp = !!(o && (o.type === 'amplicon' || (o.left && o.right)));
-                                const n = otCount(o);
-                                // Auto-remove any oligo whose off-target count exceeds the max.
-                                if (!isAmp && n > max) {
-                                    removed.push({ id: (o.id != null ? o.id : (o.name || '?')), n });
-                                } else {
-                                    kept.push(o);
-                                }
-                            }
-                            selectedTrack.oligos = kept;
-                            try { if (graph.wake) graph.wake(); } catch (e) { }
-                            graph.showSideMenu(null);
-                            if (removed.length) {
-                                const lines = removed.map((r) => 'removed ' + r.id + ' with OT ' + r.n);
-                                try { lines.forEach((l) => log(l)); } catch (e) { }
-                                graph.setMessage(' ' + removed.length + ' oligo(s) over ' + max + ' off-targets removed:  ' + lines.join('   |   ') + ' ');
-                            } else {
-                                graph.setMessage(' No oligos exceeded ' + max + ' off-targets. ');
-                            }
-                        }
-                    },
-                    {
-                        label: "← Back",
-                        move: () => { },
-                        click: () => { showSideMenuDelayed(submenu); }
-                    }
-                ];
-                showSideMenuDelayed(otSub);
+        // Off-target count for an oligo — matches the on-canvas badge: distinct off-target
+        // GENES, else the offtargetsymbols count, else the raw Levenshtein hit count.
+        // Hoisted out of the menu item that used to wrap it, so the Design library can use it.
+        const otCount = (o) => {
+            if (!o) return 0;
+            let ot = (o.offtarget != null) ? o.offtarget : o._offtarget;
+            if (ot == null) return 0;
+            if (Array.isArray(ot)) {
+                const genes = new Set(ot.map((h) => h && h.symbol).filter(Boolean)).size;
+                if (genes) return genes;
+                if (o.offtargetsymbols && o.offtargetsymbols.length) return o.offtargetsymbols.length;
+                return ot.length;
+            }
+            if (typeof ot === 'number') return ot;
+            if (typeof ot === 'string') {
+                const n = parseInt(ot, 10);
+                if (!isNaN(n)) return n;
+                return (o.offtargetsymbols && o.offtargetsymbols.length) ? o.offtargetsymbols.length : 0;
+            }
+            return 0;
+        };
+
+        // Remove every oligo on this track whose off-target count is over a maximum the user
+        // gives. Pushes history first, so the answer to "I did not mean that" is undo.
+        const filterByOffTargets = async () => {
+
+            const vap = await prompt("Maximum allowable off-targets:", ["Max"], { "Max": 5 }, 520, 300);
+            if (!vap) return;
+            const max = parseInt(vap["Max"], 10);
+            if (!Number.isInteger(max) || max < 0) {
+                infoPrompt("Please enter a non-negative integer.");
+                return;
+            }
+            graph.pushOntoHistory();
+            const removed = [];
+            const kept = [];
+            for (const o of (selectedTrack.oligos || [])) {
+                const isAmp = !!(o && (o.type === 'amplicon' || (o.left && o.right)));
+                const n = otCount(o);
+                // Auto-remove any oligo whose off-target count exceeds the max.
+                if (!isAmp && n > max) {
+                    removed.push({ id: (o.id != null ? o.id : (o.name || '?')), n });
+                } else {
+                    kept.push(o);
+                }
+            }
+            selectedTrack.oligos = kept;
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            if (removed.length) {
+                const lines = removed.map((r) => 'removed ' + r.id + ' with OT ' + r.n);
+                try { lines.forEach((l) => log(l)); } catch (e) { }
+                // setResultMessage, not setMessage: the canvas draws only error and result
+                // toasts, so the plain message this used was set and then never shown -- oligos
+                // vanished from the track with no word about why.
+                graph.setResultMessage(' ' + removed.length + ' oligo(s) over ' + max + ' off-targets removed:  ' + lines.join('   |   ') + ' ');
+            } else {
+                graph.setResultMessage(' No oligos exceeded ' + max + ' off-targets. ');
             }
         };
 
@@ -1010,22 +981,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             showModal({ wid: 'json', data: JSON.stringify(r) });
         };
 
-        const backToDesign = { label: '‹ Back', move: () => { }, click: () => { showSideMenuDelayed(submenu); } };
-        const primerProbesItem = {
-            label: 'Primer probes ▸', move: () => { },
-            click: () => {
-                showSideMenuDelayed([
-                    { label: 'primer3', move: () => { }, click: () => { graph.showSideMenu(null); runPrimer3(); } },
-                    { label: 'djPrimer v1', move: () => { }, click: () => { graph.showSideMenu(null); runDjprimer(); } },
-                    { label: 'Exon-exon primer-probes', move: () => { }, click: () => { graph.showSideMenu(null); runExonExon(); } },
-                    backToDesign
-                ]);
-            }
-        };
-        const therapeuticsItem = {
-            label: 'Therapeutics ▸', move: () => { },
-            click: () => { showSideMenuDelayed(therapeutics.concat([backToDesign])); }
-        };
         // Compounds ▸ Highlight — make every compound on the track twinkle magenta.
         //
         // o.highlight__ is not a boolean: the renderer passes it straight to
@@ -1063,29 +1018,133 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             } catch (e) { }
         };
 
-        const compoundsItem = {
-            label: 'Compounds ▸', move: () => { },
-            click: () => {
-                showSideMenuDelayed([
-                    { label: 'Highlight', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } highlightCompounds(); } },
-                    backToDesign
-                ]);
+
+        // ---- The Design library -----------------------------------------------------------
+        // Design is a library now rather than a side menu, for the same reason the Data
+        // Resources tree became one: a strategy is a choice worth describing -- what a gapmer
+        // does that a steric blocker does not, which primer designer suits which assay -- and a
+        // one-word row in a popup has nowhere to say it. Each card carries that description.
+        // The leaf is where a designer actually runs, and every one of them opens its own
+        // Default/Advanced dialog exactly as before: the library replaces the navigation, not
+        // the designers.
+        const scopeNote = () => {
+            try {
+                const r = selectedTrack && selectedTrack.selectedRange && selectedTrack.selectedRange();
+                if (r) return 'the selected sequence (' + Math.max(0, Math.round(r.end - r.start)) + ' nt)';
+            } catch (e) { }
+            return 'the whole track';
+        };
+
+        // The three therapeutic designers keep their existing handlers untouched -- the dialog
+        // and the python run belong to them, not to the library.
+        const THERAPEUTIC_ABOUT = {
+            'siRNA': {
+                badge: 'RNAi',
+                blurb: 'Guide / passenger duplexes that load into RISC. Advanced exposes the lengths, '
+                    + 'overhangs, alphabet and the per-component weights that drive the ranking.'
+            },
+            'Gapmer ASO': {
+                badge: 'RNase H',
+                blurb: 'A DNA gap between modified wings: RNase H cuts the transcript where the gap '
+                    + 'binds, which reaches nuclear and non-RISC targets an siRNA cannot.'
+            },
+            'Steric-blocking ASO': {
+                badge: 'Steric',
+                blurb: 'Fully modified, recruiting no RNase H — it occupies a site rather than '
+                    + 'cutting it. The modality for splice switching, uORFs and start codons.'
             }
         };
+        const therapeuticBooks = () => therapeutics.map((t) => {
+            const a = THERAPEUTIC_ABOUT[t.label] || {};
+            return {
+                title: t.label,
+                badge: a.badge || 'Therapeutic',
+                blurb: a.blurb || ('Design ' + t.label + ' over ' + scopeNote() + '.'),
+                open: () => t.click()
+            };
+        });
 
-        const clinicalLibraryItem = {
-            label: 'Clinical Library', move: () => { },
-            click: () => { try { graph.showSideMenu(null); } catch (e) { } try { exec('manchester/clinical-library.js', graph, genegraph_panel_layout); } catch (e) { } }
-        };
+        const primerBooks = () => [
+            {
+                title: 'primer3', badge: 'Standard',
+                blurb: 'The reference primer designer — melting temperature, product size and '
+                    + 'self-complementarity constraints.',
+                open: () => runPrimer3()
+            },
+            {
+                title: 'djPrimer v1', badge: 'In-house',
+                blurb: 'The in-house scorer, tuned for the amplicon panels this app produces. '
+                    + 'Results come back drawn on the track as amplicons.',
+                open: () => runDjprimer()
+            },
+            {
+                title: 'Exon-exon primer-probes', badge: 'Junction',
+                blurb: 'Probes spanning an exon-exon junction, so genomic DNA cannot amplify. '
+                    + 'Results open as JSON rather than on the track.',
+                open: () => runExonExon()
+            }
+        ];
 
-        // Design ▸  Compounds ▸ | Primer probes ▸ | Therapeutics ▸ | Off-targets | Clinical Library
-        const submenu = [primerProbesItem, therapeuticsItem, offTargetsItem, clinicalLibraryItem];
+        const DESIGN = [
+            {
+                title: 'Therapeutics', badge: 'Oligo design',
+                subtitle: 'Pick a modality',
+                blurb: 'siRNA, gapmer and steric-blocking ASO designers. Each opens its own '
+                    + 'Default / Advanced dialog before it runs.',
+                books: therapeuticBooks
+            },
+            {
+                title: 'Primer probes', badge: 'Assay design',
+                subtitle: 'Pick a designer',
+                blurb: 'Primer and probe design over this track — primer3, the in-house djPrimer '
+                    + 'scorer, or exon-exon junction probes.',
+                books: primerBooks
+            },
+            {
+                title: 'Off-targets', badge: 'Filtering',
+                subtitle: 'Prune the compounds on this track',
+                blurb: 'Act on off-target results already attached to the compounds on this track.',
+                books: () => [{
+                    title: 'Filter by off-target count', badge: 'Remove',
+                    blurb: 'Remove every oligo whose off-target count is above a maximum you give. '
+                        + 'Amplicons are left alone, and undo restores what it removed.',
+                    open: () => filterByOffTargets()
+                }]
+            },
+            {
+                title: 'Compounds', badge: 'On this track',
+                subtitle: 'Find what is already here',
+                blurb: 'Work with the compounds already designed onto this track.',
+                books: () => [{
+                    title: 'Highlight compounds', badge: 'Locate',
+                    blurb: 'Twinkle every compound on the track magenta for about five seconds — '
+                        + 'motion catches the eye where a static highlight on a busy track does not.',
+                    open: () => highlightCompounds()
+                }]
+            },
+            {
+                title: 'Clinical Library', badge: 'Reference',
+                blurb: 'Approved and clinical-stage oligonucleotide therapeutics, with the sequences '
+                    + 'and chemistries behind them.',
+                open: () => exec('manchester/clinical-library.js', graph, genegraph_panel_layout)
+            }
+        ];
 
-        setTimeout(() => {
-
-            showSideMenuDelayed(submenu)
-
-        }, 100)
+        await exec('baja/lib/shelf.js', {
+            id: 'baja-design-library',
+            title: 'Design',
+            // Say up front what a design will be run over: a selection silently narrowing the
+            // work is worse than no narrowing at all.
+            subtitle: ((selectedTrack && selectedTrack.name) ? (selectedTrack.name + ' — ') : '')
+                + 'designs run over ' + scopeNote(),
+            books: DESIGN,
+            graph: graph,
+            onClose: () => {
+                try { graph.clearMouseListeners(); } catch (e) { }
+                try { graph.setMouseMode('navigate'); } catch (e) { }
+                try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+            }
+        });
 
     })();
 }
