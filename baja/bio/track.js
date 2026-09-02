@@ -52,17 +52,17 @@ return new Promise(async (resolve, reject) => {
   // an unknown one, gets 'classic' -- a bad name should cost the user their colours, not
   // their track.
   const GX_THEMES = {
-    classic:   { label: 'Classic',       ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)',  exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
-    paper:     { label: 'Paper',         ink: '#2b2b2b', paper: '#f6f1e3', guide: '#d8d2c4',            gtag: '#8a7f6d',                ring: '#5a5348', exon: 'rgba(150,120,70,0.75)', exonEdge: '#7a6647', arrow: 'rgba(120,110,90,0.25)' },
-    blueprint: { label: 'Blueprint',     ink: '#dbe9ff', paper: '#0d2b4e', guide: 'rgba(219,233,255,0.30)', gtag: '#9dc0ef',            ring: '#5b8ac4', exon: 'rgba(150,200,255,0.55)', exonEdge: '#a8cbf0', arrow: 'rgba(200,225,255,0.25)' },
-    midnight:  { label: 'Midnight',      ink: '#e6edf3', paper: '#0d1117', guide: 'rgba(230,237,243,0.20)', gtag: '#8b949e',            ring: '#30363d', exon: 'rgba(88,166,255,0.55)',  exonEdge: '#58a6ff', arrow: 'rgba(139,148,158,0.28)' },
-    forest:    { label: 'Forest',        ink: '#12352a', paper: '#f2f7f4', guide: '#c3d8cd',            gtag: '#4a6b60',                ring: '#14705c', exon: 'rgba(20,112,92,0.70)',  exonEdge: '#0d5544', arrow: 'rgba(60,110,95,0.25)' },
-    sunset:    { label: 'Sunset',        ink: '#5c2118', paper: '#fff6f1', guide: '#e8cdbf',            gtag: '#96604e',                ring: '#a4553f', exon: 'rgba(209,115,79,0.70)', exonEdge: '#8c412c', arrow: 'rgba(160,100,80,0.25)' },
-    slate:     { label: 'Slate',         ink: '#20262c', paper: '#f7f9fa', guide: '#ccd3d9',            gtag: '#5a656f',                ring: '#8a97a3', exon: 'rgba(90,101,111,0.60)', exonEdge: '#48525b', arrow: 'rgba(90,101,111,0.25)' },
-    highvis:   { label: 'High contrast', ink: '#000000', paper: '#ffffff', guide: '#000000',            gtag: '#000000',                ring: '#000000', exon: 'rgba(0,0,0,0.75)',      exonEdge: '#000000', arrow: 'rgba(0,0,0,0.45)' },
-    mono:      { label: 'Mono',          ink: '#3f3f3f', paper: '#fafafa', guide: '#dcdcdc',            gtag: '#8c8c8c',                ring: '#9a9a9a', exon: 'rgba(90,90,90,0.55)',   exonEdge: '#6b6b6b', arrow: 'rgba(120,120,120,0.25)' },
-    lab:       { label: 'Lab notebook',  ink: '#1c3f6e', paper: '#f7faff', guide: '#cfd9e6',            gtag: '#5b7ea8',                ring: '#7d9bc1', exon: 'rgba(28,63,110,0.60)',  exonEdge: '#14345c', arrow: 'rgba(90,126,168,0.25)' },
-    clinical:  { label: 'Clinical',      ink: '#101820', paper: '#ffffff', guide: '#dfe4e8',            gtag: '#7a1c2b',                ring: '#c41230', exon: 'rgba(196,18,48,0.55)',  exonEdge: '#8f0d23', arrow: 'rgba(150,60,75,0.25)' }
+    classic: { label: 'Classic', ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)', exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
+    paper: { label: 'Paper', ink: '#2b2b2b', paper: '#f6f1e3', guide: '#d8d2c4', gtag: '#8a7f6d', ring: '#5a5348', exon: 'rgba(150,120,70,0.75)', exonEdge: '#7a6647', arrow: 'rgba(120,110,90,0.25)' },
+    blueprint: { label: 'Blueprint', ink: '#dbe9ff', paper: '#0d2b4e', guide: 'rgba(219,233,255,0.30)', gtag: '#9dc0ef', ring: '#5b8ac4', exon: 'rgba(150,200,255,0.55)', exonEdge: '#a8cbf0', arrow: 'rgba(200,225,255,0.25)' },
+    midnight: { label: 'Midnight', ink: '#e6edf3', paper: '#0d1117', guide: 'rgba(230,237,243,0.20)', gtag: '#8b949e', ring: '#30363d', exon: 'rgba(88,166,255,0.55)', exonEdge: '#58a6ff', arrow: 'rgba(139,148,158,0.28)' },
+    forest: { label: 'Forest', ink: '#12352a', paper: '#f2f7f4', guide: '#c3d8cd', gtag: '#4a6b60', ring: '#14705c', exon: 'rgba(20,112,92,0.70)', exonEdge: '#0d5544', arrow: 'rgba(60,110,95,0.25)' },
+    sunset: { label: 'Sunset', ink: '#5c2118', paper: '#fff6f1', guide: '#e8cdbf', gtag: '#96604e', ring: '#a4553f', exon: 'rgba(209,115,79,0.70)', exonEdge: '#8c412c', arrow: 'rgba(160,100,80,0.25)' },
+    slate: { label: 'Slate', ink: '#20262c', paper: '#f7f9fa', guide: '#ccd3d9', gtag: '#5a656f', ring: '#8a97a3', exon: 'rgba(90,101,111,0.60)', exonEdge: '#48525b', arrow: 'rgba(90,101,111,0.25)' },
+    highvis: { label: 'High contrast', ink: '#000000', paper: '#ffffff', guide: '#000000', gtag: '#000000', ring: '#000000', exon: 'rgba(0,0,0,0.75)', exonEdge: '#000000', arrow: 'rgba(0,0,0,0.45)' },
+    mono: { label: 'Mono', ink: '#3f3f3f', paper: '#fafafa', guide: '#dcdcdc', gtag: '#8c8c8c', ring: '#9a9a9a', exon: 'rgba(90,90,90,0.55)', exonEdge: '#6b6b6b', arrow: 'rgba(120,120,120,0.25)' },
+    lab: { label: 'Lab notebook', ink: '#1c3f6e', paper: '#f7faff', guide: '#cfd9e6', gtag: '#5b7ea8', ring: '#7d9bc1', exon: 'rgba(28,63,110,0.60)', exonEdge: '#14345c', arrow: 'rgba(90,126,168,0.25)' },
+    clinical: { label: 'Clinical', ink: '#101820', paper: '#ffffff', guide: '#dfe4e8', gtag: '#7a1c2b', ring: '#c41230', exon: 'rgba(196,18,48,0.55)', exonEdge: '#8f0d23', arrow: 'rgba(150,60,75,0.25)' }
   };
 
   let GX_T = GX_THEMES.classic;
@@ -2615,61 +2615,61 @@ return new Promise(async (resolve, reject) => {
     // rather than a blur so the cost does not grow with the number of compounds -- a track
     // with two thousand oligos paints the same number of rectangles as one with ten.
     __drawCompoundDensity(graph, oligos) {
-        const ctx = graph && graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
-        if (!ctx || !oligos || !oligos.length) return;
+      const ctx = graph && graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
+      if (!ctx || !oligos || !oligos.length) return;
 
-        const BINS = 160;
-        const bins = new Array(BINS).fill(0);
-        const lo = this.tgraph.xmin, hi = this.tgraph.xmax;
-        const span = (hi - lo) || 1;
-        let total = 0;
-        for (const o of oligos) {
-            if (!o) continue;
-            const isAmp = (o.type === 'amplicon' && o.left && o.right);
-            const a = isAmp ? +o.left.xi : +o.xi;
-            const b = isAmp ? +o.right.xf : +o.xf;
-            if (!isFinite(a) || !isFinite(b)) continue;
-            // Spread an interval across every bin it touches, so a long amplicon reads as wide
-            // rather than as a single tall spike at its start.
-            const i0 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.min(a, b) - lo) / span) * BINS)));
-            const i1 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.max(a, b) - lo) / span) * BINS)));
-            for (let i = i0; i <= i1; i++) { bins[i]++; }
-            total++;
-        }
-        if (!total) return;
+      const BINS = 160;
+      const bins = new Array(BINS).fill(0);
+      const lo = this.tgraph.xmin, hi = this.tgraph.xmax;
+      const span = (hi - lo) || 1;
+      let total = 0;
+      for (const o of oligos) {
+        if (!o) continue;
+        const isAmp = (o.type === 'amplicon' && o.left && o.right);
+        const a = isAmp ? +o.left.xi : +o.xi;
+        const b = isAmp ? +o.right.xf : +o.xf;
+        if (!isFinite(a) || !isFinite(b)) continue;
+        // Spread an interval across every bin it touches, so a long amplicon reads as wide
+        // rather than as a single tall spike at its start.
+        const i0 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.min(a, b) - lo) / span) * BINS)));
+        const i1 = Math.max(0, Math.min(BINS - 1, Math.floor(((Math.max(a, b) - lo) / span) * BINS)));
+        for (let i = i0; i <= i1; i++) { bins[i]++; }
+        total++;
+      }
+      if (!total) return;
 
-        let peak = 0;
-        for (const v of bins) if (v > peak) peak = v;
-        if (!peak) return;
+      let peak = 0;
+      for (const v of bins) if (v > peak) peak = v;
+      if (!peak) return;
 
-        const T = this.themeColors();
-        const yTop = graph.Y(this.tgraph.Y(1));
-        const yBot = graph.Y(this.tgraph.Y(0));
-        const top = Math.min(yTop, yBot), height = Math.abs(yBot - yTop);
-        const xLeft = graph.X(this.tgraph.X(lo));
-        const xRight = graph.X(this.tgraph.X(hi));
-        const width = (xRight - xLeft);
-        const bw = width / BINS;
+      const T = this.themeColors();
+      const yTop = graph.Y(this.tgraph.Y(1));
+      const yBot = graph.Y(this.tgraph.Y(0));
+      const top = Math.min(yTop, yBot), height = Math.abs(yBot - yTop);
+      const xLeft = graph.X(this.tgraph.X(lo));
+      const xRight = graph.X(this.tgraph.X(hi));
+      const width = (xRight - xLeft);
+      const bw = width / BINS;
 
-        ctx.save();
-        for (let i = 0; i < BINS; i++) {
-            if (!bins[i]) continue;
-            const f = bins[i] / peak;
-            // Floor the alpha so a single compound still registers; the eye should be able to
-            // find one outlier, not only the crowd.
-            ctx.globalAlpha = 0.14 + 0.55 * f;
-            ctx.fillStyle = T.exon;
-            ctx.fillRect(xLeft + i * bw, top, Math.max(1, bw + 0.5), height);
-        }
-        ctx.globalAlpha = 1;
-        // Say what is being shown, so a glow is never mistaken for data on the track.
-        try {
-            ctx.font = '10px Arial, Helvetica, sans-serif';
-            ctx.fillStyle = T.gtag;
-            ctx.textAlign = 'left';
-            ctx.fillText(total + ' compound' + (total === 1 ? '' : 's') + ' · density', xLeft + 4, top + 11);
-        } catch (e) { }
-        ctx.restore();
+      ctx.save();
+      for (let i = 0; i < BINS; i++) {
+        if (!bins[i]) continue;
+        const f = bins[i] / peak;
+        // Floor the alpha so a single compound still registers; the eye should be able to
+        // find one outlier, not only the crowd.
+        ctx.globalAlpha = 0.14 + 0.55 * f;
+        ctx.fillStyle = T.exon;
+        ctx.fillRect(xLeft + i * bw, top, Math.max(1, bw + 0.5), height);
+      }
+      ctx.globalAlpha = 1;
+      // Say what is being shown, so a glow is never mistaken for data on the track.
+      try {
+        ctx.font = '10px Arial, Helvetica, sans-serif';
+        ctx.fillStyle = T.gtag;
+        ctx.textAlign = 'left';
+        ctx.fillText(total + ' compound' + (total === 1 ? '' : 's') + ' · density', xLeft + 4, top + 11);
+      } catch (e) { }
+      ctx.restore();
     }
 
     // The themes this track can draw with. On the class so the menu builds itself from the
@@ -2678,8 +2678,8 @@ return new Promise(async (resolve, reject) => {
 
     // This track's palette. Unset or unknown falls back to classic.
     themeColors() {
-        try { return GX_THEMES[this.theme] || GX_THEMES.classic; }
-        catch (e) { return GX_THEMES.classic; }
+      try { return GX_THEMES[this.theme] || GX_THEMES.classic; }
+      catch (e) { return GX_THEMES.classic; }
     }
 
     getExons() {
@@ -6418,8 +6418,8 @@ return new Promise(async (resolve, reject) => {
         // Emptying visOligos is what hides them: both draw loops below iterate it, so one
         // assignment covers each without a flag threaded into either.
         if (this.compoundDensity && visOligos && visOligos.length) {
-            try { this.__drawCompoundDensity(graph, visOligos); } catch (e) { }
-            visOligos = [];
+          try { this.__drawCompoundDensity(graph, visOligos); } catch (e) { }
+          visOligos = [];
         }
 
         let snpsv = [];
@@ -7282,21 +7282,21 @@ return new Promise(async (resolve, reject) => {
             ctx.restore();
           }
 
-          ctx.save();
+          // ctx.save();
 
-          ctx.translate(sx + 2, syTick - 10);
-          ctx.rotate((-45 * Math.PI) / 180);
+          // ctx.translate(sx + 2, syTick - 10);
+          // ctx.rotate((-45 * Math.PI) / 180);
 
-          ctx.fillStyle = GX_T.gtag;
-          ctx.textAlign = "left";
-          ctx.textBaseline = "alphabetic";
-          if (screencell > 5 && graph.canvas) {
-            if (this.showGenomicCoords !== false) ctx.fillText("g." + (genomicPos), 0, 0);
+          // ctx.fillStyle = GX_T.gtag;
+          // ctx.textAlign = "left";
+          // ctx.textBaseline = "alphabetic";
+          // if (screencell > 5 && graph.canvas) {
+          //   if (this.showGenomicCoords !== false) ctx.fillText("g." + (genomicPos), 0, 0);
 
-          } else
-            if (this.showGenomicCoords !== false) ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
+          // } else
+          //   if (this.showGenomicCoords !== false) ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
 
-          ctx.restore();
+          // ctx.restore();
         }
         let stepPx = Math.abs(graph.grid.X(this.tgraph.X(first + step)) - graph.grid.X(this.tgraph.X(first)));
 

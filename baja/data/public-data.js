@@ -1,8 +1,16 @@
 function (graph, genegraph_panel_layout, presetResource) {
-    // Public data resources browser — a selection list (like the chemistry list)
-    // of the public resources available to load / search. Selecting one kicks off
-    // its loader (per-resource handlers can be wired in loadResource below).
-    // If presetResource is given, skip the list and arm that resource directly.
+    // Public data resources browser — nested LIBRARIES, the same idiom as the rest of Data
+    // Resources: a shelf of public resources, and picking one opens a shelf of the matching
+    // bigWig / VCF files in BIG_DATA. Only that file card loads.
+    //
+    // It used to be a selection-list panel that replaced the editor, and when a resource had
+    // more than one file behind it, a showWindowMenu popup on top of the canvas -- so the same
+    // question was asked two different ways depending on how many answers there were, and the
+    // file was chosen once PER TRACK during the sweep. The choice is made once now, in the
+    // library, for the whole board.
+    //
+    // If presetResource is given, skip the library and arm that resource directly (the
+    // toolbar's RNASeq item), which keeps its per-track listing.
     return new Promise(async (resolve) => {
 
         // Only public data sources that carry GENOMIC COORDINATES (chr/start/end)
@@ -66,6 +74,22 @@ function (graph, genegraph_panel_layout, presetResource) {
                 window.__workStatus = m || '';
                 if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
             } catch (e) { }
+        };
+
+        const fileNameOf = (u) => {
+            try { return decodeURIComponent(('' + u).split('?')[0].split('#')[0].split('/').filter(Boolean).pop() || ''); }
+            catch (e) { return ''; }
+        };
+
+        // Which genome to list files for. The species comes off the board rather than being
+        // assumed human: listing human files for a mouse board finds either nothing or the
+        // wrong thing, and the subtitle says which one was used so a mixed board is not a
+        // silent guess.
+        const boardGenome = () => {
+            try {
+                for (const t of (graph.track || [])) if (t && t.species) return '' + t.species;
+            } catch (e) { }
+            return 'human';
         };
 
         const restoreHover = () => {
@@ -162,7 +186,10 @@ function (graph, genegraph_panel_layout, presetResource) {
 
         // Selecting a resource arms a track click: click a track, find its bigWig /
         // VCF endpoints, let the user pick one (if several), then load it as a layer.
-        const armLoad = async (name) => {
+        // `preCand` is a file already chosen from the library: load THAT onto every track in
+        // scope, with no per-track listing and no popup. Without it (the preset/toolbar path)
+        // the original behaviour stands -- list per track, ask if there is more than one.
+        const armLoad = async (name, preCand) => {
             if (!name) return;
             CurrentLayout.clearComponent('mainPanel');
             CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
@@ -188,6 +215,12 @@ function (graph, genegraph_panel_layout, presetResource) {
                     const __sel = (track.selectedRange && track.selectedRange()) || null;
                     if (__sel) gr = { start: __sel.start, end: __sel.end };
                     const genome = track.species || 'human';
+
+                    if (preCand) {
+                        tally.attempted++;
+                        if (await loadEndpointAsLayer(track, name, preCand, gr, chr)) tally.landed++;
+                        return;
+                    }
 
                     // The BIG_DATA walk is the slow half of this, so it gets its own status
                     // line in the shared badge rather than only a canvas message.
@@ -215,21 +248,29 @@ function (graph, genegraph_panel_layout, presetResource) {
                     }
                     // Multiple candidates — prompt the user to pick the specific
                     // bigWig / VCF file.
-                    const fileNameOf = (u) => { try { return decodeURIComponent(('' + u).split('?')[0].split('#')[0].split('/').filter(Boolean).pop() || ''); } catch (e) { return ''; } };
-                    const menu = candidates.map((c) => {
-                        const fn = fileNameOf(c.url);
-                        return {
-                            label: '[' + (c.type || '?').toUpperCase() + '] ' + (c.label || '') + (fn ? '  —  ' + fn : ''),
-                            move: () => { },
-                            click: () => { try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { } loadEndpointAsLayer(track, name, c, gr, chr); }   // outcome reported by the loader itself
-                        };
-                    });
                     // Waiting on a human choice: the outcome for this track is not known when
                     // the sweep ends, so it must not count towards "nothing was loaded".
                     tally.pending++;
                     status('');
-                    graph.setMessage(' Pick a ' + name + ' file to load. ');
-                    graph.showWindowMenu(menu, 10, 10, 420);
+                    // A shelf, not a popup menu over the canvas. Only the toolbar preset
+                    // reaches this now, and it must not ask the question a different way than
+                    // the library does two lines of code away.
+                    await exec('baja/lib/shelf.js', {
+                        id: 'baja-public-data-files',
+                        title: name,
+                        subtitle: 'Pick a file to load onto ' + ((track && track.name) || 'this track'),
+                        graph: graph,
+                        onClose: restoreHover,
+                        books: candidates.map((c) => {
+                            const fn = fileNameOf(c.url);
+                            return {
+                                title: (c.label || fn || name),
+                                badge: ('' + (c.type || 'file')).toUpperCase(),
+                                blurb: (fn ? fn + ' — ' : '') + 'loaded over ' + gr.start + '-' + gr.end + '.',
+                                open: () => loadEndpointAsLayer(track, name, c, gr, chr)   // outcome reported by the loader itself
+                            };
+                        })
+                    });
                 } catch (e) {
                     tally.attempted++;
                     status('');
@@ -257,57 +298,74 @@ function (graph, genegraph_panel_layout, presetResource) {
             return;
         }
 
-        const list = {
-            wid: 'selection-list',
-            data: {
-                single_selection: true,
-                show_button: false,
-                singleSelect: true,
-                listItems: resources,
-                button_function: createIonFunction((items) => {
-                    loadResource(items && items[0]);
-                })
-            }
+        // ---- The library ----------------------------------------------------------------
+        // What each resource IS, so a card is a description rather than a bare name. These are
+        // only the sources carrying genomic coordinates; the ones without loci (patents,
+        // protein / compound / pathway / literature databases) are deliberately not here.
+        const ABOUT = {
+            'RNASeq (GEO / expression)': 'Expression coverage deposited in GEO — read depth over the locus.',
+            'GWAS Catalog': 'Trait-associated variants from published genome-wide association studies.',
+            'ClinVar (variants)': 'Clinically asserted variation, with the submitter evidence behind each call.',
+            'dbSNP': 'The reference catalogue of short variation.',
+            'GTEx (eQTLs)': 'Variants associated with expression level, tissue by tissue.',
+            'TCGA (cancer genomics)': 'Somatic calls and expression from The Cancer Genome Atlas.',
+            'ENCODE (regulatory)': 'Regulatory signal — DNase, ChIP-seq and chromatin state over the locus.',
+            '1000 Genomes': 'Population variation from the 1000 Genomes reference panel.',
+            'gnomAD (population variants)': 'Population allele frequencies at scale.',
+            'RefSeq': 'NCBI reference sequence annotation.',
+            'Ensembl': 'Ensembl gene and transcript annotation.',
+            'GENCODE': 'The GENCODE reference annotation set.',
+            'UCSC tracks': 'Assorted UCSC Genome Browser tracks configured for this deployment.',
+            'Roadmap Epigenomics': 'Chromatin state and histone marks across reference epigenomes.'
         };
 
-        const panel = {
-            wid: 'card',
-            data: {
-                cards: [
-                    [
-                        {
-                            'width': '100%',
-                            'component': {
-                                wid: 'html',
-                                data: '<div style="padding:8px 4px;font-weight:700;">Public data resources</div>'
-                            }
-                        },
-                        {
-                            'width': '100%',
-                            'component': list
-                        },
-                        {
-                            'width': '100%',
-                            'component': {
-                                wid: 'mt-button',
-                                data: {
-                                    buttons: [
-                                        {
-                                            label: 'Close', ionFunction: createIonFunction(() => {
-                                                CurrentLayout.clearComponent('mainPanel');
-                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
-                                            })
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                ]
+        // The files behind one resource, as its own shelf.
+        const candidateBooks = async (name) => {
+            const genome = boardGenome();
+            const server = window['env']['apiUrl'];
+            const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+            const res = await exec(server + '/py/data/list-big-data.py', em, name, '' + genome);
+            let candidates = [];
+            try { candidates = JSON.parse((res && res.candidates) || '[]'); } catch (e) { candidates = []; }
+            if (!candidates.length) {
+                // Thrown rather than returned empty: the shelf reports the message, and "no
+                // ClinVar files for mouse in BIG_DATA" is a different thing to know than "this
+                // library happens to be empty".
+                throw new Error('No ' + name + ' files in BIG_DATA for ' + genome
+                    + ((res && res.error) ? (' — ' + res.error) : '') + '.');
             }
+            return candidates.map((c) => {
+                const fn = fileNameOf(c.url);
+                return {
+                    title: (c.label || fn || name),
+                    badge: ('' + (c.type || 'file')).toUpperCase(),
+                    blurb: (fn ? fn + ' — ' : '')
+                        + 'loaded over each track\u2019s locus, or over the selected sequence where one is set.',
+                    open: () => armLoad(name, c)
+                };
+            });
         };
 
-        resolve(panel);
+        const books = resources.map((name) => ({
+            title: name,
+            badge: 'Public',
+            blurb: (ABOUT[name] || 'Public reference data for this deployment.')
+                + ' Opens the matching bigWig / VCF files in BIG_DATA.',
+            subtitle: 'Pick a file to load',
+            books: () => candidateBooks(name)
+        }));
+
+        await exec('baja/lib/shelf.js', {
+            id: 'baja-public-data',
+            title: 'Public data resources',
+            subtitle: 'Reference data for ' + boardGenome() + ' — pick a source, then a file',
+            books: books,
+            graph: graph,
+            onClose: restoreHover
+        });
+
+        // The shelf owns the screen; there is no mainPanel component to hand back.
+        resolve(null);
     }).then((panel) => {
         if (!panel) return;   // preset flow armed a resource directly, no list panel
         CurrentLayout.clearComponent('mainPanel');

@@ -5041,6 +5041,9 @@ function (progress, options) {
                         if (this.chapter_menu && this.showChapters) {
                             this.chapterMouseDownListener(xwc, ywc);
                             this.showChapters = false;
+                            // The click that dismissed it leaves the canvas with no listeners,
+                            // so panning and hovering were dead until another menu was opened.
+                            this.__rearmHoverSoon();
                             return;
                         }
                         if (this.select_) {
@@ -5149,30 +5152,9 @@ function (progress, options) {
                             try { if (this.wake) this.wake(); } catch (e) { }
                             try { await __m.mouseUp(this.graph, xwc, ywc); } catch (e) { }
                             try { if (this.wake) this.wake(); } catch (e) { }
-                            // If the menu was dismissed/canceled WITHOUT the item installing
-                            // its own canvas interaction, fall back to the mouse-over hover
-                            // highlight. Deferred so it runs AFTER any Cancel/dismiss handler
-                            // that calls setMouseMode('navigate') (which clears listeners) —
-                            // otherwise that would wipe the hover we just re-armed.
-                            const __rearmHover = () => {
-                                try {
-                                    if (this.mouseDownListeners.length === 0 && this.mouseMoveListeners.length === 0
-                                        && !this.side_menu && !this.menuVisible()) {
-                                        if (typeof this.__hoverRearm === 'function') {
-                                            this.__hoverRearm();
-                                        } else {
-                                            const gpl = this.genegraph_panel_layout
-                                                || (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed ? CurrentLayout.getStashed('genegraph_panel_layout') : null);
-                                            try { exec('baja/manchester/menu/mouse-over-highlight.js', this, gpl); } catch (e) { }
-                                        }
-                                    }
-                                } catch (e) { }
-                            };
-                            // Re-arm after any Cancel/dismiss handler's setMouseMode('navigate')
-                            // (which clears listeners) has run — and again a bit later as a
-                            // safety net against races clearing it.
-                            setTimeout(__rearmHover, 40);
-                            setTimeout(__rearmHover, 180);
+                            // If the menu was dismissed/canceled WITHOUT the item installing its
+                            // own canvas interaction, fall back to the hover highlight.
+                            this.__rearmHoverSoon();
                             return;
                         } else {
                             if (this.mode === 'menu') {
@@ -7796,6 +7778,35 @@ pattern, GGGG | Required`
                     return true;
                 } else
                     return false;
+            }
+            // A menu dismissed WITHOUT the item installing its own canvas interaction leaves the
+            // canvas with no listeners at all: no pan, no hover, no selection, until the user
+            // happens to open another menu. This puts the mouse-over highlight back.
+            //
+            // Deferred, and run twice, on purpose. A Cancel/dismiss handler may call
+            // setMouseMode('navigate'), which CLEARS listeners -- re-arming before that runs
+            // would just be wiped -- and the second pass is a safety net against a slower one
+            // clearing what the first put back. The listener check is what makes that safe: if
+            // the menu item armed its own interaction ('click a track to load data'), this does
+            // nothing and leaves that mode alone.
+            __rearmHoverSoon() {
+                const go = () => {
+                    try {
+                        if (this.mouseDownListeners.length === 0 && this.mouseMoveListeners.length === 0
+                            && !this.side_menu && !this.menuVisible()
+                            && !this.showChapters && !this.showBookmarks) {
+                            if (typeof this.__hoverRearm === 'function') {
+                                this.__hoverRearm();
+                            } else {
+                                const gpl = this.genegraph_panel_layout
+                                    || (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed ? CurrentLayout.getStashed('genegraph_panel_layout') : null);
+                                try { exec('baja/manchester/menu/mouse-over-highlight.js', this, gpl); } catch (e) { }
+                            }
+                        }
+                    } catch (e) { }
+                };
+                setTimeout(go, 40);
+                setTimeout(go, 180);
             }
             hideMenu() {
                 this.menu = null;
