@@ -1,31 +1,30 @@
 function (graph, genegraph_panel_layout) {
     // Predictive-models toolbar (menu bar) docked in the button panel — shown when
     // the user chooses "Predictive models" (mirrors the data-loading / layers
-    // toolbars). Two menus: Models (train / manage) and Layers (model-driven
-    // track layers).
+    // toolbars). Two menus: Models and Layers (model-driven track layers).
+    //
+    // Models opens the ML MODELS LIBRARY rather than listing models itself. It used to name
+    // three of them -- Splicing, RNA Binding Proteins, Intron retention -- and run each
+    // directly, which made it a second, shorter way in to the same runners: the library has
+    // six models, the splicing entry here could not say which of the two splicing models it
+    // meant, and neither list knew when the other gained an entry. Same fix, and the same
+    // reason, as the RNASeq item in baja/data/data-loading-toolbar.js.
+    //
+    // Nothing is passed for `tracks`, so the runners keep asking for a click exactly as they
+    // did from this toolbar; the library's own subtitle says so.
     const go = (fn) => createIonFunction(async () => {
         try { await fn(); } catch (e) { try { graph.setMessage(' ' + e); } catch (_e) { } }
     });
 
-    // ---- Models: predictive models --------------------------------------------
+    // ---- Models: the library ---------------------------------------------------
     const modelItems = [
         {
-            'label': 'Splicing', 'ionfunction': go(async () => {
-                // Click a track → local bajasplice-lib splicing profile as layers.
-                await exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout);
-            })
-        },
-        {
-            'label': 'RNA Binding Proteins', 'ionfunction': go(async () => {
-                // Click a track → local bajaclip-lib RBP binding profile as a layer.
-                await exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout);
-            })
-        },
-        {
-            'label': 'Intron retention', 'ionfunction': go(async () => {
-                // Pick a tier, click a track → local bajair-lib retention scores as
-                // one interval per intron. Scores by gene, so it ignores a selection.
-                await exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout);
+            'label': 'ML Models Library…', 'ionfunction': go(async () => {
+                graph.clearMouseListeners();
+                graph.setMouseMode('navigate');
+                // Every model, grouped, each with its reference view -- what it predicts, how
+                // it was built and what it cannot tell you -- before it runs.
+                await exec('baja/ml/models-library.js', graph, genegraph_panel_layout);
             })
         }
     ];
