@@ -41,10 +41,14 @@ function () {
             // Still the plain 'US<number> <assignee>' label; stage 4 of the patent pipeline
             // writes the packed number‖title‖date‖assignee‖inventors form.
             assignees: '/bd/aso_sirna_gt_assignees.tsv',
-            color: 'rgba(160,80,160,0.55)',
-            // On their side, like every other interval label: hits stack into lanes and a flat
-            // 'US12186406 ALNYLAM PHARMACEUTICALS' runs clean across the ones beside it.
-            verticalLabels: true,
+            // Lightened with the other patent layers: these stack into lanes deep enough to
+            // hide the track under them, and the label now sits on top of the bar.
+            color: 'rgba(160,80,160,0.26)',
+            // Horizontal -- 'US12186406 ALNYLAM PHARMACEUTICALS' is read left to right -- but
+            // only where it fits: avoidLabelOverlap drops a label that would land on one
+            // already drawn rather than overprinting it.
+            verticalLabels: false,
+            avoidLabelOverlap: true,
             labelZoomThreshold: 0.4,
             noun: 'ASO/siRNA/gene-therapy hit',
         },
@@ -66,8 +70,9 @@ function () {
             // chemistry, and a designer needs to know which kind of claim a hit represents.
             bed: '/bd/lipid_patents_hg38_transcript_hits.bed.gz',
             assignees: '/bd/lipid_patents_assignees.tsv',
-            color: 'rgba(200,140,50,0.55)',
-            verticalLabels: true,
+            color: 'rgba(200,140,50,0.26)',
+            verticalLabels: false,
+            avoidLabelOverlap: true,
             labelZoomThreshold: 0.4,
             noun: 'assay-panel patent hit',
         },
@@ -75,8 +80,9 @@ function () {
             key: 'patents_2020_2025',
             label: 'Patents 2020–2025',
             bed: '/bd/patent_hg38_transcript_hits.bed.gz',
-            color: 'rgba(70,130,180,0.55)',
-            verticalLabels: true,
+            color: 'rgba(70,130,180,0.26)',
+            verticalLabels: false,
+            avoidLabelOverlap: true,
             labelZoomThreshold: 0.4,
             // NB: no assignees TSV. This BED's column 4 is a sequential record id ('2|2|'),
             // not a patent number, and nothing on disk maps it to one -- so a hit from this

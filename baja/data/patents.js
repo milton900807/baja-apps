@@ -87,12 +87,20 @@ function (graph, genegraph_panel_layout, tracks) {
             const tg = track.tgraph;
             const layer = new TrackLayer((track.name || 'track') + '_patents', tg.xmin, 0, tg.xmax, 1);
             layer.data_type = 'Patents';
-            layer.color = 'rgba(150,90,60,0.55)';
+            // Lighter than the other interval layers on purpose. Patents stack into many lanes
+            // and a locus can carry hundreds of overlapping claims, so at 0.55 the lanes summed
+            // into a solid block that hid the track underneath; the bars are context for a
+            // design, not the subject of it. Alpha also has to leave room for the label sitting
+            // on top of it now.
+            layer.color = 'rgba(150,90,60,0.26)';
             layer.fillstyle = layer.color;
-            // Written ON the block, turned a quarter turn, like every other interval layer.
-            // Patent hits are short and stack into lanes, so a flat label ran across the hits
-            // beside and below it; on its side each one stays over the claim it names.
-            layer.verticalLabels = true;
+            // HORIZONTAL, and placed only where it fits. A patent number reads left-to-right and
+            // is what the eye is scanning for; turned on its side it was legible but slow. The
+            // catch is that the label is wider than the hit it names, so avoidLabelOverlap drops
+            // any that would land on one already drawn -- the bar stays either way, and the
+            // hover panel still carries every field.
+            layer.verticalLabels = false;
+            layer.avoidLabelOverlap = true;
             layer.labelZoomThreshold = 0.4;
 
             // The x-axis is genomic and the track sequence is exon-collapsed, so a

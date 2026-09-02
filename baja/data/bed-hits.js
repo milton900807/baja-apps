@@ -217,6 +217,12 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             // Vertical labels are compact enough to show at gene scale; the multi-line
             // horizontal block still waits until the sequence is visible.
             layer.verticalLabels = !!cfg.verticalLabels;
+            // Carried through from the set, like verticalLabels. Without this the patent sets'
+            // avoidLabelOverlap was set in layer-sets.js and then dropped on the floor here,
+            // so the layers built through bed-hits would have drawn every label unconditionally
+            // while patents.js -- which builds its own layer -- honoured it. Same data, two
+            // behaviours, depending on which loader you came through.
+            layer.avoidLabelOverlap = !!cfg.avoidLabelOverlap;
             layer.labelZoomThreshold = (cfg.labelZoomThreshold != null) ? cfg.labelZoomThreshold : 5;
             track.addLayer(layer);
 

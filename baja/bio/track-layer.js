@@ -892,6 +892,10 @@ return new Promise(async (resolve, reject) => {
 
                 ctx.fillStyle = this.color;
                 this.__vlabLast = null;
+                // Boxes already occupied by a horizontal label THIS frame. Rebuilt every draw:
+                // the intervals move under pan and zoom, so what collided last frame says
+                // nothing about this one.
+                this.__hlabBoxes = [];
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -980,6 +984,50 @@ return new Promise(async (resolve, reject) => {
                                 ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
+                            ctx.fillStyle = this.defaultColor;
+                        } else if (this.avoidLabelOverlap) {
+                            // Horizontal, but only where it FITS. Lane-packed layers put many
+                            // short intervals near each other, and the label of one is wider
+                            // than the interval it belongs to -- so drawn unconditionally they
+                            // overprint each other into an unreadable band. A label that would
+                            // land on one already placed this frame is dropped instead: the bar
+                            // is still there, and the hover panel still has everything.
+                            //
+                            // First line only, for the same reason the vertical branch takes it:
+                            // the rest of the metadata is many lines and belongs in the panel.
+                            const one = ('' + text).split('\n')[0];
+                            ctx.save();
+                            ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            const tw = ctx.measureText(one).width;
+                            const th = 11;
+                            const bx0 = screenx, bx1 = screenx + tw;
+                            const by0 = screeny - th / 2, by1 = screeny + th / 2;
+                            // 4px horizontal / 2px vertical breathing room, so two labels that
+                            // merely touch still read as two.
+                            let free = (bx1 < graph.grid.width + 200);
+                            if (free) {
+                                for (const b of this.__hlabBoxes) {
+                                    if (bx0 < b.x1 + 4 && bx1 + 4 > b.x0 && by0 < b.y1 + 2 && by1 + 2 > b.y0) {
+                                        free = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (free) {
+                                this.__hlabBoxes.push({ x0: bx0, x1: bx1, y0: by0, y1: by1 });
+                                // Same halo the vertical labels use: these sit over the bars and
+                                // whatever else the track is drawing.
+                                ctx.lineJoin = 'round';
+                                ctx.miterLimit = 2;
+                                ctx.lineWidth = 3;
+                                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                                ctx.strokeText(one, screenx, screeny);
+                                ctx.fillStyle = '#0b1a2b';
+                                ctx.fillText(one, screenx, screeny);
+                            }
+                            ctx.restore();
                             ctx.fillStyle = this.defaultColor;
                         } else {
                             const maxWidth = 300;
@@ -1188,6 +1236,10 @@ return new Promise(async (resolve, reject) => {
                 ctx.strokeStyle = "rgba(100,100,0,1)";
                 ctx.fillStyle = this.color;
                 this.__vlabLast = null;
+                // Boxes already occupied by a horizontal label THIS frame. Rebuilt every draw:
+                // the intervals move under pan and zoom, so what collided last frame says
+                // nothing about this one.
+                this.__hlabBoxes = [];
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -1276,6 +1328,50 @@ return new Promise(async (resolve, reject) => {
                                 ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
+                            ctx.fillStyle = this.defaultColor;
+                        } else if (this.avoidLabelOverlap) {
+                            // Horizontal, but only where it FITS. Lane-packed layers put many
+                            // short intervals near each other, and the label of one is wider
+                            // than the interval it belongs to -- so drawn unconditionally they
+                            // overprint each other into an unreadable band. A label that would
+                            // land on one already placed this frame is dropped instead: the bar
+                            // is still there, and the hover panel still has everything.
+                            //
+                            // First line only, for the same reason the vertical branch takes it:
+                            // the rest of the metadata is many lines and belongs in the panel.
+                            const one = ('' + text).split('\n')[0];
+                            ctx.save();
+                            ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            const tw = ctx.measureText(one).width;
+                            const th = 11;
+                            const bx0 = screenx, bx1 = screenx + tw;
+                            const by0 = screeny - th / 2, by1 = screeny + th / 2;
+                            // 4px horizontal / 2px vertical breathing room, so two labels that
+                            // merely touch still read as two.
+                            let free = (bx1 < graph.grid.width + 200);
+                            if (free) {
+                                for (const b of this.__hlabBoxes) {
+                                    if (bx0 < b.x1 + 4 && bx1 + 4 > b.x0 && by0 < b.y1 + 2 && by1 + 2 > b.y0) {
+                                        free = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (free) {
+                                this.__hlabBoxes.push({ x0: bx0, x1: bx1, y0: by0, y1: by1 });
+                                // Same halo the vertical labels use: these sit over the bars and
+                                // whatever else the track is drawing.
+                                ctx.lineJoin = 'round';
+                                ctx.miterLimit = 2;
+                                ctx.lineWidth = 3;
+                                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                                ctx.strokeText(one, screenx, screeny);
+                                ctx.fillStyle = '#0b1a2b';
+                                ctx.fillText(one, screenx, screeny);
+                            }
+                            ctx.restore();
                             ctx.fillStyle = this.defaultColor;
                         } else {
                             const maxWidth = 300;
