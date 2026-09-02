@@ -2882,7 +2882,11 @@ return new Promise(async (resolve, reject) => {
                 }
             }
 
-            let track = new Track(this.name + '*', 0, seq.length, null, this.strand);
+            // "<track>_mRNA", not "<track>*": the suffix says what the track IS -- the spliced
+            // transcript built from this one -- where the asterisk said only that it was
+            // derived from something. Any clash with a track already on the canvas is settled
+            // by ensureUniqueTrackName in flexigraph/gene.js when it is added.
+            let track = new Track(this.name + '_mRNA', 0, seq.length, null, this.strand);
             track.sequence = seq;
             track.chr = this.chr;
             track.annotations = _annotations;
@@ -4619,10 +4623,18 @@ return new Promise(async (resolve, reject) => {
                     for (let idx = this.grid.xmin; idx < this.grid.xmax; idx += increment) {
                         drawVerticalLine(ctx, graph.X(Math.floor(this.grid.X(idx))), graph.Y(this.grid.Y(0)), graph.screenHeight(this.grid.height), 'lightGray', 1);
 
+                    }
+                    // ONE genomic coordinate, centred over the track, rather than a number on
+                    // every gridline. Four of them repeated the same kind of information at four
+                    // positions and crowded the top edge, which is also where the caption tab and
+                    // the track's layers sit. One says where you are; the gridlines and the tab's
+                    // own range say how wide.
+                    {
+                        const __mid = (this.grid.xmin + this.grid.xmax) / 2;
                         drawString(
                             ctx,
-                            Math.floor(idx) + "",
-                            graph.X(this.grid.X(idx)),
+                            Math.floor(__mid) + "",
+                            graph.X(this.grid.X(__mid)),
                             graph.Y(this.grid.Y(this.grid.ymax)),
                             'lightGray',
                             this.detail_ffont7

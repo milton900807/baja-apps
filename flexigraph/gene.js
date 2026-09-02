@@ -2259,6 +2259,35 @@ function (progress, options) {
                 }
             }
 
+            // If this track's name already belongs to one on the canvas, append an incrementing
+            // integer until it does not -- "SCN9A" -> "SCN9A2" -> "SCN9A3" -- leaving the
+            // existing tracks' names alone. Case-insensitive.
+            //
+            // A method rather than a block inside addTrack, because addTrack is not the only
+            // way a track reaches this.track: several paths push straight onto the array, and
+            // those were producing duplicate names that nothing later could tell apart -- the
+            // layer menus, the export filenames and the selection window all address a track
+            // by its name.
+            ensureUniqueTrackName(newTrack) {
+                try {
+                    if (!newTrack) return newTrack;
+                    const named = (newTrack.name != null && ('' + newTrack.name).trim().length);
+                    const base = named ? ('' + newTrack.name) : 'track';
+                    // An unnamed track takes the fallback outright. It used to keep its empty
+                    // name whenever "track" happened to be free, and a track with no name is
+                    // exactly the one the layer menus and the selection window cannot address.
+                    if (!named) newTrack.name = base;
+                    const taken = (nm) => (this.track || []).some(t =>
+                        t && t !== newTrack && t.name && ('' + t.name).toUpperCase() === ('' + nm).toUpperCase());
+                    if (taken(base)) {
+                        let n = 2, candidate = base + n;
+                        while (taken(candidate)) { n++; candidate = base + n; }
+                        newTrack.name = candidate;
+                    }
+                } catch (e) { }
+                return newTrack;
+            }
+
             addTrack(newTrack) {
                 if (!this.isValidTrack(newTrack)) {
                     console.warn('[track] rejected invalid track (NaN/zero coordinates or dimensions):',
@@ -2290,21 +2319,7 @@ function (progress, options) {
 
                 }, 200)
 
-                // Name-clash fix: if this (the most recently added) track's name already
-                // belongs to an existing track, append an incrementing integer so the new
-                // one is disambiguated — "SCN9A" -> "SCN9A (2)" -> "SCN9A (3)" — leaving the
-                // existing tracks' names untouched. Case-insensitive match.
-                try {
-                    const base = (newTrack.name != null && ('' + newTrack.name).trim().length)
-                        ? ('' + newTrack.name) : 'track';
-                    const taken = (nm) => this.track.some(t =>
-                        t && t !== newTrack && t.name && ('' + t.name).toUpperCase() === ('' + nm).toUpperCase());
-                    if (taken(base)) {
-                        let n = 2, candidate = base + n;
-                        while (taken(candidate)) { n++; candidate = base + n; }
-                        newTrack.name = candidate;
-                    }
-                } catch (e) { }
+                this.ensureUniqueTrackName(newTrack);
 
                 this.track.push(newTrack);
                 this._autoLoadDomains(newTrack);
@@ -3944,7 +3959,7 @@ function (progress, options) {
                         foo.name = foo.name + '_'
                     }
 
-                    this.track.push(foo);
+                    this.track.push(this.ensureUniqueTrackName(foo));
 
                     return resolve(foo);
                 });
@@ -5753,7 +5768,7 @@ function (progress, options) {
                     this.track = []
                     for (let tok of to) {
                         if (tok != null && tok.length > 0 && to[tok] != null)
-                            this.track.push(t[tok])
+                            this.track.push(this.ensureUniqueTrackName(t[tok]))
                     }
                 }
 
@@ -11598,7 +11613,7 @@ pattern, GGGG | Required`
                 this.graph.setxmax(t.tgraph.width)
                 this.graph.setxmin(0)
 
-                this.track.push(t)
+                this.track.push(this.ensureUniqueTrackName(t))
                 this.notifyTrackListener();
 
                 this.drawTracks();
