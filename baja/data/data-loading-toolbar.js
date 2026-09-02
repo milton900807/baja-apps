@@ -27,33 +27,49 @@ function (graph, genegraph_panel_layout) {
     ];
 
     // ---- Patents -------------------------------------------------------------
-    // Clicking the ASO / siRNA / gene-therapy set opens a side menu of the patent-index
-    // years built in BIG_DATA; picking one loads its BED via the shared bed-hits.js. Only
-    // one index exists today (the un-dated file); future years get a dated BED and a row here.
+    // The ASO / siRNA / gene-therapy set is built per patent-index year in BIG_DATA. Only one
+    // index exists today (the un-dated file); future years get a dated BED and a row in
+    // asoYears, and the year choice is then a LIBRARY rather than the side menu this used to
+    // pop. With a single year there is no choice to present, so it loads straight away --
+    // a popup offering one row is a click that asks nothing, and so is a library of one.
     const asoBase = SETS.aso_sirna_gt;
     const asoYears = [
         { year: '2020–2026', bed: asoBase.bed },
     ];
+
+    // One year's BED, named with the year so two of them on a track stay distinguishable.
+    const asoCfg = (y) => Object.assign({}, asoBase, {
+        bed: y.bed,
+        label: asoBase.label + ' (' + y.year + ')',
+    });
 
     const ipItems = [
         {
             'label': asoBase.label, 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                // Side menu of available patent-index years — pick one to load its BED.
-                const items = asoYears.map((y) => ({
-                    label: y.year,
-                    move: () => { },
-                    click: () => {
-                        graph.showSideMenu(null);
-                        exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                            Object.assign({}, asoBase, {
-                                bed: y.bed,
-                                label: asoBase.label + ' (' + y.year + ')',
-                            }));
-                    }
-                }));
-                graph.showSideMenu(items);
+                if (asoYears.length === 1) {
+                    await exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, asoCfg(asoYears[0]));
+                    return;
+                }
+                await exec('baja/lib/shelf.js', {
+                    id: 'baja-patent-years',
+                    title: asoBase.label,
+                    subtitle: 'Pick a patent index year',
+                    graph: graph,
+                    onClose: () => {
+                        try { graph.clearMouseListeners(); } catch (e) { }
+                        try { graph.setMouseMode('navigate'); } catch (e) { }
+                        try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                    },
+                    books: asoYears.map((y) => ({
+                        title: y.year,
+                        badge: 'Index build',
+                        blurb: 'Hits from the ' + y.year + ' build of the transcript-keyed index. '
+                            + 'Click a track to drop them in as an interval layer.',
+                        open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, asoCfg(y))
+                    }))
+                });
             })
         },
         {
