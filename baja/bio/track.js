@@ -7952,7 +7952,10 @@ return new Promise(async (resolve, reject) => {
           ctx.save();
           ctx.shadowColor = 'transparent';
           ctx.shadowBlur = 0;
-          ctx.fillStyle = 'rgba(224,242,254,0.28)';   // light blue-white wash
+          // Lighter: at 0.28 the wash sat visibly over the base letters and the layers, and
+          // it covers the WHOLE track, so on a track with a sequence selected it was the
+          // largest thing on screen. It only has to say "this one is selected".
+          ctx.fillStyle = 'rgba(224,242,254,0.10)';   // light blue-white wash
           ctx.fillRect(_sx, _sy, _sw, _sh);
           ctx.restore();
         }
