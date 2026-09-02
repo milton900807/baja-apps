@@ -7233,8 +7233,48 @@ pattern, GGGG | Required`
                     return out;
                 } catch (e) { return list; }
             }
+            // Consistent order in every side menu: rows that OPEN A SUBMENU (their label carries
+            // the ▸ marker) first, then leaf actions, with navigation (‹ Back / Cancel / Close /
+            // Done) last. Header rows stay pinned above everything.
+            //
+            // Done here, in showSideMenu, rather than at the call sites: baja/manchester/menu/
+            // mouse-over-highlight.js had this as a local orderMenu that every one of its own
+            // calls had to remember to wrap, and menus opened from anywhere else -- gene.js, the
+            // libraries, the design menus -- came out in construction order. One place means a
+            // menu cannot be built that skips it.
+            __orderMenu(list) {
+                try {
+                    if (!Array.isArray(list) || list.length < 2) return list;
+                    const lab = (it) => ('' + (it && (it.label || it.name || ''))).trim();
+                    const isHeader = (it) => !!(it && it.header);
+                    const isNav = (it) => {
+                        const l = lab(it);
+                        return /^(‹|«|<|←|✓|↩)/.test(l)
+                            || /(^|\s)(Back|Cancel|Close|Done)\b/i.test(l)
+                            || /Back$/i.test(l)
+                            || l === 'more...' || l === 'Refresh menu' || l === 'Close menu';
+                    };
+                    const isSub = (it) => /[▸►]/.test(lab(it));
+                    const headers = [], subs = [], leaves = [], navs = [];
+                    for (const it of list) {
+                        if (!it) { leaves.push(it); continue; }
+                        if (isHeader(it)) headers.push(it);
+                        else if (isNav(it)) navs.push(it);
+                        else if (isSub(it)) subs.push(it);
+                        else leaves.push(it);
+                    }
+                    const out = headers.concat(subs, leaves, navs);
+                    // Carry the marks the caller may have set on the ARRAY itself -- the
+                    // selection-chain flag is read off the list object, and a fresh array
+                    // would drop it and let the selection card snap back to sharp.
+                    try { for (const k of Object.keys(list)) { if (isNaN(+k)) out[k] = list[k]; } } catch (e) { }
+                    return out;
+                } catch (e) { return list; }
+            }
+
             showSideMenu(list, anchor, label) {
                 try { list = this.__viewerFilterMenu(list); } catch (e) { }
+                try { list = this.__orderMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
 
                 // Keep the "came from the selection box" mark across a menu CHAIN.

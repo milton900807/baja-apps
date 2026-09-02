@@ -400,17 +400,16 @@ function () {
 
             }
 
+            // The LOW-DETAIL rendering, used when the view is zoomed out (see the else branch
+            // in baja/bio/track-flexi.js). One line for the amplicon span, nothing else.
+            //
+            // It used to overdraw the span with a blue bar at each primer end, and recolour the
+            // whole thing magenta on selection. Against the detailed draw() -- which already
+            // shows the primers in green and red -- that read as a SECOND, differently-coloured
+            // primer graphic sitting on the first. At this zoom the useful information is where
+            // the amplicon is, not what its ends are made of.
             drawIcon(graph, tgraph) {
-                let ampColor = this.ampColor;
-                let oligColor = this.oligColor;
-
-                if (this.selected) {
-                    this.ampColor = 'magenta'
-                }
-
-                graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), ampColor, 1, 'round');
-                graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), oligColor, 2, 'round');
-                graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), oligColor, 2, 'round');
+                graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), this.ampColor, 1, 'round');
             }
 
         }
