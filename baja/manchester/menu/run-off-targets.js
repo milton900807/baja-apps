@@ -123,7 +123,17 @@ function (graph, genegraph_panel_layout, oligos, options) {
         let splitArray = (array) => {
             const result = [];
             // One oligo per request so the gunsight advances one-at-a-time, left→right.
-            const chunkSize = 1;
+            //
+            // EXCEPT on the free tier, where a request is what gets metered. At one oligo per
+            // request a free user spends a whole month's allowance on ten oligos, which is not
+            // what "ten searches a month" is meant to buy. Batching to the server's per-search
+            // cap makes an allowance of ten searches cover up to a hundred compounds.
+            //
+            // Subscribers keep the one-at-a-time gunsight: nothing is metered for them, so
+            // there is nothing to trade the animation for.
+            let __free = false;
+            try { __free = !!window.__bajaFreeTier; } catch (e) { }
+            const chunkSize = __free ? 10 : 1;
             for (let i = 0; i < array.length; i += chunkSize) {
                 const chunk = array.slice(i, i + chunkSize);
                 result.push(chunk);

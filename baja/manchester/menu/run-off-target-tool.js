@@ -7,7 +7,12 @@ function (graph, genegraph_panel_layout, selectedOnly) {
         let splitArray = (array) => {
             const result = [];
             // One oligo per request so the gunsight advances one-at-a-time, left→right.
-            const chunkSize = 1;
+            // Free tier: a REQUEST is what gets metered, so one oligo per request would spend
+            // a month's allowance on ten oligos. Batch to the server's per-search cap.
+            // Subscribers keep one-at-a-time, which is nothing to them but the animation.
+            let __free = false;
+            try { __free = !!window.__bajaFreeTier; } catch (e) { }
+            const chunkSize = __free ? 10 : 1;
             for (let i = 0; i < array.length; i += chunkSize) {
                 const chunk = array.slice(i, i + chunkSize);
                 result.push(chunk);
