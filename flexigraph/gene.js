@@ -10248,6 +10248,15 @@ pattern, GGGG | Required`
                             const lit = (() => { try { return !!a.isSelected(); } catch (e) { return !!a.highlighted; } })();
                             return [
                                 {
+                                    // First, because finding it is what you do before doing
+                                    // anything to it. zoomToEntry centres the entry's span on
+                                    // its own track and pads it, so a short annotation still
+                                    // gets a window rather than a single column.
+                                    label: 'Zoom to ' + nm,
+                                    move: () => { },
+                                    click: () => { close(); zoomToEntry(p); }
+                                },
+                                {
                                     label: (a.hidden ? 'Show' : 'Hide') + ' ' + nm,
                                     move: () => { },
                                     click: () => {
