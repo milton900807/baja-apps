@@ -64,7 +64,12 @@ function (graph, genegraph_panel_layout, tracks) {
         // worse than no narrowing at all.
         let __scopeText = 'all ' + nTracks + ' track' + (nTracks === 1 ? '' : 's') + ' on the board';
         try {
-            const __marked = (graph.getMarkSelectedTracks() || []).filter((t) => t && t.chr != null);
+            // Derived the same way loadTargets() derives it, by asking each track. When this
+            // used graph.getMarkSelectedTracks() and loadTargets asked the tracks, the header
+            // could say "all tracks" while the load correctly used the selection -- a line
+            // that describes the work has to be computed from what the work will do.
+            const __marked = universe().filter((t) => t && t.chr != null
+                && t.selectedRange && t.selectedRange());
             const __sel = (graph.getSelectedTracks() || []).filter((t) => t && t.chr != null);
             if (__marked.length) __scopeText = 'the selected sequence on ' + __marked.length + ' track' + (__marked.length === 1 ? '' : 's');
             else if (__sel.length) __scopeText = __sel.length + ' selected track' + (__sel.length === 1 ? '' : 's');
