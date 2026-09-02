@@ -4480,7 +4480,7 @@ function (graph, genegraph_panel_layout) {
                                 try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
                                 try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
                                 try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
-                                graph.track.push(track);
+                                graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
                                 graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                 graph.deselectAllTracks();
                                 track.select();

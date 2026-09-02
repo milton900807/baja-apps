@@ -64,7 +64,7 @@ function (graph, genegraph_panel_layout, selectedTrack) {
                     } else {
                         let track = selectedTrack.createTrackFromAnnotation('CDNA')
                         track.targetPhase = selectedTrack.targetPhase;
-                        graph.track.push(track);
+                        graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
                         // Data is mirrored from the parent by the per-draw diff sync.
                         try { track.syncFromParent(); } catch (e) { }
                     }
@@ -111,7 +111,7 @@ function (graph, genegraph_panel_layout, selectedTrack) {
                         } else {
                             let track = selectedTrack.createTrackFromAnnotation('CDNA')
                             track.targetPhase = selectedTrack.targetPhase;
-                            graph.track.push(track);
+                            graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
                             // Data is mirrored from the parent by the per-draw diff sync.
                             try { track.syncFromParent(); } catch (e) { }
                             graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');

@@ -101,7 +101,7 @@ function (graph, genegraph_panel_layout) {
                             track.liftLayers ();
                         }
 
-                        graph.track.push(track);
+                        graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
                     }
                 },
                 move: () => {
@@ -138,7 +138,7 @@ function (graph, genegraph_panel_layout) {
                             track.liftCompounds ();
                         }
 
-                        graph.track.push(track);
+                        graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
 
                     }
                 },
