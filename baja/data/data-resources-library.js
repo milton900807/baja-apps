@@ -31,6 +31,39 @@ function (graph, genegraph_panel_layout, tracks) {
                 open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
             },
             {
+                key: 'variants',
+                title: 'Variants',
+                badge: 'SNP / Indel',
+                ready: true,
+                blurb: 'Known variation over the track, from the major databases. Choosing a '
+                    + 'source loads its variants onto the track as SNPs and indels; a track '
+                    + 'with a selected sequence gets only the variants inside it.',
+                open: async () => {
+                    // The sources, as their own small library. Each is a separate database
+                    // with its own meaning -- clinical significance, population frequency,
+                    // somatic calls -- so the choice is the user's rather than a default.
+                    const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+                    const SOURCES = [
+                        { db: 'clinvar', label: 'ClinVar', note: 'clinical significance, with submitter evidence' },
+                        { db: 'dbsnp', label: 'dbSNP', note: 'the reference catalogue of short variation' },
+                        { db: 'gnomad', label: 'gnomAD', note: 'population allele frequencies' },
+                        { db: 'cosmic', label: 'COSMIC', note: 'somatic mutations in cancer' }
+                    ];
+                    graph.showSideMenu(SOURCES.map((v) => ({
+                        label: v.label + '  —  ' + v.note,
+                        move: () => { },
+                        click: () => {
+                            graph.showSideMenu(null);
+                            // autoUseSelection true: on a track carrying a selected sequence the
+                            // variants are fetched over that range rather than the whole track.
+                            exec('baja/data/load-variants.js', host, graph, genegraph_panel_layout,
+                                v.db, v.label, true, tracks);
+                        }
+                    })).concat([{ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } }]),
+                        null, 'Variant sources ▸');
+                }
+            },
+            {
                 key: 'conservation',
                 title: 'Conservation',
                 badge: 'Comparative',

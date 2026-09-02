@@ -4506,6 +4506,27 @@ function (graph, genegraph_panel_layout) {
                                             });
                                         }
                                         data_menu.push({
+                                            'label': 'Variants ▸', click: () => {
+                                                // The sources, then the load. Same four databases the
+                                                // Data library offers, pointed at THIS track.
+                                                const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+                                                const SRC = [
+                                                    { db: 'clinvar', label: 'ClinVar' },
+                                                    { db: 'dbsnp', label: 'dbSNP' },
+                                                    { db: 'gnomad', label: 'gnomAD' },
+                                                    { db: 'cosmic', label: 'COSMIC' }
+                                                ];
+                                                graph.showSideMenu(SRC.map((v) => ({
+                                                    label: v.label, move: () => { },
+                                                    click: () => __runData(async () => {
+                                                        await exec('baja/data/load-variants.js', host, graph,
+                                                            genegraph_panel_layout, v.db, v.label, true, __only());
+                                                    })
+                                                })).concat([{ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } }]),
+                                                    null, 'Variant sources ▸');
+                                            }
+                                        });
+                                        data_menu.push({
                                             'label': 'Patents', click: () => __runData(async () => {
                                                 await exec('baja/data/patents.js', graph, genegraph_panel_layout, __only());
                                             })

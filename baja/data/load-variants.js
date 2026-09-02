@@ -1,4 +1,4 @@
-function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection) {
+function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, tracks) {
     // Load variants from a major variant database (ClinVar / dbSNP / gnomAD / COSMIC).
     // A center menu first asks for the scope: load over an ENTIRE track (click a track),
     // or over a SELECTED SEQUENCE (click-and-drag a region on a track). Variants come back
@@ -220,6 +220,40 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection) 
     };
 
     graph.clearMouseListeners();
+    // An explicit track list means there is nothing to choose: load onto each and stop.
+    //
+    // Before the panel swap below, deliberately. That swap exists to give the user something
+    // to look at while they pick a track, and the editor stashes its own layout under
+    // mainPanel -- mounting over it with no click coming is what blanked the canvas behind
+    // the menu in patents.js.
+    if (Array.isArray(tracks) && tracks.length) {
+        const list = tracks.filter(Boolean);
+        return (async () => {
+            try { window.__bajaApplyAllTracks = false; } catch (e) { }
+            try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+            try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+            const status = (m) => {
+                try {
+                    window.__workStatus = m || '';
+                    if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                } catch (e) { }
+            };
+            let done = 0;
+            for (let i = 0; i < list.length; i++) {
+                const t = list[i];
+                status(label + ' · ' + ((t && t.name) || ('track ' + (i + 1))) + ' · ' + (i + 1) + ' of ' + list.length + '…');
+                // forceWhole false: loadRegion reads the track's own selected range when it
+                // has one, so a track with a selection gets variants over that only.
+                try { await loadRegion(t, false); done++; } catch (e) { }
+            }
+            status('');
+            const msg = ' ' + label + ' loaded onto ' + done + ' of ' + list.length
+                + ' track' + (list.length === 1 ? '' : 's') + '. ';
+            try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
+            return graph;
+        })();
+    }
+
     CurrentLayout.clearComponent('mainPanel');
     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 
