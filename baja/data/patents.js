@@ -41,9 +41,16 @@ function (graph, genegraph_panel_layout, tracks) {
             }
             const seqLen = (track.sequence && track.sequence.length) || Math.abs(track.xf - track.xi);
             let t0 = 0, t1 = seqLen;
-            if (track.markstart > 0 && track.markend > track.markstart) {
-                t0 = Math.max(0, track.markstart - track.xi);
-                t1 = Math.max(t0, track.markend - track.xi);
+            // Transcript-relative: the offset of the selection from the track origin, which
+            // is what selectedOffset() is. Subtracting xi from the raw marks assumed they were
+            // world coordinates; on a track whose marks are offsets it subtracted xi twice and
+            // asked the BED for a window before the start of the transcript.
+            {
+                const __sel = (track.selectedRange && track.selectedRange()) || null;
+                if (__sel) {
+                    t0 = Math.max(0, Math.floor(__sel.start - track.xi));
+                    t1 = Math.max(t0, Math.ceil(__sel.end - track.xi));
+                }
             }
             const strand = '' + (track.strand != null ? track.strand : 1);
 

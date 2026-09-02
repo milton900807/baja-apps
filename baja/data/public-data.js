@@ -184,9 +184,9 @@ function (graph, genegraph_panel_layout, presetResource) {
                     // read over the track's full locus xi..xf — or the marked region
                     // if one is set — exactly like big-data.js.
                     let gr = { start: track.xi, end: track.xf };
-                    if (track.markstart > 0 && track.markend > track.markstart) {
-                        gr = { start: track.markstart, end: track.markend };
-                    }
+                    // selectedRange() resolves world-coordinate marks and offset marks alike.
+                    const __sel = (track.selectedRange && track.selectedRange()) || null;
+                    if (__sel) gr = { start: __sel.start, end: __sel.end };
                     const genome = track.species || 'human';
 
                     // The BIG_DATA walk is the slow half of this, so it gets its own status

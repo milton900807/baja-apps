@@ -51,10 +51,12 @@ function (graph, genegraph_panel_layout) {
         start: __selectedTrack.xi,
         end: __selectedTrack.xf,
       };
-      if (__selectedTrack.markstart > 0 && __selectedTrack.markend > __selectedTrack.markstart) {
-        range.start = __selectedTrack.markstart;
-        range.end = __selectedTrack.markend;
-      }
+      // The track's own selectedRange() rather than the raw marks: it resolves
+        // world-coordinate marks and offset marks to the same absolute span.
+        {
+            const __sel = (__selectedTrack.selectedRange && __selectedTrack.selectedRange()) || null;
+            if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+        }
 
       let fix = (ochr) => {
         const regex = /^chrx$/i;
@@ -111,10 +113,12 @@ function (graph, genegraph_panel_layout) {
         start: selectedTrack.xi,
         end: selectedTrack.xf,
       };
-      if (selectedTrack.markstart > 0 && selectedTrack.markend > selectedTrack.markstart) {
-        range.start = selectedTrack.markstart;
-        range.end = selectedTrack.markend;
-      }
+      // The track's own selectedRange() rather than the raw marks: it resolves
+        // world-coordinate marks and offset marks to the same absolute span.
+        {
+            const __sel = (selectedTrack.selectedRange && selectedTrack.selectedRange()) || null;
+            if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+        }
       let em = new EngineMonitor((msg) => {
         log(msg);
       });

@@ -179,13 +179,10 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
         // which is one range from the launching context -- correct for a single track, wrong
         // when applied to every track on the canvas.
         const ownRange = (t) => {
-            try {
-                if (t && t.markstart != null && t.markend != null
-                    && t.markstart >= 0 && t.markend > t.markstart) {
-                    return { start: Math.floor(t.markstart), end: Math.ceil(t.markend) };
-                }
-            } catch (e) { }
-            return null;
+            // The track's own selectedRange(): it resolves world-coordinate marks and offset
+            // marks to the same absolute span, where reading markstart raw was right for one
+            // convention and silently wrong for the other.
+            try { return (t && t.selectedRange && t.selectedRange()) || null; } catch (e) { return null; }
         };
         const pickedRange = (t) => {
             if (presetRange) return presetRange;

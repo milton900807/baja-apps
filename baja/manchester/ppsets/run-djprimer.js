@@ -41,14 +41,13 @@ function (graph, genegraph_panel_layout, presetTrack) {
             if (!t) return { seq: '', offset: 0 };
             const xi = (t.xi != null) ? t.xi : 0;
             try {
-                if (t.markstart != null && t.markend != null
-                    && t.markstart >= 0 && t.markend > t.markstart && t.getSequenceRange) {
-                    const sub = t.getSequenceRange(t.markstart, t.markend);
-                    if (sub && sub.length) {
-                        // Offset is measured from the track origin, the same space
-                        // apply-djprimer.js places amplicons in.
-                        return { seq: sub, offset: Math.max(0, Math.floor(t.markstart - xi)) };
-                    }
+                // selectedSequence()/selectedOffset() on the track: one definition of the
+                // selection, resolving world-coordinate and offset marks alike, and the offset
+                // is already measured from the track origin -- the space apply-djprimer.js
+                // places amplicons in.
+                const sub = t.selectedSequence ? t.selectedSequence() : '';
+                if (sub && sub.length) {
+                    return { seq: sub, offset: (t.selectedOffset ? t.selectedOffset() : 0) };
                 }
             } catch (e) { }
             if (t.sequence) return { seq: t.sequence, offset: 0 };

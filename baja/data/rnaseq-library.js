@@ -140,11 +140,18 @@ function (graph, genegraph_panel_layout, tracks) {
                 return {
                     scope: 'the selected sequence',
                     items: marked.map((t) => {
-                        // Clamp the selection to the track so a drag past either end can't
-                        // ask the bigwig reader for coordinates the track does not cover.
-                        const a = Math.max(t.xi, Math.min(t.xf, Math.floor(t.markstart)));
-                        const b = Math.min(t.xf, Math.max(t.xi, Math.ceil(t.markend)));
-                        return { track: t, start: Math.min(a, b), end: Math.max(a, b) };
+                        // Through the track's own selectedRange(), which knows whether the
+                        // marks are world coordinates or offsets from xi and clamps to the
+                        // track either way.
+                        //
+                        // The clamp that stood here assumed world coordinates: given offsets it
+                        // collapsed to Math.max(xi, small) == xi at BOTH ends, the zero-width
+                        // result was dropped by the filter below, and the library reported
+                        // "no track with a chromosome is selected or on the board" -- so a
+                        // track with a selection loaded nothing at all.
+                        const r = (t.selectedRange && t.selectedRange()) || null;
+                        return r ? { track: t, start: r.start, end: r.end }
+                                 : { track: t, start: t.xi, end: t.xf };
                     }).filter((r) => r.end > r.start)
                 };
             }

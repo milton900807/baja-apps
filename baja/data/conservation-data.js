@@ -296,10 +296,12 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
                 start: __selectedTrack.xi,
                 end: __selectedTrack.xf,
             }
-            if (__selectedTrack.markstart > 0 && __selectedTrack.markend > __selectedTrack.markstart) {
-                range.start = __selectedTrack.markstart;
-                range.end = __selectedTrack.markend;
-            }
+            // The track's own selectedRange() rather than the raw marks: it resolves
+                // world-coordinate marks and offset marks to the same absolute span.
+                {
+                    const __sel = (__selectedTrack.selectedRange && __selectedTrack.selectedRange()) || null;
+                    if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+                }
             let res = await exec(server + '/py/baja/bigwig/view-bigwig.py', em, epath, range.start,
                 range.end, __selectedTrack.chr);
 
@@ -342,10 +344,12 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
             }
             // markend > markstart, not just > 0: the other two checks in this file already
             // read it that way, and an inverted drag would otherwise ask for a backwards range.
-            if (selectedTrack.markstart > 0 && selectedTrack.markend > selectedTrack.markstart) {
-                range.start = selectedTrack.markstart;
-                range.end = selectedTrack.markend;
-            }
+            // The track's own selectedRange() rather than the raw marks: it resolves
+                // world-coordinate marks and offset marks to the same absolute span.
+                {
+                    const __sel = (selectedTrack.selectedRange && selectedTrack.selectedRange()) || null;
+                    if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+                }
             let t = selectedTrack;
             if (t.chr === undefined || t.chr === null) {
                 graph.setMessage(t.name + "track does not have chromosome defined in this track. (" + t.chr + ")")
@@ -408,10 +412,12 @@ function (graph, genegraph_panel_layout, tracks, datapath, server) {
                 start: selectedTrack.xi,
                 end: selectedTrack.xf,
             }
-            if (selectedTrack.markstart > 0 && selectedTrack.markend > selectedTrack.markstart) {
-                range.start = selectedTrack.markstart;
-                range.end = selectedTrack.markend;
-            }
+            // The track's own selectedRange() rather than the raw marks: it resolves
+                // world-coordinate marks and offset marks to the same absolute span.
+                {
+                    const __sel = (selectedTrack.selectedRange && selectedTrack.selectedRange()) || null;
+                    if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+                }
             let em = new EngineMonitor((msg) => {
                 log(msg)
             });

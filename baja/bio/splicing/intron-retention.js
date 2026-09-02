@@ -107,10 +107,11 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 // the selection when the track has one, and to the whole axis when it does not.
                 let __lo = axis.xmin, __hi = axis.xmax, __sel = false;
                 try {
-                    if (track.markstart != null && track.markend != null
-                        && track.markstart >= 0 && track.markend > track.markstart) {
-                        __lo = Math.max(axis.xmin, Math.floor(track.markstart));
-                        __hi = Math.min(axis.xmax, Math.ceil(track.markend));
+                    // selectedRange() resolves both mark conventions to an absolute span.
+                    const __r = (track.selectedRange && track.selectedRange()) || null;
+                    if (__r) {
+                        __lo = Math.max(axis.xmin, __r.start);
+                        __hi = Math.min(axis.xmax, __r.end);
                         __sel = __hi > __lo;
                     }
                 } catch (e) { }
