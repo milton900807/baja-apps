@@ -2270,6 +2270,7 @@ function (progress, options) {
             // by its name.
             ensureUniqueTrackName(newTrack) {
                 try {
+                    debugger
                     if (!newTrack) return newTrack;
                     const named = (newTrack.name != null && ('' + newTrack.name).trim().length);
                     const base = named ? ('' + newTrack.name) : 'track';
@@ -11084,7 +11085,10 @@ pattern, GGGG | Required`
 
                         if (this.coords && (!isNaN(this.coords))) {
                             ctx.fillStyle = 'lightBlue';
-                            ctx.fillText('(' + this.coords + ', ' + this.ycoords + ')', 2, this.graph.canvas.height - 30);
+                            // Lifted clear of the free-plan bar, which is fixed to the bottom
+                            // of the window and spans its full width -- at height - 30 this
+                            // readout sat behind it. Same reserve as the message toast.
+                            ctx.fillText('(' + this.coords + ', ' + this.ycoords + ')', 2, this.graph.canvas.height - 88);
 
                         }
                     }
@@ -11199,12 +11203,26 @@ pattern, GGGG | Required`
                             const cardH = padY * 2 + lineH * shown.length;
 
                             let cardX = Math.round((cw - cardW) / 2);
-                            // Sit at the BOTTOM-center, clear of the top control-button row —
-                            // a status toast under the buttons looks unprofessional and can hide
-                            // them, so keep it out of the way at the foot of the canvas.
-                            let cardY = ch - cardH - 16;
+                            // ABOVE the foot of the canvas, not on it.
+                            //
+                            // This sat at ch - cardH - 16, which is exactly where the free-plan
+                            // bar is: that bar is fixed to the bottom of the WINDOW and drawn
+                            // over the canvas, so every result and error message a free user got
+                            // appeared underneath the one piece of chrome they always have. The
+                            // two most likely to be on screen together were the two that
+                            // collided.
+                            //
+                            // Cleared by the bar's own height plus a margin. The reserve is
+                            // unconditional rather than measured: the bar can appear between one
+                            // frame and the next (checkFreePlan polls every 20s), and a toast
+                            // that moved when it did would be worse than one that always sits
+                            // where the bar cannot reach.
+                            const FOOT_RESERVE = 74;
+                            let cardY = ch - cardH - FOOT_RESERVE;
                             cardX = Math.max(8, Math.min(cardX, cw - cardW - 8));
-                            cardY = Math.max(8, Math.min(cardY, ch - cardH - 8));
+                            // On a very short canvas the reserve can push the card off the top;
+                            // clamp below the control-button row rather than under it.
+                            cardY = Math.max(72, Math.min(cardY, ch - cardH - FOOT_RESERVE));
 
                             // Glow behind the card — ORANGE for error messages, cyan otherwise.
                             const __msgErr = !!this.messageIsError;
