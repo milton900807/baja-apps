@@ -155,7 +155,9 @@ def main():
     ap.add_argument("--start", default="2020-01-01")
     ap.add_argument("--end", default="2027-01-01", help="exclusive")
     ap.add_argument("--work", default="./out")
-    ap.add_argument("--limit", type=int, default=None, help="row cap for testing")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="stop after N rows. Caps what is WRITTEN, not what is scanned -- the "
+                         "query is billed in full either way. Use --start/--end for cost.")
     # Scope is settable from the command line so widening it again is a flag, not an edit.
     ap.add_argument("--preset", choices=["wide", "core"], default="wide",
                     help="wide (default) = nucleic-acid medicine incl. editing / mRNA / "
@@ -166,6 +168,9 @@ def main():
                     help="comma-separated CPC prefixes to add to the preset")
     ap.add_argument("--keywords", default=None,
                     help="comma-separated title/abstract keywords, REPLACING the preset")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="ask BigQuery how many bytes this query would scan, print the estimated "
+                         "cost, and stop without running it")
     ap.add_argument("--print-scope", action="store_true",
                     help="print the CPC list, keyword net and generated predicate, then stop "
                          "(no BigQuery, no credentials needed)")
@@ -196,11 +201,28 @@ def main():
 
     os.makedirs(args.work, exist_ok=True)
     client = bigquery.Client(project=args.project)
-    job = client.query(build_query(cpc), job_config=QueryJobConfig(query_parameters=[
+    params = [
         ScalarQueryParameter("start_date", "DATE", args.start),
         ScalarQueryParameter("end_date", "DATE", args.end),
         ScalarQueryParameter("kw_regex", "STRING", kw_regex),
-    ]))
+    ]
+
+    if args.dry_run:
+        # BigQuery bills for BYTES SCANNED, and the publications table is large. Widening the
+        # CPC list costs nothing extra -- the filter runs after the scan -- but widening the
+        # DATE WINDOW does, because filing_date is what prunes partitions. So the one number
+        # worth knowing before running is this one.
+        cfg = QueryJobConfig(query_parameters=params, dry_run=True, use_query_cache=False)
+        j = client.query(build_query(cpc), job_config=cfg)
+        gib = j.total_bytes_processed / (1024 ** 3)
+        tib = gib / 1024
+        print("would scan %.1f GiB (%.3f TiB)" % (gib, tib))
+        print("on-demand pricing is ~$6.25/TiB with the first 1 TiB each month free,")
+        print("so this query costs about $%.2f, or nothing if it fits in the free tier."
+              % max(0.0, (tib - 1.0) * 6.25))
+        print("Narrow --start/--end to reduce it; --limit does not (it caps rows read, not "
+              "bytes scanned).")
+        return
 
     out_path = os.path.join(args.work, "patents_meta.jsonl")
     n = 0

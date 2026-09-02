@@ -68,9 +68,70 @@ python3 -m pip install google-cloud-bigquery google-cloud-bigquery-storage panda
 # aligners / htslib:
 #   minimap2   (long/gene-therapy constructs)   https://github.com/lh3/minimap2
 #   bgzip      (htslib)                          sudo apt-get install tabix
-# GCP auth for stage 1:
-gcloud auth application-default login     # or set GOOGLE_APPLICATION_CREDENTIALS=<sa.json>
 ```
+
+### GCP credentials for stage 1
+
+Stage 1 queries `patents-public-data.patents.publications` on BigQuery. The dataset is public
+and costs nothing to store; **you pay for the bytes your query scans**. Two ways in:
+
+**BigQuery sandbox — no credit card.** Create a project at <https://console.cloud.google.com>,
+open BigQuery, and query public datasets under the free 1 TiB/month. Enough to try the
+pipeline; a full 2020–2026 pull may exceed it.
+
+**A billed project — the normal route.**
+
+```bash
+# 1. gcloud CLI (Debian/Ubuntu/WSL)
+sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+  | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+sudo apt-get update && sudo apt-get install -y google-cloud-cli
+
+# 2. sign in and pick the project
+gcloud init                                  # opens a browser; choose or create a project
+gcloud services enable bigquery.googleapis.com
+
+# 3. credentials the python client will find (ADC)
+gcloud auth application-default login
+```
+
+Then `--project YOUR_PROJECT_ID` (`gcloud config get-value project` prints it). Billing must be
+enabled on the project for anything past the free tier: console → Billing → link an account.
+
+**Headless / CI** — a service account instead of a browser login:
+
+```bash
+gcloud iam service-accounts create baja-patents
+gcloud projects add-iam-policy-binding YOUR_PROJECT \
+  --member serviceAccount:baja-patents@YOUR_PROJECT.iam.gserviceaccount.com \
+  --role roles/bigquery.jobUser
+gcloud iam service-accounts keys create ~/baja-patents.json \
+  --iam-account baja-patents@YOUR_PROJECT.iam.gserviceaccount.com
+export GOOGLE_APPLICATION_CREDENTIALS=~/baja-patents.json
+```
+
+`roles/bigquery.jobUser` is enough — the data is public, so no dataset-level grant is needed.
+Treat the JSON key as a password: it is a bearer credential with no second factor.
+
+### Cost, before you pay it
+
+```bash
+python3 1_download_patents.py --project YOUR_PROJECT --dry-run \
+        --start 2020-01-01 --end 2027-01-01
+```
+
+Asks BigQuery how many bytes the query would scan and prints the estimate, without running it.
+
+Two things worth knowing, because they are the opposite of the intuition:
+
+- **Widening the CPC list costs nothing.** The filter runs after the scan, so 40 prefixes scan
+  exactly what 10 did. It returns more rows; it does not read more bytes.
+- **`--limit` does not reduce the bill.** It caps what gets written, not what gets scanned. The
+  only real lever is the **date window** — `filing_date` is what prunes partitions, so
+  `--start 2024-01-01` costs a fraction of `--start 2020-01-01`. Test on one year first.
 
 Reference transcriptome for stage 3 (hg38 / GRCh38), concatenate cDNA + ncRNA:
 ```bash
