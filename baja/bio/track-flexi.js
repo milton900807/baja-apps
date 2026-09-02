@@ -945,6 +945,7 @@ return new Promise(async (resolve, reject) => {
                 "chr", "species", "showSnpIndels", "showLayers", "showOfftargets", "showOligoMap", "showArc",
                 "transcriptID", "theme",
                 "showExonNumbers", "showGenomicCoords", "showCdnaCoords", "compoundDensity",
+                "showDomains", "showTssStop",
                 "highlightIndex", "default_track_height", "showAnnotaions"
             ].forEach(copyIfDefined);
 
@@ -1081,6 +1082,8 @@ return new Promise(async (resolve, reject) => {
                 showGenomicCoords: this.showGenomicCoords,
                 showCdnaCoords: this.showCdnaCoords,
                 compoundDensity: this.compoundDensity,
+                showDomains: this.showDomains,
+                showTssStop: this.showTssStop,
                 highlightIndex: this.highlightIndex,
                 default_track_height: this.default_track_height,
                 showAnnotaions: this.showAnnotaions

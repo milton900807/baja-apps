@@ -2,7 +2,18 @@ function () {
     // A professional vertical 3D cylinder marking a start (green) / stop (red) codon.
     // Stands as a small shaded pillar centered on the annotation, with elliptical caps,
     // a specular highlight and a soft drop shadow.
+    // What the TRACK being drawn wants shown. baja/bio/track.js publishes this on the graph
+    // before drawing its annotations, because these shape functions are handed the graph and
+    // never the track. Absent means show, so a graph that never set it behaves as before.
+    const __show = (graph, key) => {
+        try {
+            const d = graph && graph.__trackDisplay;
+            return !d || d[key] !== false;
+        } catch (e) { return true; }
+    };
+
     const drawCodonCylinder = (graph, tgraph, xs, xf, y, kind) => {
+        if (!__show(graph, 'tssStop')) return;   // TSS / stop codon
         const screencell = graph.screenWidth(tgraph.screenWidth(1));
         // No zoom-out cull: the start/stop pillar is a FIXED screen size, so keep it visible
         // even when zoomed way out (it was previously hidden below 0.05 px/base).
@@ -119,6 +130,7 @@ function () {
     // from the CDD vocabulary at creation and stored on the annotation as `__cdd`
     // (protein-domains.js); `catKey` is only a legacy fallback into CDD_SITE_STYLES.
     const drawCddSite = (graph, tgraph, xs, xf, y, annotation, catKey) => {
+        if (!__show(graph, 'domains')) return;   // protein domains (CDD)
         // Don't draw CDD sites that sit below track y-position 0.25 (lower part of the track).
         if ((+(annotation && annotation.y) || 0) > 0.25) return;
         const st = (annotation && annotation.__cdd) || CDD_SITE_STYLES[catKey] || CDD_SITE_STYLES.other;
@@ -272,7 +284,7 @@ function () {
 
             if (ctx) {
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
-                if (screencell > 4) {
+                if (screencell > 4 && __show(graph, 'exonNumbers')) {
 
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
 
@@ -314,7 +326,7 @@ function () {
 
                 ctx.color = '#1b4a7a'
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
-                if (screencell > 4) {
+                if (screencell > 4 && __show(graph, 'exonNumbers')) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
@@ -348,7 +360,7 @@ function () {
             var ctx = graph.canvas.getCTX();
             if (ctx) {
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
-                if (screencell > 4) {
+                if (screencell > 4 && __show(graph, 'exonNumbers')) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 1;
                     ctx.shadowBlur = 3;
@@ -386,7 +398,7 @@ function () {
                 ctx.shadowBlur = 7;
                 ctx.shadowColor = '#0a2540';
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
-                if (screencell > 4) {
+                if (screencell > 4 && __show(graph, 'exonNumbers')) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 1;
                     ctx.beginPath();
@@ -424,7 +436,7 @@ function () {
             var ctx = graph.canvas.getCTX();
             if (ctx) {
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
-                if (screencell > 4) {
+                if (screencell > 4 && __show(graph, 'exonNumbers')) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 1;
                     ctx.beginPath();

@@ -3358,6 +3358,8 @@ function (graph, genegraph_panel_layout) {
                                 toggle('showExonNumbers', 'Exon numbers'),
                                 toggle('showGenomicCoords', 'Genomic coordinates (g.)'),
                                 toggle('showCdnaCoords', 'cDNA coordinates (c.)'),
+                                toggle('showDomains', 'Protein domains (CDD)'),
+                                toggle('showTssStop', 'TSS and stop codon'),
                                 {
                                     // Not a visibility toggle: it REPLACES the compounds with a
                                     // glow whose brightness follows how many fall in each column.

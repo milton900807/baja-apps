@@ -6226,6 +6226,19 @@ return new Promise(async (resolve, reject) => {
       // not only its colour.
       this.__geneDraw = geneDrawFor(this.theme, GX_T);
 
+      // Display flags published on the GRAPH, because the annotation shapes in
+      // flexigraph/gene-draw.js receive the graph and never the track. Set per track on entry
+      // to its draw, the same way GX_T is, so each track's shapes read that track's settings.
+      try {
+        graph.__trackDisplay = {
+          exonNumbers: this.showExonNumbers !== false,
+          genomicCoords: this.showGenomicCoords !== false,
+          cdnaCoords: this.showCdnaCoords !== false,
+          domains: this.showDomains !== false,
+          tssStop: this.showTssStop !== false
+        };
+      } catch (e) { }
+
       ctx.save();
       ctx.beginPath();
 
@@ -7196,10 +7209,10 @@ return new Promise(async (resolve, reject) => {
           ctx.textAlign = "left";
           ctx.textBaseline = "alphabetic";
           if (screencell > 5 && graph.canvas) {
-            ctx.fillText("g." + (genomicPos), 0, 0);
+            if (this.showGenomicCoords !== false) ctx.fillText("g." + (genomicPos), 0, 0);
 
           } else
-            ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
+            if (this.showGenomicCoords !== false) ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
 
           ctx.restore();
         }
@@ -7502,7 +7515,7 @@ return new Promise(async (resolve, reject) => {
                   ctx.translate(sx, sy);
                   ctx.rotate(angle);
                   ctx.fillStyle = GX_T.gtag;
-                  ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
+                  if (this.showGenomicCoords !== false) ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
                   ctx.restore();
                 }
 
