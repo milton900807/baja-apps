@@ -4162,10 +4162,14 @@ function (graph, genegraph_panel_layout) {
                         move: () => { }
                     },
                     {
-                        label: 'Layers',
+                        label: 'Layers ▸',
                         click: async (scx, scy) => {
 
                             const golist = [
+
+
+
+
                                 {
                                     // Edit the layers this track ALREADY has: show/hide, remove,
                                     // interaction, background, per layer and in bulk.
@@ -4191,6 +4195,69 @@ function (graph, genegraph_panel_layout) {
                                         }
                                         await exec('baja/manchester/menu/track-layers-side-menu.js',
                                             selectedTrack, genegraph_panel_layout, graph);
+                                    }
+                                },
+                                {
+                                    // Pick a layer by NAME and remove it. The layers on a track
+                                    // are what the data and model runs left behind, and until now
+                                    // the only way to take one off was the layer editor.
+                                    label: 'Delete layer ▸',
+                                    move: () => { },
+                                    click: () => {
+                                        const layers = (selectedTrack && selectedTrack.track_layers) || [];
+                                        if (!layers.length) {
+                                            graph.showSideMenu(null);
+                                            try { graph.setResultMessage(' ' + ((selectedTrack && selectedTrack.name) || 'That track') + ' has no layers. '); } catch (e) { }
+                                            return;
+                                        }
+                                        const nameOf = (l, i) => ('' + ((l && (l.name || l.data_type || l.attribution_type)) || ('layer ' + (i + 1))));
+                                        const items = layers.map((l, i) => ({
+                                            label: nameOf(l, i),
+                                            move: () => { },
+                                            click: () => {
+                                                graph.showSideMenu(null);
+                                                // History first: removing a layer discards whatever
+                                                // the run that produced it computed, and re-running
+                                                // it can be a minute of python.
+                                                try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                                try {
+                                                    selectedTrack.track_layers = (selectedTrack.track_layers || []).filter((x) => x !== l);
+                                                } catch (e) { }
+                                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                                try { graph.setResultMessage(' Removed layer "' + nameOf(l, i) + '". '); } catch (e) { }
+                                            }
+                                        }));
+                                        items.push({ label: '‹ Back', move: () => { }, click: () => { showSideMenuDelayed(golist, undefined, undefined, 'Layers ▸'); } });
+                                        graph.showSideMenu(items, null, 'Delete layer ▸');
+                                    }
+                                },
+                                {
+                                    // All of them, behind a confirmation. This is the one action
+                                    // here that cannot be undone by repeating a menu click.
+                                    label: 'Delete all layers on this track',
+                                    move: () => { },
+                                    click: () => {
+                                        const layers = (selectedTrack && selectedTrack.track_layers) || [];
+                                        const n = layers.length;
+                                        if (!n) {
+                                            graph.showSideMenu(null);
+                                            try { graph.setResultMessage(' ' + ((selectedTrack && selectedTrack.name) || 'That track') + ' has no layers. '); } catch (e) { }
+                                            return;
+                                        }
+                                        graph.showSideMenu([
+                                            {
+                                                label: 'Yes, remove ' + n + ' layer' + (n === 1 ? '' : 's'),
+                                                move: () => { },
+                                                click: () => {
+                                                    graph.showSideMenu(null);
+                                                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                                    try { selectedTrack.track_layers = []; } catch (e) { }
+                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                                    try { graph.setResultMessage(' Removed ' + n + ' layer' + (n === 1 ? '' : 's') + ' from ' + ((selectedTrack && selectedTrack.name) || 'the track') + '. '); } catch (e) { }
+                                                }
+                                            },
+                                            { label: 'Cancel', move: () => { }, click: () => { showSideMenuDelayed(golist, undefined, undefined, 'Layers ▸'); } }
+                                        ], null, 'Remove all layers ▸');
                                     }
                                 },
                                 {
