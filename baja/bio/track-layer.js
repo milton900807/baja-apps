@@ -662,7 +662,10 @@ return new Promise(async (resolve, reject) => {
             let ctx = graph.canvas.getCTX();
             let donorColor = this.donorColor || 'rgba(26,163,189,0.95)';
             let acceptorColor = this.acceptorColor || 'rgba(224,112,59,0.95)';
-            let labelColor = this.labelColor || 'rgba(70,70,70,0.95)';
+            // Ink, not grey: the same dark the interval labels use. A 70/70/70 number over a
+            // saturated arc is a light-grey shape on a coloured one, which is exactly the case
+            // the halo below exists for -- so make the two work together instead of against.
+            let labelColor = this.labelColor || '#0b1a2b';
             let maxBarPx = this.maxBarPx || 20;
             // Top of the magnitude scale (e.g. 2 for site strength, 1 for PSI);
             // arc weight / crest are normalized by this while the label shows the
@@ -717,21 +720,32 @@ return new Promise(async (resolve, reject) => {
                 this._sashimiArrowHead(ctx, x1, baselineY - maxBarPx * Math.min(1, dp), 0, -1, 4, donorColor);
 
                 // Arc weight label at the crest — shown whenever the arc is wide
-                // enough to fit the number (independent of base-level zoom). A white
-                // halo keeps it legible over the arcs.
+                // enough to fit the number (independent of base-level zoom). Drawn on its
+                // side, a quarter turn anticlockwise, like every other label on this canvas:
+                // arcs sharing a donor crest within a few pixels of each other, so flat
+                // numbers collided horizontally where turned ones do not. Dark ink over a
+                // white halo, the same pairing the interval labels use.
                 const label = s.toFixed(2);
                 // Skip trivial weights (0 or 1) — only show the interesting ones.
                 if (chord > 22 && label !== '0.00' && label !== '1.00') {
                     let topY = centerY - radius;
+                    ctx.save();
                     ctx.font = 'bold 10px Arial';
                     ctx.textAlign = 'center';
-                    ctx.textBaseline = 'bottom';
+                    ctx.textBaseline = 'middle';
+                    // A vertical label grows upward from its centre, so the centre sits half
+                    // its own length above the crest and the number never lies across the arc.
+                    const __lw = ctx.measureText(label).width;
+                    ctx.translate(midX, topY - 4 - __lw / 2);
+                    ctx.rotate(-Math.PI / 2);
                     ctx.lineWidth = 3;
-                    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+                    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
                     ctx.lineJoin = 'round';
-                    ctx.strokeText(label, midX, topY - 2);
+                    ctx.miterLimit = 2;
+                    ctx.strokeText(label, 0, 0);
                     ctx.fillStyle = labelColor;
-                    ctx.fillText(label, midX, topY - 2);
+                    ctx.fillText(label, 0, 0);
+                    ctx.restore();
                 }
             }
             ctx.lineWidth = 1;

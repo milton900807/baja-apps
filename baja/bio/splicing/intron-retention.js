@@ -102,6 +102,13 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 layer.data_type = name;
                 layer.color = 'rgba(26,163,189,0.55)';
                 layer.fillstyle = layer.color;
+                // Written ON the block, turned a quarter turn (see the vertical branch in
+                // baja/bio/track-layer.js). A retained intron can be a few pixels wide at gene
+                // zoom while its label is not, so flat text ran off its own block; on its side a
+                // label is one line of text wide whatever it says. Only the FIRST line is drawn
+                // there, which is why the label below leads with rank and tier and puts the rest
+                // on later lines -- those are for the hover panel.
+                layer.verticalLabels = true;
 
                 // A SELECTED SEQUENCE narrows the layer to that region: introns are clipped to
                 // the selection when the track has one, and to the whole axis when it does not.
@@ -135,10 +142,10 @@ function (graph, genegraph_panel_layout, presetTrack) {
                     // because the number is not calibrated to a retention level. hits() also
                     // writes a one-line `headline` saying WHY the intron scored -- carry it,
                     // since a block labelled only with a rank says nothing about the reason.
-                    const label = '#' + (i + 1) + ' ' + (h.tier || tier)
-                        + (h.intron_number ? ('  intron ' + h.intron_number + '/' + (h.n_introns || '?')) : '')
-                        + '  ' + Math.round(b - a) + ' nt'
-                        + (h.headline ? ('  -  ' + h.headline) : '');
+                    const label = '#' + (i + 1) + ' ' + (h.tier || tier) + '\n'
+                        + (h.intron_number ? ('intron ' + h.intron_number + '/' + (h.n_introns || '?') + '\n') : '')
+                        + Math.round(b - a) + ' nt'
+                        + (h.headline ? ('\n' + h.headline) : '');
                     layer.addInterval(a, b, sc, label,
                         'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')');
                     added++;
