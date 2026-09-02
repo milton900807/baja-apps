@@ -106,6 +106,10 @@ function () {
                 this.color = color;
             }
             async draw(graph, track) {
+                // Hidden annotations draw nothing. A flag rather than removal, so hiding is
+                // reversible and costs the user nothing they cannot get back -- Delete is the
+                // menu item for the other intent.
+                if (this.hidden) return;
 
                 let strand = track.strand;
                 let tgrid = track.tgraph;

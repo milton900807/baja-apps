@@ -10231,16 +10231,69 @@ pattern, GGGG | Required`
                     // for annotations selected via lasso (no stashed menu).
                     if (k === 'ann') {
                         const picks = narrow(sel.filter((s) => s.kind === 'ann' && s.ref));
+                        // Hide / Highlight / Delete, on EVERY annotation, whichever menu it
+                        // goes on to show. Prepended rather than added to one of the two
+                        // branches below, because an annotation that carries its own stashed
+                        // menu and one that has to build a type menu are the same object to
+                        // the user and should offer the same three things.
+                        //
+                        // Hide sets a flag the annotation's draw() honours -- reversible, and
+                        // the row says which way it will go. Highlight is the annotation's own
+                        // select()/deselect(). Delete goes through confirmDelete, so it asks
+                        // first and pushes history like every other delete here.
+                        const annActions = (p) => {
+                            const a = p && p.ref;
+                            if (!a) return [];
+                            const nm = ('' + (p.label || a.name || 'annotation'));
+                            const lit = (() => { try { return !!a.isSelected(); } catch (e) { return !!a.highlighted; } })();
+                            return [
+                                {
+                                    label: (a.hidden ? 'Show' : 'Hide') + ' ' + nm,
+                                    move: () => { },
+                                    click: () => {
+                                        close();
+                                        try { if (this.pushOntoHistory) this.pushOntoHistory(); } catch (e) { }
+                                        a.hidden = !a.hidden;
+                                        try { if (this.wake) this.wake(); } catch (e) { }
+                                        try { this.setResultMessage(' ' + nm + (a.hidden ? ' hidden. ' : ' shown. ')); } catch (e) { }
+                                    }
+                                },
+                                {
+                                    label: (lit ? 'Clear highlight' : 'Highlight') + ' ' + nm,
+                                    move: () => { },
+                                    click: () => {
+                                        close();
+                                        try { if (lit) { a.deselect(); } else { a.select(); } }
+                                        catch (e) { try { a.highlighted = !lit; } catch (e2) { } }
+                                        try { if (this.wake) this.wake(); } catch (e) { }
+                                        try { this.setResultMessage(' ' + nm + (lit ? ' highlight cleared. ' : ' highlighted. ')); } catch (e) { }
+                                    }
+                                },
+                                {
+                                    label: 'Delete ' + nm + '…',
+                                    move: () => { },
+                                    click: async () => { await confirmDelete([p], 'annotation'); }
+                                }
+                            ];
+                        };
+
                         const openOne = (p) => {
+                            const acts = annActions(p);
                             if (Array.isArray(p.annMenu) && p.annMenu.length) {
-                                show(p.annMenu.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                                show(acts.concat(p.annMenu, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
                             } else if (p.track) {
                                 close();
                                 try {
                                     Promise.resolve(exec('baja/manchester/menu/annotations-type-menu', this, this.genegraph_panel_layout, [p.ref], p.track))
-                                        .then((mml) => { if (Array.isArray(mml)) show(mml.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); })
+                                        .then((mml) => { if (Array.isArray(mml)) show(acts.concat(mml, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); })
                                         .catch(() => { });
                                 } catch (e) { }
+                            } else {
+                                // Neither a stashed menu nor a track to build one from. That
+                                // used to show NOTHING -- the row opened and the panel stayed
+                                // as it was. The three actions do not need either, so they are
+                                // what it shows.
+                                show(acts.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
                             }
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }

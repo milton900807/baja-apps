@@ -2009,7 +2009,7 @@ function (path, config) {
                                                                 // it carrying its per-residue chemistry. Same destination as
                                                                 // Design ▸ Clinical Library, reachable from where tracks are
                                                                 // made rather than only from where they are designed against.
-                                                                label: 'Clinical compound library', move: () => { },
+                                                                label: 'Compound library', move: () => { },
                                                                 click: () => {
                                                                     graph.showSideMenu(null);
                                                                     exec('manchester/clinical-library.js', graph, genegraph_panel_layout);
