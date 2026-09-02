@@ -4,6 +4,17 @@ function (graph, genegraph_panel_layout, tracks) {
     // /bd/ path against BIGDATA), and drop the patent hits in as an interval
     // layer. Overlapping patents are stacked into lanes so they stay legible.
     const BED = '/bd/patent_hg38_transcript_hits.bed.gz';
+    // No assignees TSV exists for THIS index. The ASO/siRNA and lipid patent sets each ship one
+    // (aso_sirna_gt_assignees.tsv, lipid_patents_assignees.tsv) mapping a real patent number to
+    // 'US<number> <ASSIGNEE>', and read-bed-region.py joins it when given the path. This BED's
+    // column 4 is a small sequential integer -- '2|2|', '170|170|' -- an internal record id, not
+    // a patent number, and nothing on disk maps it to one. So the richest label this layer can
+    // build cannot name a patent; everything below it can, and does.
+    //
+    // Left wired: the moment a TSV for this index appears, set the path here and the packed
+    // 'number‖title‖date‖assignee‖inventors' form is already expanded below.
+    const ASSIGNEES = '';
+    const SEP = '‖';
 
     const restoreHover = () => {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
@@ -61,8 +72,9 @@ function (graph, genegraph_panel_layout, tracks) {
             graph.setMessage(' Loading patents for ' + tid + '… ');
             const server = window['env']['apiUrl'];
             let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
-            // Reads the region from BIG_DATA (auto-tabix-indexed on first use).
-            const res = await exec(server + '/py/data/read-bed-region.py', em, BED, '' + tid, '' + t0, '' + t1, strand);
+            // Reads the region from BIG_DATA (auto-tabix-indexed on first use). The 6th
+            // argument is the metadata TSV to join; empty means no join for this index.
+            const res = await exec(server + '/py/data/read-bed-region.py', em, BED, '' + tid, '' + t0, '' + t1, strand, ASSIGNEES);
 
             let rv = [];
             try { rv = JSON.parse((res && res.values) || '[]'); } catch (e) { rv = []; }
@@ -77,6 +89,11 @@ function (graph, genegraph_panel_layout, tracks) {
             layer.data_type = 'Patents';
             layer.color = 'rgba(150,90,60,0.55)';
             layer.fillstyle = layer.color;
+            // Written ON the block, turned a quarter turn, like every other interval layer.
+            // Patent hits are short and stack into lanes, so a flat label ran across the hits
+            // beside and below it; on its side each one stays over the claim it names.
+            layer.verticalLabels = true;
+            layer.labelZoomThreshold = 0.4;
 
             // The x-axis is genomic and the track sequence is exon-collapsed, so a
             // transcript (cDNA) coordinate maps to genomic x through the exons.
@@ -118,11 +135,44 @@ function (graph, genegraph_panel_layout, tracks) {
                 if (!segs.length) continue;
                 let lo = Infinity, hi = -Infinity;
                 for (const g of segs) { lo = Math.min(lo, g[0]); hi = Math.max(hi, g[1]); }
-                // Column 4 is the patent id (N|N|) — use the id number as the label.
-                const nm = ('' + (v[2] || '')).split('|')[0] || ('' + (v[2] || ''));
-                patents.push({ lo: lo, hi: hi, name: nm, segs: segs });
+                // Column 4 is either the packed metadata label (when a TSV was joined) or the
+                // raw record id, 'N|N|'. Keep the human half of either.
+                const raw = '' + (v[2] || '');
+                const nm = (raw.indexOf(SEP) >= 0) ? raw : (raw.split('|')[0] || raw);
+                patents.push({ lo: lo, hi: hi, name: nm, segs: segs, ts: +v[0], te: +v[1] });
             }
             patents.sort((a, b) => a.lo - b.lo);
+
+            // Every piece of metadata the app holds for one hit: the record's own fields, the
+            // gene and transcript it lands on, the genomic locus, the transcript-relative window
+            // and its length, and the strand. Multi-line on purpose -- only the FIRST line is
+            // drawn on the block (see the vertical branch in baja/bio/track-layer.js), and the
+            // rest is what the hover panel is for.
+            const FIELDS = ['Patent', 'Title', 'Filed', 'Assignee', 'Inventors', 'Abstract'];
+            const chrLabel = (track.chr != null && ('' + track.chr).length) ? ('chr' + track.chr) : ('' + tid);
+            const strandLabel = (track.strand >= 0) ? '+' : '-';
+            const buildLabel = (p) => {
+                const txLen = Math.max(0, p.te - p.ts);
+                const head = [];
+                if (('' + p.name).indexOf(SEP) >= 0) {
+                    const f = ('' + p.name).split(SEP);
+                    for (let i = 0; i < f.length; i++) {
+                        if (f[i]) head.push((FIELDS[i] || ('Field ' + (i + 1))) + ': ' + f[i]);
+                    }
+                } else {
+                    // Named for what it actually is. Calling this bare integer a patent number
+                    // would be inventing a fact: it is this index's own record id, and the
+                    // patent it points at is not in the file.
+                    head.push('Record: ' + (p.name || '—'));
+                }
+                return head.concat([
+                    'Patents 2020–2025',
+                    'Gene: ' + (track.name || tid),
+                    chrLabel + ':' + Math.round(p.lo) + '-' + Math.round(p.hi),
+                    'tx ' + p.ts + '-' + p.te + ' (' + txLen + ' nt)',
+                    'strand ' + strandLabel
+                ]).join('\n');
+            };
 
             const laneEnd = [];
             const laneFor = (s, e) => {
@@ -135,7 +185,8 @@ function (graph, genegraph_panel_layout, tracks) {
             for (const p of patents) {
                 const lane = laneFor(p.lo, p.hi);
                 const yv = 0.03125 + (0.03125 * lane);
-                for (const g of p.segs) layer.addInterval(g[0], g[1], yv, p.name);
+                const lbl = buildLabel(p);
+              for (const g of p.segs) layer.addInterval(g[0], g[1], yv, lbl);
             }
             track.addLayer(layer);
 

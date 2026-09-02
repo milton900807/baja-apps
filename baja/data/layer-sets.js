@@ -42,6 +42,10 @@ function () {
             // writes the packed number‖title‖date‖assignee‖inventors form.
             assignees: '/bd/aso_sirna_gt_assignees.tsv',
             color: 'rgba(160,80,160,0.55)',
+            // On their side, like every other interval label: hits stack into lanes and a flat
+            // 'US12186406 ALNYLAM PHARMACEUTICALS' runs clean across the ones beside it.
+            verticalLabels: true,
+            labelZoomThreshold: 0.4,
             noun: 'ASO/siRNA/gene-therapy hit',
         },
         patents_2020_2025: {
@@ -49,6 +53,13 @@ function () {
             label: 'Patents 2020–2025',
             bed: '/bd/patent_hg38_transcript_hits.bed.gz',
             color: 'rgba(70,130,180,0.55)',
+            verticalLabels: true,
+            labelZoomThreshold: 0.4,
+            // NB: no assignees TSV. This BED's column 4 is a sequential record id ('2|2|'),
+            // not a patent number, and nothing on disk maps it to one -- so a hit from this
+            // index cannot name its patent. The aso_sirna_gt and lipid_patents BEDs DO carry
+            // real numbers (12186406, 10859585) with a TSV each. Everything that loads this
+            // key goes through baja/data/patents.js, which says the same thing at more length.
             noun: 'patent hit',
         },
     };
