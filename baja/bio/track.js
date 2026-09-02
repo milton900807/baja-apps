@@ -7828,20 +7828,44 @@ return new Promise(async (resolve, reject) => {
           const startLabel = 'c.' + fmtInt(cStart) + '  g.' + fmtInt(gStart);
           const endLabel = 'c.' + fmtInt(cEnd) + '  g.' + fmtInt(gEnd);
 
-          const drawBadge = (text, x, y, align = "center") => {
+          const BADGE_FONT = '12px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+          const BADGE_PAD_X = 8;
+          // How long a badge is along its own text. For a VERTICAL badge that is its height on
+          // screen, which the caller needs to place it clear of the arrow. Measured with the
+          // same font drawBadge uses, so the two cannot disagree.
+          const badgeLen = (text) => {
             ctx.save();
-            ctx.font = '12px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-            ctx.textBaseline = "middle";
-            ctx.textAlign = align;
+            ctx.font = BADGE_FONT;
+            const w = ctx.measureText(text).width + BADGE_PAD_X * 2;
+            ctx.restore();
+            return w;
+          };
 
-            const padX = 8,
+          const drawBadge = (text, x, y, align = "center", vertical = false) => {
+            ctx.save();
+            ctx.font = BADGE_FONT;
+            ctx.textBaseline = "middle";
+            ctx.textAlign = vertical ? "center" : align;
+
+            const padX = BADGE_PAD_X,
               padY = 5;
             const metrics = ctx.measureText(text);
             const w = metrics.width + padX * 2;
             const h = 22;
 
-            let bx = x - (align === "center" ? w / 2 : align === "left" ? 0 : w);
-            let by = y - h / 2;
+            // A vertical badge is the same card drawn in a rotated frame centred on (x, y):
+            // everything below measures from the origin instead of from x/y. A quarter turn
+            // anticlockwise, so it reads bottom-to-top like the interval labels in
+            // baja/bio/track-layer.js.
+            let tx = x, ty = y;
+            if (vertical) {
+              ctx.translate(x, y);
+              ctx.rotate(-Math.PI / 2);
+              tx = 0; ty = 0;
+            }
+
+            let bx = tx - ((vertical || align === "center") ? w / 2 : align === "left" ? 0 : w);
+            let by = ty - h / 2;
 
             ctx.shadowColor = "rgba(0,0,0,0.22)";
             ctx.shadowBlur = 10;
@@ -7868,29 +7892,44 @@ return new Promise(async (resolve, reject) => {
 
             ctx.shadowColor = "transparent";
             ctx.fillStyle = textColor;
-            ctx.fillText(text, x, y);
+            ctx.fillText(text, tx, ty);
 
             ctx.restore();
           };
 
           const centerX = (screenStartX + screenEndX) / 2;
 
-          const labelPad = 10;
-          const startLabelX = screenStartX + headLen + labelPad;
-          const endLabelX = screenEndX - headLen - labelPad;
-
           const margin = 6;
           const canvasW = ctx.canvas.width;
-          const safeStartX = Math.max(margin, startLabelX);
-          const safeEndX = Math.min(canvasW - margin, endLabelX);
           ctx.lineWidth = 1;
 
-          // c./g. badges at the TOPS of the start/end arrows; size label below. Clinical-compound
-          // tracks keep the size label but show no c./g. coordinate badges.
+          // The COORDINATE badges are drawn on their side, a quarter turn anticlockwise.
+          //
+          // Flat, each one is as wide as 'c.1,234  g.12,345,678' -- around 150px -- so on any
+          // selection shorter than that the two overlapped each other, and both were pushed off
+          // their own arrow by the offset that tried to avoid it. Turned vertical a badge is 22px
+          // wide whatever it says, so each one sits directly ON the arrow it describes and a
+          // selection of a few bases still reads as two distinct coordinates.
+          //
+          // Anchored half its own length above the arrow, since a vertical badge grows upward
+          // from its centre, and clamped by that half-length so it cannot run off the top.
+          // The x clamp uses the badge's rotated half-WIDTH (h/2 = 11) rather than the flat
+          // width it no longer has.
+          const VBADGE_HALF_W = 11;
+          const vBadgeX = (x) => Math.max(margin + VBADGE_HALF_W,
+            Math.min(canvasW - margin - VBADGE_HALF_W, x));
+          const vBadgeY = (text) => {
+            const half = badgeLen(text) / 2;
+            return Math.max(margin + half, yPosition - 20 - half);
+          };
+
+          // Size label stays flat and below: it is one short reading about the span as a whole,
+          // not a coordinate belonging to either end. Clinical-compound tracks keep it and show
+          // no c./g. coordinate badges.
           drawBadge(distLabel, centerX, yPosition + 18, "center");
           if (!(this.track_type === 'clincial_compound' || this.track_type === 'clinical_compound')) {
-            drawBadge(startLabel, safeStartX, yPosition - 20, "center");
-            drawBadge(endLabel, safeEndX, yPosition - 20, "center");
+            drawBadge(startLabel, vBadgeX(screenStartX), vBadgeY(startLabel), "center", true);
+            drawBadge(endLabel, vBadgeX(screenEndX), vBadgeY(endLabel), "center", true);
           }
         }
 

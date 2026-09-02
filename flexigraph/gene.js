@@ -8080,6 +8080,24 @@ pattern, GGGG | Required`
                 });
             }
 
+            // The y just below the control-button row — the TOP STRIP, where everything the
+            // canvas says about itself is drawn: the coordinate readout, and the result/error
+            // toast. Nothing is drawn at the foot of the canvas: the free-plan bar is fixed to
+            // the bottom of the window and painted over it, and on some devices the foot of the
+            // canvas is not on screen at all, so anything there can be shown to nobody.
+            //
+            // Measured from the buttons rather than a guessed constant, so moving or resizing
+            // that row moves what sits under it. With the row hidden this rides higher.
+            __topStripY() {
+                let bottom = 0;
+                try {
+                    if (this.showNavigationControl) {
+                        for (const d of (this.controlButtonDefs() || [])) bottom = Math.max(bottom, d.y1 || 0);
+                    }
+                } catch (e) { }
+                return bottom + 12;
+            }
+
             // Position {cx,cy} of a control button by id — used by the draw methods.
             _ctrlPos(id) {
                 const b = this.controlButtonDefs().find(d => d.id === id);
@@ -11166,10 +11184,12 @@ pattern, GGGG | Required`
 
                         if (this.coords && (!isNaN(this.coords))) {
                             ctx.fillStyle = 'lightBlue';
-                            // Lifted clear of the free-plan bar, which is fixed to the bottom
-                            // of the window and spans its full width -- at height - 30 this
-                            // readout sat behind it. Same reserve as the message toast.
-                            ctx.fillText('(' + this.coords + ', ' + this.ycoords + ')', 2, this.graph.canvas.height - 88);
+                            // Top-left of the top strip. It was at the FOOT of the canvas, where
+                            // the free-plan bar sits and where some devices do not show the
+                            // canvas at all -- lifting it clear of the bar still left it in the
+                            // part of the canvas that can be off screen. Same strip as the
+                            // toast, which starts a line lower so the two never overlap.
+                            ctx.fillText('(' + this.coords + ', ' + this.ycoords + ')', 6, this.__topStripY());
 
                         }
                     }
@@ -11284,26 +11304,31 @@ pattern, GGGG | Required`
                             const cardH = padY * 2 + lineH * shown.length;
 
                             let cardX = Math.round((cw - cardW) / 2);
-                            // ABOVE the foot of the canvas, not on it.
+                            // TOP centre, immediately below the control-button row.
                             //
-                            // This sat at ch - cardH - 16, which is exactly where the free-plan
-                            // bar is: that bar is fixed to the bottom of the WINDOW and drawn
-                            // over the canvas, so every result and error message a free user got
-                            // appeared underneath the one piece of chrome they always have. The
-                            // two most likely to be on screen together were the two that
-                            // collided.
+                            // Nothing is drawn at the FOOT of the canvas any more. Two reasons,
+                            // and the second is the one that decides it: the free-plan bar is
+                            // fixed to the bottom of the window and painted over the canvas, so
+                            // a message there sat under the one piece of chrome a free user
+                            // always has; and on some devices the foot of the canvas is not on
+                            // screen at all, so a message there could be shown to nobody. Moving
+                            // it up was not enough -- a reserve big enough for the bar is still a
+                            // guess about where the viewport ends. The top strip is the part
+                            // that is always visible.
                             //
-                            // Cleared by the bar's own height plus a margin. The reserve is
-                            // unconditional rather than measured: the bar can appear between one
-                            // frame and the next (checkFreePlan polls every 20s), and a toast
-                            // that moved when it did would be worse than one that always sits
-                            // where the bar cannot reach.
-                            const FOOT_RESERVE = 74;
-                            let cardY = ch - cardH - FOOT_RESERVE;
+                            // It also puts every message in ONE place: in-progress status
+                            // already appears in the badge under these buttons (see setMessage),
+                            // so results and errors now land in the same strip rather than at the
+                            // opposite end of the canvas from the work that produced them.
+                            //
+                            // __topStripY() measures the button row rather than guessing at it,
+                            // so moving or resizing that row moves the toast with it.
+                            // One line below the coordinate readout, which shares this strip.
+                            let cardY = this.__topStripY() + 18;
                             cardX = Math.max(8, Math.min(cardX, cw - cardW - 8));
-                            // On a very short canvas the reserve can push the card off the top;
-                            // clamp below the control-button row rather than under it.
-                            cardY = Math.max(72, Math.min(cardY, ch - cardH - FOOT_RESERVE));
+                            // A canvas too short to hold the card below the buttons keeps it on
+                            // screen rather than pushing it off the bottom.
+                            cardY = Math.max(8, Math.min(cardY, Math.max(8, ch - cardH - 8)));
 
                             // Glow behind the card — ORANGE for error messages, cyan otherwise.
                             const __msgErr = !!this.messageIsError;
