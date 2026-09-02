@@ -199,15 +199,30 @@ function (graph, genegraph_panel_layout, tracks) {
                     // Name the layer with the span when it is not the whole track, so several
                     // selections of the same dataset stay distinguishable.
                     const nm = (start > t.xi || end < t.xf) ? (d.label + ' [' + start + '-' + end + ']') : d.label;
-                    const layer = new TrackLayer(nm, start, 0, end, 1);
+                    // The layer spans the WHOLE TRACK; the data sits only where it was read.
+                    //
+                    // It used to be built over [start, end] -- the loaded region -- so a load
+                    // scoped to a selection produced a layer whose own coordinate frame was
+                    // the selection. Everything drawn in it was then measured against the wrong
+                    // span, which is why a selected load did not line up with the track under
+                    // it. Same frame the other loaders use (see baja/data/patents.js).
+                    const __ax = t.tgraph || t.grid;
+                    const __lo = Math.min(__ax.xmin, __ax.xmax);
+                    const __hi = Math.max(__ax.xmin, __ax.xmax);
+                    const layer = new TrackLayer(nm, __lo, 0, __hi, 1);
                     let max_exp = rv.reduce((max, tuple) => Math.max(max, tuple[1]), -Infinity);
                     if (!max_exp || !isFinite(max_exp)) max_exp = 1.0;
-                    layer.addPolygonPoint(start, 0);
+                    // Flat at the track edges and at the edges of the read, so the polygon
+                    // closes across the full width and reads as "no data here" outside the
+                    // region rather than sloping in from the track's first base.
+                    layer.addPolygonPoint(__lo, 0);
+                    if (start > __lo) layer.addPolygonPoint(start, 0);
                     for (const v of rv) {
                         if (!v || !isFinite(v[1])) continue;
                         layer.addPolygonPoint(v[0], v[1] / max_exp);
                     }
-                    layer.addPolygonPoint(end, 0);
+                    if (end < __hi) layer.addPolygonPoint(end, 0);
+                    layer.addPolygonPoint(__hi, 0);
                     layer.sortPolygonPoints();
                     t.addLayer(layer);
                     done++;
