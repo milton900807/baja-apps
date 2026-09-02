@@ -165,6 +165,18 @@ function (graph, genegraph_panel_layout, tracks) {
                         + 'siRNA and gene therapy — carrying the assignee behind each hit.',
                     open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
                         SETS.aso_sirna_gt, tracks)
+                },
+                {
+                    title: SETS.assay_panel_patents.label, badge: 'Assay IP',
+                    // Named for what the hits are, not for the search that found them: 8,853
+                    // sequences from 12 patents (9 families) spread about one per transcript
+                    // across 6,017 of them, most at 25-59 nt. Detection chemistry, not
+                    // therapeutic sequence -- which is the distinction a designer needs.
+                    blurb: 'Primer and probe sequences claimed as diagnostic panels — 8,853 hits '
+                        + 'from 12 patents across 6,017 transcripts, each carrying its assignee. '
+                        + 'Check here before publishing an assay, not a therapeutic.',
+                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                        SETS.assay_panel_patents, tracks)
                 }
             ];
         };

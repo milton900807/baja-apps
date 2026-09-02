@@ -48,6 +48,29 @@ function () {
             labelZoomThreshold: 0.4,
             noun: 'ASO/siRNA/gene-therapy hit',
         },
+        assay_panel_patents: {
+            key: 'assay_panel_patents',
+            label: 'Assay panel patents',
+            // The files on disk are named lipid_patents_* because that was the search that
+            // produced them. The KEY and the label say what the result actually is, since the
+            // key is what a ?layer= deep link exposes and the label is what a user reads.
+            //
+            // What is in it, measured: 8,853 sequence hits from 12 patents -- really 9 families,
+            // three pairs share a sequence listing across a continuation -- spread over 6,017
+            // transcripts. 5,705 of the hits are 25-59 nt and two patents alone account for 71%
+            // of them, at roughly one hit per transcript across thousands of genes. That is the
+            // shape of a claimed assay PANEL, not of a therapeutic targeting a gene, and the
+            // assignees agree (Cleveland HeartLab, Complete Omics, Dana-Farber, Scripps).
+            //
+            // Kept distinct from the ASO/siRNA set for exactly that reason: this is detection
+            // chemistry, and a designer needs to know which kind of claim a hit represents.
+            bed: '/bd/lipid_patents_hg38_transcript_hits.bed.gz',
+            assignees: '/bd/lipid_patents_assignees.tsv',
+            color: 'rgba(200,140,50,0.55)',
+            verticalLabels: true,
+            labelZoomThreshold: 0.4,
+            noun: 'assay-panel patent hit',
+        },
         patents_2020_2025: {
             key: 'patents_2020_2025',
             label: 'Patents 2020–2025',
