@@ -40,6 +40,183 @@ return new Promise(async (resolve, reject) => {
   const GX_RING = '#123049'; // outlines
   const GX_EXON = 'rgba(44,90,160,0.85)'; // exon / cds fill
   const GX_EXON_EDGE = '#1b4a7a'; // exon / cds edge
+
+  // ---- TRACK THEMES ---------------------------------------------------------------------
+  //
+  // The constants above ARE the classic theme. A theme names the same roles with different
+  // colours, and GX_T is the palette in force while a track draws itself: Track.draw() points
+  // it at that track's theme on entry, so the free helpers below and the class methods all
+  // pick it up without threading a palette through every signature.
+  //
+  // Safe because tracks draw one after another, never interleaved. A track with no theme, or
+  // an unknown one, gets 'classic' -- a bad name should cost the user their colours, not
+  // their track.
+  const GX_THEMES = {
+    classic:   { label: 'Classic',       ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)',  exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
+    paper:     { label: 'Paper',         ink: '#2b2b2b', paper: '#f6f1e3', guide: '#d8d2c4',            gtag: '#8a7f6d',                ring: '#5a5348', exon: 'rgba(150,120,70,0.75)', exonEdge: '#7a6647', arrow: 'rgba(120,110,90,0.25)' },
+    blueprint: { label: 'Blueprint',     ink: '#dbe9ff', paper: '#0d2b4e', guide: 'rgba(219,233,255,0.30)', gtag: '#9dc0ef',            ring: '#5b8ac4', exon: 'rgba(150,200,255,0.55)', exonEdge: '#a8cbf0', arrow: 'rgba(200,225,255,0.25)' },
+    midnight:  { label: 'Midnight',      ink: '#e6edf3', paper: '#0d1117', guide: 'rgba(230,237,243,0.20)', gtag: '#8b949e',            ring: '#30363d', exon: 'rgba(88,166,255,0.55)',  exonEdge: '#58a6ff', arrow: 'rgba(139,148,158,0.28)' },
+    forest:    { label: 'Forest',        ink: '#12352a', paper: '#f2f7f4', guide: '#c3d8cd',            gtag: '#4a6b60',                ring: '#14705c', exon: 'rgba(20,112,92,0.70)',  exonEdge: '#0d5544', arrow: 'rgba(60,110,95,0.25)' },
+    sunset:    { label: 'Sunset',        ink: '#5c2118', paper: '#fff6f1', guide: '#e8cdbf',            gtag: '#96604e',                ring: '#a4553f', exon: 'rgba(209,115,79,0.70)', exonEdge: '#8c412c', arrow: 'rgba(160,100,80,0.25)' },
+    slate:     { label: 'Slate',         ink: '#20262c', paper: '#f7f9fa', guide: '#ccd3d9',            gtag: '#5a656f',                ring: '#8a97a3', exon: 'rgba(90,101,111,0.60)', exonEdge: '#48525b', arrow: 'rgba(90,101,111,0.25)' },
+    highvis:   { label: 'High contrast', ink: '#000000', paper: '#ffffff', guide: '#000000',            gtag: '#000000',                ring: '#000000', exon: 'rgba(0,0,0,0.75)',      exonEdge: '#000000', arrow: 'rgba(0,0,0,0.45)' },
+    mono:      { label: 'Mono',          ink: '#3f3f3f', paper: '#fafafa', guide: '#dcdcdc',            gtag: '#8c8c8c',                ring: '#9a9a9a', exon: 'rgba(90,90,90,0.55)',   exonEdge: '#6b6b6b', arrow: 'rgba(120,120,120,0.25)' },
+    lab:       { label: 'Lab notebook',  ink: '#1c3f6e', paper: '#f7faff', guide: '#cfd9e6',            gtag: '#5b7ea8',                ring: '#7d9bc1', exon: 'rgba(28,63,110,0.60)',  exonEdge: '#14345c', arrow: 'rgba(90,126,168,0.25)' },
+    clinical:  { label: 'Clinical',      ink: '#101820', paper: '#ffffff', guide: '#dfe4e8',            gtag: '#7a1c2b',                ring: '#c41230', exon: 'rgba(196,18,48,0.55)',  exonEdge: '#8f0d23', arrow: 'rgba(150,60,75,0.25)' }
+  };
+
+  let GX_T = GX_THEMES.classic;
+
+  // ---- GENE DRAW CLASSES ----------------------------------------------------------------
+  //
+  // A theme is not only a palette. These decide HOW a gene body is put on the canvas -- the
+  // shape and the stroke -- so two themes with similar colours can still look nothing alike.
+  //
+  // One method, body(), because that is the mark the eye actually reads on a track. Each
+  // subclass overrides it and nothing else; the base is the wash-and-outline the app has
+  // always drawn, so 'classic' is the base class unchanged.
+  class GeneDraw {
+    constructor(T) { this.T = T || GX_THEMES.classic; }
+    // Fill colour derived from the theme's exon role, so a subclass need not restate it.
+    fill() { return this.T.exon; }
+    edge() { return this.T.exonEdge || this.T.ring; }
+    body(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.fillStyle = this.fill();
+      ctx.fillRect(x, y, w, h);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = this.edge();
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      ctx.restore();
+    }
+  }
+
+  // Outline only: the body is a frame, the track shows through it. Reads as a drawing rather
+  // than a filled bar, which is the point of a blueprint or a notebook.
+  class GeneDrawOutline extends GeneDraw {
+    body(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = this.edge();
+      ctx.strokeRect(x + 0.75, y + 0.75, Math.max(0, w - 1.5), Math.max(0, h - 1.5));
+      ctx.restore();
+    }
+  }
+
+  // Rounded: the same bar with its corners taken off. Softer, and at small widths it reads as
+  // a capsule rather than a sliver.
+  class GeneDrawRounded extends GeneDraw {
+    body(ctx, x, y, w, h) {
+      const r = Math.max(0, Math.min(6, h / 2, w / 2));
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fillStyle = this.fill();
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = this.edge();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Ribbon: rounded, with a spine down the middle. The spine gives a long body a direction to
+  // read along at zoom levels where the ends are off screen.
+  class GeneDrawRibbon extends GeneDrawRounded {
+    body(ctx, x, y, w, h) {
+      super.body(ctx, x, y, w, h);
+      if (w > 6 && h > 6) {
+        ctx.save();
+        ctx.strokeStyle = this.edge();
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 2, y + h / 2);
+        ctx.lineTo(x + w - 2, y + h / 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  // Hatched: a light fill under diagonal ruling, the way an engraving shades a solid. Gives a
+  // print theme texture without another colour.
+  class GeneDrawHatch extends GeneDraw {
+    body(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.fillStyle = this.fill();
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
+      if (w > 3 && h > 3) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.clip();
+        ctx.strokeStyle = this.edge();
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1;
+        for (let i = -h; i < w; i += 5) {
+          ctx.beginPath();
+          ctx.moveTo(x + i, y + h);
+          ctx.lineTo(x + i + h, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = this.edge();
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      ctx.restore();
+    }
+  }
+
+  // Block: solid, hard-edged, heavy border. For the themes whose job is to be unmissable.
+  class GeneDrawBlock extends GeneDraw {
+    body(ctx, x, y, w, h) {
+      ctx.save();
+      ctx.fillStyle = this.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = this.edge();
+      ctx.strokeRect(x + 1, y + 1, Math.max(0, w - 2), Math.max(0, h - 2));
+      ctx.restore();
+    }
+  }
+
+  // Which class each theme draws with. A theme not named here falls back to the base, so
+  // adding a theme is still one row in GX_THEMES.
+  const GX_GENE_DRAW = {
+    classic: GeneDraw,
+    paper: GeneDrawHatch,
+    blueprint: GeneDrawOutline,
+    midnight: GeneDrawRounded,
+    forest: GeneDrawRibbon,
+    sunset: GeneDrawRounded,
+    slate: GeneDraw,
+    highvis: GeneDrawBlock,
+    mono: GeneDrawHatch,
+    lab: GeneDrawOutline,
+    clinical: GeneDrawBlock
+  };
+
+  const geneDrawFor = (themeKey, T) => {
+    try {
+      const C = GX_GENE_DRAW[themeKey] || GeneDraw;
+      return new C(T);
+    } catch (e) { return new GeneDraw(T); }
+  };
   const GX_UTR = 'rgba(147,180,216,0.85)';
   const GX_INTRON = '#9fb4c6';
   const GX_GENE = '#16456b'; // gene / transcript
@@ -181,7 +358,7 @@ return new Promise(async (resolve, reject) => {
       const ctx = graph.ctx;
       ctx.save();
       ctx.font = opts.font ?? "10px monospace";
-      ctx.fillStyle = opts.textColor ?? GX_INK;
+      ctx.fillStyle = opts.textColor ?? GX_T.ink;
       ctx.textBaseline = "bottom";
       const labelY = tgraph.Y(opts.labelYFrac ?? yFrac - 0.01);
       for (const orf of orfs) {
@@ -212,7 +389,7 @@ return new Promise(async (resolve, reject) => {
     const screenX = graph.grid.X(xWorld);
     const screenLabelY = graph.grid.Y(yLabelWorld) + 30;
 
-    color = color || GX_INK;
+    color = color || GX_T.ink;
 
     ctx.save();
 
@@ -744,7 +921,7 @@ return new Promise(async (resolve, reject) => {
   function drawSnpLollipopsWide(graph, ctx, selectedTrack) {
     const STYLE = {
       lineWidth: 1.25,
-      stroke: GX_RING,
+      stroke: GX_T.ring,
       fillFallback: GX_INS,
       highlightStroke: GX_ACCENT,
       shadowColor: "rgba(0,0,0,0.25)",
@@ -2428,6 +2605,16 @@ return new Promise(async (resolve, reject) => {
         }
       }
       return null;
+    }
+
+    // The themes this track can draw with. On the class so the menu builds itself from the
+    // same table the renderer uses -- see baja/manchester/menu/mouse-over-highlight.js.
+    static get THEMES() { return GX_THEMES; }
+
+    // This track's palette. Unset or unknown falls back to classic.
+    themeColors() {
+        try { return GX_THEMES[this.theme] || GX_THEMES.classic; }
+        catch (e) { return GX_THEMES.classic; }
     }
 
     getExons() {
@@ -5964,6 +6151,16 @@ return new Promise(async (resolve, reject) => {
       // top of draw rather than only inside the zoomed-in detail block.
       this.__mergeFrame = (this.__mergeFrame | 0) + 1;
       if (this.__mergeFrame % 10 === 0) { try { this.mergeAdjacentAnnotations(); } catch (e) { } }
+
+      // The palette in force for the rest of this method and every helper it calls. Set per
+      // track, on entry, because tracks draw one after another -- never interleaved -- so the
+      // one assignment covers the whole of this track's drawing without a palette argument on
+      // every signature.
+      GX_T = this.themeColors();
+      // The gene-draw class that goes with it: the theme decides the SHAPE of a gene body,
+      // not only its colour.
+      this.__geneDraw = geneDrawFor(this.theme, GX_T);
+
       ctx.save();
       ctx.beginPath();
 
@@ -6067,8 +6264,8 @@ return new Promise(async (resolve, reject) => {
         if (this.showSnpIndels) snpsv = this.getVisibleSNPs(twcxs, twcxf);
 
         if (this.trackRef && this.trackRef.track && this.trackRef.track.tgraph && this.trackRef.track.tgraph.X && this.trackRef.track.tgraph.Y) {
-          graph.drawDashedLine(this.tgraph.xi, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xi), this.trackRef.track.tgraph.Y(0), GX_GUIDE, 1, "round");
-          graph.drawDashedLine(this.tgraph.xi + this.tgraph.width, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xf), this.trackRef.track.tgraph.Y(0), GX_GUIDE, 1, "round");
+          graph.drawDashedLine(this.tgraph.xi, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xi), this.trackRef.track.tgraph.Y(0), GX_T.guide, 1, "round");
+          graph.drawDashedLine(this.tgraph.xi + this.tgraph.width, this.tgraph.Y(0), this.trackRef.track.tgraph.X(this.trackRef.xf), this.trackRef.track.tgraph.Y(0), GX_T.guide, 1, "round");
         }
         if (this.highlightstart != null && this.highlightstart >= 0 && this.highlightend != null && this.highlightend > this.highlightstart) {
           const xCenter = (graph.X(this.tgraph.X(this.highlightstart)) + graph.X(this.tgraph.X(this.highlightend))) / 2;
@@ -6096,7 +6293,7 @@ return new Promise(async (resolve, reject) => {
               if (this.trackRef) {
                 let ch2 = this.trackRef.track.sequence[index];
                 if (ch1 == "-" || ch2 === "-") {
-                  color = GX_GUIDE;
+                  color = GX_T.guide;
                 } else if (ch1 != ch2) {
                   color = GX_SNP;
                 }
@@ -6109,7 +6306,7 @@ return new Promise(async (resolve, reject) => {
 
             for (let index = i0; index < i1; index++) {
               let jindex = j[index];
-              graph.drawDashedLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(jindex + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), GX_GUIDE);
+              graph.drawDashedLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(jindex + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), GX_T.guide);
             }
           }
 
@@ -6150,7 +6347,7 @@ return new Promise(async (resolve, reject) => {
               } else if (this.trackRef && this.trackRef.showMismatches) {
                 let ch2 = this.trackRef.track.sequence[index];
                 if (ch1 == "-" || ch2 === "-") {
-                  color = GX_RING;
+                  color = GX_T.ring;
                   graph.drawLine(this.tgraph.X(index), this.tgraph.Y(0), this.trackRef.track.tgraph.X(index + this.trackRef.track.tgraph.getxmin()), this.trackRef.track.tgraph.Y(0), color);
                 } else if (ch1 != ch2) {
                   color = GX_SNP;
@@ -6172,7 +6369,7 @@ return new Promise(async (resolve, reject) => {
             }
             let increment = (this.xf - this.xi) / 15;
             for (let incr = this.xi; incr < this.xf - increment; incr += increment) {
-              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
+              graph.drawArrowhead(graph.X(this.tgraph.X(incr)) + 10, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_T.arrow);
             }
           }
           if (this.strand >= 0) {
@@ -6423,7 +6620,7 @@ return new Promise(async (resolve, reject) => {
                           this.tgraph,
                           _i,
                           exonIndex,
-                          GX_INK,
+                          GX_T.ink,
                           this.detail_ffont6,
                           _trackMajorXs,
                           minimumLabelSpacing
@@ -6450,7 +6647,7 @@ return new Promise(async (resolve, reject) => {
                           this.tgraph,
                           _i,
                           exonIndex,
-                          GX_INK,
+                          GX_T.ink,
                           this.detail_ffont6,
                           _trackMajorXs,
                           minimumLabelSpacing
@@ -6473,8 +6670,8 @@ return new Promise(async (resolve, reject) => {
                 if (screencell > 0.5) {
                   for (let i = 1; i < totalPoints - 1; i++) {
                     let xvalue = a.xi + offset + i * interval;
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
-                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) + 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_T.arrow);
+                    graph.drawArrowhead(graph.X(this.tgraph.X(xvalue)) - 20, graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_T.arrow);
                   }
                 }
               } else {
@@ -6717,7 +6914,7 @@ return new Promise(async (resolve, reject) => {
                   if (this.strand === -1 || this.strand === "-1") {
                     deg = 3.14159;
                   }
-                  if (!__clinical && seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_ARROW);
+                  if (!__clinical && seq_index % 100 === 0) graph.drawArrowhead(graph.X(this.tgraph.X(seq_index)), graph.Y(this.tgraph.yi + this.tgraph.height), deg, 6, 4, GX_T.arrow);
 
                   graph.drawString(this.sequence[seq_index], Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_INK, dynSeqFont);
                 }
@@ -6729,7 +6926,7 @@ return new Promise(async (resolve, reject) => {
                 if (__fb) {
                   try {
                     graph.drawString(__fb, Math.round(this.tgraph.X(index)) + 0.2, _seqRowY, SEQ_FLANK, dynSeqFont);
-                    if (screencell > 30 && !__clinical) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_GTAG, this.detail_ffont6);
+                    if (screencell > 30 && !__clinical) graph.drawString('g.' + _abbrevPos(__gp), Math.round(this.tgraph.X(index)), this.tgraph.Y(-0.09), GX_T.gtag, this.detail_ffont6);
                   } catch (e) { }
                 } else {
                   graph.drawString("-", this.tgraph.X(index), this.tgraph.Y(0), GX_INTRON);
@@ -6801,7 +6998,7 @@ return new Promise(async (resolve, reject) => {
           if (trackScreenWidth > 40 && screencell > 0.05) {
             let increment = (this.tgraph.xmax - this.tgraph.xmin) / 4;
             for (let idx = this.tgraph.xmin; idx < this.tgraph.xmax; idx += increment) {
-              graph.drawVerticalLine(Math.round(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, GX_GUIDE, 1);
+              graph.drawVerticalLine(Math.round(this.tgraph.X(idx)), this.tgraph.Y(0), this.tgraph.height, GX_T.guide, 1);
               graph.drawString(Math.floor(idx) + "", this.tgraph.X(idx), this.tgraph.Y(this.tgraph.ymin), GX_INTRON);
             }
 
@@ -6876,7 +7073,7 @@ return new Promise(async (resolve, reject) => {
           const sx = Math.round(graph.grid.X(this.tgraph.X(index)));
           const syTick = graph.grid.Y(this.tgraph.Y(y + this.tgraph.ymax)) + 15;
 
-          ctx.strokeStyle = GX_RING;
+          ctx.strokeStyle = GX_T.ring;
           ctx.beginPath();
           ctx.moveTo(sx, syTick);
           ctx.lineTo(sx, syTick + 6);
@@ -6894,7 +7091,7 @@ return new Promise(async (resolve, reject) => {
             const ay = syTick + 3;    // vertically centered on the tick
             const tipx = sx + dir * shaft;
             ctx.save();
-            ctx.strokeStyle = GX_INK;
+            ctx.strokeStyle = GX_T.ink;
             ctx.lineWidth = 1.6;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -6914,7 +7111,7 @@ return new Promise(async (resolve, reject) => {
           ctx.translate(sx + 2, syTick - 10);
           ctx.rotate((-45 * Math.PI) / 180);
 
-          ctx.fillStyle = GX_GTAG;
+          ctx.fillStyle = GX_T.gtag;
           ctx.textAlign = "left";
           ctx.textBaseline = "alphabetic";
           if (screencell > 5 && graph.canvas) {
@@ -7111,7 +7308,7 @@ return new Promise(async (resolve, reject) => {
               // Score label is hidden by default; enable per-track via showScore.
               if (this.showScore) {
                 const scoreLabel = `Score: ${p.toFixed(3)}`;
-                graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+                graph.drawString(scoreLabel, (x0 + x1) / 2, yRow - yoffset, GX_T.ink, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
               }
               if (screencell > 0.5) {
                 const label = `#${i + 1} p=${p.toFixed(3)} len=${a1 - a0}`;
@@ -7120,13 +7317,13 @@ return new Promise(async (resolve, reject) => {
                 if (fwd && Number.isFinite(f0) && Number.isFinite(f1) && f1 > f0) {
                   const fx0 = Math.round(this.tgraph.X(f0));
                   const fx1 = Math.round(this.tgraph.X(f1));
-                  graph.drawString(`F: ${truncSeq(fwd)}`, fx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+                  graph.drawString(`F: ${truncSeq(fwd)}`, fx0, yRow - yoffset, GX_T.ink, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
                 if (rev && Number.isFinite(r0) && Number.isFinite(r1) && r1 > r0) {
                   const rx0 = Math.round(this.tgraph.X(r0));
                   const rx1 = Math.round(this.tgraph.X(r1));
-                  graph.drawString(`R: ${truncSeq(rev)}`, rx0, yRow - yoffset, GX_INK, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
+                  graph.drawString(`R: ${truncSeq(rev)}`, rx0, yRow - yoffset, GX_T.ink, '15px "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                 }
 
                 if (probe) {
@@ -7223,7 +7420,7 @@ return new Promise(async (resolve, reject) => {
                   ctx.save();
                   ctx.translate(sx, sy);
                   ctx.rotate(angle);
-                  ctx.fillStyle = GX_GTAG;
+                  ctx.fillStyle = GX_T.gtag;
                   ctx.fillText("g." + _abbrevPos(genomicPos), 0, 0);
                   ctx.restore();
                 }
@@ -7329,11 +7526,11 @@ return new Promise(async (resolve, reject) => {
           const yPosition = graph.Y(this.tgraph.Y(yMin + (yMax - yMin) * 0.25));
 
           const lineColor = GX_GENE;
-          const fillColor = GX_EXON;
-          const guideColor = GX_GUIDE;
-          const textColor = GX_INK;
-          const badgeFill = GX_PAPER;
-          const badgeStroke = GX_GUIDE;
+          const fillColor = GX_T.exon;
+          const guideColor = GX_T.guide;
+          const textColor = GX_T.ink;
+          const badgeFill = GX_T.paper;
+          const badgeStroke = GX_T.guide;
 
           const pxDist = Math.abs(screenEndX - screenStartX);
           const minDist = 40;
@@ -7350,11 +7547,14 @@ return new Promise(async (resolve, reject) => {
             const ry = Math.min(rTop, rBot);
             const rh = Math.abs(rBot - rTop);
             if (rw > 1 && rh > 1) {
+              // Through the theme's gene-draw class. Classic reproduces the cyan wash and
+              // outline this drew before; the others change the mark itself.
+              try { (this.__geneDraw || geneDrawFor(this.theme, GX_T)).body(ctx, rx, ry, rw, rh); } catch (e) { }
               ctx.save();
-              ctx.fillStyle = 'rgba(18,194,224,0.14)';    // light cyan wash — see-through
+              ctx.fillStyle = 'rgba(18,194,224,0.00)';    // the wash is the draw class's job now
               ctx.fillRect(rx, ry, rw, rh);
               ctx.lineWidth = 1;
-              ctx.strokeStyle = 'rgba(18,194,224,0.55)';
+              ctx.strokeStyle = 'rgba(18,194,224,0.00)';
               ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
               ctx.restore();
             }
@@ -7369,8 +7569,8 @@ return new Promise(async (resolve, reject) => {
 
           const guideTopY = this.tgraph.Y(yMax);
           const guideBottomY = this.tgraph.Y(yMin);
-          graph.drawVerticalLine(xStart, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_GUIDE, 2);
-          graph.drawVerticalLine(xEnd, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_GUIDE, 2);
+          graph.drawVerticalLine(xStart, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_T.guide, 2);
+          graph.drawVerticalLine(xEnd, guideTopY, this.tgraph.screenHeight(yMax - yMin), GX_T.guide, 2);
           ctx.restore();
 
           ctx.save();
@@ -7530,7 +7730,7 @@ return new Promise(async (resolve, reject) => {
         const nameX = this.tgraph.xi + this.tgraph.width;
         const nameY = this.tgraph.Y(this.tgraph.ymax - (this.tgraph.ymax - this.tgraph.ymin) / 2);
 
-        graph.drawString(this.name, nameX, nameY, GX_INK, this.detail_ffont7);
+        graph.drawString(this.name, nameX, nameY, GX_T.ink, this.detail_ffont7);
 
         // Persistent track-name watermark: a faint label pinned to the LEFT edge of the visible
         // track at its vertical centre, drawn in SCREEN space so it stays on screen no matter how
@@ -7586,7 +7786,7 @@ return new Promise(async (resolve, reject) => {
 
           const bgH = textHeight + padY * 2;
 
-          graph.drawString(headerText, textX, textY, GX_INK, this.detail_ffont6);
+          graph.drawString(headerText, textX, textY, GX_T.ink, this.detail_ffont6);
         }
 
         for (let icon of this.icons) {
