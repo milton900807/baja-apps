@@ -1,4 +1,4 @@
-function (graph, layout, publicAccess) {
+function (graph, layout) {
 
     // Clinical Library — a bookshelf of clinical RNA-targeting compounds (ASO / siRNA / anti-miR).
     // Each compound is a "book" whose title/spine come from its metadata. Clicking a book loads its
@@ -7,17 +7,18 @@ function (graph, layout, publicAccess) {
     //   exec('manchester/clinical-library.js', graph, layout)
 
     return (async () => {
-        // SUBSCRIBERS ONLY, except through the public entry point.
+        // SUBSCRIBERS ONLY -- with no exception, including the public URL.
         //
         // The check lives here rather than at the call sites so every route into the library
-        // is covered by one rule -- the Design menu, the Track menu and anything added later.
-        // manchester/clinical-library-public.js passes publicAccess, because that page exists
-        // to be open: it is exempted in the Angular auth guard for the same reason.
+        // is covered by one rule: the Design menu, the Track menu, the
+        // /app/manchester/clinical-library-public page, and anything added later. There is
+        // deliberately no opt-out parameter -- one existed for the public page, and a bypass
+        // that a caller can pass is a bypass anyone who can call it can pass.
         //
         // Only a definitive "not subscribed" refuses. checkSubscription returns null when it
         // cannot tell -- no email, Stripe not configured, a network blip -- and locking a
         // paying subscriber out of the library over a failed request would be the worse error.
-        if (!publicAccess) {
+        {
             try {
                 const SUB = await exec('lib/subscription.js');
                 const active = await SUB.checkSubscription();

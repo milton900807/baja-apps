@@ -4,7 +4,9 @@ function (path, config) {
     //   https://<host>/app/manchester/clinical-library-public
     //
     // Boots a read-only VIEWER graph (same shape as manchester/viewer.js — pan/zoom only,
-    // no editing UI, no subscription gate) and opens the library on top of it. Clicking a
+    // no editing UI) and opens the library on top of it. The LIBRARY is subscribers-only, so
+    // this URL is no longer a way around that: it reaches the same gate as every other route
+    // in. The name is kept because the url is published. Clicking a
     // compound loads it into THIS viewer graph, so a public visitor gets the full load
     // behaviour — target transcript, binding site, chemistry zoom — without the editor.
     //
@@ -89,7 +91,7 @@ function (path, config) {
             } catch (e) { }
         }
 
-        try { await exec('manchester/clinical-library.js', graph, genegraph_panel_layout, true); } catch (e) {
+        try { await exec('manchester/clinical-library.js', graph, genegraph_panel_layout); } catch (e) {
             try { await showWidget({ wid: 'html', data: '<hr> Could not open the clinical library: ' + e }); } catch (e2) { }
         }
         return graph;
