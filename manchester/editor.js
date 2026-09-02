@@ -2004,6 +2004,18 @@ function (path, config) {
                                                                 }
                                                             },
                                                             {
+                                                                // The other way to start a track: pick a clinical compound and
+                                                                // get its sequence as the track, with the compound already on
+                                                                // it carrying its per-residue chemistry. Same destination as
+                                                                // Design ▸ Clinical Library, reachable from where tracks are
+                                                                // made rather than only from where they are designed against.
+                                                                label: 'New track from clinical compound library', move: () => { },
+                                                                click: () => {
+                                                                    graph.showSideMenu(null);
+                                                                    exec('manchester/clinical-library.js', graph, genegraph_panel_layout);
+                                                                }
+                                                            },
+                                                            {
                                                                 label: 'Edit track', move: () => { },
                                                                 click: () => {
                                                                     graph.showSideMenu(null);
@@ -2011,15 +2023,6 @@ function (path, config) {
                                                                     exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout);
                                                                 }
                                                             },
-                                                            {
-                                                                label: 'Export', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    // Click a track, then choose an export (BED, oligos as
-                                                                    // FASTA/HELM/IDT, primers as CSV for Excel).
-                                                                    exec('baja/manchester/menu/track-export-menu.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            }
                                                         ]);
                                                     })
                                                 },
