@@ -123,3 +123,73 @@ bash 5_package.sh --work $WORK
   the source has; the metadata TSV still carries every filtered patent.
 - Everything downstream (the on-zoom metadata callout, lane packing, exon-splitting) is already
   built in `baja/data/bed-hits.js` — you only produce the two files.
+
+---
+
+## Stage 6 — the legacy `patent_hg38_transcript_hits.bed.gz` index
+
+The three patent BEDs in `BIG_DATA` do not agree about what column 4 holds:
+
+```
+aso_sirna_gt_hg38_transcript_hits.bed.gz   ENST…  3620 3640  12186406|12186406|  0 +
+lipid_patents_hg38_transcript_hits.bed.gz  ENST…   202  265  10859585|10859585|  0 +
+patent_hg38_transcript_hits.bed.gz         ENST…  1172 1191         2|2|         0 -
+```
+
+The first two carry real US patent numbers and ship an assignees TSV each, so the app resolves
+them to `US<number> <ASSIGNEE>`. The third — 160 MB, the oldest of the three, and the one the
+**Patents** layer loads — carries a bare integer. Over the whole file:
+
+| | |
+|---|---|
+| rows | 21,439,407 |
+| distinct ids | 3,576,653 |
+| range | 2 .. 29,803,555 |
+
+Sparse across ~30M, so it is a **record id** from whatever patent-sequence database that BED was
+built against: not a row index into any small table, and not a patent number. Nothing in this
+repository or on the app server maps it to a patent — there is no `patent_assignees.tsv`, and
+the producer of that BED is not in the repo. **That mapping has to come from the source
+database.** Until it does, a hit from this index can be shown honestly (locus, transcript,
+window, strand — see `baja/data/patents.js`) but cannot name its patent.
+
+`6_build_patent_index_meta.py` does the half that can be automated:
+
+```bash
+# What is actually in the BED — no map or metadata needed.
+python3 6_build_patent_index_meta.py --bed /bd/patent_hg38_transcript_hits.bed.gz --probe
+
+# Build the TSV, once you have the record_id -> patent_number mapping.
+python3 6_build_patent_index_meta.py \
+    --bed  /bd/patent_hg38_transcript_hits.bed.gz \
+    --map  record_to_patent.tsv \
+    --meta patents_meta.jsonl \
+    --out  patent_assignees.tsv
+```
+
+`--meta` takes the stage-1 `patents_meta.jsonl`, or any JSONL/TSV/CSV keyed by
+`publication_number`. Without `--map` the script exits rather than writing a file of labels that
+name nothing, and it reports every shortfall (ids with no mapping, patents with no metadata) so
+a thin file is visibly thin.
+
+**The join key is the record id, not the patent number.** `read-bed-region.py` joins on
+`col4.split('|')[0]`, which for this index is the record id — so column 1 of the output is that,
+the opposite of stage 4, whose BEDs already carry patent numbers.
+
+Deploy:
+
+```bash
+scp patent_assignees.tsv ubuntu@<server>:/home/ubuntu/baja-bd/
+# then in baja/data/patents.js:  const ASSIGNEES = '/bd/patent_assignees.tsv';
+```
+
+The expansion of the packed `number‖title‖date‖assignee‖inventors` form is already wired in
+`patents.js`, so setting that path is the only frontend change.
+
+### The alternative worth weighing first
+
+Stages 1–5 already produce an index **with** real numbers and full metadata
+(`aso_sirna_gt_*`, built Aug 2025), covering exactly the ASO / siRNA / gene-therapy art this
+app is about. Re-running them over a wider CPC filter would replace the legacy index with one
+that needs no record-id mapping at all — likely less work than recovering a mapping for
+3.6M ids, and it retires 160 MB of unattributable hits.
