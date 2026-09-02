@@ -2882,11 +2882,20 @@ return new Promise(async (resolve, reject) => {
                 }
             }
 
-            // "<track>_mRNA", not "<track>*": the suffix says what the track IS -- the spliced
-            // transcript built from this one -- where the asterisk said only that it was
-            // derived from something. Any clash with a track already on the canvas is settled
-            // by ensureUniqueTrackName in flexigraph/gene.js when it is added.
-            let track = new Track(this.name + '_mRNA', 0, seq.length, null, this.strand);
+            // Name the child for WHAT IT IS, not with an asterisk saying only that it came
+            // from something. The suffix follows the annotation this track was built from:
+            // CDNA or mRNA (in any case) both mean the spliced transcript and give _mRNA;
+            // anything else gives _<that annotation>, so building from Exon or CDS produces
+            // "<track>_Exon" / "<track>_CDS" rather than three tracks called the same thing.
+            //
+            // The suffix was hardcoded to _mRNA, which was right for the Create mRNA menu and
+            // wrong for every other annotation this method accepts.
+            //
+            // Any clash with a track already on the canvas is settled by ensureUniqueTrackName
+            // in flexigraph/gene.js when it is added.
+            const __ann = ('' + (annotation == null ? '' : annotation)).trim();
+            const __suffix = (/^(cdna|mrna)$/i.test(__ann) || !__ann) ? '_mRNA' : ('_' + __ann);
+            let track = new Track(this.name + __suffix, 0, seq.length, null, this.strand);
             track.sequence = seq;
             track.chr = this.chr;
             track.annotations = _annotations;

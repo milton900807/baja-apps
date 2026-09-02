@@ -3327,6 +3327,85 @@ function (graph, genegraph_panel_layout) {
 
                 let track_list = [
                     {
+                        // Rename the track. The name is not decoration: the layer menus, the
+                        // export filenames, the selection window and the mRNA suffix all
+                        // address a track by it, and until now it was whatever the loader
+                        // happened to call it.
+                        label: 'Change track name',
+                        click: async () => {
+                            const t = selectedTrack;
+                            if (!t) { graph.setMessage(' No track to rename.'); return; }
+                            graph.showSideMenu(null);
+
+                            let panel;
+                            const __nameHook = createIonFunction((editor) => { panel = editor; });
+                            const current = '' + (t.name || '');
+
+                            const apply = () => {
+                                let next = '';
+                                try { next = ('' + (panel && panel.get('Name') || '')).trim(); } catch (e) { next = ''; }
+                                if (!next) { try { graph.setResultMessage(' A track needs a name. '); } catch (e) { } return; }
+                                if (next === current) { try { hideAllModal(); } catch (e) { } return; }
+                                try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                t.name = next;
+                                // Settle any clash the same way every other path does, so two
+                                // tracks cannot end up sharing a name by way of the rename box.
+                                try { if (graph.ensureUniqueTrackName) graph.ensureUniqueTrackName(t); } catch (e) { }
+                                try { hideAllModal(); } catch (e) { }
+                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                try {
+                                    graph.setResultMessage(t.name === next
+                                        ? (' Renamed to "' + t.name + '". ')
+                                        : (' Renamed to "' + t.name + '" — "' + next + '" was taken. '));
+                                } catch (e) { }
+                                // This file IS the hover module, so there is nothing to re-exec:
+                                // handing the mouse back to navigate is the whole restore.
+                                try { graph.setMouseMode('navigate'); } catch (e) { }
+                            };
+
+                            showModal({
+                                wid: 'card',
+                                componentRef: 'bottomPanel',
+                                data: {
+                                    height: '260px',
+                                    cards: [[
+                                        {
+                                            'title': ' ',
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: '<div style="font:13px Arial;color:#0b2545;padding:2px 0;">'
+                                                    + 'Rename <b>' + (current || 'this track') + '</b></div>'
+                                            }
+                                        },
+                                        {
+                                            'title': ' ',
+                                            'width': '90%',
+                                            'component': {
+                                                wid: 'input-param-items',
+                                                refCallback: __nameHook,
+                                                data: { 'input_labels': ['Name'], 'Name': current }
+                                            }
+                                        },
+                                        {
+                                            'title': '',
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'mt-button', data: {
+                                                    buttons: [
+                                                        { label: 'Rename', ionFunction: createIonFunction(() => { apply(); }) },
+                                                        { label: 'Cancel', ionFunction: createIonFunction(() => { try { hideAllModal(); } catch (e) { } try { graph.setMouseMode('navigate'); } catch (e) { } }) }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    ]]
+                                }
+                            });
+                        },
+                        move: () => { }
+                    },
+                    {
                         label: 'Move track',
                         click: async () => {
                             // Enter move mode: click-drag anywhere on the canvas to
@@ -4644,7 +4723,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;

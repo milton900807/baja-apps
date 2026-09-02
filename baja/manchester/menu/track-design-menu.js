@@ -123,7 +123,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 const b = document.createElement('button');
                 b.id = ID;
                 b.textContent = 'Cancel design';
-                        b.title = 'Stop this design. The python job is killed on the server.';
+                b.title = 'Stop this design. The python job is killed on the server.';
                 b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:64px;'
                     + 'z-index:2147483300;cursor:pointer;background:#7f1d1d;color:#fee2e2;'
                     + 'border:1px solid rgba(255,255,255,0.22);border-radius:9px;padding:8px 16px;'
@@ -990,7 +990,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             click: () => {
                 showSideMenuDelayed([
                     { label: 'primer3', move: () => { }, click: () => { graph.showSideMenu(null); runPrimer3(); } },
-                    { label: 'djPrimer (assay success)', move: () => { }, click: () => { graph.showSideMenu(null); runDjprimer(); } },
+                    { label: 'djPrimer v1', move: () => { }, click: () => { graph.showSideMenu(null); runDjprimer(); } },
                     { label: 'Exon-exon primer-probes', move: () => { }, click: () => { graph.showSideMenu(null); runExonExon(); } },
                     backToDesign
                 ]);
