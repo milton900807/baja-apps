@@ -134,26 +134,28 @@ function (graph, genegraph_panel_layout, tracks) {
         // Returns [{track, start, end}], plus a label describing what was chosen.
         const loadTargets = () => {
             const all = universe().filter((t) => t && t.chr !== undefined && t.chr !== null);
-            let marked = [];
-            try { marked = (graph.getMarkSelectedTracks() || []).filter((t) => all.indexOf(t) >= 0); } catch (e) { marked = []; }
+
+            // ASK EACH TRACK whether it has a selected sequence, rather than asking the graph
+            // for the list of tracks that do.
+            //
+            // graph.getMarkSelectedTracks() was the gate, and every track it returned then had
+            // to survive `all.indexOf(t) >= 0` as well. Either step could quietly produce an
+            // empty list -- a graph without the helper, a track filtered out for want of a
+            // chromosome, a copy rather than the same object reference -- and an empty list
+            // does not report a problem here, it falls through to the branches below, which
+            // load the FULL LENGTH of every track. A selection that was ignored looked
+            // exactly like no selection at all.
+            //
+            // selectedRange() is the same answer the designers, the models and the other
+            // loaders use, and it comes from the track itself, so there is nothing in between
+            // to drop it.
+            const marked = all.map((t) => {
+                const r = (t.selectedRange && t.selectedRange()) || null;
+                return r ? { track: t, start: r.start, end: r.end } : null;
+            }).filter((r) => r && r.end > r.start);
+
             if (marked.length) {
-                return {
-                    scope: 'the selected sequence',
-                    items: marked.map((t) => {
-                        // Through the track's own selectedRange(), which knows whether the
-                        // marks are world coordinates or offsets from xi and clamps to the
-                        // track either way.
-                        //
-                        // The clamp that stood here assumed world coordinates: given offsets it
-                        // collapsed to Math.max(xi, small) == xi at BOTH ends, the zero-width
-                        // result was dropped by the filter below, and the library reported
-                        // "no track with a chromosome is selected or on the board" -- so a
-                        // track with a selection loaded nothing at all.
-                        const r = (t.selectedRange && t.selectedRange()) || null;
-                        return r ? { track: t, start: r.start, end: r.end }
-                                 : { track: t, start: t.xi, end: t.xf };
-                    }).filter((r) => r.end > r.start)
-                };
+                return { scope: 'the selected sequence', items: marked };
             }
             let sel = [];
             try { sel = (graph.getSelectedTracks() || []).filter((t) => all.indexOf(t) >= 0); } catch (e) { sel = []; }
