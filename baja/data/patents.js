@@ -9,8 +9,19 @@ function (graph, genegraph_panel_layout, tracks) {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
     };
 
-    CurrentLayout.clearComponent('mainPanel');
-    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+    // Going back to the editor is CurrentLayout.reset('mainPanel'), not a clear + set: the
+    // editor stashes its own layout there, and mounting genegraph_panel_layout over it leaves
+    // the canvas blank. Same rule as the model runners (baja/bio/rbp/rbp-profile.js).
+    const restoreEditor = () => {
+        try {
+            if (CurrentLayout.getStashed && CurrentLayout.getStashed('mainPanel')) {
+                CurrentLayout.reset('mainPanel');
+                return;
+            }
+        } catch (e) { }
+        try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+        try { if (genegraph_panel_layout) CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
+    };
 
     // `tracks`, when given, is the explicit set this run applies to -- the same contract the
     // rest of the libraries use. Falling back to for-each-track.js covers the two older
@@ -132,6 +143,10 @@ function (graph, genegraph_panel_layout, tracks) {
     return (async () => {
         const list = (tracks && tracks.length) ? tracks.filter(Boolean) : null;
         if (!list) {
+            // Only the CLICK path needs the panel mounted: it is what the user looks at while
+            // choosing a track. Given an explicit list there is no choosing, and swapping
+            // mainPanel there was blanking the editor behind the selection window.
+            restoreEditor();
             return exec('baja/lib/for-each-track.js', graph,
                 'Click on a track to load patents.', loadOne);
         }

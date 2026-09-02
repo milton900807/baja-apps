@@ -4247,10 +4247,15 @@ function (graph, genegraph_panel_layout) {
                                                 await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, __only());
                                             })
                                         });
+                                        // Conservation is off until the phyloP / phastCons bigwigs are in
+                                        // BIG_DATA -- there are none on this deployment, so the loader
+                                        // could only ever open an empty browser. Say so instead of
+                                        // opening it; the exec line stays one edit away.
                                         data_menu.push({
-                                            'label': 'Conservation…', click: () => __runData(async () => {
-                                                await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, __only());
-                                            })
+                                            'label': 'Conservation (coming soon)', click: () => {
+                                                try { graph.showSideMenu(null); } catch (e) { }
+                                                try { graph.setResultMessage(' Conservation data is coming soon. '); } catch (e) { }
+                                            }
                                         });
                                         data_menu.push({
                                             'label': 'Data Library…', click: () => __runData(async () => {

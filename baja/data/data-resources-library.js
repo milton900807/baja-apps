@@ -34,10 +34,14 @@ function (graph, genegraph_panel_layout, tracks) {
                 key: 'conservation',
                 title: 'Conservation',
                 badge: 'Comparative',
-                ready: true,
+                // Not ready: there are no phyloP / phastCons bigwigs in BIG_DATA on this
+                // deployment, so opening it gave an empty file browser. The loader itself
+                // works and is left wired below -- flip this back to true once the data is
+                // installed and nothing else needs changing.
+                ready: false,
                 blurb: 'Cross-species conservation score as a coverage layer, for judging whether a '
-                    + 'target site is under selective constraint. Needs phyloP / phastCons bigwigs '
-                    + 'in BIG_DATA; the browser is empty until they are installed.',
+                    + 'target site is under selective constraint. Coming soon: awaiting the '
+                    + 'phyloP / phastCons data.',
                 open: async () => { await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks); }
             },
             {
