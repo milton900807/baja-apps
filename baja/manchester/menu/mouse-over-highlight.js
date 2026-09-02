@@ -4614,24 +4614,34 @@ function (graph, genegraph_panel_layout) {
                 try {
                     if (selectedTrack && selectedTrack.track_type !== 'CDNA' && selectedTrack.containsIntrons && selectedTrack.containsIntrons()) {
                         track_list.push({
-                            label: 'Create mRNA...',
+                            label: 'Convert to mRNA',
                             click: async () => {
                                 graph.showSideMenu(null);
                                 const st = selectedTrack;
                                 if (!st) return;
-                                if (!st.sequence) { graph.setMessage(' No sequence to splice into mRNA.'); return; }
+                                if (!st.sequence) { try { graph.setResultMessage(' No sequence to splice into mRNA. '); } catch (e) { graph.setMessage(' No sequence to splice into mRNA.'); } return; }
                                 let track;
-                                try { track = st.createTrackFromAnnotation('CDNA'); } catch (e) { graph.setMessage(' Could not build mRNA: ' + e); return; }
-                                if (!track) { graph.setMessage(' Could not build mRNA track.'); return; }
+                                try { track = st.createTrackFromAnnotation('CDNA'); } catch (e) { try { graph.setResultMessage(' Could not build mRNA: ' + e + ' '); } catch (e2) { graph.setMessage(' Could not build mRNA: ' + e); } return; }
+                                if (!track) { try { graph.setResultMessage(' Could not build the mRNA track. '); } catch (e) { graph.setMessage(' Could not build mRNA track.'); } return; }
                                 try { if (st.snpindels && st.snpindels.length > 0) { track.liftSnpindels(); track.targetPhase = st.targetPhase; } } catch (e) { }
                                 try { if (st.oligos && st.oligos.length > 0) track.liftCompounds(); } catch (e) { }
                                 try { if (st.plots && st.plots.length > 0) track.liftPlots(); } catch (e) { }
                                 graph.track.push(graph.ensureUniqueTrackName ? graph.ensureUniqueTrackName(track) : track);
                                 graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
                                 graph.deselectAllTracks();
-                                track.select();
-                                try { graph.animateTo(track.tgraph.xi - 100, track.tgraph.xi + track.tgraph.width + 100, track.tgraph.Y(-3), track.tgraph.Y(3)); } catch (e) { }
-                                graph.setMessage(' Created a spliced mRNA track from ' + (st.name || 'track') + '.');
+                                try { track.select(); } catch (e) { }
+                                // grid || tgraph. The Track that createTrackFromAnnotation builds
+                                // carries a GRID (baja/bio/track-flexi.js), so reading .tgraph
+                                // threw straight into this catch and the camera never moved to
+                                // the new track. It was being created every time -- off screen,
+                                // with the only word about it going to setMessage, which the
+                                // canvas does not draw. Nothing appeared to happen.
+                                try {
+                                    const ax = track.grid || track.tgraph;
+                                    if (ax) graph.animateTo(ax.xi - 100, ax.xi + ax.width + 100, ax.Y(-3), ax.Y(3));
+                                } catch (e) { }
+                                const __done = ' Created ' + (track.name || 'an mRNA track') + ' from ' + (st.name || 'track') + '. ';
+                                try { graph.setResultMessage(__done); } catch (e) { graph.setMessage(__done); }
                             },
                             move: () => { }
                         });
@@ -4723,7 +4733,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Move track', 'Create mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;
