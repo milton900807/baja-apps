@@ -74,11 +74,20 @@ function (graph, genegraph_panel_layout) {
         },
         {
             // 2020–2025 patents — the comprehensive transcript-keyed patent index. Click a
-            // track to drop its patent hits in as an interval layer (shared bed-hits.js).
+            // track to drop its patent hits in as an interval layer.
+            //
+            // patents.js, the SAME loader the Data Resources → Patents library uses. This read
+            // the identical BED through the generic bed-hits.js, so the one file rendered two
+            // ways depending on which door you came through: bed-hits draws plain intervals,
+            // while patents.js greedily lane-packs overlapping claims and labels each by its
+            // patent number, which is what makes a busy locus readable. Two renderings of one
+            // dataset, and neither door knew about the other.
             'label': SETS.patents_2020_2025.label, 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
-                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.patents_2020_2025);
+                // No track list: patents.js falls back to for-each-track, which asks for a
+                // click — the same thing this item did before.
+                await exec('baja/data/patents.js', graph, genegraph_panel_layout);
             })
         },
     ];
