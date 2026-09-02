@@ -27,6 +27,10 @@ function (graph, genegraph_panel_layout, tracks) {
     // rest of the libraries use. Falling back to for-each-track.js covers the two older
     // routes: the board-level Layers button (which sets __bajaApplyAllTracks) and a plain
     // call from a menu, which still asks for one click.
+    // Returns the number of patent hits actually placed on `track`, and 0 for every way that
+    // can come to nothing -- no transcript id, no hits over the region, a failed read. Callers
+    // that report a total (the ?layer= deep link) need a real count: reporting one load per
+    // track attempted would claim hits that were never drawn.
     const loadOne = async (track) => {
         try {
             // The BED is keyed by transcript id with TRANSCRIPT-relative coords, so
@@ -37,7 +41,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 // Skip, do not abort: an all-tracks run must get through the rest of the
                 // canvas rather than stopping at the first track without an id.
                 graph.setMessage(' ' + (track.name || 'That track') + ' has no transcript id for patent lookup. ');
-                return;
+                return 0;
             }
             const seqLen = (track.sequence && track.sequence.length) || Math.abs(track.xf - track.xi);
             let t0 = 0, t1 = seqLen;
@@ -64,7 +68,7 @@ function (graph, genegraph_panel_layout, tracks) {
             try { rv = JSON.parse((res && res.values) || '[]'); } catch (e) { rv = []; }
             if (!rv.length) {
                 graph.setMessage(' No patents found for ' + tid + '. ');
-                return;
+                return 0;
             }
 
             const TrackLayer = await exec('baja/bio/track-layer.js');
@@ -141,12 +145,19 @@ function (graph, genegraph_panel_layout, tracks) {
 
             if (graph.wake) graph.wake();
             graph.setMessage(' ' + patents.length + ' patent' + (patents.length === 1 ? '' : 's') + ' loaded onto ' + (track.name || 'track') + '. ');
+            restoreHover();
+            return patents.length;
         } catch (e) {
             graph.setMessage(' Patent load error: ' + e + ' ');
         }
         restoreHover();
+        return 0;
     };
 
+    // With an explicit `tracks` list this resolves to the TOTAL number of patent hits placed
+    // across them. The click path cannot: the load happens after the user clicks, long after
+    // this returns, so it resolves to whatever for-each-track gives. Anything counting hits
+    // (deep-link.js) passes a list.
     return (async () => {
         const list = (tracks && tracks.length) ? tracks.filter(Boolean) : null;
         if (!list) {
@@ -173,15 +184,21 @@ function (graph, genegraph_panel_layout, tracks) {
                 if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
             } catch (e) { }
         };
+        let placed = 0;
         for (let i = 0; i < list.length; i++) {
             const t = list[i];
             status('Patents · ' + ((t && t.name) || ('track ' + (i + 1)))
                 + ' · ' + (i + 1) + ' of ' + list.length + '…');
-            await loadOne(t);
+            placed += (await loadOne(t)) || 0;
         }
         status('');
-        try { graph.setResultMessage(' Patents loaded onto ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. '); } catch (e) { }
-        return graph;
+        try {
+            // The count, not just the track total: "Patents loaded onto 4 tracks" read as
+            // success even when every one of them came back empty.
+            graph.setResultMessage(' ' + placed + ' patent hit' + (placed === 1 ? '' : 's')
+                + ' loaded onto ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. ');
+        } catch (e) { }
+        return placed;
     })();
 }
 

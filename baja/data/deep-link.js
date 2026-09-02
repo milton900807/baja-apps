@@ -94,11 +94,28 @@ function (graph, genegraph_panel_layout, params) {
         // screen already has, so ?layer= alone still does something sensible.
         const onto = tracks.length ? tracks : (graph.track || []).filter(Boolean);
         let loaded = 0;
+
+        // Patents go through patents.js, not the generic bed-hits.js. Both menus that load this
+        // BED use it -- it greedily lane-packs overlapping claims and labels each by its patent
+        // number, which is what makes a busy locus readable -- so a ?layer=patents_2020_2025
+        // link now draws what the menus draw rather than plain intervals.
+        //
+        // Taken OUT of the per-track loop and called once with the whole list: patents.js
+        // accepts an array, and that way the load is one history entry and one summary toast
+        // rather than one of each per track. It returns the number of hits it actually placed,
+        // which is what `loaded` counts -- the message below says features, not tracks.
+        const patentCfg = wanted.find((c) => c && c.key === 'patents_2020_2025');
+        const others = wanted.filter((c) => c !== patentCfg);
+
         for (const track of onto) {
-            for (const cfg of wanted) {
+            for (const cfg of others) {
                 try { loaded += (await exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, cfg, track)) || 0; }
                 catch (e) { graph.setMessage(' Could not load ' + cfg.label + ': ' + e + ' '); }
             }
+        }
+        if (patentCfg && onto.length) {
+            try { loaded += (await exec('baja/data/patents.js', graph, genegraph_panel_layout, onto)) || 0; }
+            catch (e) { graph.setMessage(' Could not load ' + patentCfg.label + ': ' + e + ' '); }
         }
 
         try { if (graph.wake) graph.wake(); } catch (e) { }
