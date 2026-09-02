@@ -7270,15 +7270,20 @@ pattern, GGGG | Required`
                             || l === 'more...' || l === 'Refresh menu' || l === 'Close menu';
                     };
                     const isSub = (it) => /[▸►]/.test(lab(it));
-                    const headers = [], subs = [], leaves = [], navs = [];
+                    // Design comes first, above the other submenus. It is what the app is FOR,
+                    // and it was landing wherever the menu happened to build it -- under Layers
+                    // on one menu, below Export on another.
+                    const isDesign = (it) => /^design\b/i.test(lab(it));
+                    const headers = [], designs = [], subs = [], leaves = [], navs = [];
                     for (const it of list) {
                         if (!it) { leaves.push(it); continue; }
                         if (isHeader(it)) headers.push(it);
                         else if (isNav(it)) navs.push(it);
+                        else if (isDesign(it)) designs.push(it);
                         else if (isSub(it)) subs.push(it);
                         else leaves.push(it);
                     }
-                    const out = headers.concat(subs, leaves, navs);
+                    const out = headers.concat(designs, subs, leaves, navs);
                     // Carry the marks the caller may have set on the ARRAY itself -- the
                     // selection-chain flag is read off the list object, and a fresh array
                     // would drop it and let the selection card snap back to sharp.
