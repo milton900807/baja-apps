@@ -6290,6 +6290,43 @@ return new Promise(async (resolve, reject) => {
       ctx.rect(clipX, clipY, clipW, clipH);
       ctx.clip();
 
+      // THE SELECTED BASES, marked on the track.
+      //
+      // Drawn HERE, first, so the sequence letters and every layer land on top of it. The
+      // earlier version of this rectangle was removed because it obscured the bases -- it was
+      // painted late, over them. Underneath and faint, it marks the region without competing
+      // with what is written in it.
+      //
+      // Edges are drawn as full-height lines because the fill alone is easy to lose at this
+      // opacity, and the exact first and last base is the thing being communicated.
+      try {
+        const __sel = this.selectedRange ? this.selectedRange() : null;
+        if (__sel) {
+          const __x0 = graph.X(this.tgraph.X(__sel.start));
+          const __x1 = graph.X(this.tgraph.X(__sel.end));
+          const __sy = graph.Y(this.tgraph.yi);
+          const __sh = graph.screenHeight(-1 * this.tgraph.height);
+          const __sx = Math.min(__x0, __x1);
+          const __sw = Math.abs(__x1 - __x0);
+          if (__sw >= 1) {
+            ctx.save();
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(255,196,0,0.13)';
+            ctx.fillRect(__sx, __sy, __sw, __sh);
+            ctx.strokeStyle = 'rgba(214,150,0,0.55)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(__sx + 0.5, __sy);
+            ctx.lineTo(__sx + 0.5, __sy + __sh);
+            ctx.moveTo(__sx + __sw - 0.5, __sy);
+            ctx.lineTo(__sx + __sw - 0.5, __sy + __sh);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      } catch (e) { }
+
       try {
         let deg = 0;
         if (this.strand === -1 || this.strand === "-1") {
@@ -7125,8 +7162,9 @@ return new Promise(async (resolve, reject) => {
             // Load any flanking reference sequence now visible (best-effort, failsafe).
             try { if (__flankHi >= __flankLo) this.ensureFlank(__flankLo, __flankHi); } catch (e) { }
 
-            // (The orange translucent highlight rectangle over the sequence was removed by
-            // request — it obscured the base letters; the marker + annotation callout are enough.)
+            // (The translucent rectangle over the selected bases is drawn at the TOP of
+            // draw(), under the letters, rather than here on top of them -- which is why the
+            // earlier version of it obscured the bases and was taken out.)
             // Draw the deferred snp annotation callouts LAST — so the annotation text window is
             // never painted over. Selected/highlighted ones last, so a selected snp's annotation
             // sits above the others.
