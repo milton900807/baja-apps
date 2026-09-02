@@ -2051,6 +2051,46 @@ return new Promise(async (resolve, reject) => {
             return null;
         }
 
+
+        // THE SELECTED SEQUENCE, as one answer every caller can share.
+        //
+        // markstart/markend are written by several different places, and not all of them in the
+        // same space: some set world coordinates, some set an offset from the track origin. On a
+        // spliced track xi is 0 and the two are identical, which is why a call site could be wrong
+        // for years and look right. Normalised here, once, so no caller has to guess:
+        //
+        //   selectedRange()     absolute world coords {start, end}, or null when nothing is picked
+        //   selectedOffset()    the same start as an index into this.sequence (start - xi)
+        //   selectedSequence()  the bases inside it
+        //
+        // A mark already inside [xi, xf] is taken as absolute; one outside it is read as an offset
+        // and xi is added. That is right in both conventions instead of right in one of them.
+        selectedRange() {
+          try {
+            let s = this.markstart, e = this.markend;
+            if (s == null || e == null || !isFinite(s) || !isFinite(e)) return null;
+            if (s < 0 || !(e > s)) return null;
+            const lo = Math.min(this.xi, this.xf), hi = Math.max(this.xi, this.xf);
+            const inSpan = (v) => (v >= lo && v <= hi);
+            if (!(inSpan(s) && inSpan(e))) { s = this.xi + s; e = this.xi + e; }
+            const a = Math.floor(Math.min(s, e)), b = Math.ceil(Math.max(s, e));
+            if (!(b > a)) return null;
+            // Clamp: a drag past either end must not ask for bases the track does not have.
+            return { start: Math.max(lo, a), end: Math.min(hi, b) };
+          } catch (err) { return null; }
+        }
+
+        selectedOffset() {
+          const r = this.selectedRange();
+          return r ? Math.max(0, Math.floor(r.start - this.xi)) : 0;
+        }
+
+        selectedSequence() {
+          const r = this.selectedRange();
+          if (!r) return '';
+          try { return this.getSequenceRange(r.start, r.end) || ''; } catch (e) { return ''; }
+        }
+
         getExons() {
             let temp = []
             for (let a of this.annotations) {

@@ -263,7 +263,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     const __p = await showSirnaDesignDialog();
                     if (!__p) return;   // cancelled
                     let json_input = {
-                        sequence: selectedTrack.sequence,
+                        sequence: __wholeTrackSequence(),
                         // The track sequence is the SENSE mRNA (5'->3'), so the guide is ALWAYS its
                         // reverse-complement — independent of the gene's genomic strand. Passing the
                         // track's (possibly -1) strand made the designer emit complement(target) for
@@ -321,8 +321,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         resultJson.top_candidates.forEach((c) => {
                             try {
-                                const xi = c.start;
-                                const xf = c.end;
+                                // + the design offset: c.start indexes the sequence that was SENT, which is the
+                                // selection when there is one, so without this every result lands at the start
+                                // of the track instead of on the selection.
+                                const xi = c.start + __designOffset();
+                                const xf = c.end + __designOffset();
 
                                 const sequence = c.target_site_input_alphabet || c.sense_strand || "";
                                 const sense = c.sense_strand || "";
@@ -447,7 +450,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
                     if (!__p) return;   // cancelled
                     let va = parseInt(__p.top_n) || 100;
-                    let _sequence = selectedTrack.sequence;
+                    let _sequence = __wholeTrackSequence();
 
                     let json_input = {
                         "sequence": _sequence,
@@ -537,8 +540,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         candidates.forEach((c) => {
                             try {
-                                const xi = c.start;
-                                const xf = c.end;
+                                // + the design offset: c.start indexes the sequence that was SENT, which is the
+                                // selection when there is one, so without this every result lands at the start
+                                // of the track instead of on the selection.
+                                const xi = c.start + __designOffset();
+                                const xf = c.end + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -672,7 +678,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // Default / Advanced design dialog — the LAST interface before the design runs.
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric');
                     if (!__p) return;   // cancelled
-                    let _sequence = selectedTrack.sequence;
+                    let _sequence = __wholeTrackSequence();
 
                     let json_input = {
                         sequence: _sequence,
@@ -726,8 +732,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         resultJson.top_candidates.forEach((c) => {
                             try {
-                                const xi = c.start;
-                                const xf = c.end;
+                                // + the design offset: c.start indexes the sequence that was SENT, which is the
+                                // selection when there is one, so without this every result lands at the start
+                                // of the track instead of on the selection.
+                                const xi = c.start + __designOffset();
+                                const xf = c.end + __designOffset();
 
                                 const antisense = c.antisense_display || "";
                                 const target = c.target_site_input_alphabet || "";
@@ -923,18 +932,30 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // Primer-probe assay design (primer3 / djPrimer / exon-exon) on the
         // highlighted region of this track — brought up under "Primer probes ▸".
         const __ppRefresh = () => { graph.setMouseMode('navigate'); try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
-        // Design targets the ENTIRE TRACK.
+        // Design targets the SELECTED SEQUENCE when there is one, and the whole track when
+        // there is not.
         //
-        // The therapeutic designers already worked this way -- they read selectedTrack.sequence
-        // -- but the primer designers took getSequenceRange(markstart, markend), so the same
-        // menu designed over the whole track in one branch and over a highlight in another.
-        // They now all use the full sequence, and a highlighted region no longer narrows them.
+        // This file used to force the whole track on purpose: the therapeutic designers read
+        // selectedTrack.sequence while the primer designers took getSequenceRange(markstart,
+        // markend), so one menu designed over two different regions, and the fix at the time
+        // was to make them agree on the whole track. That made them agree by ignoring the
+        // selection -- which is the one thing a user who has highlighted a region is asking
+        // them to respect.
         //
-        // Nothing here reads or writes markstart/markend any more, so opening Design cannot
-        // disturb a selection the user made for something else.
+        // They agree again, on the other answer: every designer here now runs over the
+        // selection when the track has one. selectedRange()/selectedSequence() on the track
+        // are the single source of that, so nothing in this file does its own coordinate
+        // arithmetic and no designer can drift from the others again.
+        //
+        // Still reads only -- opening Design cannot disturb a selection made for something
+        // else.
         const __wholeTrackSequence = () => {
             const t = selectedTrack;
             if (!t) return '';
+            try {
+                const sel = t.selectedSequence ? t.selectedSequence() : '';
+                if (sel && sel.length) return sel;
+            } catch (e) { }
             if (t.sequence) return t.sequence;
             // Some tracks expose their sequence only through the range accessor.
             try {
@@ -943,8 +964,13 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             } catch (e) { }
             return '';
         };
-        // Results are placed from the track origin, since the design spans the whole track.
-        const __designOffset = () => 0;
+        // Where the design began, as an index into the track's sequence: the selection's start
+        // when there is one, the track origin otherwise. Results are placed from here, so a
+        // design over a selection lands on the selection rather than at the start of the track.
+        const __designOffset = () => {
+            const t = selectedTrack;
+            try { return (t && t.selectedOffset) ? t.selectedOffset() : 0; } catch (e) { return 0; }
+        };
         // Was __needMark, which refused to run without a highlight. The only precondition left
         // is having a sequence at all.
         const __needSequence = () => {
