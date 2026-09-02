@@ -135,6 +135,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 const alpha = +(0.2 + 0.5 * ((idx % 6) / 5)).toFixed(2);
                 layer.color = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
                 layer.fillstyle = layer.color;
+                // Name + score written ON the block, turned a quarter turn (see the vertical
+                // branch in baja/bio/track-layer.js). Flat, 'TARDBP 0.98' is wider than most
+                // binding sites are on screen, so each label ran past its own block and into the
+                // next one; predicted sites cluster, so that was the normal case rather than the
+                // crowded one. On its side a label is one line of text wide whatever it says.
+                layer.verticalLabels = true;
 
                 let added = 0;
                 for (const s of sites) {

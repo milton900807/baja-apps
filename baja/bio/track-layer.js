@@ -948,6 +948,21 @@ return new Promise(async (resolve, reject) => {
                                 ctx.rotate(-Math.PI / 2);
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
+                                // Readable on whatever colour the block happens to be. These
+                                // layers pick from a palette and scale alpha by score, so the
+                                // ground under a label runs from nearly white to saturated --
+                                // plain black text disappeared into the strong end of that range
+                                // and plain white into the weak end. A light halo stroked behind
+                                // dark text is legible on both, which no single fill colour is.
+                                // Bold and explicit rather than inheriting whatever font the
+                                // previous draw left set.
+                                ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                                ctx.lineJoin = 'round';
+                                ctx.miterLimit = 2;
+                                ctx.lineWidth = 3;
+                                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                                ctx.strokeText(one, 0, 0);
+                                ctx.fillStyle = '#0b1a2b';
                                 ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
@@ -1229,6 +1244,21 @@ return new Promise(async (resolve, reject) => {
                                 ctx.rotate(-Math.PI / 2);
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
+                                // Readable on whatever colour the block happens to be. These
+                                // layers pick from a palette and scale alpha by score, so the
+                                // ground under a label runs from nearly white to saturated --
+                                // plain black text disappeared into the strong end of that range
+                                // and plain white into the weak end. A light halo stroked behind
+                                // dark text is legible on both, which no single fill colour is.
+                                // Bold and explicit rather than inheriting whatever font the
+                                // previous draw left set.
+                                ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+                                ctx.lineJoin = 'round';
+                                ctx.miterLimit = 2;
+                                ctx.lineWidth = 3;
+                                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                                ctx.strokeText(one, 0, 0);
+                                ctx.fillStyle = '#0b1a2b';
                                 ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
