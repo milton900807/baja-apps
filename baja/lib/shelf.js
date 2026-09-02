@@ -21,6 +21,23 @@ function (opts) {
         const o = opts || {};
         const graph = o.graph;
         const books = Array.isArray(o.books) ? o.books : [];
+
+        // A shelf can hold other SHELVES. A book carrying `books` -- an array, or a function
+        // returning one (may be async, so a sub-library can be fetched when it is opened rather
+        // than built up front) -- is a sub-library: clicking it walks INTO it, in this same
+        // overlay, instead of dropping the user into a side menu. Only a LEAF, a book with an
+        // `open` and no `books`, performs an action.
+        //
+        // That is the whole point: one idiom the entire way down. You are looking at a library
+        // until the moment something is actually loaded, so "which source, then which class of
+        // variant" is two more shelves rather than a shelf that turns into a popup menu.
+        // A card with both is treated as a sub-library; put the action on a leaf inside it.
+        const stack = [{ title: o.title || 'Library', subtitle: o.subtitle || '', books: books }];
+        const level = () => stack[stack.length - 1];
+        const asBooks = async (b) => {
+            const src = (typeof b.books === 'function') ? await b.books() : b.books;
+            return Array.isArray(src) ? src : [];
+        };
         const id = o.id || 'baja-shelf';
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -36,9 +53,12 @@ function (opts) {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;gap:16px;'
             + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
         header.innerHTML = ''
+            + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;border-radius:8px;'
+            + 'padding:9px 14px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);'
+            + 'background:transparent;color:#fff;">\u2039 Back</button>'
             + '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">'
-            + '<div style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
-            + '<div style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
+            + '<div id="shelf-title" style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
+            + '<div id="shelf-sub" style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
             + '</div>'
             + '<input id="shelf-q" placeholder="Search…" style="flex:1;max-width:340px;margin-left:auto;'
             + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
@@ -59,15 +79,39 @@ function (opts) {
             try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
             try { if (typeof o.onClose === 'function') o.onClose(); } catch (e) { }
         };
-        onKey = (e) => { try { if (e.key === 'Escape') close(); } catch (er) { } };
+        // Escape walks OUT one level before it closes: inside a sub-library it is the same
+        // gesture as Back, which is what a nested view has to mean, or three levels down the
+        // only way out is to lose your place entirely.
+        // Escape unwinds ONE thing at a time, innermost first: an open reference view, then a
+        // sub-library, and only at the top does it close. Popping a level while a detail pane
+        // was open would have left the pane sitting over a shelf it no longer belonged to.
+        let detailBack = null;
+        onKey = (e) => {
+            try {
+                if (e.key !== 'Escape') return;
+                if (detailBack) { detailBack(); return; }
+                if (stack.length > 1) { up(); return; }
+                close();
+            } catch (er) { }
+        };
         document.addEventListener('keydown', onKey, true);
         header.querySelector('#shelf-x').onclick = close;
 
         const q = header.querySelector('#shelf-q');
         const render = () => {
+            const lv = level();
+            // The header carries the trail, so a shelf three deep still says where it sits.
+            try { header.querySelector('#shelf-title').textContent = lv.title || 'Library'; } catch (e) { }
+            try {
+                const trail = stack.slice(0, -1).map((l) => l.title).join(' \u203a ');
+                header.querySelector('#shelf-sub').textContent = (trail ? trail + ' \u203a ' : '') + (lv.subtitle || '');
+            } catch (e) { }
+            // Not while a reference view is up: the search box stays live behind it, and a
+            // keystroke there would otherwise put the shelf's Back button back on screen.
+            try { header.querySelector('#shelf-up').style.display = (!detailBack && stack.length > 1 ? '' : 'none'); } catch (e) { }
             const needle = ('' + (q.value || '')).trim().toLowerCase();
             shelf.innerHTML = '';
-            const shown = books.filter((b) => !needle
+            const shown = (lv.books || []).filter((b) => !needle
                 || ((b.title || '') + ' ' + (b.blurb || '') + ' ' + (b.badge || '')).toLowerCase().indexOf(needle) >= 0);
             if (!shown.length) {
                 const empty = document.createElement('div');
@@ -92,10 +136,35 @@ function (opts) {
                         + 'background:rgba(18,194,224,0.16);color:#4fd0e6;">' + esc(b.badge) + '</span>') : '')
                     + (ready ? '' : '<span style="color:#8fb8c8;font:11.5px Arial;margin-left:auto;">coming soon</span>')
                     + '</div>'
-                    + '<div style="font:700 15px Arial;color:#eaf6f9;">' + esc(b.title) + '</div>'
+                    // The › marks a card that opens ANOTHER library rather than loading
+                    // something, so the difference is visible before the click, not after it.
+                    + '<div style="font:700 15px Arial;color:#eaf6f9;">' + esc(b.title)
+                    + (b.books ? ' <span style="color:#4fd0e6;font:700 15px Arial;">\u203a</span>' : '') + '</div>'
                     + '<div style="font:12px/1.55 Arial;color:#9fb3c8;">' + esc(b.blurb || '') + '</div>';
                 if (ready) {
                     card.onclick = async () => {
+                        // Three kinds of card, in the order they take precedence: a sub-library
+                        // walks in, a documented book shows its reference view, a leaf acts.
+                        if (b.books) {
+                            let sub = [];
+                            try { sub = await asBooks(b); }
+                            catch (e) {
+                                try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                return;
+                            }
+                            // An empty sub-library would look like a card that does nothing at
+                            // all, which is the failure this whole file exists to avoid.
+                            if (!sub.length) {
+                                try { if (graph && graph.setMessage) graph.setMessage(' ' + b.title + ' has nothing in it yet. '); } catch (e2) { }
+                                return;
+                            }
+                            stack.push({ title: b.title, subtitle: b.subtitle || b.blurb || '', books: sub });
+                            q.value = '';
+                            render();
+                            try { shelf.scrollTop = 0; } catch (e) { }
+                            try { q.focus(); } catch (e) { }
+                            return;
+                        }
                         // A book WITH docs opens its reference view first; the action is then an
                         // explicit choice there. Without docs the card runs the action directly,
                         // so shelves that predate this are unaffected.
@@ -161,7 +230,13 @@ function (opts) {
             const back = () => {
                 try { if (pane.parentNode) pane.parentNode.removeChild(pane); } catch (e) { }
                 shelf.style.display = '';
+                detailBack = null;
+                // The header's Back belongs to the shelf again, and says so.
+                try { header.querySelector('#shelf-up').style.display = (stack.length > 1 ? '' : 'none'); } catch (e) { }
             };
+            detailBack = back;
+            // While the reference view is up, the header Back would pop the shelf UNDER it.
+            try { header.querySelector('#shelf-up').style.display = 'none'; } catch (e) { }
             try { pane.querySelector('#shelf-back').onclick = back; } catch (e) { }
             try { pane.querySelector('#shelf-done').onclick = () => close(); } catch (e) { }
             try {
@@ -175,6 +250,14 @@ function (opts) {
                 };
             } catch (e) { }
         };
+
+        // Walking out of a sub-library: pop one level, drop the search so the parent is not
+        // shown pre-filtered by a word that was typed for the child.
+        const up = () => {
+            if (detailBack) { detailBack(); return; }
+            if (stack.length > 1) { stack.pop(); q.value = ''; render(); try { shelf.scrollTop = 0; } catch (e) { } }
+        };
+        try { header.querySelector('#shelf-up').onclick = up; } catch (e) { }
 
         q.oninput = render;
         render();

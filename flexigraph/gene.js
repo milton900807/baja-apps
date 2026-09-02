@@ -2941,9 +2941,6 @@ function (progress, options) {
 
                     try {
 
-
-                        debugger;
-
                         const resp = await fetch(
                             `${window.location.origin}/api/ensembl/transcript/${encodeURIComponent(transcriptId)}?prefix=${encodeURIComponent(prefix)}`
                         );
@@ -9873,22 +9870,29 @@ pattern, GGGG | Required`
                     if (rootY != null && isFinite(rootY)) return { x: b.x, y: rootY };
                     return { x: b.x, aboveY: b.y };
                 };
-                const show = (list) => {
+                // `label` names WHAT the menu is acting on -- the type of the selected objects
+                // ('Oligos ▸', 'Annotations ▸', or a track's own name -- see menuLabel below) -- so
+                // a menu three levels deep still says what it belongs to instead of repeating one
+                // generic word. Callers with nothing more specific to say leave it off.
+                const show = (list, label) => {
                     // Mark the list so the selection card can blur itself while this is open,
                     // and open the CHAIN so submenus that hand off to another script stay
                     // marked too (see showSideMenu).
                     // try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
                     try { this.__selMenuChain = true; } catch (e) { }
                     const a = anchor();
-                    const __lbl = 'Selection ▸';
+                    const __lbl = label || 'My selection...';
                     if (a) this.showSideMenu(list, a, __lbl); else this.showSideMenu(list, null, __lbl);
                 };
 
                 const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Amplicons', layer: 'Layer items' };
+                // The header a menu about ONE kind carries. Same words as the row that opens it,
+                // so the title of the panel and the item you clicked to get there agree.
+                const menuLabel = (k) => (kindLabels[k] || k) + ' ▸';
                 const kindsPresent = [];
                 for (const s of sel) if (kindsPresent.indexOf(s.kind) < 0) kindsPresent.push(s.kind);
 
-                const openMain = () => show(buildMain());
+                const openMain = () => show(buildMain(), 'Selection ▸');
 
                 // Run off-target analysis on the selected oligos/amplicons against
                 // any available index. run-off-targets.js fetches the genome/index
@@ -9917,7 +9921,7 @@ pattern, GGGG | Required`
                         { label: 'Run seed sequences (siRNA)', click: () => { runOffTargets(kind, { seed: true }); }, move: () => { } },
                         { label: 'Run full sequence', click: () => { runOffTargets(kind); }, move: () => { } },
                         { label: '‹ Back', click: () => { openMain(); }, move: () => { } },
-                    ]);
+                    ], 'Off-targets ▸');
                 };
                 // Run off-targets, offering the seed/full choice when siRNA are present.
                 const startOffTargets = (kind) => { if (__hasSiRNA(kind)) openOffTargetChoice(kind); else runOffTargets(kind); };
@@ -10127,12 +10131,12 @@ pattern, GGGG | Required`
                     return list;
                 };
                 // One page of pick entries (PAGE per page), with More…/Previous paging.
-                const renderPickPage = (topItems, pickEntries, offset, backItem) => {
+                const renderPickPage = (topItems, pickEntries, offset, backItem, label) => {
                     const list = topItems.slice();
                     for (const e of pickEntries.slice(offset, offset + PAGE)) list.push(e);
                     const next = offset + PAGE;
-                    if (offset > 0) list.push({ label: '‹ Previous ' + PAGE, click: () => { show(renderPickPage(topItems, pickEntries, Math.max(0, offset - PAGE), backItem)); }, move: () => { } });
-                    if (next < pickEntries.length) list.push({ label: 'More… (' + (pickEntries.length - next) + ')', click: () => { show(renderPickPage(topItems, pickEntries, next, backItem)); }, move: () => { } });
+                    if (offset > 0) list.push({ label: '‹ Previous ' + PAGE, click: () => { show(renderPickPage(topItems, pickEntries, Math.max(0, offset - PAGE), backItem, label), label); }, move: () => { } });
+                    if (next < pickEntries.length) list.push({ label: 'More… (' + (pickEntries.length - next) + ')', click: () => { show(renderPickPage(topItems, pickEntries, next, backItem, label), label); }, move: () => { } });
                     list.push(backItem);
                     return list;
                 };
@@ -10145,8 +10149,8 @@ pattern, GGGG | Required`
                         // menu" items) — not the generic action page, so no "Remove all others" /
                         // "Deselect" in between.
                         ? { label: (p.label || k) + ' ▸', click: () => { if (openOne) openOne(p); }, move: () => { } }
-                        : { label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen)); }, move: () => { } }));
-                    show(renderPickPage(topItems || [], pickEntries, 0, backItem));
+                        : { label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen), (p.label || kindLabels[k] || k) + ' ▸'); }, move: () => { } }));
+                    show(renderPickPage(topItems || [], pickEntries, 0, backItem, menuLabel(k)), menuLabel(k));
                 };
 
                 // `only`, when given, narrows this to a SINGLE selected entry. That is what lets
@@ -10219,8 +10223,9 @@ pattern, GGGG | Required`
                                     back,
                                 ];
                             }
-                            try { child.__compactCols = true; child.__menuTitle = (p.label || (t && t.name) || 'Track'); } catch (e) { }
-                            show(child);
+                            const __tn = (p.label || (t && t.name) || 'Track');
+                            try { child.__compactCols = true; child.__menuTitle = __tn; } catch (e) { }
+                            show(child, __tn + ' ▸');
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
                         if (picks.length > 1) { showTypePicker(picks, 'track', openOne, []); return; }
@@ -10288,13 +10293,16 @@ pattern, GGGG | Required`
 
                         const openOne = (p) => {
                             const acts = annActions(p);
+                            // Named for the annotation itself ('Exon 3 ▸'), not for the class of
+                            // thing it is: by this point the user has already picked which one.
+                            const __an = (p.label || 'Annotation') + ' ▸';
                             if (Array.isArray(p.annMenu) && p.annMenu.length) {
-                                show(acts.concat(p.annMenu, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                                show(acts.concat(p.annMenu, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]), __an);
                             } else if (p.track) {
                                 close();
                                 try {
                                     Promise.resolve(exec('baja/manchester/menu/annotations-type-menu', this, this.genegraph_panel_layout, [p.ref], p.track))
-                                        .then((mml) => { if (Array.isArray(mml)) show(acts.concat(mml, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }])); })
+                                        .then((mml) => { if (Array.isArray(mml)) show(acts.concat(mml, [{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]), __an); })
                                         .catch(() => { });
                                 } catch (e) { }
                             } else {
@@ -10302,7 +10310,7 @@ pattern, GGGG | Required`
                                 // used to show NOTHING -- the row opened and the panel stayed
                                 // as it was. The three actions do not need either, so they are
                                 // what it shows.
-                                show(acts.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                                show(acts.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]), __an);
                             }
                         };
                         if (picks.length === 1) { openOne(picks[0]); return; }
@@ -10373,7 +10381,7 @@ pattern, GGGG | Required`
                         if (picks.length === 1) {
                             sub.push({ label: 'more...', click: () => { openOne(picks[0]); }, move: () => { } });
                             sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                            show(sub);
+                            show(sub, menuLabel('oligo'));
                         } else {
                             // Many oligos: paginated picker; each opens remove/others/deselect.
                             showTypePicker(picks, 'oligo', openOne, sub);
@@ -10395,7 +10403,7 @@ pattern, GGGG | Required`
                         if (picks.length === 1) {
                             sub.push({ label: 'more...', click: () => { openOne(picks[0]); }, move: () => { } });
                             sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                            show(sub);
+                            show(sub, menuLabel('amplicon'));
                         } else {
                             showTypePicker(picks, 'amplicon', openOne, sub);
                         }
@@ -10415,7 +10423,7 @@ pattern, GGGG | Required`
                             return;
                         }
                         if (items.length) {
-                            show(items.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]));
+                            show(items.concat([{ label: '‹ Back', click: () => { openMain(); }, move: () => { } }]), menuLabel(k));
                             return;
                         }
                     }
@@ -10427,7 +10435,7 @@ pattern, GGGG | Required`
                         { label: 'Remove ' + kl.toLowerCase(), click: () => { close(); this.removeSelectedByKind(k); }, move: () => { } },
                     ];
                     sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
-                    show(sub);
+                    show(sub, menuLabel(k));
                 };
 
                 // The selection WINDOW's entries and this menu's ROOT are now the same list: each
@@ -10514,13 +10522,13 @@ pattern, GGGG | Required`
                     const o2 = offset2 || 0;
                     const page = [{ label: title + '  (' + entries.length + ')', header: true, click: () => { }, move: () => { } }];
                     for (const e of entries.slice(o2, o2 + PAGE)) page.push(entryItem(e));
-                    if (o2 > 0) page.push({ label: '‹ Previous ' + Math.min(PAGE, o2), click: () => { show(listPage(entries, title, Math.max(0, o2 - PAGE))); }, move: () => { } });
-                    if (o2 + PAGE < entries.length) page.push({ label: 'More… (' + (entries.length - o2 - PAGE) + ' of ' + entries.length + ' remaining)', click: () => { show(listPage(entries, title, o2 + PAGE)); }, move: () => { } });
+                    if (o2 > 0) page.push({ label: '‹ Previous ' + Math.min(PAGE, o2), click: () => { show(listPage(entries, title, Math.max(0, o2 - PAGE)), title + ' ▸'); }, move: () => { } });
+                    if (o2 + PAGE < entries.length) page.push({ label: 'More… (' + (entries.length - o2 - PAGE) + ' of ' + entries.length + ' remaining)', click: () => { show(listPage(entries, title, o2 + PAGE), title + ' ▸'); }, move: () => { } });
                     page.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
                     return page;
                 };
 
-                const openAnnotationsBranch = () => { show(listPage(annEntries(), 'Annotations', 0)); };
+                const openAnnotationsBranch = () => { show(listPage(annEntries(), 'Annotations', 0), 'Annotations ▸'); };
 
                 // Compounds are grouped by TYPE first -- siRNA, ASO, amplicon -- because that is
                 // how a user thinks about them, and because a mixed lasso is otherwise a single
@@ -10720,7 +10728,7 @@ pattern, GGGG | Required`
                         },
                         { label: '‹ Back', click: () => { openMain(); }, move: () => { } }
                     ];
-                    show(page);
+                    show(page, 'Compounds ▸');
                 };
 
                 const buildMain = (offset) => {
@@ -10760,11 +10768,11 @@ pattern, GGGG | Required`
                     // truncated. Every selected item is reachable: the pager walks the whole
                     // deduped list, and the per-kind entries below open the full set for a type.
                     if (off > 0) {
-                        menu.push({ label: '‹ Previous ' + Math.min(PAGE, off) + ' of ' + restEntries.length, click: () => { show(buildMain(Math.max(0, off - PAGE))); }, move: () => { } });
+                        menu.push({ label: '‹ Previous ' + Math.min(PAGE, off) + ' of ' + restEntries.length, click: () => { show(buildMain(Math.max(0, off - PAGE)), 'Selection ▸'); }, move: () => { } });
                     }
                     if (off + PAGE < restEntries.length) {
                         const left = restEntries.length - off - PAGE;
-                        menu.push({ label: 'More… (' + left + ' of ' + restEntries.length + ' remaining)', click: () => { show(buildMain(off + PAGE)); }, move: () => { } });
+                        menu.push({ label: 'More… (' + left + ' of ' + restEntries.length + ' remaining)', click: () => { show(buildMain(off + PAGE), 'Selection ▸'); }, move: () => { } });
                     }
 
                     // Group entries, in the same biggest-first order as the items above, so the

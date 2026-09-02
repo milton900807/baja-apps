@@ -1,4 +1,4 @@
-function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, tracks) {
+function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, tracks, filter) {
     // Load variants from a major variant database (ClinVar / dbSNP / gnomAD / COSMIC).
     // A center menu first asks for the scope: load over an ENTIRE track (click a track),
     // or over a SELECTED SEQUENCE (click-and-drag a region on a track). Variants come back
@@ -8,7 +8,34 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
     // When autoUseSelection is true (the "Load more SNPs" menu), skip the scope prompt if
     // the user already has a sequence selected on one or more tracks: load those selected
     // regions directly. Only when nothing is selected do we fall back to the scope prompt.
+    //
+    // `filter` narrows what actually lands on the track -- the variant CLASS chosen in the
+    // Variants library (SNVs only, indels, ClinVar pathogenic, ...):
+    //     { label: 'SNVs only', types: ['snp'], clinsig: { any: ['pathogenic'], not: ['conflicting'] } }
+    // It is applied here rather than in the query because /variants/region has no class
+    // parameter. That makes the counts below matter: a filtered load must say how many it
+    // dropped, or "6 loaded" from a source holding 900 reads as an almost empty database.
     const label = dbLabel || db;
+    const FILTER = filter || null;
+    const filterNote = (FILTER && FILTER.label) ? ' [' + FILTER.label + ']' : '';
+    const passesFilter = (type, clinsig) => {
+        if (!FILTER) return true;
+        if (Array.isArray(FILTER.types) && FILTER.types.length && FILTER.types.indexOf(type) < 0) return false;
+        const cs = FILTER.clinsig;
+        if (cs) {
+            const s = (clinsig || []).join(' ').toLowerCase();
+            // An unclassified variant cannot satisfy a significance filter. Letting it through
+            // would put variants of unknown meaning in the "pathogenic" set.
+            if (!s) return false;
+            // `not` first: ClinVar's "Conflicting_interpretations_of_pathogenicity" CONTAINS
+            // the word pathogenic, and a plain substring test would file every conflicting
+            // call under pathogenic -- the one mistake this filter must not make.
+            if (Array.isArray(cs.not) && cs.not.some((w) => s.indexOf(('' + w).toLowerCase()) >= 0)) return false;
+            if (Array.isArray(cs.any) && cs.any.length
+                && !cs.any.some((w) => s.indexOf(('' + w).toLowerCase()) >= 0)) return false;
+        }
+        return true;
+    };
 
     const restoreHover = () => {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
@@ -138,7 +165,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             if (!SnpIndel) { graph.setMessage(' Variant support unavailable. '); restoreHover(); return; }
 
             const MAX_ALLELE = 50;   // skip structural variants (giant ref/alt)
-            let added = 0, skippedSv = 0;
+            let added = 0, skippedSv = 0, skippedFilter = 0;
             for (const v of list) {
                 if (!v || v.start == null) continue;
                 if (v.chr && ('' + v.chr).replace(/^chr/, '') !== chr) continue;
@@ -156,11 +183,13 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 else if (alt.length > ref.length) type = 'ins';
                 else if (ref.length > alt.length) type = 'del';
 
+                const clinsig = v.clinsig || [];
+                if (!passesFilter(type, clinsig)) { skippedFilter++; continue; }
+
                 // Deletions are anchored one base before the deleted run on the + strand.
                 let placeXi = wx;
                 if (type === 'del' && track.strand !== -1) placeXi = wx + 1;
 
-                const clinsig = v.clinsig || [];
                 const snp = new SnpIndel(type, placeXi, ref, alt, 0, track.strand,
                     (v.id || label), null, colorFor(clinsig));
                 try {
@@ -177,6 +206,15 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
 
             if (graph.wake) graph.wake();
             if (!added) {
+                // Two different nothings, and they need different answers: the class filter
+                // matched none of them (widen the class), or the region genuinely holds none.
+                if (skippedFilter) {
+                    graph.setMessage(' None of the ' + list.length + ' ' + label + ' variant'
+                        + (list.length === 1 ? '' : 's') + ' over this region are '
+                        + ((FILTER && FILTER.label) ? FILTER.label.toLowerCase() : 'of that class')
+                        + '. Try a wider class from the Variants library. ');
+                    restoreHover(); return;
+                }
                 // Server returned variants but none mapped onto the track's extent.
                 graph.setMessage(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
                     + ' returned for chr' + chr + ':' + gStart + '-' + gEnd
@@ -184,7 +222,9 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 restoreHover(); return;
             }
             const capNote = (resp && resp.truncated) ? ' (capped at ' + list.length + (resp.total ? ' of ' + resp.total : '') + ' — select a smaller range for the rest)' : '';
-            graph.setMessage(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's') + capNote
+            graph.setMessage(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
+                + filterNote + capNote
+                + (skippedFilter ? ' (' + skippedFilter + ' outside that class)' : '')
                 + ' onto ' + (track.name || 'track') + '. ');
         } catch (e) {
             graph.setMessage(' Variant load error: ' + e + ' ');

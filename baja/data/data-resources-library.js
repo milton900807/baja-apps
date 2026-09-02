@@ -2,69 +2,170 @@ function (graph, genegraph_panel_layout, tracks) {
 
     // Same contract as the ML Models Library: `tracks` is the set this library loads onto,
     // handed down from whoever opened it rather than decided here.
-
-    // Data Resources — the shelf the user lands on from a track's Layers menu. Each card is
-    // a class of data that can be added to the board as track layers; RNASeq opens the
-    // RNASeq Library (baja/data/rnaseq-library.js), which lists the individual datasets.
-    //   exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout)
     //
-    // Navy demo look-and-feel, matching manchester/clinical-library.js.
+    // Data Resources — the shelf the user lands on from a track's Layers menu. Each card is a
+    // class of data that can be added to the board as track layers.
+    //   exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, tracks)
+    //
+    // EVERY sub-resource here is another LIBRARY, never a side menu. Variants opens a library
+    // of databases; a database opens a library of variant classes; only that leaf loads. The
+    // shelf (baja/lib/shelf.js) walks in and out of those levels inside the one overlay, with a
+    // breadcrumb and a Back, so the idiom never changes underfoot: you are looking at a library
+    // right up until the moment something is actually put on a track.
+    //
+    // This file used to carry its own copy of the overlay markup and dropped into
+    // graph.showSideMenu for the two resources that had a choice to offer -- so picking RNASeq
+    // gave you a full-screen library and picking Variants gave you a small popup list in the
+    // corner. Same question, two different interfaces. It is one interface now.
 
     return (async () => {
-        const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         const restoreHover = () => {
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
+        const host = () => (window['env'] && window['env']['apiUrl']) || window.location.origin;
 
-        // Each resource: what it is, and what opening it does. `open` runs after the shelf
-        // closes. `ready:false` cards are shown greyed with a note instead of being hidden,
-        // so the catalogue reads as complete.
+        // ---- Variants: databases, then classes ------------------------------------------
+        //
+        // Two levels because they are two genuinely separate decisions. WHICH database is a
+        // question about provenance -- clinical assertions, population frequencies, somatic
+        // calls -- and WHICH class is a question about what you are looking for in it. Asked
+        // together they would be one list of two dozen combinations.
+        const VARIANT_SOURCES = [
+            {
+                db: 'clinvar', label: 'ClinVar', badge: 'Clinical',
+                clinical: true,
+                blurb: 'Clinically asserted variation with submitter evidence. Coloured by '
+                    + 'significance on the track: red pathogenic, green benign, amber uncertain.'
+            },
+            {
+                db: 'dbsnp', label: 'dbSNP', badge: 'Reference',
+                blurb: 'The reference catalogue of short variation — the broadest set here, and '
+                    + 'the one that says nothing about whether a variant matters.'
+            },
+            {
+                db: 'gnomad', label: 'gnomAD', badge: 'Population',
+                blurb: 'Population allele frequencies. Each variant carries its AF, which is how '
+                    + 'you tell a common polymorphism from something rare at your target site.'
+            },
+            {
+                db: 'cosmic', label: 'COSMIC', badge: 'Somatic',
+                blurb: 'Somatic mutations catalogued in cancer — acquired, not inherited, so read '
+                    + 'them as tumour observations rather than germline variation.'
+            }
+        ];
+
+        // The classes offered for one database. `open` is the LEAF: this is where loading
+        // finally happens, and nothing above it touches a track.
+        const variantClasses = (src) => {
+            const load = (f) => exec('baja/data/load-variants.js', host(), graph, genegraph_panel_layout,
+                // autoUseSelection true: on a track carrying a selected sequence the variants are
+                // fetched over that range rather than over the whole track.
+                src.db, src.label, true, tracks, f);
+            const books = [
+                {
+                    title: 'All variants', badge: 'Everything',
+                    blurb: 'Every variant ' + src.label + ' reports over the region, unfiltered.',
+                    open: () => load(null)
+                },
+                {
+                    title: 'SNVs only', badge: 'Substitution',
+                    blurb: 'Single-base substitutions — one reference base for one alternate. Often '
+                        + 'the class a design cares about, since they leave the coordinate frame intact.',
+                    open: () => load({ label: 'SNVs', types: ['snp'] })
+                },
+                {
+                    title: 'Insertions', badge: 'Indel',
+                    blurb: 'Variants that add bases relative to the reference.',
+                    open: () => load({ label: 'insertions', types: ['ins'] })
+                },
+                {
+                    title: 'Deletions', badge: 'Indel',
+                    blurb: 'Variants that remove bases relative to the reference.',
+                    open: () => load({ label: 'deletions', types: ['del'] })
+                },
+                {
+                    title: 'Indels (both)', badge: 'Indel',
+                    blurb: 'Insertions and deletions together, without the substitutions — the '
+                        + 'variants that shift everything downstream of them.',
+                    open: () => load({ label: 'indels', types: ['ins', 'del'] })
+                }
+            ];
+            // Significance is a ClinVar question. dbSNP, gnomAD and COSMIC carry no clinical
+            // assertion, so offering the filter there would return an empty layer every time and
+            // read as the load being broken.
+            if (src.clinical) {
+                books.push({
+                    title: 'Pathogenic', badge: 'Significance',
+                    blurb: 'Pathogenic and likely pathogenic assertions only. Conflicting '
+                        + 'interpretations are excluded rather than counted here.',
+                    open: () => load({ label: 'pathogenic', clinsig: { any: ['pathogenic'], not: ['conflicting'] } })
+                });
+                books.push({
+                    title: 'Benign', badge: 'Significance',
+                    blurb: 'Benign and likely benign assertions only.',
+                    open: () => load({ label: 'benign', clinsig: { any: ['benign'], not: ['conflicting'] } })
+                });
+                books.push({
+                    title: 'Uncertain / conflicting', badge: 'Significance',
+                    blurb: 'Variants of uncertain significance and those with conflicting '
+                        + 'submissions — the ones an assertion has not settled.',
+                    open: () => load({ label: 'uncertain or conflicting', clinsig: { any: ['uncertain', 'conflicting'] } })
+                });
+            }
+            return books;
+        };
+
+        const variantSourceBooks = () => VARIANT_SOURCES.map((src) => ({
+            title: src.label,
+            badge: src.badge,
+            blurb: src.blurb,
+            subtitle: 'Pick the class of ' + src.label + ' variant to load',
+            books: () => variantClasses(src)
+        }));
+
+        // ---- microRNA: the two evidence sets, as their own shelf -------------------------
+        const mirnaBooks = async () => {
+            const SETS = await exec('baja/data/layer-sets.js');
+            return [
+                {
+                    title: SETS.mirtarbase10_strong.label, badge: 'Strong evidence',
+                    blurb: 'Sites confirmed by reporter assay, western blot or qPCR — the smaller, '
+                        + 'higher-confidence set.',
+                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                        SETS.mirtarbase10_strong, tracks)
+                },
+                {
+                    title: SETS.mirtarbase10_all.label, badge: 'All reported',
+                    blurb: 'Everything reported including CLIP-derived sites. Broader, and much of '
+                        + 'it is a binding observation rather than a demonstrated effect.',
+                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                        SETS.mirtarbase10_all, tracks)
+                }
+            ];
+        };
+
+        // ---- The top shelf ---------------------------------------------------------------
+        // `ready:false` cards are shown greyed with a note instead of being hidden, so the
+        // catalogue reads as complete rather than silently short.
         const RESOURCES = [
             {
-                key: 'rnaseq',
                 title: 'RNASeq',
                 badge: 'Coverage',
-                ready: true,
                 blurb: 'Per-base read depth from the RNASeq reference tree, organised by species and tissue. '
                     + 'Choosing a dataset adds it as a coverage layer to every track on the board.',
                 open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
             },
             {
-                key: 'variants',
                 title: 'Variants',
                 badge: 'SNP / Indel',
-                ready: true,
-                blurb: 'Known variation over the track, from the major databases. Choosing a '
-                    + 'source loads its variants onto the track as SNPs and indels; a track '
-                    + 'with a selected sequence gets only the variants inside it.',
-                open: async () => {
-                    // The sources, as their own small library. Each is a separate database
-                    // with its own meaning -- clinical significance, population frequency,
-                    // somatic calls -- so the choice is the user's rather than a default.
-                    const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
-                    const SOURCES = [
-                        { db: 'clinvar', label: 'ClinVar', note: 'clinical significance, with submitter evidence' },
-                        { db: 'dbsnp', label: 'dbSNP', note: 'the reference catalogue of short variation' },
-                        { db: 'gnomad', label: 'gnomAD', note: 'population allele frequencies' },
-                        { db: 'cosmic', label: 'COSMIC', note: 'somatic mutations in cancer' }
-                    ];
-                    graph.showSideMenu(SOURCES.map((v) => ({
-                        label: v.label + '  —  ' + v.note,
-                        move: () => { },
-                        click: () => {
-                            graph.showSideMenu(null);
-                            // autoUseSelection true: on a track carrying a selected sequence the
-                            // variants are fetched over that range rather than the whole track.
-                            exec('baja/data/load-variants.js', host, graph, genegraph_panel_layout,
-                                v.db, v.label, true, tracks);
-                        }
-                    })).concat([{ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } }]),
-                        null, 'Variant sources ▸');
-                }
+                subtitle: 'Pick a variant database',
+                blurb: 'Known variation over the track, from the major databases. Opens a library of '
+                    + 'sources, then the classes within one; a track with a selected sequence gets '
+                    + 'only the variants inside it.',
+                books: variantSourceBooks
             },
             {
-                key: 'conservation',
                 title: 'Conservation',
                 badge: 'Comparative',
                 // Not ready: there are no phyloP / phastCons bigwigs in BIG_DATA on this
@@ -78,61 +179,35 @@ function (graph, genegraph_panel_layout, tracks) {
                 open: async () => { await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks); }
             },
             {
-                key: 'mirna',
                 title: 'microRNA target sites',
                 badge: 'miRTarBase',
-                ready: true,
+                subtitle: 'Pick an evidence set',
                 blurb: 'Experimentally reported miRNA target sites from miRTarBase 10, keyed by '
                     + 'transcript. Adds them as an interval layer carrying the miRNA, the evidence '
                     + 'type and the PMIDs behind each site.',
-                open: async () => {
-                    const SETS = await exec('baja/data/layer-sets.js');
-                    // Two sets: validated (strong evidence) and everything reported including
-                    // CLIP. Ask which, rather than silently picking the broader one.
-                    graph.showSideMenu([
-                        {
-                            label: SETS.mirtarbase10_strong.label, move: () => { },
-                            click: () => {
-                                graph.showSideMenu(null);
-                                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                                    SETS.mirtarbase10_strong, tracks);
-                            }
-                        },
-                        {
-                            label: SETS.mirtarbase10_all.label, move: () => { },
-                            click: () => {
-                                graph.showSideMenu(null);
-                                exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                                    SETS.mirtarbase10_all, tracks);
-                            }
-                        }
-                    ], null, 'microRNA');
-                }
+                books: mirnaBooks
             },
             {
-                key: 'patents',
                 title: 'Patents',
                 badge: 'IP',
-                ready: true,
                 blurb: 'Sequence-matched patent hits from the 2020-2026 transcript-keyed index. '
                     + 'Adds the hits as an interval layer, stacked into lanes, so published IP '
                     + 'claims sit alongside the region you are designing against.',
                 open: async () => { await exec('baja/data/patents.js', graph, genegraph_panel_layout, tracks); }
             },
             {
-                key: 'mydata',
                 title: 'My data',
-                badge: 'Personal',
-                ready: true,
-                blurb: 'Files you have uploaded to your own big-data folder — bigwig coverage, '
-                    + 'intervals and tables you can drop onto a track as a layer.',
-                open: async () => { await exec('baja/data/my-data.js', graph, genegraph_panel_layout, tracks); }
+                badge: 'Your uploads',
+                blurb: 'The bigwig and VCF files you have uploaded into your own space. Opens your '
+                    + 'file browser — pick a file there to load it into the app.',
+                // Straight to the file browser, at the user's own folder. The browser already
+                // knows how to load one of these files; a second picker in front of it was one
+                // more list to walk to reach the same place.
+                open: async () => { await exec('manchester/fb.js', getUser() + '/'); }
             },
             {
-                key: 'public',
                 title: 'Public data',
                 badge: 'Reference',
-                ready: true,
                 blurb: 'Shared public reference tracks configured for this deployment.',
                 // NB: public-data.js takes (graph, layout, presetResource) -- it has no tracks
                 // parameter. Passing the array here made presetResource truthy, so the card
@@ -142,63 +217,13 @@ function (graph, genegraph_panel_layout, tracks) {
             }
         ];
 
-        // ---- Overlay panel --------------------------------------------------------------
-        try { const old = document.getElementById('baja-data-resources'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
-        const overlay = document.createElement('div');
-        overlay.id = 'baja-data-resources';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:#071a30;color:#fff;'
-            + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
-
-        const header = document.createElement('div');
-        header.style.cssText = 'flex:0 0 auto;padding:16px 22px;background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
-            + 'display:flex;align-items:center;gap:16px;box-shadow:0 6px 20px rgba(0,0,0,0.35);';
-        header.innerHTML = ''
-            + '<div style="display:flex;flex-direction:column;gap:2px;">'
-            + '<div style="font:700 19px Arial;">Data Resources</div>'
-            + '<div style="font:12.5px Arial;color:#9fb3c8;">Pick a class of data to add to the board as track layers</div>'
-            + '</div>'
-            + '<button id="dr-close" style="cursor:pointer;flex:0 0 auto;margin-left:auto;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">✕ Close</button>';
-
-        const shelf = document.createElement('div');
-        shelf.style.cssText = 'flex:1 1 auto;overflow:auto;padding:22px;display:grid;'
-            + 'grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;align-content:start;';
-
-        overlay.appendChild(header); overlay.appendChild(shelf);
-        document.body.appendChild(overlay);
-
-        let onKey = null;
-        const close = () => {
-            try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
-            try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
-        };
-        onKey = (e) => { try { if (e.key === 'Escape') { close(); restoreHover(); } } catch (er) { } };
-        document.addEventListener('keydown', onKey, true);
-        header.querySelector('#dr-close').onclick = () => { close(); restoreHover(); };
-
-        for (const r of RESOURCES) {
-            const card = document.createElement('div');
-            card.style.cssText = 'background:#0b2545;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px 18px;'
-                + 'display:flex;flex-direction:column;gap:9px;box-shadow:0 6px 18px rgba(0,0,0,0.28);'
-                + (r.ready ? 'cursor:pointer;' : 'opacity:0.55;');
-            if (r.ready) {
-                card.onmouseenter = () => { card.style.borderColor = '#12c2e0'; card.style.transform = 'translateY(-2px)'; };
-                card.onmouseleave = () => { card.style.borderColor = 'rgba(255,255,255,0.12)'; card.style.transform = ''; };
-            }
-            card.innerHTML = ''
-                + '<div style="display:flex;align-items:center;gap:8px;">'
-                + '<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;background:rgba(18,194,224,0.16);color:#4fd0e6;">' + esc(r.badge) + '</span>'
-                + (r.ready ? '' : '<span style="color:#8fb8c8;font:11.5px Arial;margin-left:auto;">coming soon</span>')
-                + '</div>'
-                + '<div style="font:700 15px Arial;color:#eaf6f9;">' + esc(r.title) + '</div>'
-                + '<div style="font:12px/1.55 Arial;color:#9fb3c8;">' + esc(r.blurb) + '</div>';
-            if (r.ready) {
-                card.onclick = async () => {
-                    close();
-                    try { await r.open(); }
-                    catch (e) { try { graph.setMessage(' Could not open ' + r.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } restoreHover(); }
-                };
-            }
-            shelf.appendChild(card);
-        }
+        await exec('baja/lib/shelf.js', {
+            id: 'baja-data-resources',
+            title: 'Data Resources',
+            subtitle: 'Pick a class of data to add to the board as track layers',
+            books: RESOURCES,
+            graph: graph,
+            onClose: restoreHover
+        });
     })();
 }
