@@ -96,10 +96,18 @@ python3 1_download_patents.py --project - --print-scope
 python3 1_download_patents.py --project YOUR_GCP_PROJECT \
         --start 2020-01-01 --end 2027-01-01 --work $WORK
 
-# 2) sequences for the filtered patents (pick a source; see the script's --source help)
+# 2a) look at the export FIRST: which files are FASTA, which are tables, and which columns
+#     map a sequence id to a patent. Writes nothing, needs no stage-1 output.
+python3 2_fetch_sequences.py --source lens-patseq --patseq /path/to/PatSeq_export/ --inspect
+
+# 2b) sequences for the filtered patents. --emit-map also writes the sequence-id ->
+#     patent-number table, which is what stage 6 needs (see below).
 python3 2_fetch_sequences.py --work $WORK --source lens-patseq \
-        --patseq /path/to/PatSeq_export/            # a Lens PatSeq bulk export dir
-#   or: --source fasta --in some_patent_sequences.fa   (headers '>PATENTNUMBER|seqid')
+        --patseq /path/to/PatSeq_export/ \
+        --emit-map $WORK/record_to_patent.tsv
+#   if --inspect showed the wrong columns:
+#        --seq-id-col 'Sequence ID' --patent-col 'Document Number'
+#   or:  --source fasta --in some_patent_sequences.fa   (headers '>PATENTNUMBER|seqid')
 
 # 3) align to transcripts -> BED
 python3 3_align_to_transcripts.py --work $WORK \
@@ -168,6 +176,27 @@ Scope is settable from the command line, so widening it again is a flag rather t
 
 ---
 
+## PatSeq: how stage 2 reads a bulk export
+
+A PatSeq export keys its FASTA records by **sequence id** and carries the sequence → patent
+document mapping in a **separate table**. Stage 2 stitches the two:
+
+1. every file under `--patseq` is sniffed — first non-blank character `>` means FASTA, anything
+   else is a candidate table (PatSeq ships `.txt` files of both kinds, so the extension does not
+   decide it);
+2. each table is scanned for a sequence-id column and a patent-number column, matched loosely
+   against `SEQ_ID_COLS` / `PATENT_COLS` and overridable with `--seq-id-col` / `--patent-col`;
+3. FASTA records are keyed by that mapping, falling back to reading a patent number off the
+   header for exports that put one there.
+
+The run prints how many sequences resolved through the mapping versus the fallback. A low
+number there means the wrong columns were picked — re-run `--inspect` and name them.
+
+> Column naming is not stable across PatSeq exports, so the candidate lists are heuristics.
+> `--inspect` exists so they can be checked before a long run, not after it.
+
+`--emit-map FILE` writes the mapping on its own as `record_id <TAB> patent_number`.
+
 ## Stage 6 — the legacy `patent_hg38_transcript_hits.bed.gz` index
 
 The three patent BEDs in `BIG_DATA` do not agree about what column 4 holds:
@@ -194,6 +223,36 @@ repository or on the app server maps it to a patent — there is no `patent_assi
 the producer of that BED is not in the repo. **That mapping has to come from the source
 database.** Until it does, a hit from this index can be shown honestly (locus, transcript,
 window, strand — see `baja/data/patents.js`) but cannot name its patent.
+
+### With PatSeq access, the mapping is recoverable
+
+The legacy ids are very likely **PatSeq sequence record ids**. The shape fits: 3,576,653
+distinct values sparse over 2..29,803,555, which is the size of a patent-sequence corpus, not of
+any patent list — and column 4 holds the same value twice (`2|2|`), i.e. whatever built it had
+one identifier and wrote it into both the patent and sequence slots of the
+`<patent>|<seq_id>|` contract.
+
+If that is right, the table inside a PatSeq bulk export is the missing mapping, and stage 2
+already extracts it:
+
+```bash
+python3 2_fetch_sequences.py --source lens-patseq --patseq /path/to/PatSeq_export/ \
+        --inspect                                     # confirm the columns
+python3 2_fetch_sequences.py --work $WORK --source lens-patseq \
+        --patseq /path/to/PatSeq_export/ \
+        --emit-map $WORK/record_to_patent.tsv         # the mapping, on its own
+
+python3 6_build_patent_index_meta.py \
+        --bed  /bd/patent_hg38_transcript_hits.bed.gz \
+        --map  $WORK/record_to_patent.tsv \
+        --meta $WORK/patents_meta.jsonl \
+        --out  patent_assignees.tsv
+```
+
+Stage 6 reports what fraction of the BED's 3.6M ids the map covered. **That number is the
+test of the hypothesis**: a high rate means the ids really are PatSeq sequence ids and the
+legacy index is rescued in place; a near-zero rate means they came from somewhere else, and
+rebuilding through stages 1–5 is the way.
 
 `6_build_patent_index_meta.py` does the half that can be automated:
 
