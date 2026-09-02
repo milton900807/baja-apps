@@ -2014,15 +2014,7 @@ function (path, config) {
                                                                     graph.showSideMenu(null);
                                                                     exec('manchester/clinical-library.js', graph, genegraph_panel_layout);
                                                                 }
-                                                            },
-                                                            {
-                                                                label: 'Edit track', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    graph.setMessage('Click on a track to see available edit options. ');
-                                                                    exec('baja/manchester/menu/edit-track.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
+                                                            }
                                                         ]);
                                                     })
                                                 },

@@ -89,7 +89,7 @@ function (path, config) {
             } catch (e) { }
         }
 
-        try { await exec('manchester/clinical-library.js', graph, genegraph_panel_layout); } catch (e) {
+        try { await exec('manchester/clinical-library.js', graph, genegraph_panel_layout, true); } catch (e) {
             try { await showWidget({ wid: 'html', data: '<hr> Could not open the clinical library: ' + e }); } catch (e2) { }
         }
         return graph;

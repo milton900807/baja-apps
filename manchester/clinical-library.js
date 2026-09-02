@@ -1,4 +1,4 @@
-function (graph, layout) {
+function (graph, layout, publicAccess) {
 
     // Clinical Library — a bookshelf of clinical RNA-targeting compounds (ASO / siRNA / anti-miR).
     // Each compound is a "book" whose title/spine come from its metadata. Clicking a book loads its
@@ -7,6 +7,28 @@ function (graph, layout) {
     //   exec('manchester/clinical-library.js', graph, layout)
 
     return (async () => {
+        // SUBSCRIBERS ONLY, except through the public entry point.
+        //
+        // The check lives here rather than at the call sites so every route into the library
+        // is covered by one rule -- the Design menu, the Track menu and anything added later.
+        // manchester/clinical-library-public.js passes publicAccess, because that page exists
+        // to be open: it is exempted in the Angular auth guard for the same reason.
+        //
+        // Only a definitive "not subscribed" refuses. checkSubscription returns null when it
+        // cannot tell -- no email, Stripe not configured, a network blip -- and locking a
+        // paying subscriber out of the library over a failed request would be the worse error.
+        if (!publicAccess) {
+            try {
+                const SUB = await exec('lib/subscription.js');
+                const active = await SUB.checkSubscription();
+                if (active === false) {
+                    const msg = ' The Clinical Library is available to subscribers. ';
+                    try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+                    return graph;
+                }
+            } catch (e) { /* could not ask -- fail open, as above */ }
+        }
+
         const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
         const user = (typeof getUser === 'function') ? (getUser() || '') : '';
 
