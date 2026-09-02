@@ -3765,11 +3765,28 @@ return new Promise(async (resolve, reject) => {
         }
       }
 
-      let track = new Track(this.name + "*", 0, seq.length - 1, null, this.strand);
+
+      // CDNA or mRNA in ANY case gives _mRNA; any other annotation names itself, so
+      // building from Exon and from CDS no longer produces two tracks called the same
+      // thing. Matches baja/bio/track-flexi.js, which carries the same method.
+      const __ann = ('' + (annotation == null ? '' : annotation)).trim();
+      let suf = (/^(cdna|mrna)$/i.test(__ann) || !__ann) ? '_mRNA' : ('_' + __ann);
+
+
+      let track = new Track(this.name + suf, 0, seq.length - 1, null, this.strand);
 
       track.sequence = seq;
       track.chr = this.chr;
       track.annotations = _annotations;
+
+      // Identity carried onto the derived track: species for the caption tab, and
+      // transcriptID / geneID because the transcript-keyed layers (bed-hits.js,
+      // patents.js) look a track up by them and otherwise fall through to the name,
+      // which after the _mRNA suffix matches nothing in a BED.
+      track.species = this.species;
+      track.transcriptID = this.transcriptID;
+      track.geneID = this.geneID;
+      track.description = this.description;
 
       // Carry over the genomic span for the mRNA/cDNA track itself. Local xi/xf stay
       // 0..len (cDNA rendering depends on that); gxi/gxf hold the genomic coordinates,
@@ -6645,8 +6662,8 @@ return new Promise(async (resolve, reject) => {
             // annotation.js) stop just ABOVE the amino-acid letters instead of running down through
             // them or all the way to the track baseline. __pepTopPx = top edge of the AA letters.
             try {
-                this.tgraph.__pepMidPx = graph.Y(_pepRowY);
-                this.tgraph.__pepTopPx = graph.Y(_pepRowY) - seqPx * 0.7;
+              this.tgraph.__pepMidPx = graph.Y(_pepRowY);
+              this.tgraph.__pepTopPx = graph.Y(_pepRowY) - seqPx * 0.7;
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {

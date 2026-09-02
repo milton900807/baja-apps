@@ -2899,6 +2899,23 @@ return new Promise(async (resolve, reject) => {
             track.sequence = seq;
             track.chr = this.chr;
             track.annotations = _annotations;
+
+            // Identity carried onto the derived track.
+            //
+            // species: the caption tab prints it, and without it an mRNA built from a mouse
+            // transcript showed no organism at all.
+            //
+            // transcriptID / geneID: the transcript-keyed data layers look the track up by
+            // these (baja/data/bed-hits.js, baja/data/patents.js, both reading
+            // transcriptID || geneID || name). Unset, they fell through to the NAME -- now
+            // "<track>_mRNA", which matches nothing in a BED -- so patents and miRNA sites
+            // silently found nothing on exactly the track a user builds to design against.
+            //
+            // description rounds out what the caption tab shows.
+            track.species = this.species;
+            track.transcriptID = this.transcriptID;
+            track.geneID = this.geneID;
+            track.description = this.description;
             track.grid.xi = this.grid.xi;
             track.grid.yi = this.grid.yi + Math.abs(this.grid.height) + 1;
             track.track_type = 'CDNA'

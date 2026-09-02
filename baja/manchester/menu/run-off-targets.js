@@ -674,7 +674,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             m.push({ label: '‹ Back to genomes', click: () => { showGenomeMenu(species); }, move: () => { } });
             m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
             graph.setMessage(' ' + genome + ' — choose edit distance ' + (__seedMode ? '(seed: max 1) ' : ''));
-            graph.showSideMenu(m);
+            graph.showSideMenu(m, null, 'Levenshtein edit distance ▸');
         };
         const showGenomeMenu = (species) => {
             const names = speciesMap[species] || [];
@@ -683,7 +683,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             m.push({ label: '‹ Back to species', click: () => { showSpeciesMenu(); }, move: () => { } });
             m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
             graph.setMessage(' ' + species + ' — select a genome index ');
-            graph.showSideMenu(m);
+            graph.showSideMenu(m, null, 'Sequence Index ▸');
         };
         const showSpeciesMenu = () => {
             if (!speciesList.length) { graph.setMessage(' No indexed genomes found on the server. '); return; }
@@ -691,7 +691,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
             const m = speciesList.map((sp) => ({ label: sp + ' (' + speciesMap[sp].length + ')', click: () => { showGenomeMenu(sp); }, move: () => { } }));
             m.push({ label: 'Cancel', click: () => { graph.showSideMenu(null); }, move: () => { } });
             graph.setMessage(' Select a species ');
-            graph.showSideMenu(m);
+            graph.showSideMenu(m, null, 'Species ▸');
         };
         showSpeciesMenu();
         resolve();
