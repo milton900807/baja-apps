@@ -8348,6 +8348,41 @@ pattern, GGGG | Required`
                                     o.highlight__ = isAmp ? 'cyan' : '#ff8c42';   // tropical orange
                                     sel.push({ kind: isAmp ? 'amplicon' : 'oligo', label: (o.name || o.id || (isAmp ? 'amplicon' : 'oligo')), track: t, chr: t.chr, xi: gxi, xf: gxf, ref: o, origHighlight: origHi, inOligos: true });
                                     n++;
+
+                                    // THE PRIMERS THEMSELVES, as their own rows.
+                                    //
+                                    // An amplicon's forward and reverse primers are amp.left and
+                                    // amp.right -- they are not in t.oligos, so the loop above
+                                    // never saw them and the selection window offered the
+                                    // amplicon with no way to reach either end of it. Selecting
+                                    // an amplicon selects the pair; these make each one openable.
+                                    //
+                                    // Filed under kind 'oligo' rather than a kind of their own:
+                                    // a primer IS an oligo, and everything the window already
+                                    // does for one -- the per-item menu, sequence export,
+                                    // restoring the highlight on deselect -- then applies
+                                    // without a dozen call sites learning a new word.
+                                    if (isAmp) {
+                                        for (const side of [['forward', o.left], ['reverse', o.right]]) {
+                                            const pr = side[1];
+                                            if (!pr) continue;
+                                            const a = +pr.xi, b = +pr.xf;
+                                            if (!isFinite(a) || !isFinite(b)) continue;
+                                            const pHi = pr.highlight__;
+                                            pr.highlight__ = '#ff8c42';
+                                            // syncSelectionWindow drops an oligo row whose object
+                                            // is not selected, so say that it is.
+                                            try { pr.selected = true; } catch (e) { }
+                                            sel.push({
+                                                kind: 'oligo',
+                                                label: (o.name || o.id || 'amplicon') + ' · ' + side[0] + ' primer',
+                                                track: t, chr: t.chr,
+                                                xi: Math.min(a, b), xf: Math.max(a, b),
+                                                ref: pr, origHighlight: pHi, isPrimer: true
+                                            });
+                                            n++;
+                                        }
+                                    }
                                 }
                             }
                             // Amplicons — same source(s) and row layout as the draw:
