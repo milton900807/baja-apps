@@ -6297,8 +6297,9 @@ return new Promise(async (resolve, reject) => {
       // painted late, over them. Underneath and faint, it marks the region without competing
       // with what is written in it.
       //
-      // Edges are drawn as full-height lines because the fill alone is easy to lose at this
-      // opacity, and the exact first and last base is the thing being communicated.
+      // No border, and a very light fill. The edge lines were there so the exact first and
+      // last base stayed readable at low opacity, but they made the region read as a box
+      // drawn ON the track rather than as the track's own bases being lit.
       try {
         const __sel = this.selectedRange ? this.selectedRange() : null;
         if (__sel) {
@@ -6312,16 +6313,8 @@ return new Promise(async (resolve, reject) => {
             ctx.save();
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
-            ctx.fillStyle = 'rgba(255,196,0,0.13)';
+            ctx.fillStyle = 'rgba(255,205,45,0.055)';
             ctx.fillRect(__sx, __sy, __sw, __sh);
-            ctx.strokeStyle = 'rgba(214,150,0,0.55)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(__sx + 0.5, __sy);
-            ctx.lineTo(__sx + 0.5, __sy + __sh);
-            ctx.moveTo(__sx + __sw - 0.5, __sy);
-            ctx.lineTo(__sx + __sw - 0.5, __sy + __sh);
-            ctx.stroke();
             ctx.restore();
           }
         }
