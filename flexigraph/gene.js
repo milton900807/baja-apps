@@ -6427,14 +6427,16 @@ pattern, GGGG | Required`
                                                                                 normalizeSideMenuItems(
                                                                                     previousItems,
                                                                                     parentStack.slice(0, -1)
-                                                                                )
+                                                                                ),
+                                                                                null,
+                                                                                'Back ▸'
                                                                             );
                                                                         }
                                                                     }
                                                                 ]
                                                                 : [];
 
-                                                            this.showSideMenu([...backItems, ...submenu]);
+                                                            this.showSideMenu([...backItems, ...submenu], null, 'Feature types ▸');
                                                         };
                                                     } else if (typeof item.click === "function") {
                                                         out.click = async (...args) => {
@@ -6446,7 +6448,7 @@ pattern, GGGG | Required`
                                                 });
                                             };
 
-                                            this.showSideMenu(normalizeSideMenuItems(rawMenu));
+                                            this.showSideMenu(normalizeSideMenuItems(rawMenu), null, 'Features ▸');
                                         }
                                     }
                                 ];
@@ -6728,11 +6730,11 @@ pattern, GGGG | Required`
                                     });
                                 }
 
-                                this.showSideMenu(typeMenu);
+                                this.showSideMenu(typeMenu, null, 'Type actions ▸');
                             }
                         }));
 
-                        this.showSideMenu(submenu);
+                        this.showSideMenu(submenu, null, 'Feature types ▸');
                     },
                 });
 
@@ -6933,11 +6935,11 @@ pattern, GGGG | Required`
                                     }
                                 ];
 
-                                this.showSideMenu(typeMenu);
+                                this.showSideMenu(typeMenu, null, 'Type actions ▸');
                             }
                         }));
 
-                        this.showSideMenu(submenu);
+                        this.showSideMenu(submenu, null, 'Feature types ▸');
                     },
                 });
 
@@ -7169,7 +7171,7 @@ pattern, GGGG | Required`
                             }
                         ];
 
-                        this.showSideMenu(submenu);
+                        this.showSideMenu(submenu, null, 'Feature types ▸');
                     },
                 });
                 menu.push({
@@ -9782,7 +9784,8 @@ pattern, GGGG | Required`
                     // try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
                     try { this.__selMenuChain = true; } catch (e) { }
                     const a = anchor();
-                    if (a) this.showSideMenu(list, a); else this.showSideMenu(list);
+                    const __lbl = 'Selection ▸';
+                    if (a) this.showSideMenu(list, a, __lbl); else this.showSideMenu(list, null, __lbl);
                 };
 
                 const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Amplicons', layer: 'Layer items' };

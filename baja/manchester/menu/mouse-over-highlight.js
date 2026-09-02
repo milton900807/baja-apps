@@ -49,9 +49,11 @@ function (graph, genegraph_panel_layout) {
                 return headers.concat(subs, leaves, navs);
             } catch (e) { return list; }
         };
-        const showSideMenuDelayed = (menu, x, y) => {
+        // `label` names the menu in the panel header. Forwarded rather than dropped: every
+        // caller routed through here would otherwise lose the context it already has.
+        const showSideMenuDelayed = (menu, x, y, label) => {
             if (menu == null) { if (graph && graph.showSideMenu) graph.showSideMenu(null); return; }
-            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y); }, MENU_OPEN_DELAY_MS);
+            setTimeout(() => { if (graph && graph.showSideMenu) graph.showSideMenu(orderMenu(menu), x, y, label); }, MENU_OPEN_DELAY_MS);
         };
         // On mobile the full-screen feature menu is blocking, so a quick tap only SELECTS —
         // the menu opens on a LONG-PRESS (~500ms held still), armed as graph.graph.__longPressReady
@@ -67,7 +69,7 @@ function (graph, genegraph_panel_layout) {
             if (graph.__pendingSnp && Array.isArray(items)) {
                 const pend = graph.__pendingSnp;
                 items = [
-                    { label: pend.label, click: () => graph.showSideMenu(pend.snpMenu) },
+                    { label: pend.label, click: () => graph.showSideMenu(pend.snpMenu, null, (pend.label || 'Variant') + ' ▸') },
                     { type: 'separator' },
                     ...items
                 ];
@@ -598,8 +600,8 @@ function (graph, genegraph_panel_layout) {
 
             // From the selection window we want the menu NOW; from hover we keep the
             // small delay that avoids colliding with the in-progress mouse gesture.
-            if (immediate) graph.showSideMenu(submenu);
-            else showSideMenuDelayed(submenu);
+            if (immediate) graph.showSideMenu(submenu, null, 'Amplicon ▸');
+            else showSideMenuDelayed(submenu, undefined, undefined, 'Amplicon ▸');
         }
 
         // Off-target statistics popup (navy demo look-and-feel), opened by clicking a count badge.
@@ -1660,7 +1662,7 @@ function (graph, genegraph_panel_layout) {
 
 
                         if (mergedMenu && mergedMenu.items && mergedMenu.items.length) {
-                            graph.showSideMenu(orderMenu(mergedMenu.items), x, y);
+                            graph.showSideMenu(orderMenu(mergedMenu.items), x, y, ((snp && snp.name) ? ('' + snp.name) : 'Variant') + ' ▸');
                         }
                     }
                 }
@@ -1773,7 +1775,7 @@ function (graph, genegraph_panel_layout) {
                         if (hitShapes.length > 1) shapeMenu.push({ type: 'separator' });
                     }
 
-                    graph.showSideMenu(orderMenu(shapeMenu), x, y);
+                    graph.showSideMenu(orderMenu(shapeMenu), x, y, 'Shape ▸');
                     return;
                 }
             }
@@ -2016,7 +2018,7 @@ function (graph, genegraph_panel_layout) {
                                                             label: 'djPrimer (assay success)', move: () => { },
                                                             click: () => { graph.showSideMenu(null); runDjprimer(); }
                                                         }
-                                                    ]);
+                                                    ], null, 'Primer probes ▸');
                                                 })
                                             }, {
                                                 'label': 'Exon-exon Primer-probes', click: (async () => {
@@ -2456,7 +2458,7 @@ function (graph, genegraph_panel_layout) {
 
                             // Annotation options moved to the selection window as their
                             // own object type (selection box → Annotations).
-                            graph.showSideMenu(orderMenu(mergePendingSnp(ml)), x, y)
+                            graph.showSideMenu(orderMenu(mergePendingSnp(ml)), x, y, ((selectedTrack && selectedTrack.name) || 'Track') + ' ▸')
                             return;
                         }
                     } else {
@@ -3422,7 +3424,7 @@ function (graph, genegraph_panel_layout) {
                                 ];
                                 const items = sigList.map((s) => ({ label: s.label, move: () => { }, click: () => { loadSig(s.key); } }));
                                 items.push({ label: '‹ Back', move: () => { }, click: () => { openMain(); } });
-                                try { graph.showSideMenu(orderMenu(items)); } catch (e) { }
+                                try { graph.showSideMenu(orderMenu(items), null, 'Signatures ▸'); } catch (e) { }
                             };
                             const loadFrom = (db, label) => { graph.showSideMenu(null); exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout, db, label); };
                             // Tour the track's mutations: select + zoom each, with Prev/Next/Done.
@@ -3461,7 +3463,7 @@ function (graph, genegraph_panel_layout) {
                                             { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
                                             { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
                                             { label: '✓ Done', move: () => { }, click: () => { finish(); } },
-                                        ]);
+                                        ], null, 'Variant tour ▸');
                                     } catch (e) { }
                                     timer = setTimeout(() => { i++; go(); }, 10000);
                                 };
@@ -3510,11 +3512,11 @@ function (graph, genegraph_panel_layout) {
                                                         }
                                                     },
                                                     { label: 'Cancel', move: () => { }, click: () => { openMain(); } }
-                                                ]);
+                                                ], null, 'Remove all variants ▸');
                                             }
                                         }
                                     );
-                                    graph.showSideMenu(__items);
+                                    graph.showSideMenu(__items, null, 'Variants ▸');
                                 } catch (e) { }
                             };
                             openMain();

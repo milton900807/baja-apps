@@ -994,7 +994,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                                         }
                                     },
                                 ];
-                                graph.showSideMenu(dm);
+                                graph.showSideMenu(dm, null, 'Design ▸');
                             };
                             // Once the sequence is selected, hand the mouse back to the
                             // normal mouse-over-highlight behavior (hover / click oligos).
