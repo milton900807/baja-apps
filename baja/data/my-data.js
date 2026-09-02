@@ -1,4 +1,9 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, preAction) {
+  // `preAction` is one of the menu item keys below ('rnaseq' | 'vcf' | 'bed' | 'layers').
+  // Given one, clicking a track goes STRAIGHT into that item instead of opening the menu:
+  // the My data library has already asked which kind of file this is, and asking again in a
+  // popup right after would be the same question twice in two different interfaces.
+  // Without it the menu appears exactly as before, which is what the older callers get.
   return new Promise(async (resolve, reject) => {
     const server = window["env"]["apiUrl"] + "/" + getUser();
     graph.clearMouseListeners("baja/manchester/menu/mouse-over-highlight.js");
@@ -6,8 +11,20 @@ function (graph, genegraph_panel_layout) {
 
     graph.setMouseMode("select-track");
     graph.selectOff();
+    // Name the action the library already chose, so the prompt says what this click is FOR
+    // rather than the generic one it would have shown before the choice existed.
+    const PRE_LABEL = {
+      rnaseq: "add RNASeq coverage",
+      vcf: "add a phased VCF",
+      bed: "add a BED file",
+      layers: "edit its layers",
+    };
     graph.setMessage(" Select a track... ");
-    graph.setCenterMessage(" Click on  a track... ");
+    graph.setCenterMessage(
+      preAction && PRE_LABEL[preAction]
+        ? " Click a track to " + PRE_LABEL[preAction] + "... "
+        : " Click on  a track... ",
+    );
     let selectedTrack = null;
     let menuList = [];
     function convertToLocal(x, gxi, gxf, xi, xf) {
@@ -210,6 +227,7 @@ function (graph, genegraph_panel_layout) {
       }
     };
     menuList.push({
+      key: "rnaseq",
       label: "Add RNASeq",
       click: async (xwc, ywc) => {
         let TrackLayer = await exec("baja/bio/track-layer.js");
@@ -330,6 +348,7 @@ function (graph, genegraph_panel_layout) {
       },
     });
     menuList.push({
+      key: "vcf",
       label: "Phased Seq (VCF)",
       click: async (xwc, ywc) => {
         let TrackLayer = await exec("baja/bio/track-layer.js");
@@ -595,6 +614,7 @@ function (graph, genegraph_panel_layout) {
       },
     });
     menuList.push({
+      key: "bed",
       label: "Bed",
       click: async (xwc, ywc) => {
         let TrackLayer = await exec("baja/bio/track-layer.js");
@@ -806,6 +826,7 @@ function (graph, genegraph_panel_layout) {
     });
 
     menuList.push({
+      key: "layers",
       label: "Edit Layer",
       click: async (xwc, ywc) => {
         let track_layers_panel = await exec(
@@ -837,7 +858,14 @@ function (graph, genegraph_panel_layout) {
       let editor;
       let typeAhead;
 
-      if (selectedTrack) graph.showMenu(menuList, x, y);
+      if (!selectedTrack) return;
+      if (preAction) {
+        const item = menuList.find((m) => m && m.key === preAction);
+        // An unknown key falls through to the menu rather than doing nothing: a typo in a
+        // caller should cost an extra click, not a dead canvas.
+        if (item) { try { await item.click(x, y); } catch (e) { } return; }
+      }
+      graph.showMenu(menuList, x, y);
     });
   });
 };

@@ -145,6 +145,66 @@ function (graph, genegraph_panel_layout, tracks) {
             ];
         };
 
+        // ---- Patents: the IP datasets, as their own shelf --------------------------------
+        // Two genuinely different sets, and the difference matters: the full patent index is
+        // everything sequence-matched over 2020-2025, while the ASO / siRNA / gene-therapy set
+        // is the subset whose claims are about oligonucleotide therapeutics. Loading the first
+        // when you wanted the second buries the handful of hits you care about.
+        const patentBooks = async () => {
+            const SETS = await exec('baja/data/layer-sets.js');
+            return [
+                {
+                    title: 'Patents 2020–2025', badge: 'All IP',
+                    blurb: 'Every sequence-matched patent hit over the track, stacked into lanes so '
+                        + 'overlapping claims stay legible.',
+                    open: () => exec('baja/data/patents.js', graph, genegraph_panel_layout, tracks)
+                },
+                {
+                    title: SETS.aso_sirna_gt.label + ' patents', badge: 'Therapeutic IP',
+                    blurb: 'The subset whose claims are about oligonucleotide therapeutics — ASO, '
+                        + 'siRNA and gene therapy — carrying the assignee behind each hit.',
+                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
+                        SETS.aso_sirna_gt, tracks)
+                }
+            ];
+        };
+
+        // ---- My data: what KIND of file, then the file browser ---------------------------
+        // Each card arms the track click and drops straight into the browser for that type
+        // (my-data.js `preAction`), rather than clicking a track and being asked the same
+        // question again in a popup menu.
+        const myDataBooks = () => [
+            {
+                title: 'RNASeq coverage (bigWig)', badge: 'bigWig',
+                blurb: 'A bigWig you uploaded, added as a coverage layer. Click a track, then pick '
+                    + 'the file.',
+                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'rnaseq')
+            },
+            {
+                title: 'Variants (VCF)', badge: 'VCF',
+                blurb: 'A phased VCF you uploaded, added to the track as SNPs and indels. Click a '
+                    + 'track, then pick the file.',
+                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'vcf')
+            },
+            {
+                title: 'Intervals (BED)', badge: 'BED',
+                blurb: 'A BED file you uploaded, added as an interval layer. Click a track, then '
+                    + 'pick the file.',
+                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'bed')
+            },
+            {
+                title: 'Edit the layers on a track', badge: 'Layers',
+                blurb: 'Rename, recolour or remove the layers already on a track. Nothing is loaded.',
+                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'layers')
+            },
+            {
+                title: 'Browse all my files', badge: 'File browser',
+                blurb: 'Your whole space in the file browser — everything, not only the three types '
+                    + 'above. Opening a file there loads it into the app.',
+                open: () => exec('manchester/fb.js', getUser() + '/')
+            }
+        ];
+
         // ---- The top shelf ---------------------------------------------------------------
         // `ready:false` cards are shown greyed with a note instead of being hidden, so the
         // catalogue reads as complete rather than silently short.
@@ -190,20 +250,19 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Patents',
                 badge: 'IP',
-                blurb: 'Sequence-matched patent hits from the 2020-2026 transcript-keyed index. '
-                    + 'Adds the hits as an interval layer, stacked into lanes, so published IP '
-                    + 'claims sit alongside the region you are designing against.',
-                open: async () => { await exec('baja/data/patents.js', graph, genegraph_panel_layout, tracks); }
+                subtitle: 'Pick an IP dataset',
+                blurb: 'Sequence-matched patent hits from the transcript-keyed index. Adds the hits '
+                    + 'as an interval layer, stacked into lanes, so published IP claims sit '
+                    + 'alongside the region you are designing against.',
+                books: patentBooks
             },
             {
                 title: 'My data',
                 badge: 'Your uploads',
-                blurb: 'The bigwig and VCF files you have uploaded into your own space. Opens your '
-                    + 'file browser — pick a file there to load it into the app.',
-                // Straight to the file browser, at the user's own folder. The browser already
-                // knows how to load one of these files; a second picker in front of it was one
-                // more list to walk to reach the same place.
-                open: async () => { await exec('manchester/fb.js', getUser() + '/'); }
+                subtitle: 'Pick the kind of file',
+                blurb: 'The bigWig, VCF and BED files you have uploaded into your own space. Pick a '
+                    + 'kind and the file browser opens on it, or browse everything you have.',
+                books: myDataBooks
             },
             {
                 title: 'Public data',

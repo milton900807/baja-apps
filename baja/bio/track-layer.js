@@ -918,24 +918,37 @@ return new Promise(async (resolve, reject) => {
                         let screenx = this.tgraph.X(int.x2 + 1)
 
                         if (this.verticalLabels) {
-                            // Rotated a quarter turn, reading bottom-to-top, anchored at the
-                            // interval. Sites sit close together along a transcript, so a
-                            // horizontal name would overlap its neighbours within a few pixels;
-                            // turned on its side each name occupies almost no width.
+                            // Rotated a quarter turn, reading bottom-to-top, and written OVER the
+                            // interval bar rather than beside it: centred on the bar's midpoint in
+                            // x, and on the middle of its height in y. Sites sit close together
+                            // along a transcript, so a horizontal name would overlap its neighbours
+                            // within a few pixels; turned on its side each name takes almost no
+                            // width, and sitting on the bar it names there is no ambiguity about
+                            // which site it belongs to.
+                            //
+                            // It used to be anchored at X(int.x2 + 1) -- one base PAST the end of
+                            // the interval, at the bar's top edge -- so every name floated up and
+                            // to the right of its bar, and with sites packed together it was not
+                            // obvious which bar any given name went with.
                             //
                             // Only the FIRST line is drawn: the full metadata block is many
                             // lines and is what the hover panel is for. Vertically that block
                             // would run the height of the canvas and off the top.
                             const one = ('' + text).split('\n')[0];
+                            const cx = this.tgraph.X((int.x1 + int.x2) / 2);
+                            const cy = y + (height / 2);
                             // Suppress a name that would land on top of the previous one.
-                            if (!(this.__vlabLast != null && Math.abs(screenx - this.__vlabLast) < 11)) {
-                                this.__vlabLast = screenx;
+                            if (!(this.__vlabLast != null && Math.abs(cx - this.__vlabLast) < 11)) {
+                                this.__vlabLast = cx;
                                 ctx.save();
-                                ctx.translate(screenx, screeny);
+                                ctx.translate(cx, cy);
+                                // Centred both ways about that point: textAlign centres the string
+                                // along its own (now vertical) run, textBaseline across its
+                                // thickness, so the name sits on the bar rather than starting at it.
                                 ctx.rotate(-Math.PI / 2);
-                                ctx.textAlign = 'left';
+                                ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
-                                ctx.fillText(one, 4, 0);
+                                ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
                             ctx.fillStyle = this.defaultColor;
@@ -1186,24 +1199,37 @@ return new Promise(async (resolve, reject) => {
                         let screenx = this.tgraph.X(int.x2 + 1)
 
                         if (this.verticalLabels) {
-                            // Rotated a quarter turn, reading bottom-to-top, anchored at the
-                            // interval. Sites sit close together along a transcript, so a
-                            // horizontal name would overlap its neighbours within a few pixels;
-                            // turned on its side each name occupies almost no width.
+                            // Rotated a quarter turn, reading bottom-to-top, and written OVER the
+                            // interval bar rather than beside it: centred on the bar's midpoint in
+                            // x, and on the middle of its height in y. Sites sit close together
+                            // along a transcript, so a horizontal name would overlap its neighbours
+                            // within a few pixels; turned on its side each name takes almost no
+                            // width, and sitting on the bar it names there is no ambiguity about
+                            // which site it belongs to.
+                            //
+                            // It used to be anchored at X(int.x2 + 1) -- one base PAST the end of
+                            // the interval, at the bar's top edge -- so every name floated up and
+                            // to the right of its bar, and with sites packed together it was not
+                            // obvious which bar any given name went with.
                             //
                             // Only the FIRST line is drawn: the full metadata block is many
                             // lines and is what the hover panel is for. Vertically that block
                             // would run the height of the canvas and off the top.
                             const one = ('' + text).split('\n')[0];
+                            const cx = this.tgraph.X((int.x1 + int.x2) / 2);
+                            const cy = y + (height / 2);
                             // Suppress a name that would land on top of the previous one.
-                            if (!(this.__vlabLast != null && Math.abs(screenx - this.__vlabLast) < 11)) {
-                                this.__vlabLast = screenx;
+                            if (!(this.__vlabLast != null && Math.abs(cx - this.__vlabLast) < 11)) {
+                                this.__vlabLast = cx;
                                 ctx.save();
-                                ctx.translate(screenx, screeny);
+                                ctx.translate(cx, cy);
+                                // Centred both ways about that point: textAlign centres the string
+                                // along its own (now vertical) run, textBaseline across its
+                                // thickness, so the name sits on the bar rather than starting at it.
                                 ctx.rotate(-Math.PI / 2);
-                                ctx.textAlign = 'left';
+                                ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
-                                ctx.fillText(one, 4, 0);
+                                ctx.fillText(one, 0, 0);
                                 ctx.restore();
                             }
                             ctx.fillStyle = this.defaultColor;
