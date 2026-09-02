@@ -4165,6 +4165,33 @@ function (graph, genegraph_panel_layout) {
 
                             const golist = [
                                 {
+                                    // Edit the layers this track ALREADY has: show/hide, remove,
+                                    // interaction, background, per layer and in bulk.
+                                    //
+                                    // Through track-layers-side-menu.js rather than the full-panel
+                                    // editor: that one mounts its panel with
+                                    // clearComponent('mainPanel') + setComponent, and the editor
+                                    // stashes its own layout there, so it blanked the canvas behind
+                                    // the menu -- the same fault just fixed in patents.js. The side
+                                    // menu leaves the canvas alone.
+                                    label: 'Edit...',
+                                    move: () => { },
+                                    click: async () => {
+                                        graph.showSideMenu(null);
+                                        if (!selectedTrack) {
+                                            try { graph.setResultMessage(' No track to edit layers on. '); } catch (e) { }
+                                            return;
+                                        }
+                                        const n = ((selectedTrack.track_layers || []).length);
+                                        if (!n) {
+                                            try { graph.setResultMessage(' ' + (selectedTrack.name || 'That track') + ' has no layers yet. '); } catch (e) { }
+                                            return;
+                                        }
+                                        await exec('baja/manchester/menu/track-layers-side-menu.js',
+                                            selectedTrack, genegraph_panel_layout, graph);
+                                    }
+                                },
+                                {
                                     // The library of data classes that can become layers —
                                     // RNASeq opens the RNASeq Library, which loads a chosen
                                     // dataset onto every track on the board.
