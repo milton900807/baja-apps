@@ -63,14 +63,42 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             if (hasSel) {
                 let s = Math.min(track.markstart, track.markend);
                 let e = Math.max(track.markstart, track.markend);
-                if (isChild && track.genomicAt) {
-                    // Selection is in LOCAL coords on a child track — map to genomic.
-                    let gs = track.genomicAt(s), ge = track.genomicAt(e);
+
+                // WHICH SPACE ARE THE MARKS IN?
+                //
+                // markstart/markend are set in the track's world coordinates (see
+                // this.markstart = this.tgraph.xmin in baja/bio/track.js) -- which is GENOMIC
+                // on a parent track and LOCAL, 0..len, on a spliced one. This used to decide
+                // by asking isChildCDNATrack(), and when that answered false for a track whose
+                // marks were nonetheless local, the local numbers were sent as genomic: the
+                // query landed at the START of the track and stopped around where the
+                // selection began, which is exactly the "before and up to, but not inside"
+                // the report describes.
+                //
+                // Decided by the numbers instead. A mark that falls inside the track's genomic
+                // span already IS genomic; one that does not has to be mapped, and genomicAt
+                // is the mapping -- it walks the exons, so it is right on a spliced track and
+                // right whichever way the track runs.
+                const inGenomicSpan = (v) => (v >= tlo && v <= thi);
+                const marksAreGenomic = inGenomicSpan(s) && inGenomicSpan(e);
+
+                if (!marksAreGenomic && track.genomicAt) {
+                    const gs = track.genomicAt(s), ge = track.genomicAt(e);
+                    if (gs != null && ge != null && isFinite(gs) && isFinite(ge)) {
+                        // min/max after mapping, not before: on a minus-strand track the higher
+                        // local index maps to the LOWER genomic position, so the pair comes back
+                        // the other way round and a raw start/end would be inverted.
+                        gStart = Math.min(gs, ge);
+                        gEnd = Math.max(gs, ge);
+                    } else { gStart = tlo; gEnd = thi; }
+                } else if (isChild && track.genomicAt) {
+                    const gs = track.genomicAt(s), ge = track.genomicAt(e);
                     if (gs != null && ge != null) { gStart = Math.min(gs, ge); gEnd = Math.max(gs, ge); }
                     else { gStart = tlo; gEnd = thi; }
                 } else {
-                    gStart = Math.max(tlo, s);
-                    gEnd = Math.min(thi, e);
+                    // Already genomic: clamp to the track and keep the selection's own bounds.
+                    gStart = Math.max(tlo, Math.min(s, e));
+                    gEnd = Math.min(thi, Math.max(s, e));
                 }
             } else {
                 gStart = tlo;
