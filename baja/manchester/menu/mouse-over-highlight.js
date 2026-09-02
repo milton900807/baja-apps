@@ -3327,6 +3327,45 @@ function (graph, genegraph_panel_layout) {
 
                 let track_list = [
                     {
+                        // How this track is DRAWN. The themes live on the Track class
+                        // (baja/bio/track-flexi.js, static THEMES) so the renderer and this
+                        // menu cannot disagree about what exists, and the choice is written to
+                        // track.theme -- which travels through the standard toJSON/fromJSON
+                        // route, so a themed board comes back themed.
+                        label: 'Track theme ▸',
+                        move: () => { },
+                        click: () => {
+                            const t = selectedTrack;
+                            if (!t) { try { graph.setResultMessage(' No track to theme. '); } catch (e) { } return; }
+                            let THEMES = {};
+                            try { THEMES = (t.constructor && t.constructor.THEMES) || {}; } catch (e) { THEMES = {}; }
+                            const keys = Object.keys(THEMES);
+                            if (!keys.length) {
+                                try { graph.setResultMessage(' This track type has no themes. '); } catch (e) { }
+                                return;
+                            }
+                            const current = ('' + (t.theme || 'classic'));
+                            const items = keys.map((k) => ({
+                                // A tick on the one in use, so the menu says where you are as
+                                // well as where you can go.
+                                label: (k === current ? '• ' : '') + ((THEMES[k] && THEMES[k].label) || k),
+                                move: () => { },
+                                click: () => {
+                                    graph.showSideMenu(null);
+                                    try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                                    t.theme = k;
+                                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                                    try { graph.setResultMessage(' ' + ((t.name || 'Track')) + ' — ' + ((THEMES[k] && THEMES[k].label) || k) + ' theme. '); } catch (e) { }
+                                }
+                            }));
+                            items.push({
+                                label: '‹ Back', move: () => { },
+                                click: () => { showSideMenuDelayed(track_list, undefined, undefined, 'Track ▸'); }
+                            });
+                            graph.showSideMenu(items, null, 'Track theme ▸');
+                        }
+                    },
+                    {
                         // Rename the track. The name is not decoration: the layer menus, the
                         // export filenames, the selection window and the mRNA suffix all
                         // address a track by it, and until now it was whatever the loader
@@ -4733,7 +4772,7 @@ function (graph, genegraph_panel_layout) {
                 // first. (Leaf actions like Move track / Properties / Delete are left unmarked.)
                 const __trackSubmenus = { 'Layers': 1, 'Data Layers': 1, 'Sequence': 1, 'Go to...': 1, 'Go to': 1 };
                 for (const it of track_list) { try { const l = ('' + (it && it.label || '')).trim(); if (__trackSubmenus[l] && !/[▸►]/.test(l)) it.label = l.replace(/\.\.\.$/, '') + ' ▸'; } catch (e) { } }
-                const __trackItemLabels = ['Change track name', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
+                const __trackItemLabels = ['Change track name', 'Track theme ▸', 'Move track', 'Convert to mRNA', 'Copy to new track', 'Edit track',
                     'Layers ▸', 'Data Layers ▸', 'Compounds ▸', 'Variants ▸', 'Sequence ▸', 'Go to ▸', 'Synthesis cost',
                     'Highlight sequence motif', 'Protein', 'Properties', 'Delete track'];
                 const __isTrackItem = (m) => m && __trackItemLabels.indexOf(('' + m.label).trim()) >= 0;

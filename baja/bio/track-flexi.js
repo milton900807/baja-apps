@@ -78,8 +78,9 @@ return new Promise(async (resolve, reject) => {
     //
     // Fixed pixel sizes, not the zoom-scaled track font: this is chrome describing the track,
     // and chrome that grows and shrinks with the data underneath it reads as part of the data.
-    function drawTrackTab(ctx, primary, secondary, x, yBottom) {
+    function drawTrackTab(ctx, primary, secondary, x, yBottom, theme) {
         if (!primary && !secondary) return;
+        const T = theme || {};
         ctx.save();
         const BOLD = '700 11px Arial, Helvetica, sans-serif';
         const PLAIN = '11px Arial, Helvetica, sans-serif';
@@ -100,10 +101,10 @@ return new Promise(async (resolve, reject) => {
         ctx.quadraticCurveTo(x + w, yTop, x + w, yTop + r);
         ctx.lineTo(x + w, yBottom);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(238,243,249,0.96)';
+        ctx.fillStyle = T.tabBg || 'rgba(238,243,249,0.96)';
         ctx.fill();
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(11,37,69,0.30)';
+        ctx.strokeStyle = T.tabLine || 'rgba(11,37,69,0.30)';
         ctx.stroke();
 
         ctx.textAlign = 'left';
@@ -112,13 +113,13 @@ return new Promise(async (resolve, reject) => {
         let tx = x + padX;
         if (primary) {
             ctx.font = BOLD;
-            ctx.fillStyle = '#0b2545';
+            ctx.fillStyle = T.tabText || '#0b2545';
             ctx.fillText(primary, tx, ty);
             tx += wP + gap;
         }
         if (secondary) {
             ctx.font = PLAIN;
-            ctx.fillStyle = '#5b6b7d';   // quieter than the species: it is the detail, not the label
+            ctx.fillStyle = T.tabSub || '#5b6b7d';   // quieter than the species: the detail, not the label
             ctx.fillText(secondary, tx, ty);
         }
         ctx.restore();
@@ -942,7 +943,7 @@ return new Promise(async (resolve, reject) => {
                 "description", "genomicsCoord", "showName", "targetPhase", "targetVariant",
                 "hideTrackCoords", "showResizeBar", "showTrackRefMap",
                 "chr", "species", "showSnpIndels", "showLayers", "showOfftargets", "showOligoMap", "showArc",
-                "transcriptID", "highlightIndex", "default_track_height", "showAnnotaions"
+                "transcriptID", "theme", "highlightIndex", "default_track_height", "showAnnotaions"
             ].forEach(copyIfDefined);
 
             if ("sequence" in data) t.sequence = data.sequence;
@@ -1071,6 +1072,9 @@ return new Promise(async (resolve, reject) => {
                 showArc: this.showArc,
 
                 transcriptID: this.transcriptID,
+                // Themes are presentation, but they are a CHOICE the user made, so they travel
+                // with the track through the same JSON route as everything else here.
+                theme: this.theme,
                 highlightIndex: this.highlightIndex,
                 default_track_height: this.default_track_height,
                 showAnnotaions: this.showAnnotaions
@@ -2046,6 +2050,49 @@ return new Promise(async (resolve, reject) => {
                 }
             }
             return temp;
+        }
+
+        // ---- TRACK THEMES ---------------------------------------------------------------
+        //
+        // A theme is a small set of COLOUR ROLES the renderer asks for by name instead of
+        // hard-coding a colour at each draw. Roles, not individual settings, so a new theme is
+        // one row here rather than an edit in a dozen places:
+        //
+        //   seq      the sequence letters
+        //   seqAlt   letters on the reverse strand / the second row
+        //   grid     the vertical ruler lines and the coordinate figure
+        //   tabBg    the caption tab's ground, and tabLine its border
+        //   tabText  the species in the caption tab; tabSub the locus beside it
+        //   wash     the translucent fill laid over a selected track
+        //
+        // 'classic' is exactly what the app drew before themes existed, and is the default, so
+        // a track with no theme set looks as it always did.
+        static get THEMES() {
+            return {
+                classic:    { label: 'Classic',        seq: 'navy',    seqAlt: 'black',   grid: 'lightGray',        tabBg: 'rgba(238,243,249,0.96)', tabLine: 'rgba(11,37,69,0.30)', tabText: '#0b2545', tabSub: '#5b6b7d', wash: 'rgba(255,215,0,0.10)' },
+                paper:      { label: 'Paper',          seq: '#2b2b2b', seqAlt: '#6b6b6b', grid: '#d8d2c4',          tabBg: '#f6f1e3',                tabLine: '#b9ae95',             tabText: '#1a1a1a', tabSub: '#6b6357', wash: 'rgba(120,100,60,0.10)' },
+                blueprint:  { label: 'Blueprint',      seq: '#dbe9ff', seqAlt: '#9dc0ef', grid: 'rgba(219,233,255,0.35)', tabBg: '#0d2b4e',          tabLine: '#5b8ac4',             tabText: '#eaf3ff', tabSub: '#a8c6e8', wash: 'rgba(120,180,255,0.12)' },
+                midnight:   { label: 'Midnight',       seq: '#e6edf3', seqAlt: '#9aa7b4', grid: 'rgba(230,237,243,0.22)', tabBg: '#161b22',          tabLine: '#30363d',             tabText: '#e6edf3', tabSub: '#8b949e', wash: 'rgba(120,140,180,0.14)' },
+                forest:     { label: 'Forest',         seq: '#12352a', seqAlt: '#3d6b58', grid: '#c3d8cd',          tabBg: '#e6f0ea',                tabLine: '#14705c',             tabText: '#0d3b2e', tabSub: '#4a6b60', wash: 'rgba(20,112,92,0.10)' },
+                sunset:     { label: 'Sunset',         seq: '#5c2118', seqAlt: '#a4553f', grid: '#e8cdbf',          tabBg: '#fdeee6',                tabLine: '#d1734f',             tabText: '#6b2a1c', tabSub: '#96604e', wash: 'rgba(255,140,66,0.12)' },
+                slate:      { label: 'Slate',          seq: '#20262c', seqAlt: '#5a656f', grid: '#ccd3d9',          tabBg: '#eef1f4',                tabLine: '#8a97a3',             tabText: '#20262c', tabSub: '#5a656f', wash: 'rgba(90,101,111,0.10)' },
+                highvis:    { label: 'High contrast',  seq: '#000000', seqAlt: '#000000', grid: '#000000',          tabBg: '#ffffff',                tabLine: '#000000',             tabText: '#000000', tabSub: '#000000', wash: 'rgba(0,0,0,0.10)' },
+                mono:       { label: 'Mono',           seq: '#3f3f3f', seqAlt: '#8c8c8c', grid: '#dcdcdc',          tabBg: '#f4f4f4',                tabLine: '#9a9a9a',             tabText: '#2b2b2b', tabSub: '#6f6f6f', wash: 'rgba(0,0,0,0.07)' },
+                lab:        { label: 'Lab notebook',   seq: '#1c3f6e', seqAlt: '#5b7ea8', grid: '#cfd9e6',          tabBg: '#eef3fa',                tabLine: '#7d9bc1',             tabText: '#14345c', tabSub: '#5b7ea8', wash: 'rgba(28,63,110,0.09)' },
+                clinical:   { label: 'Clinical',       seq: '#101820', seqAlt: '#4a5764', grid: '#dfe4e8',          tabBg: '#ffffff',                tabLine: '#c41230',             tabText: '#101820', tabSub: '#7a1c2b', wash: 'rgba(196,18,48,0.08)' }
+            };
+        }
+
+        // The theme this track draws with. Unknown or unset falls back to 'classic' rather
+        // than throwing or drawing nothing -- a theme is presentation, and a bad name should
+        // cost the user their colours, not their track.
+        themeColors() {
+            try {
+                const all = Track.THEMES;
+                return all[this.theme] || all.classic;
+            } catch (e) {
+                return { seq: 'navy', seqAlt: 'black', grid: 'lightGray', tabBg: 'rgba(238,243,249,0.96)', tabLine: 'rgba(11,37,69,0.30)', tabText: '#0b2545', tabSub: '#5b6b7d', wash: 'rgba(255,215,0,0.10)' };
+            }
         }
 
         // Is this track's sequence the SPLICED transcript (mRNA / cDNA), or the full
@@ -4549,7 +4596,7 @@ return new Promise(async (resolve, reject) => {
                                     this.sequence[seq_index],
                                     graph.X(this.grid.X(Math.floor(index) + 0.2)),
                                     graph.Y(this.grid.Y(0.012)),
-                                    'black',
+                                    this.themeColors().seqAlt,
                                     baseFont
                                 );
 
@@ -4609,7 +4656,7 @@ return new Promise(async (resolve, reject) => {
                                     this.sequence[seq_index],
                                     graph.X(this.grid.X(Math.floor(index) + 0.2)),
                                     graph.Y(this.grid.Y(0)),
-                                    'navy',
+                                    this.themeColors().seq,
                                     this.ffont
                                 );
                             }
@@ -4646,8 +4693,9 @@ return new Promise(async (resolve, reject) => {
                 if (trackScreenWidth > 40 && screencell > 0.05) {
                     let increment = (this.grid.xmax - this.grid.xmin) / 4;
 
+                    const __TH = this.themeColors();
                     for (let idx = this.grid.xmin; idx < this.grid.xmax; idx += increment) {
-                        drawVerticalLine(ctx, graph.X(Math.floor(this.grid.X(idx))), graph.Y(this.grid.Y(0)), graph.screenHeight(this.grid.height), 'lightGray', 1);
+                        drawVerticalLine(ctx, graph.X(Math.floor(this.grid.X(idx))), graph.Y(this.grid.Y(0)), graph.screenHeight(this.grid.height), __TH.grid, 1);
 
                     }
                     // ONE genomic coordinate, centred over the track, rather than a number on
@@ -4662,7 +4710,7 @@ return new Promise(async (resolve, reject) => {
                             Math.floor(__mid) + "",
                             graph.X(this.grid.X(__mid)),
                             graph.Y(this.grid.Y(this.grid.ymax)),
-                            'lightGray',
+                            __TH.grid,
                             this.detail_ffont7
                         );
                     }
@@ -4928,7 +4976,8 @@ return new Promise(async (resolve, reject) => {
                         this.species || '',
                         __detail,
                         graph.X((this.grid.xi)),
-                        graph.Y(this.grid.Y(this.grid.ymax))
+                        graph.Y(this.grid.Y(this.grid.ymax)),
+                        this.themeColors()
                     );
                 }
 
