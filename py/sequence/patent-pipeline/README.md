@@ -87,7 +87,12 @@ zcat Homo_sapiens.GRCh38.cdna.all.fa.gz Homo_sapiens.GRCh38.ncrna.fa.gz | gzip >
 cd py/sequence/patent-pipeline
 WORK=./out
 
-# 1) patents + metadata (2020-01-01 .. 2026-12-31, ASO/siRNA/GT)
+# 0) read the filter before paying for the query. Needs no GCP setup at all.
+python3 1_download_patents.py --project - --print-scope
+
+# 1) patents + metadata (2020-01-01 .. 2026-12-31)
+#    --preset wide (the default) is nucleic-acid medicine broadly; --preset core reproduces
+#    the original antisense/RNAi/GT filter exactly.
 python3 1_download_patents.py --project YOUR_GCP_PROJECT \
         --start 2020-01-01 --end 2027-01-01 --work $WORK
 
@@ -112,9 +117,46 @@ bash 5_package.sh --work $WORK
 ---
 
 ## Scope / accuracy notes
-- **CPC filter** (see stage 1): `C12N15/11`, `C12N15/111`, `C12N15/113` (antisense/RNAi),
-  `A61K31/7088`, `A61K31/712`, `A61K31/713` (oligonucleotide actives), `C12N15/86`,
-  `C12N2750/14143`, `A61K48/00` (gene therapy / AAV). Tune in `CPC_PREFIXES` / `KEYWORDS`.
+
+### The CPC filter, and the two presets
+
+`--preset core` is the original filter — 10 CPC prefixes, 16 keywords — kept so an earlier run
+can be reproduced exactly. `--preset wide` is now the **default**: 40 prefixes and 37 keywords,
+adding the rest of nucleic-acid medicine, which the core list caught only when a patent happened
+to also carry an antisense code.
+
+| added | covers |
+|---|---|
+| `C12N15/115`, `/117`, `/10`, `/63`, `/85`, `/87`, `/88`, `/90`, `/907` | aptamers, CpG immunostimulatory oligos, preparation, non-viral introduction, site-specific integration |
+| `C12N9/22`, `C12N2310/20`, `C12N2800/80` | gene editing — Cas nucleases, guide RNA, editing uses |
+| `C12N15/861`, `/864`, `/867`, `C12N2740/15043`, `C12N2750/14` | adenoviral, AAV, lenti / retroviral vectors in detail |
+| `A61K31/711`, `/7105`, `/7115`, `/7125`, `A61K48/005`, `/0058` | DNA and RNA actives (mRNA therapeutics sit in `/7105`) |
+| `C07H21`, `A61K47/54`, `/549`, `C12N2320` | backbone and sugar chemistry, conjugates (GalNAc), delivery uses |
+| `A61K9/127`, `/51`, `/5123` | liposome / lipid-nanoparticle formulation |
+
+Core is a strict subset of wide, so widening is monotonic: nothing that matched before stops
+matching.
+
+**Deliberately excluded: `C12Q1/68*`** (nucleic-acid assays). It is the largest neighbouring
+class and almost entirely diagnostics — every PCR and genotyping patent — so it multiplies the
+result set without adding therapeutic sequence art. If a diagnostics index is ever wanted, add
+it with `--cpc-add C12Q1/68` and build it as its OWN index rather than folding it into this one.
+
+**Keywords are the expensive half.** They are OR'd with the CPC predicate, so one loose term
+does more to the result size than the entire CPC list. `mRNA`, `conjugate`, `nanoparticle` and
+`vector` are kept out for that reason — each appears in a large share of all molecular-biology
+abstracts. The specific phrasings used instead (`lipid nanoparticle`, `self-amplifying RNA`)
+carry the same scope without the noise.
+
+Scope is settable from the command line, so widening it again is a flag rather than an edit:
+
+```bash
+--preset core|wide            # the two built-in scopes
+--cpc      A,B,C              # replace the preset's CPC list
+--cpc-add  C12Q1/68           # add to it
+--keywords a,b,c              # replace the keyword net
+--print-scope                 # print the filter and stop; no BigQuery, no credentials
+```
 - **Short-oligo alignment**: ASO/siRNA are 15–25 nt — matched exactly and within
   `--max-mismatch` edits (both strands); a 20-mer at ≤2 mismatches is specific enough. Longer
   gene-therapy constructs (transgenes, guides+scaffold, AAV cassettes) go through `minimap2`.
