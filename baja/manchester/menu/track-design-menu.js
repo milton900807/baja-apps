@@ -151,6 +151,78 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         if (p.indexOf('ssaso') >= 0) return 'Designing gapmer ASO';
         return 'Designing';
     };
+    // ---- Where a designed compound sits on the track -------------------------------------
+    //
+    // As LOW as it will go, and no lower: compounds start on the bottom row and only climb when
+    // that row is already taken at their x. Every design used to place its whole set at a fixed
+    // y: 0.3, so a second design landed exactly on top of the first and the track read as one
+    // pile of compounds however many runs had produced them.
+    //
+    // Lowest first because the track's own features -- the gene body, the exons, the sequence
+    // and the amino-acid row -- live at the bottom, and a compound is only meaningful next to
+    // the bases it binds. Pushing them all up to a fixed row put empty canvas between a
+    // compound and the thing it is about.
+    const OLIGO_FLOOR_Y = 0.2;      // the bottom row, as asked
+    const OLIGO_ROW_STEP = 0.12;    // one row up: enough to clear a compound and its labels
+    const OLIGO_ROW_MAX = 24;       // a ceiling, so a pathological set cannot climb forever
+
+    // The floor for THIS track: the requested 0.2, unless a peptide row reaches higher.
+    // The amino-acid row normally sits below the baseline, so 0.2 already clears it -- but a
+    // track that puts it elsewhere should push the compounds above it rather than through it,
+    // and track.js publishes where it actually ended up (tgraph.__pepTrackY).
+    const __peptideFloorY = (track) => {
+        try {
+            const p = track && track.tgraph && track.tgraph.__pepTrackY;
+            if (p != null && isFinite(p) && (p + OLIGO_ROW_STEP) > OLIGO_FLOOR_Y) {
+                return p + OLIGO_ROW_STEP;
+            }
+        } catch (e) { }
+        return OLIGO_FLOOR_Y;
+    };
+
+    // Assign each incoming compound the lowest free row. Rows are occupied per x-span, so two
+    // compounds at opposite ends of a transcript share the bottom row instead of stacking.
+    //
+    // Seeded with what is ALREADY on the track, not just this run: designing siRNA and then
+    // gapmers should read as two sets side by side, and the second run cannot know where the
+    // first one landed unless it looks.
+    const __packOligoRows = (track, incoming, xOffset) => {
+        const rows = [];   // rows[i] = [{lo, hi}, ...] spans taken on that row
+        const floor = __peptideFloorY(track);
+        const rowOf = (y) => Math.max(0, Math.round((y - floor) / OLIGO_ROW_STEP));
+        const claim = (ri, lo, hi) => {
+            while (rows.length <= ri) rows.push([]);
+            rows[ri].push({ lo: lo, hi: hi });
+        };
+        const free = (ri, lo, hi) => {
+            const r = rows[ri];
+            if (!r) return true;
+            // A small gap either side, so two compounds that merely touch still read as two.
+            for (const sp of r) { if (lo < sp.hi + 2 && hi + 2 > sp.lo) return false; }
+            return true;
+        };
+        try {
+            for (const o of (track && track.oligos) || []) {
+                if (!o) continue;
+                const lo = Math.min(o.xi, o.xf), hi = Math.max(o.xi, o.xf);
+                if (!isFinite(lo) || !isFinite(hi)) continue;
+                claim(rowOf(Number(o.y) || floor), lo, hi);
+            }
+        } catch (e) { }
+        const off = Number(xOffset) || 0;
+        for (const o of (incoming || [])) {
+            if (!o) continue;
+            // The caller has not applied the track offset yet, so compare in the same space the
+            // compound will finally occupy.
+            const lo = Math.min(o.xi, o.xf) + off, hi = Math.max(o.xi, o.xf) + off;
+            let ri = 0;
+            while (ri < OLIGO_ROW_MAX && !free(ri, lo, hi)) ri++;
+            claim(ri, lo, hi);
+            o.y = floor + ri * OLIGO_ROW_STEP;
+        }
+        return incoming;
+    };
+
     // What the run actually produced. Every design reported its stages and then ended in
     // silence, so one that placed three compounds and one that placed forty looked the same,
     // and a design that placed NONE looked like a design that had not finished.
@@ -461,8 +533,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     }
                     const sirnaArray = buildSirnaArray(r, {
                         strand: selectedTrack.strand,
-                        y: 0.3
+                        // The row is decided by __packOligoRows below, not here. This is the
+                        // value a compound keeps only if the packer cannot run.
+                        y: OLIGO_FLOOR_Y
                     });
+                    __packOligoRows(selectedTrack, sirnaArray, selectedTrack.xi);
 
 
 
@@ -680,6 +755,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         });
 
                         if (track && typeof track.addOligo === "function") {
+                            // Rows BEFORE they land: once added, they would count as occupants
+                            // of the rows they are being assigned, and every one after the first
+                            // would climb over its own set.
+                            try { __packOligoRows(track, oligos, track.xi); } catch (e) { }
                             let __gi = 0;
                             for (const oligo of oligos) {
                                 const length = Math.abs(oligo.xf - oligo.xi)
@@ -697,7 +776,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     }
                     const gapmerArray = buildGapmerArray(r, {
                         strand: selectedTrack.strand,
-                        y: 0.3,
+                        y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
                     __designDone('Gapmer ASO', gapmerArray, selectedTrack);
@@ -849,6 +928,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         });
 
                         if (track && typeof track.addOligo === "function") {
+                            // Rows BEFORE they land: once added, they would count as occupants
+                            // of the rows they are being assigned, and every one after the first
+                            // would climb over its own set.
+                            try { __packOligoRows(track, oligos, track.xi); } catch (e) { }
                             let __gi = 0;
                             for (const oligo of oligos) {
                                 track.addOligo(oligo);
@@ -865,7 +948,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                     const stericBlockingArray = buildStericBlockingArray(r, {
                         strand: selectedTrack.strand,
-                        y: 0.3,
+                        y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
                     __designDone('Steric-blocking ASO', stericBlockingArray, selectedTrack);

@@ -7150,6 +7150,15 @@ return new Promise(async (resolve, reject) => {
             try {
               this.tgraph.__pepMidPx = graph.Y(_pepRowY);
               this.tgraph.__pepTopPx = graph.Y(_pepRowY) - seqPx * 0.7;
+              // ...and in TRACK space, which is the coordinate a compound's y is expressed in.
+              // The design routines place oligos above whatever this row occupies (see
+              // __peptideFloorY in baja/manchester/menu/track-design-menu.js), and screen pixels
+              // are no use to them: they run before the frame that would convert one.
+              //
+              // Inverted through the same two reference points the row itself was built from,
+              // so a peptide row that moves takes the compound floor with it.
+              const _t0 = this.tgraph.Y(0), _t1 = this.tgraph.Y(1);
+              if (_t1 !== _t0) this.tgraph.__pepTrackY = (_pepRowY - _t0) / (_t1 - _t0);
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
