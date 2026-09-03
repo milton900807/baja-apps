@@ -7722,7 +7722,23 @@ pattern, GGGG | Required`
             // library of selected objects should be able to tell you how to select one. Sunset
             // accent to mark them as TOOLS that arm a gesture on the canvas rather than things
             // already selected, so the two kinds are not read as one list.
-            __selectionToolBooks() {
+            // Is there anything a "Clear selection" could act on? Both halves count: the objects
+            // in __lassoSelection, and a sequence range marked on a track. A range with nothing
+            // lassoed is a real state -- select a sequence, design into it, lasso nothing -- and
+            // it is exactly the state where the user most wants to clear and start again.
+            __hasAnySelection() {
+                try {
+                    if ((this.__lassoSelection || []).length) return true;
+                    for (const t of (this.track || [])) {
+                        if (!t) continue;
+                        if (t.selectedRange && t.selectedRange()) return true;
+                        if (t.markstart != null && t.markend != null && t.markend > t.markstart) return true;
+                    }
+                } catch (e) { }
+                return false;
+            }
+
+            __selectionToolBooks(hasSelection) {
                 const arm = (fn) => () => {
                     // The shelf has closed itself by the time this runs, so the canvas is free
                     // for the gesture. Any menu still up would sit over the very area the user
@@ -7753,7 +7769,35 @@ pattern, GGGG | Required`
                         open: arm(() => exec('baja/manchester/menu/select-sequence.js',
                             this, this.genegraph_panel_layout, true))
                     }
-                ];
+                ].concat(hasSelection ? [{
+                    // Last of the four, not first. It belongs with them -- it is the fourth thing
+                    // you do to a selection, and the undo of the other three -- but a destructive
+                    // action as the very first card is the one most likely to be hit by mistake
+                    // when someone opens this library meaning to select something.
+                    //
+                    // Only shown when there IS something to clear: offering it over an empty
+                    // library would be a button that does nothing.
+                    title: 'Clear selection', icon: '○', badge: 'Start over', accent: 'sunset',
+                    blurb: 'Deselect everything — the objects in this library AND any sequence '
+                        + 'range marked on a track.',
+                    open: () => {
+                        try { this.showSideMenu(null); } catch (e) { }
+                        try { this.__selMenuChain = false; } catch (e) { }
+                        try { this.clearSelectionVisuals(); } catch (e) { }
+                        let seq = 0;
+                        try { seq = this.clearSequenceSelections(); } catch (e) { }
+                        this.__lassoSelection = [];
+                        this.__selPanelBounds = null;
+                        this.showDisplay = false;
+                        try { if (this.wake) this.wake(); } catch (e) { }
+                        try {
+                            this.setResultMessage(seq
+                                ? (' Selection cleared, including the selected sequence on '
+                                    + seq + ' track' + (seq === 1 ? '' : 's') + '. ')
+                                : ' Selection cleared. ');
+                        } catch (e) { }
+                    }
+                }] : []);
             }
 
             // An icon for one selection-library card, read from its LABEL.
@@ -7826,7 +7870,7 @@ pattern, GGGG | Required`
                 let tools = [];
                 if (this.__selTopLevel) {
                     this.__selTopLevel = false;
-                    try { tools = this.__selectionToolBooks(); } catch (e) { tools = []; }
+                    try { tools = this.__selectionToolBooks(this.__hasAnySelection()); } catch (e) { tools = []; }
                 }
                 const all = tools.concat(books);
                 if (!all.length) {
@@ -7873,7 +7917,7 @@ pattern, GGGG | Required`
                             id: 'baja-selection-library',
                             title: 'Selection',
                             subtitle: 'Nothing is selected yet — pick a way to select something',
-                            books: this.__selectionToolBooks(),
+                            books: this.__selectionToolBooks(this.__hasAnySelection()),
                             graph: this,
                             onClose: () => {
                                 try { this.__selTopLevel = false; } catch (e) { }
