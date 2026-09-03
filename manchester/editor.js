@@ -689,6 +689,15 @@ function (path, config) {
                                                 }
                                                 if (results.length > 0) {
                                                     loadInhibitionList(results, graph)
+                                                } else if (dnaSequences != null && dnaSequences.length === 1) {
+                                                    // Exactly ONE bare sequence, no id/number pairs: edit-distance-1
+                                                    // across whatever is on screen, and on a miss, offer to search
+                                                    // the pre-mRNA reference for the gene it belongs to, load its
+                                                    // canonical transcript, and map it there instead. A paste that
+                                                    // named several sequences (below) is a different, established
+                                                    // workflow and keeps its own edit-distance-2 behavior unchanged.
+                                                    exec('baja/manchester/menu/paste-sequence-map.js',
+                                                        graph, genegraph_panel_layout, dnaSequences[0]);
                                                 } else {
                                                     if (dnaSequences != null && dnaSequences.length > 0) {
                                                         graph.setMessage("Attempting to map " + dnaSequences.length + " sequences ")
