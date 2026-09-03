@@ -238,6 +238,11 @@ function (graph, genegraph_panel_layout) {
                                         {
                                             'label': 'Edit', 'items': [
                                                 {
+                                                    'label': "Modify Chemistry...", 'ionfunction': createIonFunction(async () => {
+                                                        await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout)
+                                                    })
+                                                },
+                                                {
                                                     'label': "Exon...", 'ionfunction': createIonFunction(async () => {
                                                         graph.setMessage(" Click on an exon to to see menu options... ")
                                                         await exec('baja/manchester/menu/annotation/edit.js', graph, genegraph_panel_layout)
