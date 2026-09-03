@@ -213,11 +213,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // and the amino-acid row -- live at the bottom, and a compound is only meaningful next to
     // the bases it binds. Pushing them all up to a fixed row put empty canvas between a
     // compound and the thing it is about.
-    // 0.2 put the bottom row ON the peptide index numbers, which are drawn above the
-    // amino-acid letters and reach higher than the letters themselves. 0.3 clears them, and is
-    // still low enough that a compound sits next to the bases it binds rather than floating
-    // above the track -- which is the whole point of packing downward.
-    const OLIGO_FLOOR_Y = 0.3;      // the bottom row: above the peptide row AND its index numbers
+    // The floor is DERIVED, not guessed. It was set to 0.2, then 0.3 -- and 0.3 is exactly
+    // where track.js draws the codon index numbers (GX_AA_INDEX_Y), so compounds landed on top
+    // of them. Two guesses were two too many: the track now publishes where both the
+    // amino-acid row and its index numbers actually are, and __peptideFloorY takes the highest
+    // of them plus a row. A row that moves in track.js moves the compounds with it.
+    const OLIGO_FLOOR_Y = 0.2;      // the floor when a track shows no peptide row at all
     const OLIGO_ROW_STEP = 0.12;    // one row up: enough to clear a compound and its labels
     const OLIGO_ROW_MAX = 24;       // a ceiling, so a pathological set cannot climb forever
 
@@ -226,13 +227,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // track that puts it elsewhere should push the compounds above it rather than through it,
     // and track.js publishes where it actually ended up (tgraph.__pepTrackY).
     const __peptideFloorY = (track) => {
+        let floor = OLIGO_FLOOR_Y;
         try {
-            const p = track && track.tgraph && track.tgraph.__pepTrackY;
-            if (p != null && isFinite(p) && (p + OLIGO_ROW_STEP) > OLIGO_FLOOR_Y) {
-                return p + OLIGO_ROW_STEP;
+            const tg = track && track.tgraph;
+            // Both rows, because the INDEX NUMBERS sit higher than the letters they number --
+            // clearing the amino-acid row alone is what put compounds on the numbers.
+            for (const v of [tg && tg.__pepTrackY, tg && tg.__pepIndexTrackY]) {
+                if (v != null && isFinite(v) && (v + OLIGO_ROW_STEP) > floor) floor = v + OLIGO_ROW_STEP;
             }
         } catch (e) { }
-        return OLIGO_FLOOR_Y;
+        return floor;
     };
 
     // Assign each incoming compound the lowest free row. Rows are occupied per x-span, so two

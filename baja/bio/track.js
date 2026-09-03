@@ -68,6 +68,13 @@ return new Promise(async (resolve, reject) => {
 
   let GX_T = GX_THEMES.classic;
 
+  // Track-space y of the CODON INDEX numbers drawn under the amino-acid row. Named because it
+  // is read from two places -- the two draw sites below, and the compound floor in
+  // baja/manchester/menu/track-design-menu.js, which has to sit above these. It was the bare
+  // literal 0.3 in both draw calls, and the design floor was independently set to 0.3, so
+  // designed compounds landed exactly on the numbers.
+  const GX_AA_INDEX_Y = 0.3;
+
   // ---- GENE DRAW CLASSES ----------------------------------------------------------------
   //
   // A theme is not only a palette. These decide HOW a gene body is put on the canvas -- the
@@ -7159,6 +7166,9 @@ return new Promise(async (resolve, reject) => {
               // so a peptide row that moves takes the compound floor with it.
               const _t0 = this.tgraph.Y(0), _t1 = this.tgraph.Y(1);
               if (_t1 !== _t0) this.tgraph.__pepTrackY = (_pepRowY - _t0) / (_t1 - _t0);
+              // The index numbers sit HIGHER than the letters they number, so they and not the
+              // amino-acid row are what a compound has to clear.
+              this.tgraph.__pepIndexTrackY = GX_AA_INDEX_Y;
             } catch (e) { }
             // Genomic position is computed exon-rooted (genomicAt) for child tracks.
             for (let index = Math.floor(tx_world_start); index < Math.floor(tx_world_end); index++) {
@@ -7181,7 +7191,7 @@ return new Promise(async (resolve, reject) => {
                         // (small gap between codons so each triplet reads as a group).
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
                         // Codon number, below the track (also centered on the codon).
-                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(GX_AA_INDEX_Y), "#" + color, this.detail_ffont6);
                       }
                     }
                   }
@@ -7204,7 +7214,7 @@ return new Promise(async (resolve, reject) => {
                         const cellX = Math.round(this.tgraph.X(index));
                         drawCenteredWorldText(graph, oor.aa, cellX + 0.5, _pepRowY, "#" + color, this.font);
                         graph.drawLine(cellX - 1 + 0.12, this.tgraph.Y(-0.012), cellX + 2 - 0.12, this.tgraph.Y(-0.012), "#" + color, 1.5, "round");
-                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(0.3), "#" + color, this.detail_ffont6);
+                        drawCenteredWorldText(graph, oor.codon_index + 1 + "", cellX + 0.5, this.tgraph.Y(GX_AA_INDEX_Y), "#" + color, this.detail_ffont6);
                       }
                     }
                   }
