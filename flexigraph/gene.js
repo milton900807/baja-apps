@@ -11095,7 +11095,19 @@ pattern, GGGG | Required`
                             label: 'Modify chemistry', click: () => {
                                 closeHandoff();
                                 try { window.current = refsOf()[0]; } catch (e) { }
-                                try { Promise.resolve(exec('baja/manchester/menu/compound-editor-panel-all.js', this, L)).catch(() => { }); } catch (e) { }
+                                // compound-editor-panel-all.js BUILDS and RETURNS a toolbar; it
+                                // does not mount itself. The result used to be discarded here, so
+                                // clicking this did nothing at all -- mount it, the same way every
+                                // other caller of a panel-returning script does.
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/compound-editor-panel-all.js', this, L))
+                                        .then((panel) => {
+                                            if (!panel) return;
+                                            try { CurrentLayout.clearComponent('buttonMenuPanel|labelPanel'); } catch (e) { }
+                                            try { CurrentLayout.setComponent('buttonMenuPanel', panel); } catch (e) { }
+                                        })
+                                        .catch(() => { });
+                                } catch (e) { }
                             }, move: () => { }
                         },
                         { label: 'Copy target sequences', click: () => { close(); copySeqs('target'); }, move: () => { } },
