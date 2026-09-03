@@ -1,23 +1,24 @@
 function (graph, genegraph_panel_layout, sequence) {
 
     // A pasted SEQUENCE, mapped onto whatever is on screen -- and if nothing on screen
-    // carries it, offered a search of the full pre-mRNA reference to find the gene it
-    // belongs to, load that gene's canonical transcript, and map it there instead.
+    // carries it, the full pre-mRNA reference is searched automatically for the gene it
+    // belongs to, and every gene it finds is offered as a maximized library the user picks
+    // from to load that gene's canonical transcript and map the sequence onto it.
     //   exec('baja/manchester/menu/paste-sequence-map.js', graph, genegraph_panel_layout, sequence)
     //
-    // Three stages, and the point of splitting them is that they are different SCALES of
-    // search over different things:
+    // Three stages, over different SCALES of search:
     //   1. Edit distance 1 against every track already on the canvas -- a handful of
     //      transcripts, brute-force compared base by base (py/bio/map/le-map-sequences.py,
     //      the same script the existing multi-sequence paste flow in editor.js already uses).
-    //      Cheap, so it runs unconditionally on every paste.
-    //   2. Only on a miss, and only after asking: edit distance 1 against the WHOLE
-    //      pre-mRNA reference (human_premrna, ~2 Gbp, one record per gene including its
-    //      introns) via the same 2-bit index search the off-target tool uses. Not run by
-    //      default because it is a genuinely different scale of work, on every paste, for a
-    //      case (nothing on screen matches) that is usually not what happened.
-    //   3. Load the gene's canonical transcript and repeat step 1 against JUST that new
-    //      track, so the compound lands with the same mapping logic either way.
+    //      Runs unconditionally on every paste.
+    //   2. On a miss, automatically: edit distance 1 against the WHOLE pre-mRNA reference
+    //      (human_premrna, ~2 Gbp, one record per gene including its introns) via the same
+    //      2-bit index search the off-target tool uses.
+    //   3. Every gene it finds is shown as a card in a maximized library (baja/lib/shelf.js)
+    //      -- not auto-loaded, even when there is exactly one, because loading a whole new
+    //      transcript and dropping a compound onto it is not a step to take silently. Each
+    //      card's action loads that gene's canonical transcript and repeats step 1 against
+    //      JUST that new track, so the compound lands with the same mapping logic either way.
 
     const restoreHover = () => {
         try { graph.clearMouseListeners(); } catch (e) { }
@@ -114,8 +115,12 @@ function (graph, genegraph_panel_layout, sequence) {
         restoreHover();
     };
 
-    // Stage 2 result handling: one candidate loads directly; more than one asks which;
-    // none (or none with a resolvable transcript) says so plainly.
+    // Stage 2 result handling: every hit becomes a card in a maximized library
+    // (baja/lib/shelf.js) -- the same full-screen, described-choice idiom the rest of the
+    // app's data/model libraries use -- and "Load and map" is the explicit action on each
+    // card. Not auto-loaded even when there is exactly one candidate: this step loads a
+    // whole new transcript and drops a compound onto it, and that is a decision to show the
+    // user, with what it is about to do described, rather than take silently on their behalf.
     const offerCandidates = (result, seq, ed) => {
         if (result && result.error) {
             graph.setResultMessage(' Could not search the pre-mRNA reference: ' + result.error + ' ');
@@ -133,21 +138,37 @@ function (graph, genegraph_panel_layout, sequence) {
             restoreHover();
             return;
         }
-        if (loadable.length === 1) {
-            loadAndMap(loadable[0], seq, ed);
-            return;
-        }
-        // More than one gene carries this sequence (short or low-complexity probes can do
-        // this even at edit distance 1) -- ask rather than guessing which one was meant.
-        const items = loadable.map((c) => ({
-            label: (c.symbol || c.gene_id) + '  —  ' + c.canonical_transcript
-                + '  (edit distance ' + c.editdistance + ')',
-            move: () => { },
-            click: () => { try { graph.showSideMenu(null); } catch (e) { } loadAndMap(c, seq, ed); }
+
+        // Short or low-complexity probes can hit more than one gene even at edit distance 1
+        // -- the card orders by that, best match first, so the likeliest answer leads.
+        const sorted = loadable.slice().sort((a, b) => a.editdistance - b.editdistance);
+        const books = sorted.map((c) => ({
+            title: (c.symbol || c.gene_id) + '  ▸  ' + c.canonical_transcript,
+            badge: 'ED ' + c.editdistance + (c.strand ? (' · ' + c.strand + ' strand') : ''),
+            blurb: 'Sequence found in the pre-mRNA (unspliced) reference for ' + (c.symbol || c.gene_id)
+                + ' (' + c.gene_id + '). Loads its canonical transcript, ' + c.canonical_transcript
+                + ', and maps this sequence onto it as a compound at the site where it matched'
+                + ' (edit distance ' + c.editdistance + '). If the hit sits in an intron the'
+                + ' canonical isoform does not retain, the transcript still loads but the'
+                + ' sequence will not map onto it -- said plainly if that happens.',
+            open: () => loadAndMap(c, seq, ed)
         }));
-        items.push({ label: '‹ Cancel', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } restoreHover(); } });
-        try { graph.showSideMenu(items, null, 'Found in ' + loadable.length + ' genes ▸'); }
-        catch (e) { loadAndMap(loadable[0], seq, ed); }   // no menu available -- best guess rather than nothing
+
+        try {
+            exec('baja/lib/shelf.js', {
+                id: 'baja-paste-premrna-hits',
+                title: 'Found in the pre-mRNA reference',
+                subtitle: '"' + seq + '"  —  ' + loadable.length + ' gene'
+                    + (loadable.length === 1 ? '' : 's') + ' — pick one to load and map',
+                books: books,
+                graph: graph,
+                // 'open' means a card was clicked -- loadAndMap is already running and owns
+                // its own hover restoration once that async work actually finishes; only a
+                // real dismissal (the ✕ or Escape) re-arms the canvas here. Same convention
+                // as the selection library's shelves elsewhere in this app.
+                onClose: (reason) => { if (reason !== 'open') restoreHover(); }
+            });
+        } catch (e) { loadAndMap(sorted[0], seq, ed); }   // no shelf available -- best guess rather than nothing
     };
 
     return (async () => {
@@ -174,26 +195,16 @@ function (graph, genegraph_panel_layout, sequence) {
             return;
         }
 
-        // No hit anywhere on screen. Ask before spending a whole-genome search on it --
-        // fire-and-forget, matching every other confirm.js caller in this codebase: it has
-        // no decline callback, only a Yes action, so the continuation lives inside it and
-        // declining (Cancel, or dismissing any other way) just closes the prompt. That
-        // dismissal re-arms the canvas hover itself (graph.showMenu's own mouse-up handling),
-        // so there is nothing this function needs to clean up on a decline.
-        graph.setResultMessage(' No match on the tracks currently on display. ');
-        try {
-            await exec('baja/lib/confirm.js',
-                'No match on the tracks currently on display. Search the pre-mRNA'
-                + ' reference for a gene that contains this sequence?',
-                async () => {
-                    graph.setMessage(' Searching the pre-mRNA reference (this covers introns,'
-                        + ' so it can take a few seconds)… ');
-                    let result;
-                    try { result = await exec('py/sequence/offtarget/find-gene-in-premrna.py', seq, ED, 'human_premrna'); }
-                    catch (e) { result = { error: '' + e }; }
-                    offerCandidates(result, seq, ED);
-                },
-                'Search pre-mRNA');
-        } catch (e) { }
+        // No hit anywhere on screen: search the pre-mRNA reference automatically. No
+        // confirm here -- the result is a maximized library the user chooses from (see
+        // offerCandidates), so the "are you sure" moment is that choice, at the point where
+        // there is something concrete to decide about, rather than a blind yes/no before the
+        // search has even run.
+        graph.setMessage(' No match on the tracks currently on display -- searching the'
+            + ' pre-mRNA reference (this covers introns, so it can take a few seconds)… ');
+        let result;
+        try { result = await exec('py/sequence/offtarget/find-gene-in-premrna.py', seq, ED, 'human_premrna'); }
+        catch (e) { result = { error: '' + e }; }
+        offerCandidates(result, seq, ED);
     })();
 }
