@@ -1702,9 +1702,12 @@ function (lib_id, file_id) {
                                     })
                                 },
                                 {
+                                    // Same fix as open-screen.js: copy-pasted from a sibling
+                                    // showWindowMenu-style item, pointed at a nonexistent 'ljl/'
+                                    // root, and mismatched with upload-large-file.js's real
+                                    // contract (a folder path string; it mounts its own panel).
                                     'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                        let menu = await exec('ljl/ml/upload-large-file.js', graph, genegraph_panel_layout);
-                                        graph.showWindowMenu(menu, 10, 10, 400)
+                                        await exec('baja/ml/upload-large-file.js', path_j);
                                     })
                                 },
                                 {

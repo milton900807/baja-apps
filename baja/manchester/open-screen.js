@@ -1645,9 +1645,20 @@ function (lib_id, file_id) {
                         })
                     },
                     {
+                        // Copy-pasted from a sibling item (load-chemistry-tools / splicing-tools3 /
+                        // load-seq-tools-menu, all above) that returns a menu array for
+                        // showWindowMenu -- this kept that call shape after the target became
+                        // upload-large-file.js, which has neither: it takes a folder PATH string,
+                        // not (graph, genegraph_panel_layout), and MOUNTS ITS OWN panel rather than
+                        // returning one. 'ljl/ml/...' also does not exist -- there is no `ljl` app
+                        // root -- so this always resolved to a no-op before even reaching the
+                        // mismatched showWindowMenu call. graph was never declared as unreachable
+                        // here (it is the outer exec('flexigraph/gene.js').then(async graph => ...)
+                        // parameter), so this failed silently rather than throwing.
+                        //
+                        // Fixed to the same call yak.js's own Upload item uses.
                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                            let menu = await exec('ljl/ml/upload-large-file.js', graph, genegraph_panel_layout);
-                            graph.showWindowMenu(menu, 10, 10, 400)
+                            await exec('baja/ml/upload-large-file.js', path_j);
                         })
                     },
                     {
