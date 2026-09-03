@@ -7284,17 +7284,24 @@ pattern, GGGG | Required`
                 // runner calls showSideMenu directly with its own list, so a check anywhere else
                 // would have changed idiom one level in.
                 //
-                // Its lifetime is the SELECTION CHAIN, which already draws exactly the line that
-                // matters: openSelectionMenu starts it, a deliberate handoff keeps it (see
-                // closeHandoff), and dismissing with showSideMenu(null) ends it -- the idiom
-                // every unrelated menu uses before opening itself. So an unrelated menu never
-                // inherits library mode, and reusing that lifetime means there is one definition
-                // of "still the same navigation" rather than two that can disagree.
+                // Its lifetime is the SESSION -- from the menubar button until the user closes
+                // the library -- and deliberately NOT the selection chain.
+                //
+                // The chain ends on showSideMenu(null), which is the idiom every script uses
+                // before opening its own menu: `graph.showSideMenu(null); exec(...)`. Gating on
+                // it meant that the moment navigation handed off to another script -- the track
+                // layers menu, the mutations menu, the per-oligo menu -- the chain was cleared
+                // by that script's own dismissal and the next level came back as a side menu.
+                // The library jumped out one level in, which is exactly what it must not do.
+                //
+                // Now only leaving ends it: the shelf reports WHY it closed (see
+                // baja/lib/shelf.js), and the session survives a close that happened to make
+                // room for the thing the user just clicked.
                 //
                 // Opened from the selection window ON THE CANVAS the flag is false, and this
                 // whole block is skipped: that route keeps its side menus.
                 try {
-                    if (list && this.__menuLibrary && this.__selMenuChain) {
+                    if (list && this.__menuLibrary) {
                         this.__showSelectionShelf(list, label);
                         return;
                     }
@@ -7743,6 +7750,11 @@ pattern, GGGG | Required`
                     // The shelf has closed itself by the time this runs, so the canvas is free
                     // for the gesture. Any menu still up would sit over the very area the user
                     // is about to drag across.
+                    //
+                    // These END the library session: they hand control back to the canvas, and
+                    // what the user does next -- lassoing, then opening the selection window --
+                    // is the canvas route, which has its own side menus.
+                    try { this.__menuLibrary = false; } catch (e) { }
                     try { this.showSideMenu(null); } catch (e) { }
                     try { this.__selMenuChain = false; } catch (e) { }
                     try { fn(); } catch (e) {
@@ -7885,12 +7897,14 @@ pattern, GGGG | Required`
                         subtitle: sub || 'Everything currently selected, and what can be done with it',
                         books: all,
                         graph: this,
-                        onClose: () => {
-                            // Ending the CHAIN is what ends library mode -- the same thing
-                            // showSideMenu(null) does for a side menu. A level opened from here
-                            // re-arms it through show()/closeHandoff, exactly as before.
+                        onClose: (reason) => {
+                            // 'open' means a card was activated and the shelf stepped aside for
+                            // it: the session continues, and whatever that action opens is drawn
+                            // as the next level. Only a real dismissal ends the session and
+                            // hands the canvas back.
+                            if (reason === 'open') return;
+                            try { this.__menuLibrary = false; } catch (e) { }
                             try { this.__selMenuChain = false; } catch (e) { }
-                            // Re-arm the canvas so the editor is usable again.
                             try { this.clearMouseListeners(); } catch (e) { }
                             try { this.setMouseMode('navigate'); } catch (e) { }
                             try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }
@@ -7908,6 +7922,9 @@ pattern, GGGG | Required`
                 // Marks the NEXT shelf as the top level, so the three selection tools are added
                 // there and nowhere deeper.
                 this.__selTopLevel = true;
+                // Opens the session. Everything from here until the user closes the library is
+                // drawn as a library, whichever script builds the level.
+                this.__menuLibrary = true;
                 if (!sel.length) {
                     // Nothing selected is not an error, and telling the user so and stopping was
                     // the least useful thing this button could do: what they need at that moment
@@ -7919,8 +7936,10 @@ pattern, GGGG | Required`
                             subtitle: 'Nothing is selected yet — pick a way to select something',
                             books: this.__selectionToolBooks(this.__hasAnySelection()),
                             graph: this,
-                            onClose: () => {
+                            onClose: (reason) => {
+                                if (reason === 'open') return;
                                 try { this.__selTopLevel = false; } catch (e) { }
+                                try { this.__menuLibrary = false; } catch (e) { }
                                 try { this.clearMouseListeners(); } catch (e) { }
                                 try { this.setMouseMode('navigate'); } catch (e) { }
                                 try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }

@@ -74,10 +74,18 @@ function (opts) {
         document.body.appendChild(overlay);
 
         let onKey = null;
-        const close = () => {
+        // `reason` tells onClose WHY the shelf went away, which is the difference between the
+        // user leaving and the shelf getting out of the way of the thing it just launched:
+        //
+        //   'dismiss'  the ✕, Escape at the top level, or Close in a reference view
+        //   'open'     a card was activated -- the shelf closes first so the action has the
+        //              screen, and whatever it opens is the continuation of this session
+        //
+        // Without it a caller cannot tell the two apart, because both arrive here as a close.
+        const close = (reason) => {
             try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
-            try { if (typeof o.onClose === 'function') o.onClose(); } catch (e) { }
+            try { if (typeof o.onClose === 'function') o.onClose(reason || 'dismiss'); } catch (e) { }
         };
         // Escape walks OUT one level before it closes: inside a sub-library it is the same
         // gesture as Back, which is what a nested view has to mean, or three levels down the
@@ -91,11 +99,11 @@ function (opts) {
                 if (e.key !== 'Escape') return;
                 if (detailBack) { detailBack(); return; }
                 if (stack.length > 1) { up(); return; }
-                close();
+                close('dismiss');
             } catch (er) { }
         };
         document.addEventListener('keydown', onKey, true);
-        header.querySelector('#shelf-x').onclick = close;
+        header.querySelector('#shelf-x').onclick = () => close('dismiss');
 
         const q = header.querySelector('#shelf-q');
         const render = () => {
@@ -188,7 +196,7 @@ function (opts) {
                         // so shelves that predate this are unaffected.
                         if (b.docs) { showDetail(b); return; }
                         if (typeof b.open !== 'function') return;
-                        close();
+                        close('open');
                         try { await b.open(); }
                         catch (e) {
                             try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
@@ -256,11 +264,11 @@ function (opts) {
             // While the reference view is up, the header Back would pop the shelf UNDER it.
             try { header.querySelector('#shelf-up').style.display = 'none'; } catch (e) { }
             try { pane.querySelector('#shelf-back').onclick = back; } catch (e) { }
-            try { pane.querySelector('#shelf-done').onclick = () => close(); } catch (e) { }
+            try { pane.querySelector('#shelf-done').onclick = () => close('dismiss'); } catch (e) { }
             try {
                 const lb = pane.querySelector('#shelf-load');
                 if (lb) lb.onclick = async () => {
-                    close();
+                    close('open');
                     try { await b.open(); }
                     catch (e) {
                         try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
