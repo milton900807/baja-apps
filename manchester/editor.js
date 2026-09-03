@@ -1898,6 +1898,40 @@ function (path, config) {
                     } catch (e) { }
                 };
 
+                // The Selection button is built here, not inline in the panel below, because the
+                // badge has to be able to reach it: button-menu binds the SAME array of objects
+                // it was handed, so mutating this one's `badge` is what updates the toolbar.
+                const __selBtn = {
+                    label: 'Selection',
+                    icon: 'checklist',
+                    tooltip: 'Selected objects, and everything the selection window can do with them',
+                    ionFunction: createIonFunction(() => {
+                        try { graph.hideMenu(); } catch (e) { }
+                        try { graph.showSideMenu(null); } catch (e) { }
+                        try { graph.openSelectionLibrary(); }
+                        catch (e) {
+                            try { graph.setError(' Could not open the selection library: ' + e + ' '); } catch (e2) { }
+                        }
+                    })
+                };
+                // Kept in step with the selection. Polled rather than pushed: nothing in the
+                // editor announces a selection change -- the lasso, a track click, a delete and
+                // an undo all write __lassoSelection directly -- so a watcher is the only thing
+                // that sees all of them without touching every writer.
+                //
+                // One second, and it only writes when the number actually changes, so the
+                // common case is a comparison and nothing else.
+                try {
+                    if (window.__bajaSelBadgeTimer) clearInterval(window.__bajaSelBadgeTimer);
+                    window.__bajaSelBadgeTimer = setInterval(() => {
+                        try {
+                            const n = ((graph && graph.__lassoSelection) || []).length | 0;
+                            const v = n > 99 ? '99+' : (n > 0 ? ('' + n) : '');
+                            if (__selBtn.badge !== v) { __selBtn.badge = v; }
+                        } catch (e) { }
+                    }, 1000);
+                } catch (e) { }
+
                 genegraph_panel_layout = {
                     wid: 'card',
                     componentRef: 'geneGraphPanel',
@@ -2264,24 +2298,10 @@ function (path, config) {
                                                         catch (e) { try { graph.setMessage(' Design institute failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                     })
                                                 },
-                                                {
-                                                    // The selection library: everything currently selected, and every
-                                                    // action the selection window offers, as a library rather than an
-                                                    // on-canvas menu. Sits before Navigate because it is about WHAT is
-                                                    // selected rather than about moving the view.
-                                                    //
-                                                    // In the MENUBAR rather than on the canvas: the canvas control row
-                                                    // is for direct manipulation of the view -- zoom, pan, box, lasso --
-                                                    // and this opens a full-screen library, which is a menubar action.
-                                                    label: 'Selection', ionFunction: createIonFunction(() => {
-                                                        try { graph.hideMenu(); } catch (e) { }
-                                                        try { graph.showSideMenu(null); } catch (e) { }
-                                                        try { graph.openSelectionLibrary(); }
-                                                        catch (e) {
-                                                            try { graph.setError(' Could not open the selection library: ' + e + ' '); } catch (e2) { }
-                                                        }
-                                                    })
-                                                },
+                                                // The selection library, built above so its badge can be
+                                                // updated. Before Navigate because it is about WHAT is
+                                                // selected rather than about moving the view.
+                                                __selBtn,
                                                 {
                                                     label: 'Navigate', ionFunction: createIonFunction(async () => {
 
