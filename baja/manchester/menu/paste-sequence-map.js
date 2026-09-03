@@ -17,8 +17,11 @@ function (graph, genegraph_panel_layout, sequence) {
     //   3. Every gene it finds is shown as a card in a maximized library (baja/lib/shelf.js)
     //      -- not auto-loaded, even when there is exactly one, because loading a whole new
     //      transcript and dropping a compound onto it is not a step to take silently. Each
-    //      card's action loads that gene's canonical transcript and repeats step 1 against
-    //      JUST that new track, so the compound lands with the same mapping logic either way.
+    //      card's action loads that gene's canonical transcript and places the compound at
+    //      the GENOMIC SPAN stage 2 already found -- no client-side re-search, and no
+    //      client-side re-search is even reliable here: edit distance 1 against the loaded
+    //      transcript's SPLICED sequence can miss a site edit distance 1 against the
+    //      unspliced locus already found for real. See genomicSpanOnTrack below.
 
     const restoreHover = () => {
         try { graph.clearMouseListeners(); } catch (e) { }
@@ -27,10 +30,11 @@ function (graph, genegraph_panel_layout, sequence) {
         try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
     };
 
-    // Map `seq` onto ONE track at the given edit distance. Returns the placed Oligo, or
-    // null on no hit. Shared by stage 1 (every displayed track) and stage 3 (the one
-    // freshly-loaded transcript), so a compound lands the same way regardless of which
-    // stage found its target -- one placement rule, not two copies of it.
+    // Map `seq` onto ONE track at the given edit distance, by SEARCHING it -- there is no
+    // prior known location to place it at. Returns the placed Oligo, or null on no hit.
+    // Stage 1 only: stage 3 places at a genomic span it already has (genomicSpanOnTrack),
+    // not by searching, since a client-side search of a spliced transcript can miss a
+    // real hit the server already found in the unspliced locus.
     const mapOntoTrack = async (t, seq, ed) => {
         try {
             const trackSeq = ('' + (t.sequence || '')).trim();
@@ -68,8 +72,43 @@ function (graph, genegraph_panel_layout, sequence) {
         return placed;
     };
 
-    // Stage 3: load one gene's canonical transcript, then map onto just that.
-    const loadAndMap = async (candidate, seq, ed) => {
+    // The genomic span of a hit, placed onto a LOADED track directly -- no second edit-
+    // distance search. The server already found exactly where this sequence sits
+    // (find-gene-in-premrna.py's genomic_start/genomic_end, computed from the hit's
+    // position in the pre-mRNA record plus the gene's own genomic span and strand); a
+    // client-side re-search at edit distance 1 against the SPLICED transcript is not just
+    // redundant, it can fail on a real hit -- the loaded sequence has introns removed, a
+    // different string, and edit distance 1 against it is not guaranteed to find a site
+    // edit distance 1 against the unspliced locus already found for real.
+    //
+    // Track.variantWorldX (baja/bio/track.js) is the app's own genomic -> track-world
+    // conversion, the same one variant loading uses -- exon-aware, so a genomic position
+    // an isoform's exons do not cover returns null rather than a wrong guess.
+    //
+    // Both ends resolving is not enough on its own: each end can individually land inside
+    // SOME exon while the two are not actually contiguous on the spliced transcript, if the
+    // span crosses an intron the canonical isoform splices out in between. A local span
+    // shorter than the genomic one is exactly that signature, so it is checked for and
+    // rejected rather than silently placing a truncated or wrongly-spanning compound.
+    const genomicSpanOnTrack = (t, candidate) => {
+        try {
+            if (!candidate.chr || candidate.genomic_start == null || candidate.genomic_end == null) return null;
+            if (!t.variantWorldX) return null;
+            const wx0 = t.variantWorldX(candidate.chr, candidate.genomic_start);
+            const wx1 = t.variantWorldX(candidate.chr, candidate.genomic_end);
+            if (wx0 == null || wx1 == null) return null;
+            const xi = Math.min(wx0, wx1);
+            const xf = Math.max(wx0, wx1) + 1;   // half-open, so the end base is included
+            const genomicLen = candidate.genomic_end - candidate.genomic_start + 1;
+            if ((xf - xi) !== genomicLen) return null;   // crossed an intron in between
+            return { xi: xi, xf: xf };
+        } catch (e) { return null; }
+    };
+
+    // Stage 3: load one gene's canonical transcript, then place the compound at the
+    // genomic span the server already found. No `ed` parameter here on purpose -- there is
+    // no edit-distance search left in this function to take one.
+    const loadAndMap = async (candidate, seq) => {
         if (!candidate.canonical_transcript) {
             graph.setResultMessage(' ' + (candidate.symbol || candidate.gene_id)
                 + ' contains this sequence, but its canonical transcript could not be'
@@ -92,25 +131,53 @@ function (graph, genegraph_panel_layout, sequence) {
             restoreHover();
             return;
         }
-        const compound = await mapOntoTrack(t, seq, ed);
-        if (compound) {
+        const span = genomicSpanOnTrack(t, candidate);
+        if (span) {
             try {
-                const len = t.sequence ? t.sequence.length : (t.xf - t.xi);
-                graph.zoomToTrack(graph.track.length - 1, len * -0.2, len + len * 0.2);
-            } catch (e) { }
-            graph.setResultMessage(' Mapped onto ' + (candidate.symbol || candidate.gene_id)
-                + ' (' + candidate.canonical_transcript + '), found via the pre-mRNA reference. ');
+                const Biopolymer = await exec('baja/chem/biopolymer.js');
+                const matched = t.getSequenceRange(span.xi, span.xf);
+                const bioObject = {
+                    trackName: t.name,
+                    startIndex: span.xi,
+                    strand: t.strand,
+                    endIndex: span.xf,
+                    y: (t.tgraph.ymax - 0.2)
+                };
+                const compound = Biopolymer.generateDNAOligo(seq, matched, bioObject);
+                compound.id = '' + Math.random();
+                compound.sequence = matched;
+                compound.highlight(10000, 'purple');
+                t.addOligo(compound);
+                try {
+                    const len = t.sequence ? t.sequence.length : (t.xf - t.xi);
+                    graph.zoomToTrack(graph.track.length - 1, len * -0.2, len + len * 0.2);
+                } catch (e) { }
+                graph.setResultMessage(' Mapped onto ' + (candidate.symbol || candidate.gene_id)
+                    + ' (' + candidate.canonical_transcript + '), at the site the pre-mRNA'
+                    + ' reference search found. ');
+            } catch (e) {
+                graph.setError(' Loaded ' + candidate.canonical_transcript
+                    + ', but could not place the compound: ' + e + ' ');
+            }
+        } else if (!candidate.chr || candidate.genomic_start == null) {
+            // The server-side lookup itself could not resolve genomic coordinates for this
+            // gene (chrom/strand/start/end missing from genes.sqlite) -- a different, rarer
+            // condition from a real intronic miss, said as what it actually is.
+            graph.setResultMessage(' Loaded ' + candidate.canonical_transcript
+                + ' (' + (candidate.symbol || candidate.gene_id) + '), but the search could not'
+                + ' determine where on it the sequence sits. The track is on screen if you'
+                + ' want to look. ');
         } else {
             // The gene's PRIMARY transcript region contained it (the pre-mRNA search matched
             // the whole locus, introns included), but the loaded transcript is the SPLICED
-            // canonical isoform -- if the hit sat in an intron, or in an exon this isoform
-            // skips, the sequence is genuinely not on this particular transcript's sequence,
-            // even though it is in the gene. Said plainly rather than looking like a second,
+            // canonical isoform -- the hit sat in an intron, or spanned one, that this
+            // isoform does not retain. Said plainly rather than looking like a second,
             // unrelated failure.
             graph.setResultMessage(' Loaded ' + candidate.canonical_transcript
                 + ' (' + (candidate.symbol || candidate.gene_id) + '), but the sequence sits '
                 + 'outside this transcript\'s spliced sequence (likely an intron the canonical '
-                + 'isoform does not retain). The track is on screen if you want to look. ');
+                + 'isoform does not retain, or a span that crosses one). The track is on screen'
+                + ' if you want to look. ');
         }
         restoreHover();
     };
@@ -144,14 +211,14 @@ function (graph, genegraph_panel_layout, sequence) {
         const sorted = loadable.slice().sort((a, b) => a.editdistance - b.editdistance);
         const books = sorted.map((c) => ({
             title: (c.symbol || c.gene_id) + '  ▸  ' + c.canonical_transcript,
-            badge: 'ED ' + c.editdistance + (c.strand ? (' · ' + c.strand + ' strand') : ''),
+            badge: 'ED ' + c.editdistance + (c.gene_strand ? (' · ' + c.gene_strand + ' strand') : ''),
             blurb: 'Sequence found in the pre-mRNA (unspliced) reference for ' + (c.symbol || c.gene_id)
                 + ' (' + c.gene_id + '). Loads its canonical transcript, ' + c.canonical_transcript
                 + ', and maps this sequence onto it as a compound at the site where it matched'
                 + ' (edit distance ' + c.editdistance + '). If the hit sits in an intron the'
                 + ' canonical isoform does not retain, the transcript still loads but the'
                 + ' sequence will not map onto it -- said plainly if that happens.',
-            open: () => loadAndMap(c, seq, ed)
+            open: () => loadAndMap(c, seq)
         }));
 
         try {
@@ -168,7 +235,7 @@ function (graph, genegraph_panel_layout, sequence) {
                 // as the selection library's shelves elsewhere in this app.
                 onClose: (reason) => { if (reason !== 'open') restoreHover(); }
             });
-        } catch (e) { loadAndMap(sorted[0], seq, ed); }   // no shelf available -- best guess rather than nothing
+        } catch (e) { loadAndMap(sorted[0], seq); }   // no shelf available -- best guess rather than nothing
     };
 
     return (async () => {

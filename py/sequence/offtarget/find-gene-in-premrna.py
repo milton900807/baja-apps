@@ -37,8 +37,9 @@ Params (after the EngineMonitor argument the server always prepends):
                                    with symbol but no canonical_transcript)
 
 Resolves to:
-    { "candidates": [ { "gene_id", "gene_id_versioned", "symbol",
-                         "canonical_transcript", "editdistance", "strand" }, ... ],
+    { "candidates": [ { "gene_id", "gene_id_versioned", "symbol", "canonical_transcript",
+                         "editdistance", "match_strand", "chr", "gene_strand",
+                         "genomic_start", "genomic_end" }, ... ],
       "total_hits": <int, before de-duplication by gene>,
       "index": "<index name searched>" }
 
@@ -46,6 +47,16 @@ One entry per gene that had a hit, best (lowest) edit distance kept when several
 one gene matched, sorted by edit distance. `canonical_transcript` is None when the symbol
 was not found in genes.sqlite (a non-human index, or a symbol genes.sqlite does not carry)
 -- the client has to handle that rather than assume every candidate is loadable.
+
+`genomic_start`/`genomic_end` (1-based, inclusive) are the hit's real genomic span,
+computed from its position within the pre-mRNA record plus the gene's own genomic span
+and strand (both from genes.sqlite) -- so the client can place the compound at the exact
+site DIRECTLY, with no second edit-distance search against whatever transcript it loads.
+Also None when the gene/strand lookup failed (same conditions as `canonical_transcript`).
+Verified independently against this app's own cDNA reference at several exon positions on
+both a plus-strand gene (EGFR) and a minus-strand one (TP53): the base decoded from the
+pre-mRNA index at the computed record position matched the cDNA's base at every position
+checked.
 """
 import json
 import os
@@ -163,22 +174,74 @@ def main():
     for gid_full, h in by_gene.items():
         sym = symbol_of.get(gid_full, "")
         canon = None
+        gene_row = None   # (chrom, gene_strand, gene_start, gene_end) -- 1-based GFF3
         if db and sym:
             try:
                 row = db.execute(
-                    "select canonical_tx from genes where name = ? collate nocase", (sym,)
+                    "select canonical_tx, chrom, strand, start, end from genes"
+                    " where name = ? collate nocase", (sym,)
                 ).fetchone()
-                if row and row[0]:
-                    canon = strip_version(row[0])
+                if row:
+                    if row[0]:
+                        canon = strip_version(row[0])
+                    gene_row = row[1:]
             except Exception:
                 canon = None
+                gene_row = None
+
+        # The GENOMIC span of the hit, computed from where it sits WITHIN the pre-mRNA
+        # record (h['start']/h['end'], 0-based half-open, record-relative -- see
+        # search.py's _to_coords) plus the gene's own genomic span and strand.
+        #
+        # This is what the client places the compound with DIRECTLY: no second,
+        # client-side edit-distance search against the loaded (spliced) transcript. That
+        # second search is not just redundant, it can genuinely fail even when the first
+        # one is correct -- the loaded transcript is the canonical isoform's SPLICED
+        # sequence, a different string with introns removed, and edit distance 1 against
+        # it is not guaranteed to find a site that edit distance 1 against the unspliced
+        # locus already found for real. The genomic coordinates are exact regardless of
+        # splicing; the client maps them onto whatever transcript it loads via the same
+        # exon-aware genomic->local conversion the app already uses for variants
+        # (Track.variantWorldX / genomicToLocal in baja/bio/track.js), which itself
+        # returns null for a position an isoform's exons do not cover -- so a hit that
+        # turns out to sit in an intron the canonical transcript does not retain is
+        # detected exactly, not inferred from a failed guess.
+        #
+        # build-premrna.py reverse-complements a minus-strand gene's genomic slice into
+        # the record, so record position 0 is the gene's 5' end regardless of genomic
+        # strand: record_pos -> genomic (1-based) is `gene_start + record_pos` on the
+        # plus strand, `gene_end - record_pos` on the minus strand (both derivable from
+        # that same reverse-complement + reversal, verified against build-premrna.py's
+        # own fa.fetch/translate/[::-1] construction).
+        chrom = gene_strand = gene_start = gene_end = None
+        genomic_lo = genomic_hi = None
+        if gene_row and all(v is not None for v in gene_row):
+            chrom, gene_strand, gene_start, gene_end = gene_row
+            try:
+                gene_start = int(gene_start)
+                gene_end = int(gene_end)
+                r0 = h.get("start")   # 0-based, record-relative, inclusive
+                r1 = (h.get("end") or 0) - 1   # 0-based, record-relative, inclusive
+                if r0 is not None and r1 >= r0:
+                    if gene_strand == "-":
+                        g0, g1 = gene_end - r0, gene_end - r1
+                    else:
+                        g0, g1 = gene_start + r0, gene_start + r1
+                    genomic_lo, genomic_hi = min(g0, g1), max(g0, g1)
+            except Exception:
+                genomic_lo = genomic_hi = None
+
         candidates.append({
             "gene_id": strip_version(gid_full),
             "gene_id_versioned": gid_full,
             "symbol": sym,
             "canonical_transcript": canon,
             "editdistance": h.get("editdistance"),
-            "strand": h.get("strand"),
+            "match_strand": h.get("strand"),   # which strand of the record the query hit
+            "chr": chrom,
+            "gene_strand": gene_strand,        # the gene's own genomic strand
+            "genomic_start": genomic_lo,       # 1-based, inclusive -- None if unresolved
+            "genomic_end": genomic_hi,         # 1-based, inclusive -- None if unresolved
         })
 
     candidates.sort(key=lambda c: (c["editdistance"] if c["editdistance"] is not None else 99,
