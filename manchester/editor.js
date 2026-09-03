@@ -371,7 +371,7 @@ function (path, config) {
                         return graph.getPasteFunction()(e);
                     }
 
-                    let loadInhibitionList = async (dnaSequences, graph) => {
+                    let loadInhibitionList = async (dnaSequences, graph, ed) => {
                         let Barchart = await exec('baja/bio/barchart-track.js')
                         let Biopolymer = await exec('baja/chem/biopolymer.js');
 
@@ -387,7 +387,6 @@ function (path, config) {
                             let mapped = 0;
                             for (let t of graph.track) {
                                 let sequence = t.sequence.trim();
-                                let ed = 1;
                                 let res = await exec('py/bio/map/le-map-sequences.py', sequence, seqlist, ed);
                                 let index__ = 0;
                                 if (res && res.length > 0) {
@@ -688,19 +687,25 @@ function (path, config) {
                                                     results.push({ id: uuid(), dna: matches[1], number: parseInt(matches[2]) });
                                                 }
                                                 if (results.length > 0) {
-                                                    loadInhibitionList(results, graph)
+                                                    // Ask once, up front, how many mismatches this CLIENT-SIDE
+                                                    // search (le-map-sequences.py, against tracks on the canvas)
+                                                    // should tolerate, instead of a fixed edit distance 1.
+                                                    const ed = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, 1);
+                                                    loadInhibitionList(results, graph, ed)
                                                 } else if (dnaSequences != null && dnaSequences.length === 1) {
-                                                    // Exactly ONE bare sequence, no id/number pairs: edit-distance-1
-                                                    // across whatever is on screen, and on a miss, offer to search
-                                                    // the pre-mRNA reference for the gene it belongs to, load its
-                                                    // canonical transcript, and map it there instead. A paste that
-                                                    // named several sequences (below) is a different, established
-                                                    // workflow and keeps its own edit-distance-2 behavior unchanged.
+                                                    // Exactly ONE bare sequence, no id/number pairs: search whatever
+                                                    // is on screen at an edit distance the user picks, and on a
+                                                    // miss, offer to search the pre-mRNA reference for the gene it
+                                                    // belongs to, load its canonical transcript, and map it there
+                                                    // instead. paste-sequence-map.js asks its own edit-distance
+                                                    // prompt (baja/manchester/menu/prompt-edit-distance.js).
                                                     exec('baja/manchester/menu/paste-sequence-map.js',
                                                         graph, genegraph_panel_layout, dnaSequences[0]);
                                                 } else {
                                                     if (dnaSequences != null && dnaSequences.length > 0) {
                                                         graph.setMessage("Attempting to map " + dnaSequences.length + " sequences ")
+                                                        // Ask once, up front -- same client-side prompt every path here uses.
+                                                        const ed = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, 2);
                                                         let seqlist = []
                                                         let index = 1;
                                                         for (let i of dnaSequences) {
@@ -712,7 +717,8 @@ function (path, config) {
                                                             let mapped = 0;
                                                             for (let t of graph.track) {
                                                                 let sequence = t.sequence.trim();
-                                                                let ed = 2;
+                                                                // `ed` is the user-prompted value from just above -- not
+                                                                // re-declared per track (it used to be, always 2).
                                                                 let res = await exec('py/bio/map/le-map-sequences.py', sequence, seqlist, ed);
                                                                 let index__ = 0;
                                                                 if (res && res.length > 0) {

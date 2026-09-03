@@ -7,13 +7,18 @@ function (graph, genegraph_panel_layout, sequence) {
     //   exec('baja/manchester/menu/paste-sequence-map.js', graph, genegraph_panel_layout, sequence)
     //
     // Three stages, over different SCALES of search:
-    //   1. Edit distance 1 against every track already on the canvas -- a handful of
-    //      transcripts, brute-force compared base by base (py/bio/map/le-map-sequences.py,
-    //      the same script the existing multi-sequence paste flow in editor.js already uses).
+    //   1. The CLIENT-SIDE stage: every track already on the canvas -- a handful of
+    //      transcripts, brute-force compared base by base
+    //      (py/bio/map/le-map-sequences.py, the same script the existing multi-sequence
+    //      paste flow in editor.js already uses) -- at an edit distance the user picks
+    //      (0-3) via baja/manchester/menu/prompt-edit-distance.js, asked once up front.
     //      Runs unconditionally on every paste.
     //   2. On a miss, automatically: edit distance 1 against the WHOLE pre-mRNA reference
     //      (human_premrna, ~2 Gbp, one record per gene including its introns) via the same
-    //      2-bit index search the off-target tool uses.
+    //      2-bit index search the off-target tool uses. A SERVER-side, different algorithm
+    //      (a seed-and-verify index, not a brute-force compare) -- fixed at edit distance 1
+    //      regardless of what was chosen for stage 1, since widening a whole-genome search
+    //      the same way would make it far less selective.
     //   3. Every gene it finds is shown as a card in a maximized library (baja/lib/shelf.js)
     //      -- not auto-loaded, even when there is exactly one, because loading a whole new
     //      transcript and dropping a compound onto it is not a step to take silently. Each
@@ -250,7 +255,10 @@ function (graph, genegraph_panel_layout, sequence) {
             // quietly rather than running a search that cannot mean anything.
             return;
         }
-        const ED = 1;   // the whole point of this flow, per how it was asked for
+        // Ask once, up front, how many mismatches the CLIENT-SIDE stage (below) should
+        // tolerate -- 0-3, via the same quick center-menu choice every client-side mapping
+        // path in this app now uses. Defaults to 1 if the prompt can't be shown.
+        const ED = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, 1);
 
         graph.setMessage(' Searching displayed tracks for a match… ');
         const placed = await mapOntoDisplayedTracks(seq, ED);
@@ -267,11 +275,18 @@ function (graph, genegraph_panel_layout, sequence) {
         // offerCandidates), so the "are you sure" moment is that choice, at the point where
         // there is something concrete to decide about, rather than a blind yes/no before the
         // search has even run.
+        //
+        // Fixed at edit distance 1 -- NOT the client-side ED chosen above. This is a
+        // different, server-side algorithm (a 2-bit seed-and-verify index over the whole
+        // genome, not a brute-force compare), and widening a whole-genome search the same
+        // way the user widened the on-screen one would make it far less selective (more
+        // candidate sites, slower, noisier) rather than more useful.
+        const PREMRNA_ED = 1;
         graph.setMessage(' No match on the tracks currently on display -- searching the'
             + ' pre-mRNA reference (this covers introns, so it can take a few seconds)… ');
         let result;
-        try { result = await exec('py/sequence/offtarget/find-gene-in-premrna.py', seq, ED, 'human_premrna'); }
+        try { result = await exec('py/sequence/offtarget/find-gene-in-premrna.py', seq, PREMRNA_ED, 'human_premrna'); }
         catch (e) { result = { error: '' + e }; }
-        offerCandidates(result, seq, ED);
+        offerCandidates(result, seq, PREMRNA_ED);
     })();
 }
