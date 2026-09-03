@@ -14,19 +14,21 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // untouched. Every leaf still opens its own Default / Advanced dialog and runs the same
     // python it always did.
     // Called BEFORE a design tiles its oligos onto the track: dismiss EVERY on-canvas menu
-    // (side + center) and zoom in (with margin) to frame the track, so the oligos are then
-    // visibly added onto the framed track with their landing bling.
-    const __focusTrack = () => {
+    // (side + center) so nothing covers the result.
+    //
+    // It used to ALSO zoom the camera to frame the track, so the oligos could be watched
+    // landing on it. That takes the view away from wherever the user put it -- and someone
+    // designing is usually looking at something they navigated to deliberately, often the very
+    // selection the design is scoped to. Losing that framing costs more than the animation was
+    // worth, and it is not recoverable: there is no undo for a camera move.
+    //
+    // The view is left exactly as it is. The design still announces itself through the status
+    // badge and the result toast, and the compounds appear where the track already is.
+    const __clearMenusForDesign = () => {
         try { if (graph && graph.showSideMenu) graph.showSideMenu(null); } catch (e) { }
         try { if (graph) { graph.menu = null; if (graph.graph) graph.graph.menu = null; } } catch (e) { }
-        try {
-            const t = selectedTrack;
-            if (t && graph.zoomToTrack) graph.zoomToTrack(t, 0.15);   // generous margin around the track
-            else if (t && graph.goToTrack) graph.goToTrack(t);
-        } catch (e) { }
         try { if (graph && graph.wake) graph.wake(); } catch (e) { }
     };
-    const __sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
     // A small working spinner badge in the UPPER-RIGHT (opposite the top button row) shown while
     // a design runs. Returns a handle with .stop(). Non-blocking (pointer-events:none).
     // Design progress goes to the ONE status indicator, centred below the canvas buttons.
@@ -272,10 +274,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
 
-                    // Zoom into the track + clear all menus BEFORE tiling, then let the view settle
-                    // so the siRNAs are seen landing on the framed track.
-                    __focusTrack();
-                    await __sleep(320);
+                    // Clear the menus before tiling. No camera move: the view stays where the
+                    // user put it, and the 320ms settle that existed only to let a zoom finish
+                    // goes with it.
+                    __clearMenusForDesign();
 
                     // siRNA design does NOT touch the buttonMenuPanel — leave it as-is.
 
@@ -478,9 +480,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
 
-                    // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
-                    __focusTrack();
-                    await __sleep(320);
+                    // Clear the menus before tiling. No camera move.
+                    __clearMenusForDesign();
 
                     function normalizedScoreToColor(score) {
                         const s = Number(score ?? 0);
@@ -682,9 +683,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
 
-                    // Zoom into the track + clear all menus BEFORE tiling, then let it settle.
-                    __focusTrack();
-                    await __sleep(320);
+                    // Clear the menus before tiling. No camera move.
+                    __clearMenusForDesign();
 
                     function scoreToColor(score) {
                         if (score >= 40) return "limegreen";
