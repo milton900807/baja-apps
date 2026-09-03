@@ -162,7 +162,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // and the amino-acid row -- live at the bottom, and a compound is only meaningful next to
     // the bases it binds. Pushing them all up to a fixed row put empty canvas between a
     // compound and the thing it is about.
-    const OLIGO_FLOOR_Y = 0.2;      // the bottom row, as asked
+    // 0.2 put the bottom row ON the peptide index numbers, which are drawn above the
+    // amino-acid letters and reach higher than the letters themselves. 0.3 clears them, and is
+    // still low enough that a compound sits next to the bases it binds rather than floating
+    // above the track -- which is the whole point of packing downward.
+    const OLIGO_FLOOR_Y = 0.3;      // the bottom row: above the peptide row AND its index numbers
     const OLIGO_ROW_STEP = 0.12;    // one row up: enough to clear a compound and its labels
     const OLIGO_ROW_MAX = 24;       // a ceiling, so a pathological set cannot climb forever
 

@@ -325,6 +325,36 @@ function () {
             drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false });
         }),
 
+        // The types the DESIGNERS actually produce. Oligo.draw looks its shape up by
+        // `type` (chem_draw[this.type]) and falls back to a plain graph.drawLine when the key
+        // is missing -- so a steric-blocking ASO or an siRNA was drawn as a bare line in its
+        // score colour, which at gene zoom reads as a stray red tick rather than a compound.
+        //
+        // Only the gapmer designer had a matching key. siRNA's shape was here all along under
+        // 'siRNA_deprectrd' -- a typo for deprecated -- which nothing could ever look up, since
+        // the designer sets type = "siRNA".
+        //
+        // Aliases rather than copies: one shape, three names, so a change to the drawing cannot
+        // apply to some of them and not others.
+        'siRNA': createIon((graph, xs, xf, y, color, structure) => {
+            let ys = graph.Y(y);
+            let xss = graph.X(xs);
+            let xff = graph.X(xf);
+            // The passenger strand, offset below and behind the guide: a duplex reads as two
+            // strands, which is the thing that distinguishes an siRNA from an ASO on sight.
+            graph.drawScreenLine(xss - 25, ys + 10, xff - 2, ys + 5, GX.guide, 5, 'butt');
+            graph.drawScreenLine(xss, ys, xff, ys, color || GX.sirna, 4, 'round');
+        }),
+        // A steric blocker is a fully-modified single strand -- the same polymer the ASO shape
+        // draws, and deliberately not a distinct mark: what separates it from a gapmer is its
+        // chemistry, which the polymer already renders from `structure`.
+        'steric_blocking_aso': createIon((graph, xs, xf, y, color, structure) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: false });
+        }),
+        'steric_blocking_aso.detailed': createIon((graph, xs, xf, y, color, structure) => {
+            drawAsoPolymer(graph, xs, xf, y, color || GX.aso, structure, { thin: true });
+        }),
+
         'mutation-annotation': createIon((graph, xs, xf, y, c, phase) => {
             graph.drawVerticalLine(xs, y, y + 0.02, GX.guide, 1)
             graph.drawVerticalLine(xf, y, y + 0.02, GX.guide, 1)
