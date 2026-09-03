@@ -109,7 +109,28 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 b.id = ID;
                 b.textContent = 'Cancel design';
                 b.title = 'Stop this design. The python job is killed on the server.';
-                b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:64px;'
+                // TOP centre, under the status badge -- not at the foot of the window.
+                //
+                // It sat at bottom:64px, which is where the free-plan bar lives and, on some
+                // devices, off screen entirely: the one control that stops a running job was in
+                // the one place a user might never see it. Everything the app says about work in
+                // progress is in the top strip now (see __topStripY in flexigraph/gene.js), and
+                // this belongs with it.
+                //
+                // BELOW the messages, not over them. The badge is what says what is running and
+                // where it has got to; this button is what you press if the answer is 'too long'.
+                // Measured from the badge when it is up (io-engine.ts sizes and positions it
+                // from the live button row) so the two never overlap however the toolbar wraps,
+                // with a constant only as the fallback.
+                let __top = 132;
+                try {
+                    const w = document.getElementById('baja-working');
+                    if (w && w.style.display !== 'none') {
+                        const r = w.getBoundingClientRect();
+                        if (r && r.height) __top = Math.round(r.bottom + 10);
+                    }
+                } catch (e) { }
+                b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:' + __top + 'px;'
                     + 'z-index:2147483300;cursor:pointer;background:#7f1d1d;color:#fee2e2;'
                     + 'border:1px solid rgba(255,255,255,0.22);border-radius:9px;padding:8px 16px;'
                     + 'font:700 12.5px Arial,Helvetica,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,0.4);';
