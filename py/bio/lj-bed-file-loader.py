@@ -15,17 +15,29 @@ strand_param = works.param(5)  # optional strand: "1" or "-1"
 def resolve_file_path(path: str) -> str:
     candidates = [path]
 
-    # 1) $LJUSER_DATA/<path>
+    # 1) $USER_DATA/<path> -- the canonical user-data root baja-server itself uses
+    # (src/environment.ts: userData = path.join(homeDir, 'baja-users')), set on EVERY python
+    # subprocess by buildPythonEnv() in src/index.ts. Authoritative and correct on any
+    # deployment automatically -- checked first.
+    user_data = os.environ.get("USER_DATA")
+    if user_data:
+        candidates.append(os.path.join(user_data, path.lstrip("/")))
+
+    # 2) $LJUSER_DATA/<path> (an older/alternate name; nothing in this app sets it today)
     ljuser_data = os.environ.get("LJUSER_DATA")
     if ljuser_data:
         candidates.append(os.path.join(ljuser_data, path.lstrip("/")))
 
-    # 2) $HOME/ljusers/<path>
+    # 3) $HOME/baja-users/<path> -- the real directory name
     home_dir = os.environ.get("HOME")
     if home_dir:
+        candidates.append(os.path.join(home_dir, "baja-users", path.lstrip("/")))
+        # 4) $HOME/ljusers/<path> -- wrong directory name (there is no "ljusers" anywhere in
+        # this app), kept only for a path that happened to resolve under the old guess
         candidates.append(os.path.join(home_dir, "ljusers", path.lstrip("/")))
 
-    # 3) /root/ljusers/<path>
+    # 5) /root/baja-users/<path>, /root/ljusers/<path> -- same two, for a root-run server
+    candidates.append(os.path.join("/root/baja-users", path.lstrip("/")))
     candidates.append(os.path.join("/root/ljusers", path.lstrip("/")))
 
     for candidate in candidates:

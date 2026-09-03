@@ -19,21 +19,43 @@ strand_param = works.param(5)  # may be actual strand ("1"/"-1") OR (legacy) sam
 def resolve_file_path(path: str) -> str:
     candidates = [path]
 
-    # 1) $LJUSER_DATA/<path>
+    # 1) $USER_DATA/<path> -- the canonical user-data root baja-server itself uses
+    # (src/environment.ts: userData = path.join(homeDir, 'baja-users')), set on EVERY python
+    # subprocess by buildPythonEnv() in src/index.ts. Authoritative and correct on any
+    # deployment automatically -- checked first so nothing below it is ever needed when the
+    # server is wired up normally.
+    user_data = os.environ.get("USER_DATA")
+    if user_data:
+        candidates.append(
+            os.path.join(user_data, path.lstrip("/"))
+        )
+
+    # 2) $LJUSER_DATA/<path> (an older/alternate name; nothing in this app currently sets
+    # it, but a caller might)
     ljuser_data = os.environ.get("LJUSER_DATA")
     if ljuser_data:
         candidates.append(
             os.path.join(ljuser_data, path.lstrip("/"))
         )
 
-    # 2) $HOME/ljusers/<path>
+    # 3) $HOME/baja-users/<path> -- the real directory name, in case USER_DATA/LJUSER_DATA
+    # are both unset for some reason (e.g. run outside baja-server's own spawn path)
     home_dir = os.environ.get("HOME")
     if home_dir:
+        candidates.append(
+            os.path.join(home_dir, "baja-users", path.lstrip("/"))
+        )
+        # 4) $HOME/ljusers/<path> -- wrong directory name (there is no "ljusers" anywhere in
+        # this app; the real one is "baja-users"), kept only so a path that happened to
+        # resolve under the old guess keeps working
         candidates.append(
             os.path.join(home_dir, "ljusers", path.lstrip("/"))
         )
 
-    # 3) /root/ljusers/<path>
+    # 5) /root/baja-users/<path>, /root/ljusers/<path> -- same two, for a root-run server
+    candidates.append(
+        os.path.join("/root/baja-users", path.lstrip("/"))
+    )
     candidates.append(
         os.path.join("/root/ljusers", path.lstrip("/"))
     )
@@ -355,20 +377,28 @@ def extract_sample_call(fmt: str, sample_str: str) -> Dict[str, Optional[str]]:
 def open_maybe_gzip(path: str) -> TextIO:
     """
     Safe opener:
-    - .vcf  -> open()
-    - .vcf.gz -> ONLY try gzip if it is real gzip
-      (BGZF/tabix-compressed will be rejected; caller should handle)
+    - .vcf     -> open()
+    - .vcf.gz  -> gzip.open(). BGZF (the block-gzip tabix itself indexes) is valid
+      multi-member gzip, so Python's gzip module streams it sequentially just fine -- it
+      just can't use the BGZF index for random access, which this fallback (only reached
+      when tabix itself already failed) never does anyway. Verified directly against a real
+      BGZF VCF.
+
+    Two DIFFERENT failure modes used to come out of the same except-OSError as one misleading
+    message ("looks like BGZF/tabix-compressed; cannot stream-parse with gzip") -- including
+    a resolve_file_path() miss (a FileNotFoundError, which IS an OSError subtype) reported as
+    if the file were an unreadable BGZF, when the real problem was that it was never found at
+    all. Split apart here so the actual cause is what gets reported.
     """
     if path.endswith(".gz"):
+        if not os.path.exists(path):
+            raise RuntimeError(f"{path} does not exist (resolve_file_path could not find it)")
         try:
             fh = gzip.open(path, "rb")
             fh.peek(1)  # validate gzip header
             return io.TextIOWrapper(fh, encoding="utf-8", errors="replace")
-        except OSError:
-            raise RuntimeError(
-                f"{path} looks like BGZF/tabix-compressed; cannot stream-parse with gzip. "
-                "Use tabix (preferred) or provide an uncompressed .vcf for fallback parsing."
-            )
+        except OSError as e:
+            raise RuntimeError(f"{path} is not a readable gzip file: {e}")
     return open(path, "r", encoding="utf-8", errors="replace")
 
 
