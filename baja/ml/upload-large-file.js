@@ -1,25 +1,34 @@
 function (path, returnTo, returnArg) {
-    // `returnTo`: what Close and a completed upload send the user back to. Two shapes:
-    //   - a FUNCTION: called directly, no exec() round-trip. Use this when the caller already
-    //     has its own menu/layout built and sitting in a closure variable (fb.js and
-    //     cpd/yak.js both do) -- putting it straight back is direct and can't be derailed by
-    //     whatever a full re-run of the caller's script does (an auth check, a full rebuild,
-    //     ...). This is the recommended shape for a new caller.
-    //   - a STRING script path (with optional returnArg): exec()'d, same as this always did.
-    //     Kept for callers with no view worth restoring directly.
-    // Defaults to baja/yak (the original, only destination this ever had) so every existing
-    // caller keeps working unchanged. Getting this wrong is what "the menu disappeared and
-    // never came back" turned out to be: Close/success used to always jump to baja/yak, an
-    // unrelated file browser, no matter where Upload was opened from.
+    // `returnTo`: what Close and a completed upload send the user back to. Three shapes,
+    // tried in this order:
+    //   - a FUNCTION: called directly, no exec() round-trip or CurrentLayout involved at
+    //     all. Use when the caller already has its own menu/layout built and sitting in a
+    //     closure variable -- putting it straight back is direct and can't be derailed by
+    //     whatever a full re-run of the caller's script does (an auth check, a full rebuild).
+    //   - a STRING: a CurrentLayout stash key, passed to CurrentLayout.reset(). Use when the
+    //     caller has stashed its own view (CurrentLayout.stash(key, itsOwnLayout), the same
+    //     way manchester/editor.js stashes 'mainPanel' and manchester/fb.js stashes
+    //     'mainFilePanel1') -- reset() remounts exactly that, robustly, the same mechanism
+    //     every editor already relies on to restore itself.
+    //   - omitted: falls back to exec('baja/yak', returnArg ?? path) -- the ORIGINAL, only
+    //     destination this file ever had, so a caller that predates returnTo entirely
+    //     (baja/files.js, baja/yak.js, baja/bookshelf.js, baja/table/yakgen.js) keeps
+    //     working exactly as before, unchanged.
+    // Getting this wrong is what "the menu disappeared and never came back" turned out to
+    // be: Close/success used to always jump to baja/yak, an unrelated file browser, no
+    // matter where Upload was opened from -- and, more recently, a hardcoded
+    // CurrentLayout.reset('mainFilePanel1') here silently broke every OTHER caller (none of
+    // them stash that key), which is what generalizing this back to a parameter fixes.
     return new Promise(async (resolve, reject) => {
 
         const goBack = () => {
             if (typeof returnTo === 'function') {
                 try { returnTo(); return; } catch (e) { console.error('returnTo callback failed:', e); }
             }
-            const dest = (typeof returnTo === 'string' && returnTo) || 'baja/yak';
-            const arg = (returnArg !== undefined) ? returnArg : path;
-            exec(dest, arg);
+            if (typeof returnTo === 'string' && returnTo) {
+                try { CurrentLayout.reset(returnTo); return; } catch (e) { console.error('CurrentLayout.reset(' + returnTo + ') failed:', e); }
+            }
+            exec('baja/yak', (returnArg !== undefined) ? returnArg : path);
         };
 
         let progressBar;
@@ -197,9 +206,6 @@ function (path, returnTo, returnArg) {
                 ]
             }
         }
-        try {
-            CurrentLayout.clearComponent('userFiles')
-        } catch (exxc) { }
         CurrentLayout.clearComponent('mainPanel')
         CurrentLayout.setComponent('mainPanel', design_params_panel_layout);
         resolve({})
