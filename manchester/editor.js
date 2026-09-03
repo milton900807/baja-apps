@@ -2122,126 +2122,27 @@ function (path, config) {
                                                             return;
                                                         }
 
-
-
-                                                        // Show the layers-tools toolbar in the button/label panel.
-                                                        // exec('baja/manchester/menu/track-layer-editor-panel.js', graph, genegraph_panel_layout);
-                                                        // Centered menu of layer actions.
-                                                        graph.showMenu([
-                                                            {
-                                                                // Straight to the ML Models Library, and whatever is run from it
-                                                                // is applied to EVERY track on the canvas -- that is what the
-                                                                // board-level Layers button means, as opposed to the per-track
-                                                                // Models menu. The flag is what the runners honour; it is
-                                                                // cleared when the run finishes or the library closes.
-                                                                label: 'Models', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    const n = (graph.track || []).length;
-                                                                    // Pass the tracks explicitly. The flag stays set for the data
-                                                                    // loaders that still read it, but the models library is now told
-                                                                    // its targets rather than inferring them from ambient state.
-                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
-                                                                    try {
-                                                                        window.__workStatus = 'Models · will apply to all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
-                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                                                                    } catch (e) { }
-                                                                    exec('baja/ml/models-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
-                                                                }
-                                                            },
-                                                            {
-                                                                // The Data Resources Library. Its loaders already lay a dataset
-                                                                // over every track on the board (see baja/data/rnaseq-library.js),
-                                                                // so this needs no flag -- only the status that says so.
-                                                                label: 'Data', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    const n = (graph.track || []).length;
-                                                                    // Same flag the Models branch sets. The RNASeq library already
-                                                                    // spans the board on its own; the other loaders (public data,
-                                                                    // the RNASeq hierarchy) ask for a track click, and this is what
-                                                                    // tells them not to -- see baja/lib/for-each-track.js.
-                                                                    try { window.__bajaApplyAllTracks = true; } catch (e) { }
-                                                                    try {
-                                                                        window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
-                                                                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                                                                    } catch (e) { }
-                                                                    exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
-                                                                }
-                                                            },
-                                                            {
-                                                                // Navigate to a track BY NAME rather than clicking one on the
-                                                                // canvas. From the board-level Layers button the tracks are
-                                                                // what you are choosing between, and a name is easier to hit
-                                                                // than a band -- especially when tracks are stacked or the
-                                                                // one you want is scrolled off screen.
-                                                                label: 'Edit', move: () => { },
-                                                                click: () => {
-                                                                    const tracks = (graph.track || []).filter((t) => t);
-                                                                    if (!tracks.length) { graph.setSunsetMessage(' Load a track first '); return; }
-
-                                                                    const openRoot = () => {
-                                                                        const items = tracks.map((t, i) => {
-                                                                            const n = ((t.track_layers || []).length);
-                                                                            return {
-                                                                                label: (t.name || ('track ' + (i + 1)))
-                                                                                    + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ') ▸',
-                                                                                move: () => { },
-                                                                                click: () => { openTrack(t); }
-                                                                            };
-                                                                        });
-                                                                        items.push({ label: '‹ Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
-                                                                        graph.showSideMenu(items);
-                                                                    };
-
-                                                                    const openTrack = (t) => {
-                                                                        const addLayer = () => {
-                                                                            graph.showSideMenu([
-                                                                                { label: 'Add to ' + (t.name || 'track'), header: true, move: () => { }, click: () => { } },
-                                                                                // Each of these writes a layer onto THIS track: the
-                                                                                // runners take it as a preset, so none of them asks
-                                                                                // for a click.
-                                                                                { label: 'RNA Binding (BajaCLIP)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/rbp/rbp-profile.js', graph, genegraph_panel_layout, t); } },
-                                                                                { label: 'Splicing (BajaSplice)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/splicing-profile.js', graph, genegraph_panel_layout, t); } },
-                                                                                { label: 'Intron retention (BajaIR)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/bio/splicing/intron-retention.js', graph, genegraph_panel_layout, t); } },
-                                                                                // Labelled honestly: the data loaders lay a dataset
-                                                                                // over EVERY track, not just this one.
-                                                                                { label: 'Data Library… (loads onto all tracks)', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice()); } },
-                                                                                { label: '‹ Back', move: () => { }, click: () => { openTrack(t); } }
-                                                                            ]);
-                                                                        };
-
-                                                                        const n = ((t.track_layers || []).length);
-                                                                        graph.showSideMenu([
-                                                                            { label: (t.name || 'track') + '  (' + n + ' layer' + (n === 1 ? '' : 's') + ')', header: true, move: () => { }, click: () => { } },
-                                                                            { label: 'Add layer ▸', move: () => { }, click: () => { addLayer(); } },
-                                                                            {
-                                                                                // The existing per-track layer menu: show / hide /
-                                                                                // remove one / remove all, per layer.
-                                                                                label: 'Edit / remove layers ▸', move: () => { },
-                                                                                click: () => {
-                                                                                    try { graph.showSideMenu(null); } catch (e) { }
-                                                                                    try { exec('baja/manchester/menu/track-layers-side-menu.js', t, genegraph_panel_layout, graph); } catch (e) { graph.setMessage(' Could not open the layer menu: ' + e); }
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                label: 'Remove all layers (' + n + ')', move: () => { },
-                                                                                click: () => {
-                                                                                    t.track_layers = [];
-                                                                                    try { if (graph.wake) graph.wake(); } catch (e) { }
-                                                                                    graph.setMessage(' Removed ' + n + ' layer' + (n === 1 ? '' : 's') + ' from ' + (t.name || 'track') + '. ');
-                                                                                    openTrack(t);
-                                                                                }
-                                                                            },
-                                                                            { label: '‹ Back to tracks', move: () => { }, click: () => { openRoot(); } }
-                                                                        ]);
-                                                                    };
-
-                                                                    graph.showSideMenu(null);
-                                                                    openRoot();
-                                                                }
-                                                            }
-                                                        ]);
+                                                        // Straight to the Data Resources Library panel -- no more center
+                                                        // menu asking Models / Data / Edit first. Its loaders already lay
+                                                        // a dataset over every track on the board (see
+                                                        // baja/data/rnaseq-library.js), so this needs no flag beyond the
+                                                        // status message, same as the old 'Data' choice did. Per-track
+                                                        // layer editing (the old 'Edit' choice) is still reachable from
+                                                        // the File menu's 'Track Layers' item. The ML Models Library
+                                                        // (the old 'Models' choice) is still reachable per-track from a
+                                                        // sequence selection and the track hover menu
+                                                        // (baja/manchester/menu/selected-sequence-menu.js,
+                                                        // mouse-over-highlight.js) -- this button was its only
+                                                        // whole-board "apply to every track at once" shortcut, and that
+                                                        // specific shortcut is gone now that this goes straight to Data.
+                                                        graph.showSideMenu(null);
+                                                        const n = (graph.track || []).length;
+                                                        try { window.__bajaApplyAllTracks = true; } catch (e) { }
+                                                        try {
+                                                            window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
+                                                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                                                        } catch (e) { }
+                                                        exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
                                                     })
                                                 },
                                                 {
