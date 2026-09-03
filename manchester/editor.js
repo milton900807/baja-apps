@@ -1898,6 +1898,55 @@ function (path, config) {
                     } catch (e) { }
                 };
 
+                // ---- Recorder / playback, for one account ------------------------------------
+                //
+                // These record a session as a demo.js script and replay one. They are authoring
+                // tools for building demos, not part of designing anything, so they are shown to
+                // the account that uses them rather than to everyone -- an editor that offers a
+                // Record button to every user invites the question of what it records.
+                //
+                // Compared case-insensitively and trimmed: getUser() returns whatever the auth
+                // token carries, and a stray space or a capital would silently hide the buttons
+                // from the one person meant to see them, with nothing to explain why.
+                //
+                // This is a UI convenience, NOT a permission. Both scripts are in baja-apps and
+                // reachable by anyone who knows their names; nothing here is a security control
+                // and it should not be mistaken for one.
+                const RECORDER_USERS = ['jeffmilto@gmail.com'];
+                const __isRecorderUser = (() => {
+                    try {
+                        const u = ('' + ((typeof getUser === 'function' ? getUser() : '') || ''))
+                            .trim().toLowerCase();
+                        return !!u && RECORDER_USERS.indexOf(u) >= 0;
+                    } catch (e) { return false; }
+                })();
+                const __devButtons = !__isRecorderUser ? [] : [
+                    {
+                        label: 'Record', icon: 'fiber_manual_record',
+                        tooltip: 'Record what you do, then emit a script that replays it',
+                        ionFunction: createIonFunction(() => {
+                            try { graph.hideMenu(); } catch (e) { }
+                            try { graph.showSideMenu(null); } catch (e) { }
+                            try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
+                            catch (e) {
+                                try { graph.setError(' Recorder failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                            }
+                        })
+                    },
+                    {
+                        label: 'Play', icon: 'play_arrow',
+                        tooltip: 'Paste a recorded script and run it',
+                        ionFunction: createIonFunction(() => {
+                            try { graph.hideMenu(); } catch (e) { }
+                            try { graph.showSideMenu(null); } catch (e) { }
+                            try { openPlayScriptPanel(); }
+                            catch (e) {
+                                try { graph.setError(' Could not open the play panel: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                            }
+                        })
+                    }
+                ];
+
                 // The Selection button is built here, not inline in the panel below, because the
                 // badge has to be able to reach it: button-menu binds the SAME array of objects
                 // it was handed, so mutating this one's `badge` is what updates the toolbar.
@@ -2385,7 +2434,9 @@ function (path, config) {
                                                             }
                                                         ]);
                                                     })
-                                                }
+                                                },
+                                                // Empty for everyone but the recorder account.
+                                                ...__devButtons
                                             ],
                                             // The dropdown menus below are ignored by the button-menu widget.
                                             menus: [
