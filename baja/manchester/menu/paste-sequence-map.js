@@ -10,10 +10,12 @@ function (graph, genegraph_panel_layout, sequence) {
     //   1. The CLIENT-SIDE stage: every track already on the canvas -- a handful of
     //      transcripts, brute-force compared base by base
     //      (py/bio/map/le-map-sequences.py, the same script the existing multi-sequence
-    //      paste flow in editor.js already uses) -- at an edit distance the user picks
-    //      (0-3) via baja/manchester/menu/prompt-edit-distance.js, asked once up front.
-    //      Runs unconditionally on every paste.
-    //   2. On a miss, automatically: edit distance 1 against the WHOLE pre-mRNA reference
+    //      paste flow in editor.js already uses). Tries QUIETLY at edit distance 1 first --
+    //      no prompt, no server, on every paste, since most pastes are an exact or
+    //      near-exact match to something already on screen. Only on a MISS does it ask how
+    //      far to widen (0-3, via baja/manchester/menu/prompt-edit-distance.js) and try
+    //      again -- one extra client-side pass before anything server-side is even considered.
+    //   2. Still no hit: automatically, edit distance 1 against the WHOLE pre-mRNA reference
     //      (human_premrna, ~2 Gbp, one record per gene including its introns) via the same
     //      2-bit index search the off-target tool uses. A SERVER-side, different algorithm
     //      (a seed-and-verify index, not a brute-force compare) -- fixed at edit distance 1
@@ -255,13 +257,13 @@ function (graph, genegraph_panel_layout, sequence) {
             // quietly rather than running a search that cannot mean anything.
             return;
         }
-        // Ask once, up front, how many mismatches the CLIENT-SIDE stage (below) should
-        // tolerate -- 0-3, via the same quick center-menu choice every client-side mapping
-        // path in this app now uses. Defaults to 1 if the prompt can't be shown.
-        const ED = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, 1);
-
+        // Try mapping onto the canvas FIRST, quietly, at the default tolerance -- before
+        // asking anything or going anywhere near the server. Most pastes are an exact or
+        // near-exact match to something already on screen; interrupting every single one of
+        // those with a prompt would be worse than just trying.
+        const DEFAULT_ED = 1;
         graph.setMessage(' Searching displayed tracks for a match… ');
-        const placed = await mapOntoDisplayedTracks(seq, ED);
+        let placed = await mapOntoDisplayedTracks(seq, DEFAULT_ED);
         if (placed.length) {
             const names = placed.map((p) => p.track.name || 'track');
             graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
@@ -270,7 +272,25 @@ function (graph, genegraph_panel_layout, sequence) {
             return;
         }
 
-        // No hit anywhere on screen: search the pre-mRNA reference automatically. No
+        // Miss at the default tolerance: NOW ask how far to widen the CLIENT-SIDE search
+        // before trying again -- 0-3, via the same quick center-menu choice every
+        // client-side mapping path in this app uses. Only a picked value WIDER than the
+        // default is worth a second pass; 0 or 1 again would just repeat the miss above.
+        const ED = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, DEFAULT_ED);
+        if (ED > DEFAULT_ED) {
+            graph.setMessage(' Trying again at edit distance ' + ED + '… ');
+            placed = await mapOntoDisplayedTracks(seq, ED);
+            if (placed.length) {
+                const names = placed.map((p) => p.track.name || 'track');
+                graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
+                    + (placed.length === 1 ? '' : 's') + ' at edit distance ' + ED + ': '
+                    + names.join(', ') + '. ');
+                restoreHover();
+                return;
+            }
+        }
+
+        // Still no hit anywhere on screen: search the pre-mRNA reference automatically. No
         // confirm here -- the result is a maximized library the user chooses from (see
         // offerCandidates), so the "are you sure" moment is that choice, at the point where
         // there is something concrete to decide about, rather than a blind yes/no before the
