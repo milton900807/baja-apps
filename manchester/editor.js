@@ -2265,6 +2265,24 @@ function (path, config) {
                                                     })
                                                 },
                                                 {
+                                                    // The selection library: everything currently selected, and every
+                                                    // action the selection window offers, as a library rather than an
+                                                    // on-canvas menu. Sits before Navigate because it is about WHAT is
+                                                    // selected rather than about moving the view.
+                                                    //
+                                                    // In the MENUBAR rather than on the canvas: the canvas control row
+                                                    // is for direct manipulation of the view -- zoom, pan, box, lasso --
+                                                    // and this opens a full-screen library, which is a menubar action.
+                                                    label: 'Selection', ionFunction: createIonFunction(() => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        try { graph.showSideMenu(null); } catch (e) { }
+                                                        try { graph.openSelectionLibrary(); }
+                                                        catch (e) {
+                                                            try { graph.setError(' Could not open the selection library: ' + e + ' '); } catch (e2) { }
+                                                        }
+                                                    })
+                                                },
+                                                {
                                                     label: 'Navigate', ionFunction: createIonFunction(async () => {
 
 

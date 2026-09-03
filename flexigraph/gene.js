@@ -8111,10 +8111,10 @@ pattern, GGGG | Required`
                     // Navigation / view controls (left)
                     { id: 'zoom_in', info: 'Zoom in' },
                     { id: 'zoom_out', info: 'Zoom out' },
-                    // The selection library. Sits before Pan because it is about WHAT is
-                    // selected rather than about moving the view, and the row reads
-                    // left-to-right as zoom, then what you have, then how to move.
-                    { id: 'sel_library', info: 'Selected objects' },
+                    // The selection library is NOT here: it lives in the menubar (Selection),
+                    // because this row is for direct manipulation of the view -- zoom, pan, box,
+                    // lasso -- and opening a full-screen library is a menubar action, not a
+                    // canvas gesture. openSelectionLibrary() below is what that button calls.
                     { id: 'navigate', info: 'Pan' },
                     { id: 'bpx', info: 'Box zoom' },
                     { id: 'expand_vertical', info: 'Expand vertically' },
@@ -8192,11 +8192,6 @@ pattern, GGGG | Required`
                         this.bclick = 'zoom_out';
                         setTimeout(() => { this.___folder_calculation = false; this.___folder_calculation_status = null; this.bclick = ''; this.setMouseMode('navigate'); }, 400);
                         await this.slideZoomByFactor(1.50, 1.20, 200);
-                        return;
-                    case 'sel_library':
-                        this.bclick = 'sel_library';
-                        setTimeout(() => { this.bclick = ''; }, 150);
-                        this.openSelectionLibrary();
                         return;
                     case 'navigate':
                         this.bclick = 'navigate';
@@ -8884,44 +8879,6 @@ pattern, GGGG | Required`
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Select sequence", cx + 20, cy, { font: "11px Arial" });
                 }
-            }
-
-            // Stacked layers glyph: the button opens what is SELECTED, and a stack is the
-            // shape of a list of things. Carries a count badge, so the row says how much is
-            // selected without opening anything -- and reads as empty when nothing is.
-            drawSelLibraryButton(ctx) {
-                this.setButtonStyle(ctx, { font: "600 12px Arial" });
-                const { cx, cy } = this._ctrlPos('sel_library');
-                const n = ((this.__lassoSelection || []).length) | 0;
-                this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
-
-                ctx.save();
-                this.resetCanvasEffects(ctx);
-                // Three offset bars — a stack seen edge-on.
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1.6;
-                ctx.lineCap = 'round';
-                for (let i = -1; i <= 1; i++) {
-                    ctx.beginPath();
-                    ctx.moveTo(cx - 5, cy + i * 3.4);
-                    ctx.lineTo(cx + 5, cy + i * 3.4);
-                    ctx.stroke();
-                }
-                // The count, when there is one. Small, top-right, so it never covers the glyph.
-                if (n > 0) {
-                    const txt = (n > 99) ? '99+' : ('' + n);
-                    ctx.font = '700 9px Arial';
-                    const w = Math.max(12, ctx.measureText(txt).width + 6);
-                    const bx = cx + 6, by = cy - 13;
-                    ctx.fillStyle = '#ff8c2f';
-                    this.roundRectPath(ctx, bx, by, w, 11, 5.5);
-                    ctx.fill();
-                    ctx.fillStyle = '#2b1400';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(txt, bx + w / 2, by + 6);
-                }
-                ctx.restore();
             }
 
             drawInfoButton(ctx) {
@@ -11706,7 +11663,6 @@ pattern, GGGG | Required`
                         try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { }
                         this.drawZoomButton(ctx);
                         this.drawZoomOutButton(ctx);
-                        this.drawSelLibraryButton(ctx);
                         this.drawMoveButton(ctx);
                         this.drawBoxButton(ctx);
                         this.drawLassoButton(ctx);
