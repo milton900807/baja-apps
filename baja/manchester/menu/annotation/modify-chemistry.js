@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, oligos, trackHint) {
 
     // "Modify Chemistry": a free-text description of a desired chemistry change (sugars,
     // linkers, backbone, modifications), sent along with the target oligo's sequence, its
@@ -7,7 +7,17 @@ function (graph, genegraph_panel_layout) {
     // baja/manchester/menu/design-helm-from-prompt.js -> py/sequence/design-helm-chemistry.py
     // -- which returns an updated HELM structure. Applied back onto the oligo (.structure)
     // when the user accepts it.
+    //
+    // `oligos` (optional) -- a caller that already knows which oligo(s) this applies to
+    // (a per-oligo/per-track menu, e.g. mouse-over-highlight.js's compound actions, or one
+    // of flexigraph/gene.js's oligo/amplicon context menus) passes it directly: a single
+    // Oligo, or an array of them. `trackHint` (optional) names the track they came from,
+    // for the picker label when more than one candidate is passed. Omit both to fall back
+    // to scanning every oligo on every track on the canvas -- the right default for a
+    // GLOBAL entry point (a toolbar button) that has no specific oligo in hand.
     //   exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout)
+    //   exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, oneOligo)
+    //   exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, severalOligos, track)
 
     return new Promise(async (resolve) => {
 
@@ -16,16 +26,26 @@ function (graph, genegraph_panel_layout) {
             try { CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
         };
 
-        // Every oligo on every track. There is no live "select an oligo" convention this
-        // app already has to reuse for a HELM-editing tool -- every existing caller that
-        // needed one (select-structure.js, select-structure-simple.js,
-        // menu-for-single-aso.js) is commented out elsewhere in this codebase -- so this
-        // asks directly whenever there is more than one candidate, rather than guessing
-        // which one was meant.
-        const candidates = [];
-        for (const t of (graph.track || [])) {
-            for (const o of (t.oligos || [])) {
-                if (o) candidates.push({ track: t, oligo: o });
+        let candidates = [];
+        if (oligos) {
+            // Caller already knows the oligo(s) -- use exactly those, tagged with
+            // whatever track context was given (falls back to each oligo's own .track if
+            // it carries one, which some do).
+            const list = Array.isArray(oligos) ? oligos : [oligos];
+            for (const o of list) {
+                if (o) candidates.push({ track: trackHint || o.track || null, oligo: o });
+            }
+        } else {
+            // No oligo given -- every oligo on every track. There is no live "select an
+            // oligo" convention this app already has to reuse for a HELM-editing tool --
+            // every existing caller that needed one (select-structure.js,
+            // select-structure-simple.js, menu-for-single-aso.js) is commented out
+            // elsewhere in this codebase -- so this asks directly whenever there is more
+            // than one candidate, rather than guessing which one was meant.
+            for (const t of (graph.track || [])) {
+                for (const o of (t.oligos || [])) {
+                    if (o) candidates.push({ track: t, oligo: o });
+                }
             }
         }
         if (!candidates.length) {
@@ -97,7 +117,7 @@ function (graph, genegraph_panel_layout) {
                             width: '100%',
                             component: {
                                 wid: 'html',
-                                data: '<h3>Modify Chemistry — ' + escapeHtml(oligo.name || entry.track.name || 'oligo') + '</h3>'
+                                data: '<h3>Modify Chemistry — ' + escapeHtml(oligo.name || (entry.track && entry.track.name) || 'oligo') + '</h3>'
                                     + '<p>Sequence: <code>' + escapeHtml(oligo.sequence || '(none)') + '</code></p>'
                                     + '<p>Current chemistry: <code style="word-break:break-all;">'
                                     + escapeHtml(truncate(oligo.structure, 200)) + '</code></p>'
@@ -156,7 +176,7 @@ function (graph, genegraph_panel_layout) {
             // Pick which oligo, the same on-canvas side-menu idiom the rest of the
             // Annotations tools (annotation-tools2.js) already uses.
             const items = candidates.map((c) => ({
-                label: (c.oligo.name || 'oligo') + '  (' + (c.track.name || 'track') + ')',
+                label: (c.oligo.name || 'oligo') + ((c.track && c.track.name) ? ('  (' + c.track.name + ')') : ''),
                 move: () => { },
                 click: () => openFor(c)
             }));

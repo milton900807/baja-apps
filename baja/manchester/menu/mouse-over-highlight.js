@@ -4892,6 +4892,14 @@ function (graph, genegraph_panel_layout) {
                                     }
                                 });
                                 items.push({
+                                    label: 'Modify Chemistry…', move: () => { },
+                                    click: () => {
+                                        try { graph.showSideMenu(null); } catch (e) { }
+                                        Promise.resolve(exec('baja/manchester/menu/annotation/modify-chemistry.js',
+                                            graph, genegraph_panel_layout, cs, selectedTrack)).catch(() => { });
+                                    }
+                                });
+                                items.push({
                                     label: 'Filter…', move: () => { },
                                     click: () => {
                                         try { graph.showSideMenu(null); } catch (e) { }

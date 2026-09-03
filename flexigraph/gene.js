@@ -9758,6 +9758,19 @@ pattern, GGGG | Required`
                     } catch (e) { this.setMessage(' Could not open off-target tool: ' + e); }
                 };
 
+                // Modify chemistry on every oligo across all tracks (opens the same
+                // Anthropic-backed prompt window "Run off-targets: all" opens for off-target
+                // search, alongside it).
+                const modifyChemistryAll = () => {
+                    const all = [];
+                    for (const t of tracks) for (const o of (t.oligos || [])) all.push(o);
+                    if (!all.length) { this.setMessage(' No oligos to modify chemistry on. '); return; }
+                    close();
+                    try {
+                        Promise.resolve(exec('baja/manchester/menu/annotation/modify-chemistry.js', this, this.genegraph_panel_layout, all)).catch(() => { });
+                    } catch (e) { this.setMessage(' Could not open the chemistry tool: ' + e); }
+                };
+
                 const OLIGO_PAGE = 30;
                 const openOligos = (offset) => {
                     offset = offset || 0;
@@ -9787,6 +9800,7 @@ pattern, GGGG | Required`
                     // Alongside "Select all oligos", offer running off-targets on all —
                     // but never in a read-only (viewer) screen.
                     if (!this.readonly) sub.push({ label: 'Run off-targets: all', click: () => { runOffTargetsAll(); }, move: () => { } });
+                    if (!this.readonly) sub.push({ label: 'Modify Chemistry: all', click: () => { modifyChemistryAll(); }, move: () => { } });
                     // Only offered when the tracks hold BOTH siRNA and ASO oligos.
                     if (hasBothTypes) sub.push({ label: 'Select by type ▸', click: () => { openByType(); }, move: () => { } });
                     for (const { o, t } of items.slice(offset, offset + OLIGO_PAGE)) {
@@ -10296,6 +10310,22 @@ pattern, GGGG | Required`
                 // Run off-targets, offering the seed/full choice when siRNA are present.
                 const startOffTargets = (kind) => { if (__hasSiRNA(kind)) openOffTargetChoice(kind); else runOffTargets(kind); };
 
+                // Modify chemistry on the selected oligos/amplicons of the given kind --
+                // same selection filtering runOffTargets uses, opening
+                // baja/manchester/menu/annotation/modify-chemistry.js's Anthropic-backed
+                // prompt window instead of the off-target search.
+                const modifyChemistrySelected = (kind) => {
+                    const refs = sel
+                        .filter((s) => (s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && (!kind || s.kind === kind))
+                        .map((s) => s.ref);
+                    if (!refs.length) { this.setMessage(' No oligos selected to modify chemistry on. '); return; }
+                    close();
+                    try {
+                        Promise.resolve(exec('baja/manchester/menu/annotation/modify-chemistry.js',
+                            this, this.genegraph_panel_layout, refs)).catch(() => { });
+                    } catch (e) { this.setMessage(' Could not open the chemistry tool: ' + e); }
+                };
+
                 // Per-type submenu — the "options by object type". For types that
                 // have object-specific menu builders (amplicons, oligos — defined in
                 // mouse-over-highlight.js and exposed on the graph), use THOSE items;
@@ -10729,6 +10759,7 @@ pattern, GGGG | Required`
                         // With siRNA present this opens a seed-vs-full choice; otherwise
                         // it runs the full-sequence search directly.
                         sub.push({ label: 'Run off-targets…', click: () => { startOffTargets('oligo'); }, move: () => { } });
+                        sub.push({ label: 'Modify Chemistry…', click: () => { modifyChemistrySelected('oligo'); }, move: () => { } });
                         // Export the selected oligos + their genomic coords + off-target hits as CSV.
                         sub.push({
                             label: 'Download off-targets (CSV): ' + picks.length + ' selected',
@@ -10768,6 +10799,7 @@ pattern, GGGG | Required`
                         if (only && picks.length === 1) { openOne(picks[0]); return; }
                         const sub = [
                             { label: 'Run off-targets…', click: () => { runOffTargets('amplicon'); }, move: () => { } },
+                            { label: 'Modify Chemistry…', click: () => { modifyChemistrySelected('amplicon'); }, move: () => { } },
                             { label: 'Delete selected…', click: async () => { await confirmDelete(picks.slice(), 'amplicon'); }, move: () => { } }
                         ];
                         if (picks.length === 1) {

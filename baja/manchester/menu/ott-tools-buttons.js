@@ -22,6 +22,11 @@ function (graph, genegraph_panel_layout) {
                     await exec('baja/manchester/menu/ott-tools-highlighter', graph)
                 })
             },
+            {
+                x: 3, y: 0, label: 'Modify Chemistry...', ionFunction: createIonFunction(async () => {
+                    await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout)
+                })
+            },
         ]
         let button_canvas = {
             wid: 'button-canvas',

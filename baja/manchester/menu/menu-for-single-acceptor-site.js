@@ -73,6 +73,16 @@ function (graph, oligo, genegraph_panel_layout) {
                         })
                     },
                     {
+                        'label': `Modify Chemistry on ppset ${oligo.id}`, 'ionfunction': createIonFunction(async () => {
+                            let l = oligo.left;
+                            let r = oligo.right;
+                            let m = oligo.mid;
+                            const set = [l, r, m].filter((x) => x);
+                            if (set.length)
+                                await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, set)
+                        })
+                    },
+                    {
                         'label': `Run off-target on left primer only`, 'ionfunction': createIonFunction(async () => {
                             let l = oligo.left;
                             if (l) {
@@ -80,6 +90,12 @@ function (graph, oligo, genegraph_panel_layout) {
                                 l.offtarget = null;
                                 await exec('baja/manchester/menu/run-off-targets.js', graph, genegraph_panel_layout, [l])
                             }
+                        })
+                    },
+                    {
+                        'label': `Modify Chemistry on left primer only`, 'ionfunction': createIonFunction(async () => {
+                            let l = oligo.left;
+                            if (l) await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, l)
                         })
                     },
                     {
@@ -93,6 +109,12 @@ function (graph, oligo, genegraph_panel_layout) {
                         })
                     },
                     {
+                        'label': `Modify Chemistry on right primer only`, 'ionfunction': createIonFunction(async () => {
+                            let l = oligo.right;
+                            if (l) await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, l)
+                        })
+                    },
+                    {
                         'label': `Run off-target on probe only`, 'ionfunction': createIonFunction(async () => {
                             let l = oligo.mid;
                             if (l) {
@@ -102,6 +124,13 @@ function (graph, oligo, genegraph_panel_layout) {
                             } else {
                                 infoPrompt(" No probe defined for this amplicon ")
                             }
+                        })
+                    },
+                    {
+                        'label': `Modify Chemistry on probe only`, 'ionfunction': createIonFunction(async () => {
+                            let l = oligo.mid;
+                            if (l) await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout, l)
+                            else infoPrompt(" No probe defined for this amplicon ")
                         })
                     },
 

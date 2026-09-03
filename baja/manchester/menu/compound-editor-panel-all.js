@@ -67,6 +67,15 @@ function (graph, genegraph_panel_layout) {
 
                     })
                 },
+                {
+                    x: 4, y: 0, label: 'AI Chemistry...', ionFunction: createIonFunction(async () => {
+                        graph.clearMouseListeners();
+                        await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout)
+                    }), mouseOver: createIonFunction(() => {
+                        graph.setMessage('Describe a chemistry change in plain language and have it designed for a compound.')
+
+                    })
+                },
 
             ]
         }

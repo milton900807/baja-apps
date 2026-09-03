@@ -29,7 +29,7 @@ function (graph, library, folder, genegraph_panel_layout) {
             'width': 1200,
             'grid': {
                 xmin: 0,
-                xmax: 8,
+                xmax: 9,
                 ymin: -0.01,
                 ymax: 1,
                 xinset: 0,
@@ -41,6 +41,11 @@ function (graph, library, folder, genegraph_panel_layout) {
 
                         await exec ( 'baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout)
 
+                    })
+                },
+                {
+                    x: 8, y: 0, label: 'Modify Chemistry...', ionFunction: createIonFunction(async () => {
+                        await exec('baja/manchester/menu/annotation/modify-chemistry.js', graph, genegraph_panel_layout)
                     })
                 },
                 {
