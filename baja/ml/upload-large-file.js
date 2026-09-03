@@ -1,5 +1,18 @@
-function (path) {
+function (path, returnTo, returnArg) {
+    // `returnTo`/`returnArg`: where Close and a completed upload send the user back to.
+    // Defaults to baja/yak (the original, only destination this ever had) so every existing
+    // caller keeps working unchanged. A caller with its own view to come back to -- fb.js and
+    // cpd/yak.js both have a menu that lives in the same mainPanel slot this widget takes
+    // over -- should pass its OWN script path here; otherwise "Close" strands the user in an
+    // unrelated file browser instead of back where they started, which reads exactly like
+    // "the menu disappeared and never came back."
     return new Promise(async (resolve, reject) => {
+
+        const goBack = () => {
+            const dest = returnTo || 'baja/yak';
+            const arg = (returnArg !== undefined) ? returnArg : path;
+            exec(dest, arg);
+        };
 
         let progressBar;
         let w = {
@@ -131,7 +144,7 @@ function (path) {
                                             }
 
                                             setStatus('<font color="green">Uploaded ' + file.name + '.</font>');
-                                            setTimeout(() => { exec('baja/yak', path) }, 700);
+                                            setTimeout(goBack, 700);
                                             return result;
                                         } catch (e) {
                                             console.error("Upload failed:", e);
@@ -164,8 +177,7 @@ function (path) {
                                     buttons: [
                                         {
                                             label: 'Close', ionFunction: createIonFunction(() => {
-                                                exec('baja/yak', path)
-
+                                                goBack();
                                             })
                                         },
                                     ]

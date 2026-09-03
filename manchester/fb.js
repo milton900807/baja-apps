@@ -514,7 +514,9 @@ function (__path) {
                                             if (!currentPath.endsWith('/'))
                                                 currentPath += '/'
 
-                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath);
+                                            // Return to THIS view (with the folder just uploaded to) when done,
+                                            // not baja/yak -- a different, unrelated file browser.
+                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath, 'manchester/fb.js', currentPath);
                                         } catch (e) {
                                             console.error('Upload menu failed:', e);
                                             infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');

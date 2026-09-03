@@ -796,7 +796,9 @@ function (path, filebrowserplease) {
                                                 if (!currentPath.endsWith('/'))
                                                     currentPath += '/'
 
-                                                let menu = await exec('baja/ml/upload-large-file.js', currentPath);
+                                                // Return to THIS view (with the folder just uploaded to) when
+                                                // done, not baja/yak -- a different, unrelated file browser.
+                                                let menu = await exec('baja/ml/upload-large-file.js', currentPath, 'cpd/yak.js', currentPath);
                                             } catch (e) {
                                                 console.error('Upload menu failed:', e);
                                                 infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
@@ -1052,7 +1054,9 @@ function (path, filebrowserplease) {
                                         // script that actually exists.
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
                                             try {
-                                                let menu = await exec('baja/ml/upload-large-file.js');
+                                                // Return to THIS view when done, not baja/yak -- a
+                                                // different, unrelated file browser.
+                                                let menu = await exec('baja/ml/upload-large-file.js', undefined, 'cpd/yak.js');
                                             } catch (e) {
                                                 console.error('Upload menu failed:', e);
                                                 infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
