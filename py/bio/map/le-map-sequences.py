@@ -31,6 +31,7 @@ def map_sequences(oligos, long_sequence, max_distance=2):
     idv = 0
     oid = ''
     percent_control = -1
+    reference_value = -1
     index = 0
     oindex = 0
     for o in oligos:

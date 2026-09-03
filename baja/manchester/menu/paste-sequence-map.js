@@ -10,11 +10,16 @@ function (graph, genegraph_panel_layout, sequence) {
     //   1. The CLIENT-SIDE stage: every track already on the canvas -- a handful of
     //      transcripts, brute-force compared base by base
     //      (py/bio/map/le-map-sequences.py, the same script the existing multi-sequence
-    //      paste flow in editor.js already uses). Tries QUIETLY at edit distance 1 first --
-    //      no prompt, no server, on every paste, since most pastes are an exact or
-    //      near-exact match to something already on screen. Only on a MISS does it ask how
-    //      far to widen (0-3, via baja/manchester/menu/prompt-edit-distance.js) and try
-    //      again -- one extra client-side pass before anything server-side is even considered.
+    //      paste flow in editor.js already uses). That script already tries all FOUR
+    //      orientations itself, per oligo -- Forward (as pasted), Reverse, Forward
+    //      Complement, and Reverse Complement -- and tags each hit with which one matched
+    //      (see mapOntoTrack below), since a pasted probe's orientation relative to what is
+    //      on screen is not always known. Tries QUIETLY at edit distance 1 first -- no
+    //      prompt, no server, on every paste, since most pastes are an exact or near-exact
+    //      match to something already on screen. Only on a MISS does it ask how far to
+    //      widen (0-3, via baja/manchester/menu/prompt-edit-distance.js) and try again --
+    //      one extra client-side pass, still all four orientations, before anything
+    //      server-side is even considered.
     //   2. Still no hit: automatically, edit distance 1 against the WHOLE pre-mRNA reference
     //      (human_premrna, ~2 Gbp, one record per gene including its introns) via the same
     //      2-bit index search the off-target tool uses. A SERVER-side, different algorithm
@@ -38,10 +43,19 @@ function (graph, genegraph_panel_layout, sequence) {
     };
 
     // Map `seq` onto ONE track at the given edit distance, by SEARCHING it -- there is no
-    // prior known location to place it at. Returns the placed Oligo, or null on no hit.
-    // Stage 1 only: stage 3 places at a genomic span it already has (genomicSpanOnTrack),
-    // not by searching, since a client-side search of a spliced transcript can miss a
-    // real hit the server already found in the unspliced locus.
+    // prior known location to place it at. Returns the placed Oligo (tagged with which
+    // orientation matched, in .orientation), or null on no hit. Stage 1 only: stage 3
+    // places at a genomic span it already has (genomicSpanOnTrack), not by searching, since
+    // a client-side search of a spliced transcript can miss a real hit the server already
+    // found in the unspliced locus.
+    //
+    // le-map-sequences.py already searches all 4 orientations ITSELF, per oligo it is
+    // given -- Forward (as pasted), Reverse (literally reversed, not complemented), Forward
+    // Complement (base-for-base, not reversed), and Reverse Complement -- and tags each hit
+    // with which one matched (h[5]). Passing pre-computed reverse/complement variants IN
+    // ADDITION as separate oligos would make it redo that same work on each of them (e.g.
+    // reverse-complementing an already-reverse-complemented variant back toward the
+    // original), not add coverage -- so `seq` goes in once, exactly as pasted.
     const mapOntoTrack = async (t, seq, ed) => {
         try {
             const trackSeq = ('' + (t.sequence || '')).trim();
@@ -50,7 +64,8 @@ function (graph, genegraph_panel_layout, sequence) {
             const res = await exec('py/bio/map/le-map-sequences.py', trackSeq, [seq], ed);
             const hits = (res && res[0]) || 0;
             if (!hits || !hits.length) return null;
-            // Best (lowest edit distance) hit on this track, not just the first one found.
+            // Best (lowest edit distance) hit on this track, across every orientation the
+            // script tried, not just the first one found.
             let best = hits[0];
             for (const h of hits) { if (h[4] < best[4]) best = h; }
             const bioObject = {
@@ -63,6 +78,7 @@ function (graph, genegraph_panel_layout, sequence) {
             const compound = Biopolymer.generateDNAOligo(seq, best[2], bioObject);
             compound.id = '' + Math.random();
             compound.sequence = t.getSequenceRange(compound.xi, compound.xf);
+            compound.orientation = best[5];   // "Forward" | "Reverse" | "Forward Complement" | "Reverse Complement"
             compound.highlight(10000, 'purple');
             t.addOligo(compound);
             return compound;
@@ -261,13 +277,20 @@ function (graph, genegraph_panel_layout, sequence) {
         // asking anything or going anywhere near the server. Most pastes are an exact or
         // near-exact match to something already on screen; interrupting every single one of
         // those with a prompt would be worse than just trying.
+        // Names each placed track, noting the orientation it matched in when that was not
+        // simply the sequence as pasted ("Forward") -- worth surfacing (an oligo that only
+        // matched as its reverse complement is a meaningfully different finding), not worth
+        // cluttering the common as-pasted case with.
+        const describePlaced = (p) => (p.track.name || 'track')
+            + (p.compound && p.compound.orientation && p.compound.orientation !== 'Forward'
+                ? (' (' + p.compound.orientation.toLowerCase() + ')') : '');
+
         const DEFAULT_ED = 1;
         graph.setMessage(' Searching displayed tracks for a match… ');
         let placed = await mapOntoDisplayedTracks(seq, DEFAULT_ED);
         if (placed.length) {
-            const names = placed.map((p) => p.track.name || 'track');
             graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
-                + (placed.length === 1 ? '' : 's') + ': ' + names.join(', ') + '. ');
+                + (placed.length === 1 ? '' : 's') + ': ' + placed.map(describePlaced).join(', ') + '. ');
             restoreHover();
             return;
         }
@@ -281,10 +304,9 @@ function (graph, genegraph_panel_layout, sequence) {
             graph.setMessage(' Trying again at edit distance ' + ED + '… ');
             placed = await mapOntoDisplayedTracks(seq, ED);
             if (placed.length) {
-                const names = placed.map((p) => p.track.name || 'track');
                 graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
                     + (placed.length === 1 ? '' : 's') + ' at edit distance ' + ED + ': '
-                    + names.join(', ') + '. ');
+                    + placed.map(describePlaced).join(', ') + '. ');
                 restoreHover();
                 return;
             }
