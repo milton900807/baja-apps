@@ -626,10 +626,17 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
         % (len(normalized_rna), "minus" if strand < 0 else "plus")
     )
     works.progress(5)
+    # Modality first, then the chemistry that defines it. An siRNA is a DUPLEX loaded into
+    # RISC -- it is not a single strand and it does not recruit RNase H -- and the overhangs
+    # are the part of its chemistry that decides how it is loaded, so they are named here
+    # rather than left in the results for the reader to find.
     works.msg(
-        "Tiling duplexes: lengths %s, %s / %s overhangs"
-        % ("-".join(str(x) for x in sorted(set(lengths))),
-           sense_overhang or "none", antisense_overhang or "none")
+        "siRNA duplex for RISC loading: %s / %s overhangs"
+        % (sense_overhang or "blunt", antisense_overhang or "blunt")
+    )
+    works.msg(
+        "Tiling duplex lengths %s"
+        % "-".join(str(x) for x in sorted(set(lengths)))
     )
     # Only when the user actually tuned them: on a default run this line would say nothing the
     # user did not already choose by NOT opening Advanced.

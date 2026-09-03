@@ -151,6 +151,36 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         if (p.indexOf('ssaso') >= 0) return 'Designing gapmer ASO';
         return 'Designing';
     };
+
+    // Modality AND chemistry, in a chemist's words, from the request that is about to be sent.
+    // The dialog collects these and then they disappeared into the JSON: the run said
+    // "Designing gapmer ASO" whatever wings or backbone had been chosen, so two runs with very
+    // different chemistry were reported identically -- and the result toast, which is what
+    // survives on screen afterwards, said nothing about what the compounds are made of.
+    //
+    // Gapmer vs mixmer is read from the GAP, not from a setting: a design with no DNA gap left
+    // to cut is a mixmer and works by affinity rather than by recruiting RNase H. Same rule the
+    // python uses, so the two cannot describe one run differently.
+    const __chemistryOf = (script, req) => {
+        try {
+            const p = '' + (script || ''), q = req || {};
+            const bb = q.default_backbone || 'PS';
+            if (p.indexOf('sirna') >= 0) {
+                const so = (q.overhangs && q.overhangs.sense) || '';
+                const ao = (q.overhangs && q.overhangs.antisense) || '';
+                return 'siRNA duplex' + ((so || ao) ? (', ' + (so || 'blunt') + ' / ' + (ao || 'blunt') + ' overhangs') : '');
+            }
+            if (p.indexOf('steric') >= 0) {
+                return 'Steric-blocking ASO, full ' + (q.full_modification || "2'-MOE") + ', ' + bb + ' backbone';
+            }
+            if (p.indexOf('ssaso') >= 0) {
+                const gaps = Array.isArray(q.gap_sizes) ? q.gap_sizes : [];
+                const modality = (gaps.length && Math.min.apply(null, gaps) > 0) ? 'Gapmer' : 'Mixmer';
+                return modality + ' with ' + (q.wing_modification || 'LNA') + ' wings, ' + bb + ' backbone';
+            }
+        } catch (e) { }
+        return '';
+    };
     // ---- Where a designed compound sits on the track -------------------------------------
     //
     // As LOW as it will go, and no lower: compounds start on the bottom row and only climb when
@@ -232,9 +262,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // and a design that placed NONE looked like a design that had not finished.
     //
     // setResultMessage, not setMessage: the canvas draws only error and result toasts.
-    const __designDone = (modality, oligos, track) => {
+    const __designDone = (modality, oligos, track, chemistry) => {
         try {
             const n = (oligos && oligos.length) | 0;
+            const chem = chemistry ? (' — ' + chemistry) : '';
             const where = (track && track.name) ? (' on ' + track.name) : '';
             let span = '';
             try {
@@ -242,7 +273,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 if (r) span = ' over the selected ' + Math.max(0, Math.round(r.end - r.start)) + ' nt';
             } catch (e) { }
             if (!n) {
-                graph.setResultMessage(' ' + modality + ': no candidate passed the filters'
+                graph.setResultMessage(' ' + modality + chem + ': no candidate passed the filters'
                     + span + '. Try a wider length range, or a longer selection. ');
                 return;
             }
@@ -251,7 +282,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 const v = Number(o && (o.normalized_score != null ? o.normalized_score : o.score));
                 if (isFinite(v) && (best == null || v > best)) best = v;
             }
-            graph.setResultMessage(' ' + modality + ': ' + n + ' compound' + (n === 1 ? '' : 's')
+            graph.setResultMessage(' ' + modality + chem + ': ' + n + ' compound' + (n === 1 ? '' : 's')
                 + ' placed' + where + span
                 + (best != null ? (', best score ' + best.toFixed(2)) : '') + '. ');
         } catch (e) { }
@@ -405,7 +436,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
 
 
-                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -551,7 +582,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         i.xf = i.xi + length
                         selectedTrack.addOligo(i)
                     }
-                    __designDone('siRNA', sirnaArray, selectedTrack);
+                    __designDone('siRNA', sirnaArray, selectedTrack, __chemistryOf(str, json_input));
 
                     // showModal({
                     //     wid: 'json',
@@ -613,7 +644,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "exclude_gap_cleavage_motif_hits": true
                     }
 
-                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -783,7 +814,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
-                    __designDone('Gapmer ASO', gapmerArray, selectedTrack);
+                    __designDone('ASO', gapmerArray, selectedTrack, __chemistryOf(str, json_input));
 
                     // // Optional:
                     // showModal({
@@ -820,7 +851,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         annotations: [] // optional: populate if you have site annotations
                     };
 
-                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -955,7 +986,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
-                    __designDone('Steric-blocking ASO', stericBlockingArray, selectedTrack);
+                    __designDone('ASO', stericBlockingArray, selectedTrack, __chemistryOf(str, json_input));
 
                     // Optional:
                     // showModal({

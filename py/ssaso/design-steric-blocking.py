@@ -759,10 +759,17 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     # placed against features -- splice sites, uORFs, start codons -- so with none supplied the
     # run is scoring on sequence alone, and the user should be told that before reading the
     # results.
+    # The modality and the chemistry first, in a chemist's words: this is a fully modified
+    # single strand with no DNA gap, so it occupies its site rather than marking it for
+    # cleavage -- which is the thing that distinguishes it from the gapmer designer and the
+    # thing a reader needs before interpreting a score.
     works.msg(
-        "Tiling candidates: lengths %s, %s throughout, %s backbone, %s"
+        "Steric-blocking ASO with full %s and a %s backbone (no DNA gap - blocks, does not cleave)"
+        % (full_modification, default_backbone)
+    )
+    works.msg(
+        "Tiling lengths %s; %s"
         % ("-".join(str(x) for x in sorted(set(lengths))),
-           full_modification, default_backbone,
            ("%d annotation site%s to block"
             % (len(annotations), "" if len(annotations) == 1 else "s"))
            if annotations else "no annotation sites supplied - scoring on sequence alone")

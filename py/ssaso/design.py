@@ -685,12 +685,28 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         % (len(normalized_rna), "minus" if strand < 0 else "plus")
     )
     works.progress(5)
-    works.msg(
-        "Tiling candidates: lengths %s, gap %s, %s wings, %s backbone"
-        % ("-".join(str(x) for x in sorted(set(lengths))),
-           "-".join(str(x) for x in sorted(set(gap_sizes))),
-           wing_modification, default_backbone)
+    # The MODALITY and the CHEMISTRY, in the words a chemist would use, before anything runs.
+    # The parameters were reported as raw fields -- "2'-MOE wings, PS backbone" -- which is the
+    # data but not the design: what a reader wants to know first is whether this is a gapmer or
+    # a mixmer and what it is made of.
+    #
+    # gapmer vs mixmer is decided by the gap, not by a setting: a contiguous DNA gap flanked by
+    # modified wings is a gapmer, and a design with no gap left to cut is a mixmer, which works
+    # by affinity rather than by recruiting RNase H. The distinction changes what the compound
+    # DOES, so it is named rather than left to be inferred from a number.
+    _gaps = sorted(set(gap_sizes))
+    _modality = "Gapmer" if min(_gaps) > 0 else "Mixmer"
+    _layouts = ", ".join(
+        "%d-%d-%d" % ((ln - g) // 2, g, ln - g - (ln - g) // 2)
+        for ln in sorted(set(lengths)) for g in _gaps
     )
+    works.msg(
+        "%s ASO with %s wings and a %s backbone%s"
+        % (_modality, wing_modification, default_backbone,
+           (" (DNA gap for RNase H)" if _modality == "Gapmer"
+            else " (no DNA gap - affinity only, no RNase H)"))
+    )
+    works.msg("Layouts being tiled (wing-gap-wing): %s" % _layouts)
     works.progress(15)
 
     all_candidates = generate_gapmer_candidates(
