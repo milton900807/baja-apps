@@ -7277,6 +7277,29 @@ pattern, GGGG | Required`
                 try { list = this.__orderMenu(list); } catch (e) { }
                 if (this.wake) this.wake();
 
+                // LIBRARY MODE. Opened from the menubar's Selection button, every level of the
+                // navigation is drawn as a library instead of a side menu -- including the
+                // levels built by OTHER scripts, which is the reason this decision lives here
+                // rather than in openSelectionMenu. A handoff to track-design-menu.js or a model
+                // runner calls showSideMenu directly with its own list, so a check anywhere else
+                // would have changed idiom one level in.
+                //
+                // Its lifetime is the SELECTION CHAIN, which already draws exactly the line that
+                // matters: openSelectionMenu starts it, a deliberate handoff keeps it (see
+                // closeHandoff), and dismissing with showSideMenu(null) ends it -- the idiom
+                // every unrelated menu uses before opening itself. So an unrelated menu never
+                // inherits library mode, and reusing that lifetime means there is one definition
+                // of "still the same navigation" rather than two that can disagree.
+                //
+                // Opened from the selection window ON THE CANVAS the flag is false, and this
+                // whole block is skipped: that route keeps its side menus.
+                try {
+                    if (list && this.__menuLibrary && this.__selMenuChain) {
+                        this.__showSelectionShelf(list, label);
+                        return;
+                    }
+                } catch (e) { }
+
                 // Keep the "came from the selection box" mark across a menu CHAIN.
                 //
                 // openSelectionMenu marks the lists it builds itself, which is what the
@@ -7724,8 +7747,11 @@ pattern, GGGG | Required`
                         books: books,
                         graph: this,
                         onClose: () => {
-                            // Only a real dismissal reaches here without another level opening
-                            // straight after; re-arm the canvas so the editor is usable again.
+                            // Ending the CHAIN is what ends library mode -- the same thing
+                            // showSideMenu(null) does for a side menu. A level opened from here
+                            // re-arms it through show()/closeHandoff, exactly as before.
+                            try { this.__selMenuChain = false; } catch (e) { }
+                            // Re-arm the canvas so the editor is usable again.
                             try { this.clearMouseListeners(); } catch (e) { }
                             try { this.setMouseMode('navigate'); } catch (e) { }
                             try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }
@@ -9934,6 +9960,10 @@ pattern, GGGG | Required`
             // what makes the library's options identical to the menu's rather than merely
             // similar, and why adding an item to one adds it to both.
             openSelectionMenu(rootEntry, rootY, asLibrary) {
+                // Which renderer this chain uses. Read by showSideMenu for every level, so a
+                // handoff to another script stays in the same idiom. Callers from the canvas
+                // selection window pass nothing and get side menus.
+                this.__menuLibrary = !!asLibrary;
                 // Name this menu after the CARD ROW that opened it.
                 //
                 // menu.js records the parent when one MENU ITEM opens another, but a menu opened
@@ -9979,11 +10009,8 @@ pattern, GGGG | Required`
                 // generic word. Callers with nothing more specific to say leave it off.
                 const show = (list, label) => {
                     const __lbl = label || 'My selection...';
-                    // Library mode is decided ONCE, by the caller, and read here -- not held on
-                    // the instance. A flag would have to be cleared when the user leaves, and
-                    // "leaves" is indistinguishable from "opened the next level", so it would
-                    // either leak into the next side menu or drop out mid-navigation.
-                    if (asLibrary) { this.__showSelectionShelf(list, __lbl); return; }
+                    // No renderer choice here any more: showSideMenu makes it, once, for every
+                    // level including the ones other scripts open.
                     // Mark the list so the selection card can blur itself while this is open,
                     // and open the CHAIN so submenus that hand off to another script stay
                     // marked too (see showSideMenu).
