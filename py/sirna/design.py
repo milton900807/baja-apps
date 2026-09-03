@@ -618,6 +618,28 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
 
     normalized_rna = clean_sequence(raw_sequence)
 
+    # Say what the algorithm is doing, stage by stage. This designer reported nothing at all --
+    # works was imported and never used for a message -- so a run over a long transcript was
+    # indistinguishable from a stuck one until it returned.
+    works.msg(
+        "Reading target: %d nt, %s strand"
+        % (len(normalized_rna), "minus" if strand < 0 else "plus")
+    )
+    works.progress(5)
+    works.msg(
+        "Tiling duplexes: lengths %s, %s / %s overhangs"
+        % ("-".join(str(x) for x in sorted(set(lengths))),
+           sense_overhang or "none", antisense_overhang or "none")
+    )
+    # Only when the user actually tuned them: on a default run this line would say nothing the
+    # user did not already choose by NOT opening Advanced.
+    if weights:
+        works.msg(
+            "Scoring weights in use: %s"
+            % ", ".join("%s %s" % (k, weights[k]) for k in sorted(weights))
+        )
+    works.progress(15)
+
     all_candidates = generate_candidates(
         long_mrna_sequence=raw_sequence,
         lengths=lengths,
@@ -628,7 +650,19 @@ def design_sirna_sites(payload: Any) -> Dict[str, Any]:
         weights=weights,
     )
 
+    works.progress(70)
+    works.msg(
+        "Scored %d candidate duplex%s"
+        % (len(all_candidates), "" if len(all_candidates) == 1 else "es")
+    )
+    # Said plainly, because it is the one place this designer differs from the ASO designers:
+    # there is no non-overlapping pass here, so the top N can sit on top of each other.
+    works.msg("Taking the best %d by score, overlaps allowed" % top_n)
+
     top_candidates = all_candidates[:top_n]
+
+    works.progress(90)
+    works.msg("Top candidates: %d" % len(top_candidates))
 
     return {
         "input_sequence_original": re.sub(r"\s+", "", str(raw_sequence).upper()),

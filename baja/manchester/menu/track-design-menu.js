@@ -472,6 +472,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         i.xf = i.xi + length
                         selectedTrack.addOligo(i)
                     }
+                    __designDone('siRNA', sirnaArray, selectedTrack);
 
                     // showModal({
                     //     wid: 'json',
