@@ -2965,7 +2965,7 @@ function (path, config) {
                             if (!graph || !graph.graph) return;
                             const mode = '' + (graph.graph.mode || '');
                             if (graph.select_) return;                       // selecting a sequence
-                            if (mode === 'lasso') return;                    // lasso selecting
+                            if (mode === 'lasso' || mode === 'rectselect') return;   // lasso / rectangle selecting
                             if (/^msg/i.test(mode)) return;                  // a tool is prompting
                             if (graph.side_menu) return;
                             try { if (graph.menuVisible && graph.menuVisible()) return; } catch (e) { }

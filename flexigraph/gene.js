@@ -7756,6 +7756,52 @@ pattern, GGGG | Required`
                 ];
             }
 
+            // An icon for one selection-library card, read from its LABEL.
+            //
+            // The cards are built from menu items, which carry a label and a click and nothing
+            // else -- there is no type to switch on, and adding one would mean touching every
+            // menu item in openSelectionMenu and every handoff script that builds a list. So the
+            // label is the signal, matched most-specific first: 'Zoom to compounds' has to be
+            // tested before 'Zoom to', and 'Remove all others' before 'Remove', or the general
+            // rule swallows the specific one.
+            //
+            // A glyph rather than an emoji: these sit in a small chip beside a badge, and emoji
+            // render at wildly different weights across platforms while the geometric set here
+            // stays the same size next to the text.
+            __selectionIcon(label, isSub, isBack) {
+                const l = ('' + (label || '')).trim();
+                const T = [
+                    [/^(‹|«|<|←)|^back\b/i, '‹'],
+                    [/more…|^more\b|^next\b/i, '»'],
+                    [/previous/i, '«'],
+                    [/zoom to compounds/i, '◎'],
+                    [/^zoom/i, '⌖'],
+                    [/remove all others/i, '⋮'],
+                    [/^(remove|delete)/i, '✕'],
+                    [/^deselect|clear selection/i, '○'],
+                    [/download|export|\b(csv|bed|xlsx|txt)\b/i, '⤓'],
+                    [/highlight/i, '✷'],
+                    [/^hide/i, '◌'],
+                    [/^show/i, '◉'],
+                    [/rename|change .*name/i, '✎'],
+                    [/off-?target/i, '⌕'],
+                    [/design/i, '⚗'],
+                    [/primer|amplicon/i, '⋈'],
+                    [/layer/i, '▤'],
+                    [/variant|snp|indel|mutation/i, '◆'],
+                    [/annotation|exon|domain/i, '▮'],
+                    [/oligo|compound|aso|sirna|therapeutic/i, '⌁'],
+                    [/track/i, '▬'],
+                    [/librar/i, '▦'],
+                    [/sequence/i, '⌇'],
+                    [/model|splic|retention|rbp|binding/i, '◈']
+                ];
+                for (const [re, g] of T) { if (re.test(l)) return g; }
+                // Nothing matched: still say which KIND of card it is, since that is the one
+                // thing the shelf knows for certain about every row.
+                return isBack ? '‹' : (isSub ? '›' : '•');
+            }
+
             __showSelectionShelf(list, label) {
                 const items = (Array.isArray(list) ? list : []).filter(Boolean);
                 // A header row is the menu's caption ('Selected (7) —'), not something to click.
@@ -7769,6 +7815,7 @@ pattern, GGGG | Required`
                         // The ▸ is what the shelf itself adds for a nested card, so carrying the
                         // menu's own would print it twice.
                         title: raw.replace(/\s*[▸►]\s*$/, '') || 'Item',
+                        icon: this.__selectionIcon(raw, isSub, isBack),
                         badge: isBack ? 'Back' : (isSub ? 'Opens' : 'Action'),
                         blurb: isBack ? 'Return to the level above.'
                             : (isSub ? 'Opens the next level of this selection.'
@@ -9842,6 +9889,39 @@ pattern, GGGG | Required`
                 this.__snpSelectionActive = false;
             }
 
+            // Clear the SEQUENCE selection on every track — the markstart/markend range, which
+            // is what the designers, the models and the data loaders scope themselves to.
+            //
+            // Separate from clearSelectionVisuals() on purpose. That walks __lassoSelection, and
+            // a sequence range is NOT in it: it is derived from markstart/markend on the track,
+            // which is why "Clear selection" left every highlighted range exactly where it was
+            // while appearing to have cleared everything. It is also called by _startLasso to
+            // reset the previous selection before applying a new one, and a lasso should not
+            // silently discard a range the user marked for a design.
+            //
+            // Only the marks. deselect() would also unhighlight every variant on the track, and
+            // those highlights are set by other things -- an off-target run marks its hits the
+            // same way -- so clearing them here would undo work this action never touched.
+            clearSequenceSelections() {
+                let n = 0;
+                for (const t of (this.track || [])) {
+                    try {
+                        if (!t) continue;
+                        const has = (t.selectedRange && t.selectedRange())
+                            || (t.markstart != null && t.markend != null && t.markend > t.markstart);
+                        if (!has) continue;
+                        t.markstart = null;
+                        t.markend = null;
+                        t.showResizeBar = false;
+                        n++;
+                    } catch (e) { }
+                }
+                // The drag that creates a range leaves its own state behind; without this the
+                // next mouse-up could re-apply the range that was just cleared.
+                try { this.select_ = false; this.startX = null; this.endX = null; this.__dragMark = null; } catch (e) { }
+                return n;
+            }
+
             // Add a clicked oligo (or amplicon) to the selection box. Its menu is the
             // per-oligo (ASO) menu, opened from the selection window. De-dupe by ref.
             addOligoToSelection(oligo, track) {
@@ -11019,7 +11099,27 @@ pattern, GGGG | Required`
                     menu.push({ label: 'Download all as XLSX', click: () => { close(); this.exportSelection('xlsx'); }, move: () => { } });
                     menu.push({ label: 'Delete all selected', click: () => { close(); this.removeSelection(false); }, move: () => { } });
                     menu.push({ label: 'Keep only selected (delete others)', click: () => { close(); this.removeSelection(true); }, move: () => { } });
-                    menu.push({ label: 'Clear selection', click: () => { close(); this.clearSelectionVisuals(); this.__lassoSelection = []; this.__selPanelBounds = null; this.showDisplay = false; if (this.wake) this.wake(); }, move: () => { } });
+                    menu.push({
+                        label: 'Clear selection',
+                        click: () => {
+                            close();
+                            this.clearSelectionVisuals();
+                            // ...and the sequence ranges, which are not part of __lassoSelection
+                            // and so survived every previous "Clear selection".
+                            const __seq = this.clearSequenceSelections();
+                            this.__lassoSelection = [];
+                            this.__selPanelBounds = null;
+                            this.showDisplay = false;
+                            if (this.wake) this.wake();
+                            try {
+                                this.setResultMessage(__seq
+                                    ? (' Selection cleared, including the selected sequence on '
+                                        + __seq + ' track' + (__seq === 1 ? '' : 's') + '. ')
+                                    : ' Selection cleared. ');
+                            } catch (e) { }
+                        },
+                        move: () => { }
+                    });
                     return menu;
                 };
 

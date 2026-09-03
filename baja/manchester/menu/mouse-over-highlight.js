@@ -1482,9 +1482,11 @@ function (graph, genegraph_panel_layout) {
             // deselect tracks / annotations under the cursor, so the user's current
             // selection stays put while they interact with the menu.
             if (graph.side_menu || (graph.menuVisible && graph.menuVisible())) return;
-            // While the lasso or box-zoom tool is active, suppress hover highlighting
-            // entirely — the drag is drawing a selection/zoom box, not hovering items.
-            if (graph.graph && (graph.graph.mode === 'lasso' || graph.graph.mode === 'bpx')) return;
+            // While the lasso, rectangle-select or box-zoom tool is active, suppress hover
+            // highlighting entirely — the drag is drawing a selection/zoom box, not hovering
+            // items. Rectangle select is the same gesture as the lasso and belongs in the list.
+            if (graph.graph && (graph.graph.mode === 'lasso' || graph.graph.mode === 'rectselect'
+                || graph.graph.mode === 'bpx')) return;
             if (currentWorkbench && currentWorkbench.priority && currentWorkbench.mouseMoveListener) {
                 return currentWorkbench.mouseMoveListener(scx, scy)
             }
@@ -5171,7 +5173,11 @@ function (graph, genegraph_panel_layout) {
                 // (incl. gene.js's control-button / selection-panel handling) has set
                 // its flags — otherwise we'd wipe a selection the user just clicked on.
                 setTimeout(() => {
-                    if (graph.graph && (graph.graph.mode === 'lasso' || graph.graph.mode === 'bpx')) return;   // lasso / box-zoom manage their own
+                    // 'rectselect' belongs in this list for the same reason as 'lasso': the
+                    // gesture ends with a mouse-up on empty canvas, and without the guard this
+                    // handler would clear the selection the drag had just made.
+                    const __m = graph.graph && graph.graph.mode;
+                    if (__m === 'lasso' || __m === 'rectselect' || __m === 'bpx') return;   // these manage their own
                     if (graph.side_menu || graph.__downMenuHandled || graph.__pendingSnp) return;
                     if (!graph.__lassoSelection || !graph.__lassoSelection.length) return;
                     try { if (graph.clearSelectionVisuals) graph.clearSelectionVisuals(); } catch (e) { }
