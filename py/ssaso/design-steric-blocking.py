@@ -748,6 +748,27 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     normalized_rna = clean_sequence(raw_sequence)
     symbol_map = build_symbol_map(helm_symbols)
 
+    # Stage-by-stage reporting, for the same reason as the gapmer designer: this run used to
+    # say nothing at all until it returned, so a slow design and a stuck one looked identical.
+    works.msg(
+        "Reading target: %d nt, %s strand"
+        % (len(normalized_rna), "minus" if strand < 0 else "plus")
+    )
+    works.progress(5)
+    # The annotation count matters here in a way it does not for a gapmer: a steric blocker is
+    # placed against features -- splice sites, uORFs, start codons -- so with none supplied the
+    # run is scoring on sequence alone, and the user should be told that before reading the
+    # results.
+    works.msg(
+        "Tiling candidates: lengths %s, %s throughout, %s backbone, %s"
+        % ("-".join(str(x) for x in sorted(set(lengths))),
+           full_modification, default_backbone,
+           ("%d annotation site%s to block"
+            % (len(annotations), "" if len(annotations) == 1 else "s"))
+           if annotations else "no annotation sites supplied - scoring on sequence alone")
+    )
+    works.progress(15)
+
     all_candidates = generate_steric_blocking_aso_candidates(
         long_sequence=raw_sequence,
         lengths=lengths,
@@ -760,14 +781,28 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         annotations=annotations,
     )
 
+    works.progress(70)
+    works.msg(
+        "Scored %d candidate ASO%s"
+        % (len(all_candidates), "" if len(all_candidates) == 1 else "s")
+    )
+
     if enforce_non_overlapping:
+        works.msg(
+            "Selecting the best %d, non-overlapping, at least %d nt apart"
+            % (top_n, min_separation)
+        )
         top_candidates = select_top_non_overlapping(
             all_candidates,
             top_n=top_n,
             min_separation=min_separation,
         )
     else:
+        works.msg("Taking the best %d by score, overlaps allowed" % top_n)
         top_candidates = all_candidates[:top_n]
+
+    works.progress(90)
+    works.msg("Top candidates: %d" % len(top_candidates))
 
     return {
         "design_type": "steric_blocking_aso",

@@ -676,6 +676,23 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     normalized_rna = clean_sequence(raw_sequence)
     symbol_map = build_symbol_map(helm_symbols)
 
+    # Say what the algorithm is doing, stage by stage. A gapmer run over a long transcript can
+    # take a while, and it used to report only "Top candidates: N" at the very end -- so until
+    # then the user could not tell a slow design from a stuck one, or know what was being
+    # tried on their behalf.
+    works.msg(
+        "Reading target: %d nt, %s strand"
+        % (len(normalized_rna), "minus" if strand < 0 else "plus")
+    )
+    works.progress(5)
+    works.msg(
+        "Tiling candidates: lengths %s, gap %s, %s wings, %s backbone"
+        % ("-".join(str(x) for x in sorted(set(lengths))),
+           "-".join(str(x) for x in sorted(set(gap_sizes))),
+           wing_modification, default_backbone)
+    )
+    works.progress(15)
+
     all_candidates = generate_gapmer_candidates(
         long_sequence=raw_sequence,
         lengths=lengths,
@@ -690,16 +707,32 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         exclude_gap_cleavage_motif_hits=exclude_gap_cleavage_motif_hits,
     )
 
+    # What the scoring pass actually cost, and what the motif filter removed -- a design that
+    # comes back with few candidates is usually explained by one of these two numbers.
+    works.progress(70)
+    works.msg(
+        "Scored %d candidate gapmer%s%s"
+        % (len(all_candidates),
+           "" if len(all_candidates) == 1 else "s",
+           " (endonuclease-motif hits excluded)" if exclude_gap_cleavage_motif_hits else "")
+    )
+
     if enforce_non_overlapping:
+        works.msg(
+            "Selecting the best %d, non-overlapping, at least %d nt apart"
+            % (top_n, min_separation)
+        )
         top_candidates = select_top_non_overlapping(
             all_candidates,
             top_n=top_n,
             min_separation=min_separation,
         )
     else:
+        works.msg("Taking the best %d by score, overlaps allowed" % top_n)
         top_candidates = all_candidates[:top_n]
 
     hits: List[Dict[str, Any]] = []
+    works.progress(90)
     works.msg("Top candidates: " + str(len(top_candidates)))
 
     for candidate in top_candidates:

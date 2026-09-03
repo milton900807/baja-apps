@@ -132,6 +132,68 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         return handle;
     };
 
+    // Progress for a design run. The python designers report their stages through works.msg
+    // (see py/ssaso/design.py and design-steric-blocking.py); this puts each one in the status
+    // badge under the canvas buttons, prefixed with the modality so the line says WHAT is being
+    // designed as well as what stage it is at.
+    //
+    // The badge, not setCenterMessage. Centre messages are drawn large across the canvas, over
+    // the very track the design is about to land on, and the app already has one place for
+    // work-in-progress -- the indicator beside the spinner. Progress that appears somewhere
+    // different from every other progress is progress the user has to learn to look for.
+    // What to call a run in the indicator and on the Cancel button, from its script. The
+    // spinner was being labelled with the script PATH -- 'py/ssaso/design.py' -- which is the
+    // one thing on screen that could not tell the user what was running.
+    const __designLabel = (script) => {
+        const p = '' + (script || '');
+        if (p.indexOf('sirna') >= 0) return 'Designing siRNA';
+        if (p.indexOf('steric') >= 0) return 'Designing steric-blocking ASO';
+        if (p.indexOf('ssaso') >= 0) return 'Designing gapmer ASO';
+        return 'Designing';
+    };
+    // What the run actually produced. Every design reported its stages and then ended in
+    // silence, so one that placed three compounds and one that placed forty looked the same,
+    // and a design that placed NONE looked like a design that had not finished.
+    //
+    // setResultMessage, not setMessage: the canvas draws only error and result toasts.
+    const __designDone = (modality, oligos, track) => {
+        try {
+            const n = (oligos && oligos.length) | 0;
+            const where = (track && track.name) ? (' on ' + track.name) : '';
+            let span = '';
+            try {
+                const r = track && track.selectedRange && track.selectedRange();
+                if (r) span = ' over the selected ' + Math.max(0, Math.round(r.end - r.start)) + ' nt';
+            } catch (e) { }
+            if (!n) {
+                graph.setResultMessage(' ' + modality + ': no candidate passed the filters'
+                    + span + '. Try a wider length range, or a longer selection. ');
+                return;
+            }
+            let best = null;
+            for (const o of oligos) {
+                const v = Number(o && (o.normalized_score != null ? o.normalized_score : o.score));
+                if (isFinite(v) && (best == null || v > best)) best = v;
+            }
+            graph.setResultMessage(' ' + modality + ': ' + n + ' compound' + (n === 1 ? '' : 's')
+                + ' placed' + where + span
+                + (best != null ? (', best score ' + best.toFixed(2)) : '') + '. ');
+        } catch (e) { }
+    };
+
+    const __designProgress = (modality) => new EngineMonitor(async (msg) => {
+        try {
+            const t = ('' + (msg == null ? '' : msg)).trim();
+            if (!t) return;
+            // The trailing ellipsis is what marks a line as work-in-progress (see setMessage in
+            // flexigraph/gene.js); without it the indicator treats the line as a conclusion and
+            // clears itself between stages.
+            const line = modality + ' · ' + t + (/(…|\.\.\.)$/.test(t) ? '' : '…');
+            window.__workStatus = line;
+            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+        } catch (e) { }
+    });
+
     return (async () => {
         const selected = async (v) => {
             graph.props.selected_chemistry = v;
@@ -145,9 +207,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             {
                 label: "siRNA",
                 click: async (scx, scy) => {
-                    let progress = new EngineMonitor(async (msg) => {
-                        graph.setCenterMessage(msg)
-                    });
+                    let progress = __designProgress('siRNA');
                     const str = `py/sirna/design.py`
 
 
@@ -269,7 +329,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
 
 
-                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -425,9 +485,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 click: async (scx, scy) => {
 
 
-                    let progress = new EngineMonitor(async (msg) => {
-                        graph.setCenterMessage(msg)
-                    });
+                    let progress = __designProgress('Gapmer ASO');
 
                     let Oligo = await exec('flexigraph/oligo.js');
                     const str = `py/ssaso/design.py`;
@@ -475,7 +533,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "exclude_gap_cleavage_motif_hits": true
                     }
 
-                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -641,6 +699,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: 0.3,
                         track: selectedTrack
                     });
+                    __designDone('Gapmer ASO', gapmerArray, selectedTrack);
 
                     // // Optional:
                     // showModal({
@@ -652,8 +711,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             {
                 label: "Steric-blocking ASO",
                 click: async (scx, scy) => {
-                    let progress = new EngineMonitor(async (msg) => {
-                    });
+                    let progress = __designProgress('Steric-blocking ASO');
 
                     let Oligo = await exec('flexigraph/oligo.js');
 
@@ -678,7 +736,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         annotations: [] // optional: populate if you have site annotations
                     };
 
-                    const __sp = __showSpinner(null, str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -809,6 +867,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: 0.3,
                         track: selectedTrack
                     });
+                    __designDone('Steric-blocking ASO', stericBlockingArray, selectedTrack);
 
                     // Optional:
                     // showModal({
