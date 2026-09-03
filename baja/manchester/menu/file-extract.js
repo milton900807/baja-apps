@@ -1,9 +1,15 @@
-function (graph, genegraph_panel_layout) {
+function (graph, genegraph_panel_layout, presetFile) {
     // Upload a file (PDF, text, or image) and pull out all genetic information (genes /
     // mutations / ASOs). This runs in the BACKGROUND: the app stays fully interactive while
     // a small spinning notice in the UPPER-LEFT corner shows the job is still running. When
     // the extraction finishes, the app PROMPTS the user to ask whether to load the results
     // into the workbench (via the shared text-extract loader/mapper/zoom-tour).
+    //
+    // `presetFile`, when given, is a File object already in hand -- the OS picker below is
+    // skipped and that file goes straight into the same processFile() the picker itself
+    // uses. baja/manchester/menu/upload-data.js hands one in after a chunked large-file
+    // upload finishes, so a pdf/text file uploaded through that flow gets the exact same
+    // parsing this file has always done, not a second implementation of it.
     return new Promise((resolve) => {
 
         const guessMime = (name) => {
@@ -73,34 +79,22 @@ function (graph, genegraph_panel_layout) {
             };
         };
 
-        let input = null;
-        const cleanup = () => { try { if (input && input.parentNode) input.parentNode.removeChild(input); } catch (e) { } input = null; };
+        const MAXB = 9 * 1024 * 1024;   // ~9MB (base64 param stays well under API limits)
 
-        input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.pdf,.txt,.text,.md,.csv,.tsv,application/pdf,text/plain,image/*';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-
-        input.onchange = async () => {
-            const file = input.files && input.files[0];
-            if (!file) { cleanup(); resolve(null); return; }
-
-            const MAXB = 9 * 1024 * 1024;   // ~9MB (base64 param stays well under API limits)
+        // Everything that happens once a File object is in hand, shared by the OS picker
+        // below and by a presetFile caller. Not responsible for resolve()/cleanup() -- both
+        // callers below do that themselves before calling this, since the picker path also
+        // needs to remove its <input> element first.
+        const processFile = async (file) => {
             if (file.size > MAXB) {
                 graph.setMessage(' File too large (' + Math.round(file.size / 1048576) + 'MB). Max is 9MB. ');
-                cleanup(); resolve(null); return;
+                return;
             }
 
             const mime = ('' + (file.type || '')).toLowerCase() || guessMime(file.name);
 
-            // Start the upper-left background notice, then release the menu immediately so the
-            // app stays interactive while the file uploads and is analyzed.
             const notice = makeNotice('Uploading ' + file.name + '…');
             graph.setMessage(' Uploading ' + file.name + ' — extracting in the background… ');
-            cleanup();
-            resolve(null);   // <- background mode: the launcher menu closes, the work continues below
 
             // ---- Background work (not awaited by the caller) --------------------------------
             let dataUrl = '';
@@ -196,6 +190,29 @@ function (graph, genegraph_panel_layout) {
                 // If no menu is available, fall back to auto-loading so the work isn't lost.
                 doLoad();
             }
+        };
+
+        if (presetFile) {
+            resolve(null);   // same background-mode contract as the picker path below
+            processFile(presetFile);
+            return;
+        }
+
+        let input = null;
+        const cleanup = () => { try { if (input && input.parentNode) input.parentNode.removeChild(input); } catch (e) { } input = null; };
+
+        input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pdf,.txt,.text,.md,.csv,.tsv,application/pdf,text/plain,image/*';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        input.onchange = async () => {
+            const file = input.files && input.files[0];
+            if (!file) { cleanup(); resolve(null); return; }
+            cleanup();
+            resolve(null);   // <- background mode: the launcher menu closes, the work continues below
+            processFile(file);
         };
 
         // If the user dismisses the OS picker, resolve quietly (best-effort; not all browsers fire this).

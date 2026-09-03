@@ -1375,10 +1375,9 @@ function (path, config) {
                 let data_items = window['env']['data']
                 data_menu.push({
                     'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                        const host = window["env"]["appHost"];
-                        let url = `${host}/app/manchester/fb`
-                        window.open(url, "_blank");
-
+                        graph.clearMouseListeners();
+                        graph.setMouseMode('navigate')
+                        await exec('baja/manchester/menu/upload-data.js', graph, genegraph_panel_layout)
                     })
                 })
                 data_menu.push({
