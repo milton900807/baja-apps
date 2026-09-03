@@ -7714,6 +7714,48 @@ pattern, GGGG | Required`
             // everything else acts. The shelf reuses ONE dom id, so opening a level replaces the
             // one before it -- the menu's own Back items are the way out, which is exactly how
             // the side-menu version navigates, so the two behave the same.
+            // The three ways to select something, always the first three cards of the selection
+            // library's TOP level -- not of every level, or they would reappear inside each
+            // item's actions where they mean nothing.
+            //
+            // First because they are what you need when the library is empty, and because a
+            // library of selected objects should be able to tell you how to select one. Sunset
+            // accent to mark them as TOOLS that arm a gesture on the canvas rather than things
+            // already selected, so the two kinds are not read as one list.
+            __selectionToolBooks() {
+                const arm = (fn) => () => {
+                    // The shelf has closed itself by the time this runs, so the canvas is free
+                    // for the gesture. Any menu still up would sit over the very area the user
+                    // is about to drag across.
+                    try { this.showSideMenu(null); } catch (e) { }
+                    try { this.__selMenuChain = false; } catch (e) { }
+                    try { fn(); } catch (e) {
+                        try { this.setError(' Could not start that selection: ' + e + ' '); } catch (e2) { }
+                    }
+                };
+                return [
+                    {
+                        title: 'Rectangle', icon: '▭', badge: 'Drag a box', accent: 'sunset',
+                        blurb: 'Drag a rectangle over the canvas. Everything inside it — compounds, '
+                            + 'annotations, variants, whole tracks — is selected.',
+                        open: arm(() => this._startLasso(true))
+                    },
+                    {
+                        title: 'Lasso', icon: '✧', badge: 'Draw a loop', accent: 'sunset',
+                        blurb: 'Draw a freehand loop instead of a box, for a selection a rectangle '
+                            + 'would have to include things you do not want.',
+                        open: arm(() => this._startLasso(false))
+                    },
+                    {
+                        title: 'Sequence', icon: '⌇', badge: 'Pick bases', accent: 'sunset',
+                        blurb: 'Select a range of BASES on a track. Everything that follows — the '
+                            + 'designers, the models, the data layers — then works only inside it.',
+                        open: arm(() => exec('baja/manchester/menu/select-sequence.js',
+                            this, this.genegraph_panel_layout, true))
+                    }
+                ];
+            }
+
             __showSelectionShelf(list, label) {
                 const items = (Array.isArray(list) ? list : []).filter(Boolean);
                 // A header row is the menu's caption ('Selected (7) —'), not something to click.
@@ -7734,7 +7776,13 @@ pattern, GGGG | Required`
                         open: () => { try { it.click(); } catch (e) { } }
                     };
                 });
-                if (!books.length) {
+                let tools = [];
+                if (this.__selTopLevel) {
+                    this.__selTopLevel = false;
+                    try { tools = this.__selectionToolBooks(); } catch (e) { tools = []; }
+                }
+                const all = tools.concat(books);
+                if (!all.length) {
                     try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
                     return;
                 }
@@ -7744,7 +7792,7 @@ pattern, GGGG | Required`
                         id: 'baja-selection-library',
                         title: label || 'Selection',
                         subtitle: sub || 'Everything currently selected, and what can be done with it',
-                        books: books,
+                        books: all,
                         graph: this,
                         onClose: () => {
                             // Ending the CHAIN is what ends library mode -- the same thing
@@ -7765,14 +7813,33 @@ pattern, GGGG | Required`
             // The toolbar button: the same selection menu, opened as a library.
             openSelectionLibrary() {
                 const sel = this.__lassoSelection || [];
+                try { this.showSideMenu(null); } catch (e) { }
+                // Marks the NEXT shelf as the top level, so the three selection tools are added
+                // there and nowhere deeper.
+                this.__selTopLevel = true;
                 if (!sel.length) {
-                    // setResultMessage, not setMessage: the canvas draws only error and result
-                    // toasts, so a plain message here would never be seen and the button would
-                    // look broken rather than empty.
-                    try { this.setResultMessage(' Nothing is selected. Lasso some objects, or click a track, first. '); } catch (e) { }
+                    // Nothing selected is not an error, and telling the user so and stopping was
+                    // the least useful thing this button could do: what they need at that moment
+                    // is a way to select something, which is exactly what these three cards are.
+                    try {
+                        exec('baja/lib/shelf.js', {
+                            id: 'baja-selection-library',
+                            title: 'Selection',
+                            subtitle: 'Nothing is selected yet — pick a way to select something',
+                            books: this.__selectionToolBooks(),
+                            graph: this,
+                            onClose: () => {
+                                try { this.__selTopLevel = false; } catch (e) { }
+                                try { this.clearMouseListeners(); } catch (e) { }
+                                try { this.setMouseMode('navigate'); } catch (e) { }
+                                try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }
+                            }
+                        });
+                    } catch (e) {
+                        try { this.setError(' Could not open the selection library: ' + e + ' '); } catch (e2) { }
+                    }
                     return;
                 }
-                try { this.showSideMenu(null); } catch (e) { }
                 this.openSelectionMenu(null, null, true);
             }
 
@@ -8337,13 +8404,23 @@ pattern, GGGG | Required`
 
             // Freehand lasso select: draw a loop; annotations/SNPs whose position
             // falls inside it get selected on release.
-            _startLasso() {
+            // `rect` draws a RECTANGLE instead of a freehand loop. Everything downstream is
+            // unchanged: the loop is already a polygon tested point-in-polygon, so a rectangle
+            // is that polygon with four corners. A separate implementation would have been a
+            // second copy of the hit-testing, the track-enclosure rule and the selection
+            // assembly -- three things that must agree between the two gestures.
+            _startLasso(rect) {
                 this.clearMouseListeners();
-                this.setMouseMode('lasso');
-                this.bclick = 'lasso';
+                this.setMouseMode(rect ? 'rectselect' : 'lasso');
+                this.bclick = rect ? 'rectselect' : 'lasso';
                 setTimeout(() => { this.bclick = ''; }, 100);
-                this.setMessage(" Lasso select — draw a loop around items, release to select ");
+                this.setMessage(rect
+                    ? " Rectangle select — drag a box around items, release to select "
+                    : " Lasso select — draw a loop around items, release to select ");
                 const pts = [];   // world coords (xwc, ywc)
+                // The drag start, kept so a rectangle can be rebuilt from two corners on every
+                // move rather than accumulating a trail.
+                let anchor = null;
                 this.post_graphics_modifications = (c2) => {
                     if (!pts.length) return;
                     c2.save();
@@ -8395,8 +8472,23 @@ pattern, GGGG | Required`
                 // lasso — the mouse-UP that ends the button click itself happens before
                 // any such press, so it's ignored and lasso mode stays active.
                 let armed = false;
-                this.addMouseDownListener((x, y) => { this.md = true; armed = true; pts.length = 0; pts.push({ x, y }); });
-                this.addMouseMoveListener((x, y) => { if (this.md) pts.push({ x, y }); });
+                this.addMouseDownListener((x, y) => {
+                    this.md = true; armed = true; pts.length = 0;
+                    anchor = { x, y };
+                    pts.push({ x, y });
+                });
+                this.addMouseMoveListener((x, y) => {
+                    if (!this.md) return;
+                    if (rect) {
+                        // Four corners from the two the user has given, replaced each move so
+                        // the box follows the cursor instead of trailing behind it.
+                        pts.length = 0;
+                        pts.push({ x: anchor.x, y: anchor.y }, { x: x, y: anchor.y },
+                            { x: x, y: y }, { x: anchor.x, y: y });
+                        return;
+                    }
+                    pts.push({ x, y });
+                });
                 this.addMouseUpListener((x, y) => {
                     if (!armed) return;   // ignore the lasso-button click's own release
                     this.md = false;

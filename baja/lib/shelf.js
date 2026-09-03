@@ -130,17 +130,35 @@ function (opts) {
                     card.onmouseenter = () => { card.style.borderColor = '#12c2e0'; card.style.transform = 'translateY(-2px)'; };
                     card.onmouseleave = () => { card.style.borderColor = 'rgba(255,255,255,0.12)'; card.style.transform = ''; };
                 }
+                // `accent: 'sunset'` is the warm look the canvas uses for its own prompts
+                // (setSunsetMessage), and it marks the cards that are TOOLS rather than
+                // things -- a card that arms a gesture on the canvas, not one that opens a
+                // level or acts on something already selected. Same shelf, one visual break,
+                // so the two kinds are not read as one list.
+                const __sun = (b.accent === 'sunset');
+                if (__sun) {
+                    card.style.background = 'linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%)';
+                    card.style.borderColor = 'rgba(255,163,72,0.55)';
+                    card.onmouseenter = () => { card.style.borderColor = '#ffb35c'; card.style.transform = 'translateY(-2px)'; };
+                    card.onmouseleave = () => { card.style.borderColor = 'rgba(255,163,72,0.55)'; card.style.transform = ''; };
+                }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
+                    + (b.icon ? ('<span style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;'
+                        + 'display:inline-flex;align-items:center;justify-content:center;font:16px/1 Arial;'
+                        + 'background:' + (__sun ? 'rgba(255,163,72,0.18)' : 'rgba(18,194,224,0.14)') + ';">'
+                        + esc(b.icon) + '</span>') : '')
                     + (b.badge ? ('<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;'
-                        + 'background:rgba(18,194,224,0.16);color:#4fd0e6;">' + esc(b.badge) + '</span>') : '')
+                        + 'background:' + (__sun ? 'rgba(255,163,72,0.18)' : 'rgba(18,194,224,0.16)') + ';'
+                        + 'color:' + (__sun ? '#ffc98a' : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')
                     + (ready ? '' : '<span style="color:#8fb8c8;font:11.5px Arial;margin-left:auto;">coming soon</span>')
                     + '</div>'
                     // The › marks a card that opens ANOTHER library rather than loading
                     // something, so the difference is visible before the click, not after it.
-                    + '<div style="font:700 15px Arial;color:#eaf6f9;">' + esc(b.title)
+                    + '<div style="font:700 15px Arial;color:' + (__sun ? '#ffe6c7' : '#eaf6f9') + ';">' + esc(b.title)
                     + (b.books ? ' <span style="color:#4fd0e6;font:700 15px Arial;">\u203a</span>' : '') + '</div>'
-                    + '<div style="font:12px/1.55 Arial;color:#9fb3c8;">' + esc(b.blurb || '') + '</div>';
+                    + '<div style="font:12px/1.55 Arial;color:' + (__sun ? '#e0b48a' : '#9fb3c8') + ';">'
+                    + esc(b.blurb || '') + '</div>';
                 if (ready) {
                     card.onclick = async () => {
                         // Three kinds of card, in the order they take precedence: a sub-library
