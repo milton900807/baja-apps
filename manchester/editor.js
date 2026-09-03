@@ -1947,7 +1947,8 @@ function (path, config) {
                                             // Circular labelled buttons — the only controls now.
                                             buttons: [
                                                 {
-                                                    label: 'File', ionFunction: createIonFunction(() => {
+                                                    label: 'File', icon: 'folder_open',
+                                                    tooltip: 'Open, save, upload and share', ionFunction: createIonFunction(() => {
                                                         graph.showMenu([
                                                             {
                                                                 label: 'New', move: () => { },
@@ -2027,7 +2028,8 @@ function (path, config) {
                                                     })
                                                 },
                                                 {
-                                                    label: 'Track', ionFunction: createIonFunction(() => {
+                                                    label: 'Track', icon: 'timeline',
+                                                    tooltip: 'Add and manage tracks', ionFunction: createIonFunction(() => {
                                                         graph.showMenu([
                                                             {
                                                                 label: 'New track', move: () => { },
@@ -2055,7 +2057,8 @@ function (path, config) {
 
 
                                                 {
-                                                    label: 'Layers', ionFunction: createIonFunction(() => {
+                                                    label: 'Layers', icon: 'layers',
+                                                    tooltip: 'Data layers and models on a track', ionFunction: createIonFunction(() => {
 
                                                         if (!graph.track || graph.track.length === 0) {
                                                             graph.setSunsetMessage(" Load a track first ")
@@ -2185,7 +2188,8 @@ function (path, config) {
                                                     })
                                                 },
                                                 {
-                                                    label: 'Draw', ionFunction: createIonFunction(() => {
+                                                    label: 'Draw', icon: 'edit',
+                                                    tooltip: 'Annotate and draw on the canvas', ionFunction: createIonFunction(() => {
                                                         // Entering Draw: hide the info / selection panel and clear any selection.
 
 
@@ -2293,7 +2297,8 @@ function (path, config) {
                                                     // design space in three centres. Everything in it is marked as in
                                                     // preparation, so the button leads somewhere honest rather than
                                                     // doing nothing at all, which is what it did before.
-                                                    label: 'Design', ionFunction: createIonFunction(() => {
+                                                    label: 'Design', icon: 'science',
+                                                    tooltip: 'The Institute for RNA Therapeutics Design', ionFunction: createIonFunction(() => {
                                                         try { exec('baja/lib/institute-rna-design.js', graph, genegraph_panel_layout); }
                                                         catch (e) { try { graph.setMessage(' Design institute failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                     })
@@ -2303,7 +2308,8 @@ function (path, config) {
                                                 // selected rather than about moving the view.
                                                 __selBtn,
                                                 {
-                                                    label: 'Navigate', ionFunction: createIonFunction(async () => {
+                                                    label: 'Navigate', icon: 'explore',
+                                                    tooltip: 'Move to a gene, a region or a feature', ionFunction: createIonFunction(async () => {
 
 
                                                         if (!graph.track || graph.track.length === 0) {
