@@ -52,8 +52,9 @@ return new Promise(async (resolve, reject) => {
   // an unknown one, gets 'classic' -- a bad name should cost the user their colours, not
   // their track.
   const GX_THEMES = {
-    classic: { label: 'Classic', ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)', exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
+    // classic: { label: 'Classic', ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)', exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
     paper: { label: 'Paper', ink: '#2b2b2b', paper: '#f6f1e3', guide: '#d8d2c4', gtag: '#8a7f6d', ring: '#5a5348', exon: 'rgba(150,120,70,0.75)', exonEdge: '#7a6647', arrow: 'rgba(120,110,90,0.25)' },
+    classic: { label: 'Blueprint', ink: '#dbe9ff', paper: '#0d2b4e', guide: 'rgba(219,233,255,0.30)', gtag: '#9dc0ef', ring: '#5b8ac4', exon: 'rgba(150,200,255,0.55)', exonEdge: '#a8cbf0', arrow: 'rgba(200,225,255,0.25)' },
     blueprint: { label: 'Blueprint', ink: '#dbe9ff', paper: '#0d2b4e', guide: 'rgba(219,233,255,0.30)', gtag: '#9dc0ef', ring: '#5b8ac4', exon: 'rgba(150,200,255,0.55)', exonEdge: '#a8cbf0', arrow: 'rgba(200,225,255,0.25)' },
     midnight: { label: 'Midnight', ink: '#e6edf3', paper: '#0d1117', guide: 'rgba(230,237,243,0.20)', gtag: '#8b949e', ring: '#30363d', exon: 'rgba(88,166,255,0.55)', exonEdge: '#58a6ff', arrow: 'rgba(139,148,158,0.28)' },
     forest: { label: 'Forest', ink: '#12352a', paper: '#f2f7f4', guide: '#c3d8cd', gtag: '#4a6b60', ring: '#14705c', exon: 'rgba(20,112,92,0.70)', exonEdge: '#0d5544', arrow: 'rgba(60,110,95,0.25)' },

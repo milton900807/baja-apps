@@ -7686,6 +7686,70 @@ pattern, GGGG | Required`
                 if (this.wake) this.wake();
             }
 
+            // Render one level of the selection menu as a library. Each menu item becomes a
+            // card; a '▸' item is one that opens another level, a '‹ Back' item goes back, and
+            // everything else acts. The shelf reuses ONE dom id, so opening a level replaces the
+            // one before it -- the menu's own Back items are the way out, which is exactly how
+            // the side-menu version navigates, so the two behave the same.
+            __showSelectionShelf(list, label) {
+                const items = (Array.isArray(list) ? list : []).filter(Boolean);
+                // A header row is the menu's caption ('Selected (7) —'), not something to click.
+                const header = items.find((it) => it && it.header);
+                const rows = items.filter((it) => it && !it.header && typeof it.click === 'function');
+                const books = rows.map((it) => {
+                    const raw = ('' + (it.label || '')).trim();
+                    const isSub = /[▸►]/.test(raw);
+                    const isBack = /^(‹|«|<|←)/.test(raw) || /^Back\b/i.test(raw);
+                    return {
+                        // The ▸ is what the shelf itself adds for a nested card, so carrying the
+                        // menu's own would print it twice.
+                        title: raw.replace(/\s*[▸►]\s*$/, '') || 'Item',
+                        badge: isBack ? 'Back' : (isSub ? 'Opens' : 'Action'),
+                        blurb: isBack ? 'Return to the level above.'
+                            : (isSub ? 'Opens the next level of this selection.'
+                                : 'Runs this action on the selection.'),
+                        open: () => { try { it.click(); } catch (e) { } }
+                    };
+                });
+                if (!books.length) {
+                    try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
+                    return;
+                }
+                const sub = header ? ('' + (header.label || '')).trim() : '';
+                try {
+                    exec('baja/lib/shelf.js', {
+                        id: 'baja-selection-library',
+                        title: label || 'Selection',
+                        subtitle: sub || 'Everything currently selected, and what can be done with it',
+                        books: books,
+                        graph: this,
+                        onClose: () => {
+                            // Only a real dismissal reaches here without another level opening
+                            // straight after; re-arm the canvas so the editor is usable again.
+                            try { this.clearMouseListeners(); } catch (e) { }
+                            try { this.setMouseMode('navigate'); } catch (e) { }
+                            try { if (typeof this.__hoverRearm === 'function') this.__hoverRearm(); } catch (e) { }
+                        }
+                    });
+                } catch (e) {
+                    try { this.setError(' Could not open the selection library: ' + e + ' '); } catch (e2) { }
+                }
+            }
+
+            // The toolbar button: the same selection menu, opened as a library.
+            openSelectionLibrary() {
+                const sel = this.__lassoSelection || [];
+                if (!sel.length) {
+                    // setResultMessage, not setMessage: the canvas draws only error and result
+                    // toasts, so a plain message here would never be seen and the button would
+                    // look broken rather than empty.
+                    try { this.setResultMessage(' Nothing is selected. Lasso some objects, or click a track, first. '); } catch (e) { }
+                    return;
+                }
+                try { this.showSideMenu(null); } catch (e) { }
+                this.openSelectionMenu(null, null, true);
+            }
+
             // Hit-test a SCREEN point against any track's selection arrow heads — the ends of the
             // orange selected-sequence arrow drawn at grid.Y(-20) (see track-flexi draw). Returns
             // { track, edge:'start'|'end' } when the point is on a head, else null.
@@ -8047,6 +8111,10 @@ pattern, GGGG | Required`
                     // Navigation / view controls (left)
                     { id: 'zoom_in', info: 'Zoom in' },
                     { id: 'zoom_out', info: 'Zoom out' },
+                    // The selection library. Sits before Pan because it is about WHAT is
+                    // selected rather than about moving the view, and the row reads
+                    // left-to-right as zoom, then what you have, then how to move.
+                    { id: 'sel_library', info: 'Selected objects' },
                     { id: 'navigate', info: 'Pan' },
                     { id: 'bpx', info: 'Box zoom' },
                     { id: 'expand_vertical', info: 'Expand vertically' },
@@ -8124,6 +8192,11 @@ pattern, GGGG | Required`
                         this.bclick = 'zoom_out';
                         setTimeout(() => { this.___folder_calculation = false; this.___folder_calculation_status = null; this.bclick = ''; this.setMouseMode('navigate'); }, 400);
                         await this.slideZoomByFactor(1.50, 1.20, 200);
+                        return;
+                    case 'sel_library':
+                        this.bclick = 'sel_library';
+                        setTimeout(() => { this.bclick = ''; }, 150);
+                        this.openSelectionLibrary();
                         return;
                     case 'navigate':
                         this.bclick = 'navigate';
@@ -8811,6 +8884,44 @@ pattern, GGGG | Required`
                 if (this.showHelp) {
                     this.drawButtonLabel(ctx, "Select sequence", cx + 20, cy, { font: "11px Arial" });
                 }
+            }
+
+            // Stacked layers glyph: the button opens what is SELECTED, and a stack is the
+            // shape of a list of things. Carries a count badge, so the row says how much is
+            // selected without opening anything -- and reads as empty when nothing is.
+            drawSelLibraryButton(ctx) {
+                this.setButtonStyle(ctx, { font: "600 12px Arial" });
+                const { cx, cy } = this._ctrlPos('sel_library');
+                const n = ((this.__lassoSelection || []).length) | 0;
+                this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
+
+                ctx.save();
+                this.resetCanvasEffects(ctx);
+                // Three offset bars — a stack seen edge-on.
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.6;
+                ctx.lineCap = 'round';
+                for (let i = -1; i <= 1; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(cx - 5, cy + i * 3.4);
+                    ctx.lineTo(cx + 5, cy + i * 3.4);
+                    ctx.stroke();
+                }
+                // The count, when there is one. Small, top-right, so it never covers the glyph.
+                if (n > 0) {
+                    const txt = (n > 99) ? '99+' : ('' + n);
+                    ctx.font = '700 9px Arial';
+                    const w = Math.max(12, ctx.measureText(txt).width + 6);
+                    const bx = cx + 6, by = cy - 13;
+                    ctx.fillStyle = '#ff8c2f';
+                    this.roundRectPath(ctx, bx, by, w, 11, 5.5);
+                    ctx.fill();
+                    ctx.fillStyle = '#2b1400';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(txt, bx + w / 2, by + 6);
+                }
+                ctx.restore();
             }
 
             drawInfoButton(ctx) {
@@ -9859,7 +9970,13 @@ pattern, GGGG | Required`
             // rootEntry, when given, is the selection entry whose OWN menu tree should open --
             // the card row the user clicked. Without it the whole-selection menu opens, which is
             // what the header and the "+N more" row do.
-            openSelectionMenu(rootEntry, rootY) {
+            // `asLibrary` renders every level of this menu as a LIBRARY (baja/lib/shelf.js)
+            // instead of a side menu. Not a second implementation: the option lists, the
+            // ordering, the handlers and the back items are the same objects either way -- only
+            // show() below differs, because every level in this method goes through it. That is
+            // what makes the library's options identical to the menu's rather than merely
+            // similar, and why adding an item to one adds it to both.
+            openSelectionMenu(rootEntry, rootY, asLibrary) {
                 // Name this menu after the CARD ROW that opened it.
                 //
                 // menu.js records the parent when one MENU ITEM opens another, but a menu opened
@@ -9904,13 +10021,18 @@ pattern, GGGG | Required`
                 // a menu three levels deep still says what it belongs to instead of repeating one
                 // generic word. Callers with nothing more specific to say leave it off.
                 const show = (list, label) => {
+                    const __lbl = label || 'My selection...';
+                    // Library mode is decided ONCE, by the caller, and read here -- not held on
+                    // the instance. A flag would have to be cleared when the user leaves, and
+                    // "leaves" is indistinguishable from "opened the next level", so it would
+                    // either leak into the next side menu or drop out mid-navigation.
+                    if (asLibrary) { this.__showSelectionShelf(list, __lbl); return; }
                     // Mark the list so the selection card can blur itself while this is open,
                     // and open the CHAIN so submenus that hand off to another script stay
                     // marked too (see showSideMenu).
                     // try { if (Array.isArray(list)) list.__fromSelection = true; } catch (e) { }
                     try { this.__selMenuChain = true; } catch (e) { }
                     const a = anchor();
-                    const __lbl = label || 'My selection...';
                     if (a) this.showSideMenu(list, a, __lbl); else this.showSideMenu(list, null, __lbl);
                 };
 
@@ -11584,6 +11706,7 @@ pattern, GGGG | Required`
                         try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) { }
                         this.drawZoomButton(ctx);
                         this.drawZoomOutButton(ctx);
+                        this.drawSelLibraryButton(ctx);
                         this.drawMoveButton(ctx);
                         this.drawBoxButton(ctx);
                         this.drawLassoButton(ctx);
