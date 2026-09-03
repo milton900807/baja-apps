@@ -514,9 +514,15 @@ function (__path) {
                                             if (!currentPath.endsWith('/'))
                                                 currentPath += '/'
 
-                                            // Return to THIS view (with the folder just uploaded to) when done,
-                                            // not baja/yak -- a different, unrelated file browser.
-                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath, 'manchester/fb.js', currentPath);
+                                            // Put the SAME menu (already built, sitting in main_layout) straight
+                                            // back into mainPanel when done, instead of re-running this whole
+                                            // script (which redoes the MSGraph login check and could silently
+                                            // land somewhere else) or jumping to baja/yak, an unrelated browser.
+                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath, () => {
+                                                try { userFiles_panel.refresh(); } catch (e) { }
+                                                CurrentLayout.clearComponent('mainPanel');
+                                                CurrentLayout.setComponent('mainPanel', main_layout);
+                                            });
                                         } catch (e) {
                                             console.error('Upload menu failed:', e);
                                             infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');

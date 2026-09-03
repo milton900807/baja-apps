@@ -796,9 +796,15 @@ function (path, filebrowserplease) {
                                                 if (!currentPath.endsWith('/'))
                                                     currentPath += '/'
 
-                                                // Return to THIS view (with the folder just uploaded to) when
-                                                // done, not baja/yak -- a different, unrelated file browser.
-                                                let menu = await exec('baja/ml/upload-large-file.js', currentPath, 'cpd/yak.js', currentPath);
+                                                // Put the SAME menu (already built, sitting in main_layout)
+                                                // straight back into mainPanel when done, instead of
+                                                // re-running this whole script or jumping to baja/yak, an
+                                                // unrelated file browser.
+                                                let menu = await exec('baja/ml/upload-large-file.js', currentPath, () => {
+                                                    try { userFiles_panel.refresh(); } catch (e) { }
+                                                    CurrentLayout.clearComponent('mainPanel');
+                                                    CurrentLayout.setComponent('mainPanel', main_layout);
+                                                });
                                             } catch (e) {
                                                 console.error('Upload menu failed:', e);
                                                 infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
@@ -1054,9 +1060,13 @@ function (path, filebrowserplease) {
                                         // script that actually exists.
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
                                             try {
-                                                // Return to THIS view when done, not baja/yak -- a
-                                                // different, unrelated file browser.
-                                                let menu = await exec('baja/ml/upload-large-file.js', undefined, 'cpd/yak.js');
+                                                // Put the SAME menu straight back into mainPanel when
+                                                // done, instead of jumping to baja/yak, an unrelated
+                                                // file browser.
+                                                let menu = await exec('baja/ml/upload-large-file.js', undefined, () => {
+                                                    CurrentLayout.clearComponent('mainPanel');
+                                                    CurrentLayout.setComponent('mainPanel', main_layout);
+                                                });
                                             } catch (e) {
                                                 console.error('Upload menu failed:', e);
                                                 infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');

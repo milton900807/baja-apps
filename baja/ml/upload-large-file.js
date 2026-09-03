@@ -1,15 +1,23 @@
 function (path, returnTo, returnArg) {
-    // `returnTo`/`returnArg`: where Close and a completed upload send the user back to.
+    // `returnTo`: what Close and a completed upload send the user back to. Two shapes:
+    //   - a FUNCTION: called directly, no exec() round-trip. Use this when the caller already
+    //     has its own menu/layout built and sitting in a closure variable (fb.js and
+    //     cpd/yak.js both do) -- putting it straight back is direct and can't be derailed by
+    //     whatever a full re-run of the caller's script does (an auth check, a full rebuild,
+    //     ...). This is the recommended shape for a new caller.
+    //   - a STRING script path (with optional returnArg): exec()'d, same as this always did.
+    //     Kept for callers with no view worth restoring directly.
     // Defaults to baja/yak (the original, only destination this ever had) so every existing
-    // caller keeps working unchanged. A caller with its own view to come back to -- fb.js and
-    // cpd/yak.js both have a menu that lives in the same mainPanel slot this widget takes
-    // over -- should pass its OWN script path here; otherwise "Close" strands the user in an
-    // unrelated file browser instead of back where they started, which reads exactly like
-    // "the menu disappeared and never came back."
+    // caller keeps working unchanged. Getting this wrong is what "the menu disappeared and
+    // never came back" turned out to be: Close/success used to always jump to baja/yak, an
+    // unrelated file browser, no matter where Upload was opened from.
     return new Promise(async (resolve, reject) => {
 
         const goBack = () => {
-            const dest = returnTo || 'baja/yak';
+            if (typeof returnTo === 'function') {
+                try { returnTo(); return; } catch (e) { console.error('returnTo callback failed:', e); }
+            }
+            const dest = (typeof returnTo === 'string' && returnTo) || 'baja/yak';
             const arg = (returnArg !== undefined) ? returnArg : path;
             exec(dest, arg);
         };
