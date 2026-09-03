@@ -195,8 +195,8 @@ function (__path) {
 
                                                                         CurrentLayout.clearComponent('bottomPanel')
                                                                         CurrentLayout.setComponent('bottomPanel', tu);
-                                                                        CurrentLayout.clearComponent('mainPanel')
-                                                                        CurrentLayout.setComponent('mainPanel', main_layout);
+                                                                        CurrentLayout.clearComponent('mainFilePanel')
+                                                                        CurrentLayout.setComponent('mainFilePanel', main_layout);
 
                                                                     })
                                                                 },
@@ -231,8 +231,8 @@ function (__path) {
                                                                         };
                                                                         CurrentLayout.clearComponent('bottomPanel')
                                                                         CurrentLayout.setComponent('bottomPanel', tu);
-                                                                        CurrentLayout.clearComponent('mainPanel')
-                                                                        CurrentLayout.setComponent('mainPanel', main_layout);
+                                                                        CurrentLayout.clearComponent('mainFilePanel')
+                                                                        CurrentLayout.setComponent('mainFilePanel', main_layout);
 
                                                                         if (rpath != null && rpath.length > 0) {
                                                                             setTimeout(async () => {
@@ -280,7 +280,7 @@ function (__path) {
                                             ]]
                                     }
                                 }
-                                CurrentLayout.clearComponent('mainPanel')
+                                CurrentLayout.clearComponent('mainFilePanel')
                                 CurrentLayout.setComponent('bottomPanel', export_sequence);
                             }
                         }
@@ -323,6 +323,79 @@ function (__path) {
         let main_layout;
 
         if (MSGraph.isLoggedIn()) {
+
+            // Clicking a .vcf.gz / .bed.gz here (the general file browser -- no canvas, no
+            // track to click first the way baja/data/my-data.js's track-first flow works)
+            // applies it straight onto whichever tracks are current on the graph the user
+            // still has open elsewhere. "Elsewhere" is reached via
+            // CurrentLayout.getStashed('graph') -- the same mechanism baja/lib/confirm.js
+            // already relies on to find "the current graph" from outside the editor -- and
+            // "current tracks" via baja/lib/target-tracks.js's usual precedence (a sequence
+            // selection, else selected tracks, else every track). The actual VCF/BED ->
+            // track conversion is the exact same code baja/data/my-data.js's track-first
+            // flow uses, factored out to baja/data/apply-vcf-to-track.js /
+            // apply-bed-to-track.js so the two flows can't drift apart.
+            const applyGzFileToCurrentGraph = async (element) => {
+                const graph = (typeof CurrentLayout !== 'undefined' && CurrentLayout.getStashed)
+                    ? CurrentLayout.getStashed('graph') : null;
+                if (!graph) {
+                    infoPrompt(' Open the RNA editor first (that is what this loads onto), then come back and click this file again. ');
+                    return;
+                }
+
+                const lname = ('' + (element.name || element.path || '')).toLowerCase();
+                let kind = null;
+                if (lname.endsWith('.vcf.gz')) kind = 'vcf';
+                else if (lname.endsWith('.bed.gz')) kind = 'bed';
+                if (!kind) {
+                    infoPrompt(' ' + (element.name || element.path)
+                        + ' is gzipped but not a type this loads directly (.vcf.gz / .bed.gz). '
+                        + 'Open it from the "My data" library on a track instead. ');
+                    return;
+                }
+
+                let target = null;
+                try { target = await exec('baja/lib/target-tracks.js', graph); } catch (e) { target = null; }
+                const tracks = (target && target.items && target.items.filter((t) => t && t.chr != null)) || [];
+                if (!tracks.length) {
+                    infoPrompt(' No track with a chromosome to apply ' + (element.name || element.path)
+                        + ' to -- load a gene/transcript track first. ');
+                    return;
+                }
+
+                const fixChr = (ochr) => {
+                    if (/^chrx$/i.test(ochr)) return 'X';
+                    if (/^chry$/i.test(ochr)) return 'Y';
+                    return ochr;
+                };
+
+                let totalCount = 0;
+                for (const t of tracks) {
+                    let chr = '' + t.chr;
+                    if (!chr.startsWith('chr')) chr = 'chr' + chr;
+                    chr = fixChr(chr);
+                    const sel = (t.selectedRange && t.selectedRange()) || null;
+                    const start = sel ? sel.start : t.xi;
+                    const end = sel ? sel.end : t.xf;
+                    try {
+                        if (kind === 'vcf') {
+                            totalCount += await exec('baja/data/apply-vcf-to-track.js', t, element.path, chr, start, end, t.strand);
+                        } else {
+                            totalCount += await exec('baja/data/apply-bed-to-track.js', t, element.path, chr, start, end, t.strand);
+                        }
+                    } catch (e) {
+                        console.error('apply ' + kind + ' to track failed:', e);
+                    }
+                }
+
+                try {
+                    graph.setResultMessage && graph.setResultMessage(
+                        ' Applied ' + (element.name || element.path) + ': ' + totalCount
+                        + ' item' + (totalCount === 1 ? '' : 's') + ' across ' + tracks.length
+                        + ' track' + (tracks.length === 1 ? '' : 's') + '. ');
+                } catch (e) { }
+            };
+
             let ww = {
                 wid: 'simple-file-browser',
                 width: '100%',
@@ -360,6 +433,14 @@ function (__path) {
                     }),
 
                     "ionfunction.fileClick": createIonFunction(async (element) => {
+                        if (('' + (element.name || element.path || '')).toLowerCase().endsWith('.gz')) {
+                            // Applies straight onto the currently-open graph's tracks and comes
+                            // right back here -- no clear(), this isn't navigating anywhere.
+                            await applyGzFileToCurrentGraph(element);
+                            try { CurrentLayout.reset('mainFilePanel1'); } catch (e) { }
+                            return;
+                        }
+
                         clear();
                         let config = {
                             silent: true,
@@ -515,13 +596,15 @@ function (__path) {
                                                 currentPath += '/'
 
                                             // Put the SAME menu (already built, sitting in main_layout) straight
-                                            // back into mainPanel when done, instead of re-running this whole
+                                            // back into mainFilePanel when done, instead of re-running this whole
                                             // script (which redoes the MSGraph login check and could silently
                                             // land somewhere else) or jumping to baja/yak, an unrelated browser.
                                             let menu = await exec('baja/ml/upload-large-file.js', currentPath, () => {
                                                 try { userFiles_panel.refresh(); } catch (e) { }
-                                                CurrentLayout.clearComponent('mainPanel');
-                                                CurrentLayout.setComponent('mainPanel', main_layout);
+
+
+                                                CurrentLayout.clearComponent('mainFilePanel');
+                                                CurrentLayout.setComponent('mainFilePanel', main_layout);
                                             });
                                         } catch (e) {
                                             console.error('Upload menu failed:', e);
@@ -641,7 +724,7 @@ function (__path) {
                 wid: 'card',
                 height: '100%',
                 width: '100%',
-                componentRef: 'mainPanel',
+                componentRef: 'mainFilePanel',
                 data: {
                     cards: menu_set
                 }
@@ -662,6 +745,7 @@ function (__path) {
                 wid: 'card',
                 height: '100%',
                 width: '100%',
+                componentRef: 'mainFilePanel1',
                 data: {
                     cards: [[
                         {
@@ -680,9 +764,14 @@ function (__path) {
 
             clear();
 
+
+
             showWidget(
                 usermain_layout
             );
+
+            CurrentLayout.stash('mainFilePanel1', usermain_layout)
+
         } else {
             login();
         }

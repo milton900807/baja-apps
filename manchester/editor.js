@@ -2900,6 +2900,13 @@ function (path, config) {
                 working.status = 'complete'
 
                 CurrentLayout.stash('mainPanel', main_layout)
+                // Every cpd/*.js editor (viewer.js, main.js, editor.js, ...) stashes 'graph'
+                // alongside its own mainPanel, so CurrentLayout.getStashed('graph') is a
+                // reliable way for code with no graph of its own (a file browser, a menu
+                // opened from outside the canvas) to reach "whichever graph is currently
+                // open." This editor never did, so that lookup silently returned nothing
+                // for the one editor most users actually have open.
+                try { CurrentLayout.stash('graph', graph) } catch (e) { }
 
                 // Tell CurrentLayout that genegraph_panel_layout MEANS "put the editor back".
                 // ~460 call sites across the library restore the editor with
