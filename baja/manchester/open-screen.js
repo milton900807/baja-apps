@@ -1645,20 +1645,16 @@ function (lib_id, file_id) {
                         })
                     },
                     {
-                        // Copy-pasted from a sibling item (load-chemistry-tools / splicing-tools3 /
-                        // load-seq-tools-menu, all above) that returns a menu array for
-                        // showWindowMenu -- this kept that call shape after the target became
-                        // upload-large-file.js, which has neither: it takes a folder PATH string,
-                        // not (graph, genegraph_panel_layout), and MOUNTS ITS OWN panel rather than
-                        // returning one. 'ljl/ml/...' also does not exist -- there is no `ljl` app
-                        // root -- so this always resolved to a no-op before even reaching the
-                        // mismatched showWindowMenu call. graph was never declared as unreachable
-                        // here (it is the outer exec('flexigraph/gene.js').then(async graph => ...)
-                        // parameter), so this failed silently rather than throwing.
-                        //
-                        // Fixed to the same call yak.js's own Upload item uses.
+                        // Same chunked-upload-then-apply flow as the editor's Data menu Upload
+                        // item (baja/manchester/menu/upload-data.js): chunk-uploads into the
+                        // signed-in user's own drive with a progress bar, then either runs the
+                        // existing pdf/text extraction or hands the file to the track-apply
+                        // menu (VCF/BED/BigWig/etc). Uploads to the user's own space rather
+                        // than path_j (the shared library folder browsed above) -- that pairs
+                        // correctly with the apply step, which reads from the same user drive
+                        // baja/data/my-data.js already browses.
                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                            await exec('baja/ml/upload-large-file.js', path_j);
+                            await exec('baja/manchester/menu/upload-data.js', graph, genegraph_panel_layout);
                         })
                     },
                     {

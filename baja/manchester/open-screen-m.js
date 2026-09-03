@@ -1702,12 +1702,18 @@ function (lib_id, file_id) {
                                     })
                                 },
                                 {
-                                    // Same fix as open-screen.js: copy-pasted from a sibling
-                                    // showWindowMenu-style item, pointed at a nonexistent 'ljl/'
-                                    // root, and mismatched with upload-large-file.js's real
-                                    // contract (a folder path string; it mounts its own panel).
+                                    // Same chunked-upload-then-apply flow as the editor's Data
+                                    // menu Upload item (baja/manchester/menu/upload-data.js) and
+                                    // open-screen.js's desktop twin: chunk-uploads into the
+                                    // signed-in user's own drive with a progress bar, then either
+                                    // runs the existing pdf/text extraction or hands the file to
+                                    // the track-apply menu (VCF/BED/BigWig/etc). Uploads to the
+                                    // user's own space rather than path_j (the shared library
+                                    // folder browsed above) -- that pairs correctly with the apply
+                                    // step, which reads from the same user drive
+                                    // baja/data/my-data.js already browses.
                                     'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                        await exec('baja/ml/upload-large-file.js', path_j);
+                                        await exec('baja/manchester/menu/upload-data.js', graph, genegraph_panel_layout);
                                     })
                                 },
                                 {
