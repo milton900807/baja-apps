@@ -780,9 +780,21 @@ function (path, filebrowserplease) {
                                         })
                                     },
                                     {
+                                        // 'ljl/ml/...' does not exist anywhere in this repo (no `ljl`
+                                        // app root at all), so this always failed to resolve -- an
+                                        // unhandled rejection with no user-visible feedback, which is
+                                        // why the button read as doing nothing. Fixed to the same call
+                                        // manchester/fb.js's own Files & Folder Upload item already
+                                        // uses correctly (real script, current folder as the path).
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                            let menu = await exec('ljl/ml/upload-large-file.js', graph, genegraph_panel_layout);
-                                            graph.showWindowMenu(menu, 10, 10, 400)
+                                            let currentPath = userFiles_panel.currentPath;
+                                            if (!currentPath || currentPath.length <= 0) {
+                                                currentPath = '/'
+                                            }
+                                            if (!currentPath.endsWith('/'))
+                                                currentPath += '/'
+
+                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath);
                                         })
                                     },
                                     {
@@ -792,7 +804,7 @@ function (path, filebrowserplease) {
                                             if (path_j === null || path_j === '' || path_j === '.') {
                                                 infoPrompt(" Cannot remove root folder ")
                                             } else {
-                                                let confirm = await exec('ljl/lib/confirm.js', 'Are you sure you want to remove this folder and its contents?', async () => {
+                                                let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to remove this folder and its contents?', async () => {
                                                     let host_ = window['env']['apiUrl']
                                                     let j = {
                                                         'path': path_j,
@@ -818,7 +830,7 @@ function (path, filebrowserplease) {
                                                 userFiles_panel.currentPath = path_j;
                                             }
 
-                                            let confirm = await exec('ljl/lib/confirm.js', 'Are you sure you want to share this folder and its contents?', async () => {
+                                            let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to share this folder and its contents?', async () => {
 
                                                 let editor_;
                                                 let editor_function = createIonFunction((editor) => {
@@ -889,7 +901,7 @@ function (path, filebrowserplease) {
                                                                                         let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
 
                                                                                         setTimeout(async () => {
-                                                                                            exec('ljl/yak', directory)
+                                                                                            exec('cpd/yak.js', directory)
 
                                                                                         }, 400)
                                                                                     })
@@ -897,7 +909,7 @@ function (path, filebrowserplease) {
                                                                                 {
                                                                                     label: 'Cancel', ionFunction: createIonFunction(async () => {
 
-                                                                                        exec('ljl/yak', path)
+                                                                                        exec('cpd/yak.js', path)
 
                                                                                     })
                                                                                 }
@@ -1021,9 +1033,19 @@ function (path, filebrowserplease) {
                                         })
                                     },
                                     {
+                                        // Same dead 'ljl/' root as the Files & Folders Upload item
+                                        // above. Note: NOT passing path_j here on purpose -- this
+                                        // item is a sibling of 'Browse library' above, whose own
+                                        // `let path_j` is local to THAT item's own ionfunction
+                                        // closure and out of scope here; reaching for a `path_j`
+                                        // identifier here would silently resolve to the unrelated
+                                        // outer one from the Files & Folders section instead
+                                        // (throws nothing, just uploads to the wrong folder). No
+                                        // path argument uploads to the account root, same as this
+                                        // call already did before this fix, just now against a
+                                        // script that actually exists.
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                            let menu = await exec('ljl/ml/upload-large-file.js', graph, genegraph_panel_layout);
-                                            graph.showWindowMenu(menu, 10, 10, 400)
+                                            let menu = await exec('baja/ml/upload-large-file.js');
                                         })
                                     },
                                     {
