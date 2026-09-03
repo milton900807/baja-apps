@@ -218,27 +218,123 @@ return new Promise(async (resolve, reject) => {
       return new C(T);
     } catch (e) { return new GeneDraw(T); }
   };
-  const GX_UTR = 'rgba(147,180,216,0.85)';
-  const GX_INTRON = '#9fb4c6';
-  const GX_GENE = '#16456b'; // gene / transcript
-  const GX_TSS = '#17a39a'; // tss / promoter
-  const GX_START = '#17a39a'; // start codon
-  const GX_STOP = '#9c3350'; // stop codon
-  const GX_SNP = '#9c2f45'; // snp / substitution
-  const GX_INS = '#12768f'; // insertion
-  const GX_DEL = '#8c2f42'; // deletion
-  const GX_ASO = '#159a91'; // aso / oligo
-  const GX_SIRNA = '#1897b0'; // sirna
-  const GX_RNABIND = '#b0533f'; // rna-binding
-  const GX_DOMAIN = '#2bb0bf'; // protein domain
-  const GX_ACCENT = '#a86b3e'; // domain accent / highlight
-  const GX_LNCRNA = '#2bb0bf';
-  const GX_MIRNA = '#6e4560';
-  const GX_SNRNA = '#9a5f3e';
-  const GX_PSEUDO = '#7f96a8';
-  const GX_REGION = '#7a4f66'; // region / biological_region
-  const GX_POLYA = '#1aa3bd';
-  const GX_AA = 'rgba(176,69,62,0.55)'; // amino-acid track
+  // ---- ANNOTATION COLOURS ----------------------------------------------------------------
+  //
+  // The palette every annotation is drawn in: UTRs, introns, TSS and codons, SNPs and indels,
+  // oligos, domains, ncRNA classes, the amino-acid row. These were module constants, so a track
+  // could be themed to Blueprint or Midnight and its annotations would still be drawn in the
+  // one hard-coded scheme -- the gene body changed and everything ON it did not, which on a
+  // dark theme also meant dark annotations on a dark ground.
+  //
+  // `let`, not `const`: draw() assigns them from the active theme, exactly as it already does
+  // for GX_T. Same lifetime, same single-track-at-a-time contract.
+  let GX_UTR = 'rgba(147,180,216,0.85)', GX_INTRON = '#9fb4c6', GX_GENE = '#16456b', GX_TSS = '#17a39a', GX_START = '#17a39a', GX_STOP = '#9c3350', GX_SNP = '#9c2f45', GX_INS = '#12768f', GX_DEL = '#8c2f42', GX_ASO = '#159a91', GX_SIRNA = '#1897b0', GX_RNABIND = '#b0533f', GX_DOMAIN = '#2bb0bf', GX_ACCENT = '#a86b3e', GX_LNCRNA = '#2bb0bf', GX_MIRNA = '#6e4560', GX_SNRNA = '#9a5f3e', GX_PSEUDO = '#7f96a8', GX_REGION = '#7a4f66', GX_POLYA = '#1aa3bd', GX_AA = 'rgba(176,69,62,0.55)';
+
+  // The scheme above is the DEFAULT set, and the semantic hues in it are load-bearing: teal
+  // reads as a start, red as a stop or a deletion, blue as an insertion. A theme should recolour
+  // annotations, not relabel them -- so rather than 11 hand-authored sets that would drift apart,
+  // each theme keeps these hues and shifts them to sit on its own paper.
+  const GX_ANN_DEFAULTS = {
+    GX_UTR: 'rgba(147,180,216,0.85)',
+    GX_INTRON: '#9fb4c6',
+    GX_GENE: '#16456b',
+    GX_TSS: '#17a39a',
+    GX_START: '#17a39a',
+    GX_STOP: '#9c3350',
+    GX_SNP: '#9c2f45',
+    GX_INS: '#12768f',
+    GX_DEL: '#8c2f42',
+    GX_ASO: '#159a91',
+    GX_SIRNA: '#1897b0',
+    GX_RNABIND: '#b0533f',
+    GX_DOMAIN: '#2bb0bf',
+    GX_ACCENT: '#a86b3e',
+    GX_LNCRNA: '#2bb0bf',
+    GX_MIRNA: '#6e4560',
+    GX_SNRNA: '#9a5f3e',
+    GX_PSEUDO: '#7f96a8',
+    GX_REGION: '#7a4f66',
+    GX_POLYA: '#1aa3bd',
+    GX_AA: 'rgba(176,69,62,0.55)',
+  };
+
+  // #rrggbb / rgba() -> {r,g,b,a}. Anything unparseable comes back null and is left alone.
+  const gxParse = (c) => {
+    try {
+      const v = ('' + c).trim();
+      let m = /^#([0-9a-f]{6})$/i.exec(v);
+      if (m) {
+        const n = parseInt(m[1], 16);
+        return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255, a: 1 };
+      }
+      m = /^rgba?\(([^)]+)\)$/i.exec(v);
+      if (m) {
+        const p = m[1].split(',').map((x) => parseFloat(x));
+        if (p.length >= 3) return { r: p[0] | 0, g: p[1] | 0, b: p[2] | 0, a: (p.length > 3 ? p[3] : 1) };
+      }
+    } catch (e) { }
+    return null;
+  };
+  const gxCss = (o) => (o.a >= 1
+    ? '#' + [o.r, o.g, o.b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
+    : 'rgba(' + [o.r, o.g, o.b].map((v) => Math.max(0, Math.min(255, Math.round(v)))).join(',') + ',' + o.a + ')');
+  // Perceived lightness, so "is this theme's paper dark?" is answered the way an eye answers it
+  // rather than by averaging channels.
+  const gxLum = (o) => (0.2126 * o.r + 0.7152 * o.g + 0.0722 * o.b) / 255;
+  const gxMix = (a, b, t) => ({
+    r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t, a: a.a
+  });
+
+  // Fit the default annotation hues to one theme: keep the hue, move it toward the theme's own
+  // ink so it stays legible on that theme's paper, and let a theme override any single entry
+  // outright via `ann`. The shift is small on purpose -- enough to read, not enough to turn a
+  // stop codon into something that is no longer red.
+  const gxAnnotationsFor = (T) => {
+    const out = {};
+    const paper = gxParse((T && T.paper) || '#ffffff');
+    const ink = gxParse((T && T.ink) || '#000000');
+    const dark = paper ? (gxLum(paper) < 0.5) : false;
+    for (const k in GX_ANN_DEFAULTS) {
+      let v = GX_ANN_DEFAULTS[k];
+      const c = gxParse(v);
+      if (c && ink) {
+        // On dark paper the default set is too dark to read, so lift it toward the theme's
+        // light ink. On light paper a gentler pull keeps the family consistent with the theme
+        // without washing the semantics out.
+        v = gxCss(gxMix(c, ink, dark ? 0.45 : 0.12));
+      }
+      out[k] = v;
+    }
+    // A theme that names a colour outright wins: derivation is a default, not a rule.
+    try { if (T && T.ann) { for (const k in T.ann) { if (k in out) out[k] = T.ann[k]; } } } catch (e) { }
+    return out;
+  };
+
+  // Assign the module-level annotation colours for the theme about to be drawn.
+  const gxApplyAnnotations = (T) => {
+    const a = gxAnnotationsFor(T);
+    GX_UTR = a.GX_UTR;
+    GX_INTRON = a.GX_INTRON;
+    GX_GENE = a.GX_GENE;
+    GX_TSS = a.GX_TSS;
+    GX_START = a.GX_START;
+    GX_STOP = a.GX_STOP;
+    GX_SNP = a.GX_SNP;
+    GX_INS = a.GX_INS;
+    GX_DEL = a.GX_DEL;
+    GX_ASO = a.GX_ASO;
+    GX_SIRNA = a.GX_SIRNA;
+    GX_RNABIND = a.GX_RNABIND;
+    GX_DOMAIN = a.GX_DOMAIN;
+    GX_ACCENT = a.GX_ACCENT;
+    GX_LNCRNA = a.GX_LNCRNA;
+    GX_MIRNA = a.GX_MIRNA;
+    GX_SNRNA = a.GX_SNRNA;
+    GX_PSEUDO = a.GX_PSEUDO;
+    GX_REGION = a.GX_REGION;
+    GX_POLYA = a.GX_POLYA;
+    GX_AA = a.GX_AA;
+  };
 
   function drawButton(ctx, x, y, w, h, label = "", opts = {}) {
     const r = Math.min(8, h * 0.3);
@@ -6263,6 +6359,23 @@ return new Promise(async (resolve, reject) => {
       // one assignment covers the whole of this track's drawing without a palette argument on
       // every signature.
       GX_T = this.themeColors();
+      // The annotations too, not only the gene body. A theme that recoloured the exons and left
+      // every UTR, codon, SNP and domain in the default scheme was half a theme -- and on the
+      // dark ones it drew dark annotations on dark paper.
+      try { gxApplyAnnotations(GX_T); } catch (e) { }
+      // Publish both for flexigraph/gene-draw.js, which draws the codon cylinders, the CDD
+      // domain marks and the exon badges. It is handed the graph and never the track, so the
+      // theme has to travel the same way __trackDisplay already does.
+      try {
+        graph.__trackTheme = GX_T;
+        graph.__trackAnn = {
+          GX_UTR: GX_UTR, GX_INTRON: GX_INTRON, GX_GENE: GX_GENE, GX_TSS: GX_TSS,
+          GX_START: GX_START, GX_STOP: GX_STOP, GX_SNP: GX_SNP, GX_INS: GX_INS, GX_DEL: GX_DEL,
+          GX_ASO: GX_ASO, GX_SIRNA: GX_SIRNA, GX_RNABIND: GX_RNABIND, GX_DOMAIN: GX_DOMAIN,
+          GX_ACCENT: GX_ACCENT, GX_LNCRNA: GX_LNCRNA, GX_MIRNA: GX_MIRNA, GX_SNRNA: GX_SNRNA,
+          GX_PSEUDO: GX_PSEUDO, GX_REGION: GX_REGION, GX_POLYA: GX_POLYA, GX_AA: GX_AA
+        };
+      } catch (e) { }
       // The gene-draw class that goes with it: the theme decides the SHAPE of a gene body,
       // not only its colour.
       this.__geneDraw = geneDrawFor(this.theme, GX_T);

@@ -5,6 +5,31 @@ function () {
     // What the TRACK being drawn wants shown. baja/bio/track.js publishes this on the graph
     // before drawing its annotations, because these shape functions are handed the graph and
     // never the track. Absent means show, so a graph that never set it behaves as before.
+    // What the TRACK being drawn is themed as. baja/bio/track.js publishes this on the graph
+    // alongside __trackDisplay, for the same reason: these shape functions are handed the graph
+    // and never the track. Absent means the old fixed scheme, so a graph that never set it
+    // behaves exactly as before.
+    //
+    // Without this, a themed track drew its gene body in the theme and every annotation ON it
+    // in one hard-coded palette -- and on the dark themes that meant near-black leaders, labels
+    // and domain marks on near-black paper.
+    const __theme = (graph) => {
+        try { return (graph && graph.__trackTheme) || null; } catch (e) { return null; }
+    };
+    // The theme's INK: leader lines, callout text, outlines -- everything whose job is to be
+    // read against the paper.
+    const __ink = (graph) => {
+        const t = __theme(graph);
+        return (t && t.ink) || __ink(graph);
+    };
+    // One annotation colour by name, from the theme-derived palette track.js publishes.
+    const __ann = (graph, key, fallback) => {
+        try {
+            const a = graph && graph.__trackAnn;
+            return (a && a[key]) || fallback;
+        } catch (e) { return fallback; }
+    };
+
     const __show = (graph, key) => {
         try {
             const d = graph && graph.__trackDisplay;
@@ -257,13 +282,13 @@ function () {
         'PointOfInterest': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             const col = annotation.color || 'rgba(255,140,26,0.85)';
             graph.drawLine(xs, y, xf, y, col, 14, 'butt');
-            graph.drawVerticalLine(xs, y, 0.16, '#0a2540', 0.6);
-            graph.drawVerticalLine(xf, y, 0.16, '#0a2540', 0.6);
+            graph.drawVerticalLine(xs, y, 0.16, __ink(graph), 0.6);
+            graph.drawVerticalLine(xf, y, 0.16, __ink(graph), 0.6);
             const mid = (xs + xf) / 2;
             const ly = y + (annotation.labelY || 0.45);
-            graph.drawLine(mid, y, mid, ly, '#0a2540', 0.5, 'butt');
+            graph.drawLine(mid, y, mid, ly, __ink(graph), 0.5, 'butt');
             if (annotation.name) {
-                graph.drawString(annotation.name, mid, ly, '#0a2540', 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif');
+                graph.drawString(annotation.name, mid, ly, __ink(graph), 'bold 11px system-ui, -apple-system, Roboto, Arial, sans-serif');
             }
             let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)));
             if (screencell > 2 && annotation.description) {
@@ -289,7 +314,7 @@ function () {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
 
                     ctx.shadowBlur = 2;
-                    ctx.shadowColor = '#0a2540';
+                    ctx.shadowColor = __ink(graph);
 
                     ctx.lineWidth = 1;
                     ctx.beginPath();
@@ -302,7 +327,7 @@ function () {
                     ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540'
+                    ctx.fillStyle = __ink(graph)
 
                     ctx.fillText("A", x, graph.Y(__y) + 10);
                     ctx.textAlign = 'left'
@@ -321,7 +346,7 @@ function () {
 
             if (ctx) {
                 ctx.shadowBlur = 7;
-                ctx.shadowColor = '#0a2540';
+                ctx.shadowColor = __ink(graph);
                 ctx.lineWidth = 3;
 
                 ctx.color = '#1b4a7a'
@@ -341,7 +366,7 @@ function () {
                     ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540'
+                    ctx.fillStyle = __ink(graph)
                     ctx.fillText("A", x, graph.Y(__y) + 10);
                     ctx.textAlign = 'left'
 
@@ -354,8 +379,8 @@ function () {
             let xf = xff;
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.3)', 3, 'butt')
             graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.5)', 10, 'butt')
-            graph.drawVerticalLine(xs, y, 0.13, '#7a4f66', 0.7)
-            graph.drawVerticalLine(xf, y, 0.13, '#7a4f66', 0.4)
+            graph.drawVerticalLine(xs, y, 0.13, __ann(graph, 'GX_REGION', '#7a4f66'), 0.7)
+            graph.drawVerticalLine(xf, y, 0.13, __ann(graph, 'GX_REGION', '#7a4f66'), 0.4)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
@@ -364,7 +389,7 @@ function () {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
                     ctx.lineWidth = 1;
                     ctx.shadowBlur = 3;
-                    ctx.shadowColor = '#0a2540';
+                    ctx.shadowColor = __ink(graph);
 
                     ctx.beginPath();
                     ctx.arc(x, graph.Y(y) + 10, radius, 0, 2 * Math.PI);
@@ -378,7 +403,7 @@ function () {
                     ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540'
+                    ctx.fillStyle = __ink(graph)
 
                     ctx.fillText('D', x, graph.Y(y) + 10);
                 }
@@ -390,13 +415,13 @@ function () {
             let xf = xff;
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.3)', 3, 'butt')
             graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.5)', 10, 'butt')
-            graph.drawVerticalLine(xs, y, 0.13, '#7a4f66', 0.7)
-            graph.drawVerticalLine(xf, y, 0.13, '#7a4f66', 0.4)
+            graph.drawVerticalLine(xs, y, 0.13, __ann(graph, 'GX_REGION', '#7a4f66'), 0.7)
+            graph.drawVerticalLine(xf, y, 0.13, __ann(graph, 'GX_REGION', '#7a4f66'), 0.4)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
                 ctx.shadowBlur = 7;
-                ctx.shadowColor = '#0a2540';
+                ctx.shadowColor = __ink(graph);
                 let screencell = Math.abs(graph.screenWidth(tgraph.screenWidth(1)))
                 if (screencell > 4 && __show(graph, 'exonNumbers')) {
                     let x = (graph.X(xs) + graph.X(xf)) / 2;
@@ -413,7 +438,7 @@ function () {
                     ctx.font = '13px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540'
+                    ctx.fillStyle = __ink(graph)
 
                     ctx.fillText('D', x, graph.Y(y) + 10);
                 }
@@ -430,8 +455,8 @@ function () {
             graph.drawLine(xs + ((xf - xs) / 2), y + 0.05, xs + ((xf - xs) / 2), y, 'rgb(200,200,200,0.6)', 3, 'butt')
             graph.drawLine(xs, y, xf, y, 'rgba(78,157,105,0.45)', 10, 'butt')
 
-            graph.drawVerticalLine(xs, y, 0.63, '#8c2f42', 0.5)
-            graph.drawVerticalLine(xf, y, 0.63, '#8c2f42', 0.5)
+            graph.drawVerticalLine(xs, y, 0.63, __ann(graph, 'GX_DEL', '#8c2f42'), 0.5)
+            graph.drawVerticalLine(xf, y, 0.63, __ann(graph, 'GX_DEL', '#8c2f42'), 0.5)
             let x = (graph.X(xs) + graph.X(xf)) / 2;
             var ctx = graph.canvas.getCTX();
             if (ctx) {
@@ -451,7 +476,7 @@ function () {
                     ctx.font = '10px system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#0a2540'
+                    ctx.fillStyle = __ink(graph)
                     ctx.fillText("Donor", x, graph.Y(y)) + 10;
                 }
             }
@@ -549,7 +574,7 @@ function () {
                         ctx.beginPath();
                         ctx.arc(x, y, radius, 0, 2 * Math.PI);
                         ctx.fillStyle = 'white';     // white background
-                        ctx.strokeStyle = '#0a2540'; // oval border
+                        ctx.strokeStyle = __ink(graph); // oval border
                         ctx.lineWidth = 1;
                         ctx.fill();
                         ctx.closePath();
@@ -905,7 +930,7 @@ function () {
                     graph.Y(y) - 12,
                     graph.X(startX),
                     graph.Y(y) + 12,
-                    '#1aa3bd',
+                    __ann(graph, 'GX_POLYA', '#1aa3bd'),
                     4,
                     'butt'
                 );
@@ -973,11 +998,11 @@ function () {
 
             // // Leader from the domain bar up to its (staggered) label so it stays associated.
             // // graph.drawLine(cx, y, cx, labelY, 'rgba(168,107,62,0.6)', 1, 'butt');
-            // // graph.drawString(name, cx, labelY, '#0a2540', FONT)
+            // // graph.drawString(name, cx, labelY, __ink(graph), FONT)
             // let screencell = graph.screenWidth(tgraph.screenWidth(1))
             // if (screencell < 1.5 && screencell > 0.1) {
             //     if (annotation.description != null && annotation.description.length > 0) {
-            //         // graph.drawString(annotation.description, cx, labelY + upSign * step, '#0a2540', FONT)
+            //         // graph.drawString(annotation.description, cx, labelY + upSign * step, __ink(graph), FONT)
             //     }
 
             // }
@@ -995,13 +1020,13 @@ function () {
             graph.drawLine(xs, y, xf, y, 'rgba(176,69,62,0.55)', 65, 'butt')
             graph.drawLine(xs, y, xs, y + annotation.labelY - 1, 'rgba(120,130,145,0.45)', 1, 'butt')
             if (screencell > 0.5) {
-                graph.drawString(annotation.name, xs, y + annotation.labelY - 1, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+                graph.drawString(annotation.name, xs, y + annotation.labelY - 1, __ink(graph), '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
             }
         }),
         'Intron': createIon((graph, tgraph, xs, xf, y) => {
 
-            graph.drawZigZag(xs, y, xf, y, '#b0533f', 2)
+            graph.drawZigZag(xs, y, xf, y, __ann(graph, 'GX_RNABIND', '#b0533f'), 2)
 
         }),
         'Translation': createIon((graph, tgraph, xs, xf, y, color, annotation, strand) => {
@@ -1029,8 +1054,8 @@ function () {
         'CDS': createIon((graph, tgraph, xs, xf, y) => {
             // The yellow/gold ORF line was removed by request; the CDS/ORF data is kept
             // (used by translation, protein domains, etc.) but no longer drawn as a line.
-            graph.drawVerticalLine(xs, y, 0.08, '#1aa3bd', 1)
-            graph.drawVerticalLine(xf + 1, y, 0.08, '#1aa3bd', 1)
+            graph.drawVerticalLine(xs, y, 0.08, __ann(graph, 'GX_POLYA', '#1aa3bd'), 1)
+            graph.drawVerticalLine(xf + 1, y, 0.08, __ann(graph, 'GX_POLYA', '#1aa3bd'), 1)
 
         }),
         'UTR': createIon((graph, tgraph, xs, xf, y) => {
@@ -1047,42 +1072,42 @@ function () {
         }),
         'rna-binding': createIon((graph, tgraph, xs, xf, y) => {
             let d = xf - xs;
-            graph.drawZigZag(xs, y, xf, y, '#b0533f', 4, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, '#0a2540')
-            graph.drawVerticalLine(xf, y, 0.2, '#0a2540')
+            graph.drawZigZag(xs, y, xf, y, __ann(graph, 'GX_RNABIND', '#b0533f'), 4, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, __ink(graph))
+            graph.drawVerticalLine(xf, y, 0.2, __ink(graph))
 
         }),
         'snp': createIon((graph, tgraph, xs, xf, y) => {
             let d = xf - xs;
             graph.drawZigZag(xs, y, xf, y, '#6e4560', 20, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, '#0a2540')
-            graph.drawVerticalLine(xf, y, 0.2, '#0a2540')
+            graph.drawVerticalLine(xs, y, 0.2, __ink(graph))
+            graph.drawVerticalLine(xf, y, 0.2, __ink(graph))
 
         }), 'Query': createIon((graph, tgraph, xs, xf, y) => {
             graph.drawLine(xs, y, xf, y, '#6e4560', 12, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, '#0a2540')
-            graph.drawVerticalLine(xf, y, 0.2, '#0a2540')
+            graph.drawVerticalLine(xs, y, 0.2, __ink(graph))
+            graph.drawVerticalLine(xf, y, 0.2, __ink(graph))
 
         }), 'Query-Target': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, '#b0533f', 12, 'round')
-            graph.drawVerticalLine(xs, y, 0.2, '#0a2540')
-            graph.drawVerticalLine(xf, y, 0.2, '#0a2540')
+            graph.drawLine(xs, y, xf, y, __ann(graph, 'GX_RNABIND', '#b0533f'), 12, 'round')
+            graph.drawVerticalLine(xs, y, 0.2, __ink(graph))
+            graph.drawVerticalLine(xf, y, 0.2, __ink(graph))
 
         }),
         'biological_region': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, '#7a4f66', 5)
-            graph.drawVerticalLine(xs, y, 0.2, '#7a4f66')
-            graph.drawVerticalLine(xf, y, 0.2, '#7a4f66')
+            graph.drawLine(xs, y, xf, y, __ann(graph, 'GX_REGION', '#7a4f66'), 5)
+            graph.drawVerticalLine(xs, y, 0.2, __ann(graph, 'GX_REGION', '#7a4f66'))
+            graph.drawVerticalLine(xf, y, 0.2, __ann(graph, 'GX_REGION', '#7a4f66'))
 
         }),
         'region': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, '#7f96a8', 2, 'butt')
-            graph.drawVerticalLine(xs, y, 0.1, '#7f96a8')
-            graph.drawVerticalLine(xf, y, 0.1, '#7f96a8')
+            graph.drawLine(xs, y, xf, y, __ann(graph, 'GX_PSEUDO', '#7f96a8'), 2, 'butt')
+            graph.drawVerticalLine(xs, y, 0.1, __ann(graph, 'GX_PSEUDO', '#7f96a8'))
+            graph.drawVerticalLine(xf, y, 0.1, __ann(graph, 'GX_PSEUDO', '#7f96a8'))
 
         }),
         'polyA': createIon((graph, tgraph, xs, xf, y) => {
-            graph.drawLine(xs, y, xf, y, '#1aa3bd', 25, 'round')
+            graph.drawLine(xs, y, xf, y, __ann(graph, 'GX_POLYA', '#1aa3bd'), 25, 'round')
             graph.drawVerticalLine(xs, y, 1.1, 'rgba(120,130,145,0.45)')
             graph.drawVerticalLine(xf, y, 1.1, 'rgba(120,130,145,0.45)')
 
@@ -1091,49 +1116,49 @@ function () {
 
             let screencell = graph.screenWidth((1))
 
-            graph.drawLine(xs, y + 0.3, xf, y + 0.3, '#1aa3bd', 25, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a4f66')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a4f66')
+            graph.drawLine(xs, y + 0.3, xf, y + 0.3, __ann(graph, 'GX_POLYA', '#1aa3bd'), 25, 'round')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
             let name = 'lncRNA'
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
             }
             let r = 0.35;
-            graph.drawString(name, xs, y + 1 + r, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            graph.drawString(name, xs, y + 1 + r, __ink(graph), '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'miRNA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             graph.drawLine(xs, 0.3, xf, 0.3, '#2bb0bf', 20, 'round')
             graph.drawVerticalLine(xs, 0.3, 1.1, '#9fe0e8')
-            graph.drawVerticalLine(xf, 0.3, 1.1, '#8c2f42')
+            graph.drawVerticalLine(xf, 0.3, 1.1, __ann(graph, 'GX_DEL', '#8c2f42'))
             let name = 'miRNA'
             let screencell = graph.screenWidth((1))
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
-                graph.drawLine(xs, 0.3, xs, tgraph.Y(annotation.labelY), '#0a2540', 1, 'round')
+                graph.drawLine(xs, 0.3, xs, tgraph.Y(annotation.labelY), __ink(graph), 1, 'round')
 
             }
-            graph.drawString(name, xs, tgraph.Y(annotation.labelY), '#0a2540', '12px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            graph.drawString(name, xs, tgraph.Y(annotation.labelY), __ink(graph), '12px system-ui, -apple-system, Roboto, Arial, sans-serif')
         }),
         'miRNA_primary_transcript': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             graph.drawLine(xs, 0.3, xf, 0.3, '#a86b3e', 10, 'round')
-            graph.drawVerticalLine(xs, 0.3, 1.1, '#7a4f66')
-            graph.drawVerticalLine(xf, 0.3, 1.1, '#7a4f66')
+            graph.drawVerticalLine(xs, 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
+            graph.drawVerticalLine(xf, 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
             let name = 'miRNA'
             let screencell = graph.screenWidth((1))
             if (screencell > 0.01 && annotation.name) {
                 name = annotation.name;
-                graph.drawLine(xs, 0.3, xs, y, '#0a2540', 1, 'round')
+                graph.drawLine(xs, 0.3, xs, y, __ink(graph), 1, 'round')
 
             }
 
-            graph.drawString(name, xs, y, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            graph.drawString(name, xs, y, __ink(graph), '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'processed_pseudogene': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             graph.drawLine(xs, y + 0.3, xf, y + 0.3, 'rgba(78,157,105,0.55)', 155, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a4f66')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a4f66')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
             let name = 'Pseudogene'
 
             let screencell = graph.screenWidth((1))
@@ -1143,13 +1168,13 @@ function () {
             }
 
             let r = 0.3;
-            graph.drawString(name, xs, y + 1 + r, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            graph.drawString(name, xs, y + 1 + r, __ink(graph), '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
         'snRNA': createIon((graph, tgraph, xs, xf, y, color, annotation) => {
             graph.drawLine(xs, y + 0.3, xf, y + 0.3, '#a86b3e', 155, 'round')
-            graph.drawVerticalLine(xs, y + 0.3, 1.1, '#7a4f66')
-            graph.drawVerticalLine(xf, y + 0.3, 1.1, '#7a4f66')
+            graph.drawVerticalLine(xs, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
+            graph.drawVerticalLine(xf, y + 0.3, 1.1, __ann(graph, 'GX_REGION', '#7a4f66'))
             let name = 'snRNA'
 
             let screencell = graph.screenWidth(tgraph.screenWidth(1))
@@ -1159,7 +1184,7 @@ function () {
             }
 
             let r = 0.3;
-            graph.drawString(name, xs, y + 1 + r, '#0a2540', '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
+            graph.drawString(name, xs, y + 1 + r, __ink(graph), '10px system-ui, -apple-system, Roboto, Arial, sans-serif')
 
         }),
 
