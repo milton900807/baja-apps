@@ -3,6 +3,7 @@ from subprocess import Popen, PIPE
 import os
 import gzip
 import io
+import re
 from typing import Dict, List, Optional, TextIO, Tuple
 
 original_file = works.param(1)
@@ -234,6 +235,66 @@ def variant_xf(ref: str, alt: str) -> int:
     return max(len(ref), len(alt), 1)
 
 
+# ---------------------------
+# Structural-variant ALT shapes (symbolic <DEL>/<DUP>/... and BND breakends). A structural-
+# variant caller (Sniffles2, cuteSV, ...) does not put sequence in ALT for these -- REF/ALT
+# length has nothing to do with the variant's real size, so infer_variant_type/variant_xf
+# above would size a multi-kb deletion as a handful of bases (the literal length of the
+# string "<DEL>") and would report a BND's bracket-mate-coordinate ALT (e.g.
+# "T]chr3:198172701]") as if it were a DNA sequence.
+# ---------------------------
+SYMBOLIC_ALT_RE = re.compile(r"^<([A-Za-z:]+)>$")
+BND_MATE_RE = re.compile(r"[\[\]]([^\[\]:]+):(\d+)[\[\]]")
+
+SYMBOLIC_TYPE_MAP = {
+    "DEL": "del", "DUP": "dup", "INV": "inv", "INS": "ins", "CNV": "cnv", "TRA": "bnd",
+}
+
+
+def is_bnd_alt(alt: str) -> bool:
+    return "[" in alt or "]" in alt
+
+
+def bnd_mate_label(alt: str) -> str:
+    """The mate breakpoint (e.g. "chr3:198172701") pulled out of standard VCF 4.2 breakend
+    ALT syntax, as a human-readable label -- there is no sequence in a BND ALT to show."""
+    m = BND_MATE_RE.search(alt)
+    return ("→ " + m.group(1) + ":" + m.group(2)) if m else "BND"
+
+
+def sv_span_from_info(info_map: Dict[str, str], pos: int) -> Optional[int]:
+    """Width in bases of a symbolic-ALT SV, from INFO SVLEN (may be reported negative for a
+    deletion by some callers, hence abs()) or, failing that, INFO END. None if neither is
+    present -- the caller falls back to a 1-base marker rather than guessing."""
+    svlen = _to_optional_int(info_map.get("SVLEN"))
+    if svlen is not None and svlen != 0:
+        return abs(svlen)
+    end = _to_optional_int(info_map.get("END"))
+    if end is not None and end >= pos:
+        return (end - pos) + 1
+    return None
+
+
+def variant_type_span_and_alleles(
+    ref: str, alt: str, info_map: Dict[str, str], pos: int
+) -> Tuple[str, int, str, str]:
+    """(type, xf, reference, alternate) for ONE alt allele -- literal ACGT ref/alt sized and
+    typed exactly as before (infer_variant_type/variant_xf, unchanged), a symbolic SV ALT
+    typed from INFO SVTYPE and sized from SVLEN/END (since the ALT string itself carries
+    neither), or a BND breakend reported as a 1-base junction point with its mate coordinate
+    as the alternate label instead of the bracket-mate-coordinate string."""
+    if is_bnd_alt(alt):
+        return "bnd", 1, ref, bnd_mate_label(alt)
+
+    m = SYMBOLIC_ALT_RE.match(alt)
+    if m:
+        svtype = (info_map.get("SVTYPE") or m.group(1).split(":")[0]).upper()
+        span = sv_span_from_info(info_map, pos) or 1
+        return SYMBOLIC_TYPE_MAP.get(svtype, "sv"), span, ref, alt
+
+    return infer_variant_type(ref, alt), variant_xf(ref, alt), ref, alt
+
+
 def normalize_chrom_match(record_chrom: str, chrom_filter: Optional[str]) -> bool:
     """Match chrom with/without chr prefix."""
     if not chrom_filter:
@@ -402,20 +463,24 @@ def record_to_results(
         phase01 = parse_phase01_from_gt(gt)
 
     qlabel = qualify_call(qual_col=qual_col, info=info, gq=gq, dp=dp, missing_gt=missing_gt)
+    info_map = parse_info_field(info)
 
     out: List[Dict[str, object]] = []
     for alt in alts:
+        # build_id keeps the ORIGINAL alt string (VCF-stable, unique) even though a symbolic
+        # or BND alt gets a different, human-readable value below for display/rendering.
         vid = build_id(rchrom, pos, ref, alt, vcf_id)
+        vtype, xf, out_ref, out_alt = variant_type_span_and_alleles(ref, alt, info_map, pos)
         out.append(
             {
                 "name": vid,
-                "type": infer_variant_type(ref, alt),
+                "type": vtype,
                 "id": vid,
                 "xi": pos,
-                "xf": variant_xf(ref, alt),
+                "xf": xf,
                 "strand": strand_out,
-                "alternate": alt,
-                "reference": ref,
+                "alternate": out_alt,
+                "reference": out_ref,
                 # phase object includes PS (phase-set id)
                 "phase": {
                     "phase01": phase01,
