@@ -13,10 +13,17 @@ function (path) {
             }
         }
 
+        // Every failure here used to go ONLY to console.error -- invisible unless someone had
+        // devtools open. This shows the same message on the panel itself, so "the button does
+        // nothing" becomes an actual, readable reason.
+        let statusPanel;
+        const statusRef = createIonFunction((panel) => { statusPanel = panel; });
+        const setStatus = (html) => { try { if (statusPanel) statusPanel.html = html; } catch (e) { } };
 
         async function uploadFileInChunks(file, path, progressBar) {
             if (!file) {
                 console.error("No file selected for upload.");
+                setStatus('<font color="red">No file selected.</font>');
                 return { error: "No file selected" };
             }
 
@@ -62,14 +69,18 @@ function (path) {
 
                     if (!response.ok || result.failed) {
                         console.error(`Error uploading chunk ${chunkIndex}:`, result.failed);
+                        setStatus('<font color="red">Upload failed (chunk ' + (chunkIndex + 1) + '/' + totalChunks
+                            + '): ' + (result && result.failed ? result.failed : ('HTTP ' + response.status)) + '</font>');
                         return { error: `Upload failed at chunk ${chunkIndex}` };
                     }
 
                     uploadedChunks++;
                     progressBar?.((uploadedChunks / totalChunks) * 100);
+                    setStatus('Uploading ' + file.name + '… ' + uploadedChunks + '/' + totalChunks + ' chunks');
                     console.log(`Uploaded chunk ${chunkIndex + 1}/${totalChunks}`);
                 } catch (error) {
                     console.error("Upload failed:", error);
+                    setStatus('<font color="red">Upload failed: ' + (error && error.message ? error.message : error) + '</font>');
                     return { error: "Network or server error during upload" };
                 }
             }
@@ -106,19 +117,27 @@ function (path) {
                                     'onDropToBlob': createIonFunction(async (file) => {
                                     }),
                                     'fileFunction': createIonFunction(async (file) => {
-                                        if (!file) {
-                                            console.error("No file selected for upload.");
-                                            return { error: "No file selected" };
-                                        }
-                                        const result = await uploadFileInChunks(file, path, progressBar);
+                                        try {
+                                            if (!file) {
+                                                console.error("No file selected for upload.");
+                                                setStatus('<font color="red">No file selected.</font>');
+                                                return { error: "No file selected" };
+                                            }
+                                            setStatus('Uploading ' + file.name + '…');
+                                            const result = await uploadFileInChunks(file, path, progressBar);
 
-                                        if (result?.error) {
+                                            if (result?.error) {
+                                                return result;
+                                            }
+
+                                            setStatus('<font color="green">Uploaded ' + file.name + '.</font>');
+                                            setTimeout(() => { exec('baja/yak', path) }, 700);
                                             return result;
+                                        } catch (e) {
+                                            console.error("Upload failed:", e);
+                                            setStatus('<font color="red">Upload failed: ' + (e && e.message ? e.message : e) + '</font>');
+                                            return { error: '' + (e && e.message ? e.message : e) };
                                         }
-
-
-                                        exec('baja/yak', path)
-
                                     })
                                 }
                             }
@@ -126,6 +145,15 @@ function (path) {
                         {
                             'width': '100%',
                             'component': w
+                        },
+
+                        {
+                            'width': '100%',
+                            'component': {
+                                wid: 'html',
+                                refCallback: statusRef,
+                                data: ''
+                            }
                         },
 
                         {

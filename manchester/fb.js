@@ -504,15 +504,21 @@ function (__path) {
                             items: [
                                 {
                                     'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                        let currentPath = userFiles_panel.currentPath;
-                                        if (!currentPath || currentPath.length <= 0) {
-                                            currentPath = '/'
+                                        try {
+                                            // userFiles_panel is set by the file browser's own
+                                            // refCallback -- guarded rather than assumed, since an
+                                            // unguarded .currentPath on undefined here would throw
+                                            // before anything else runs, with nothing on screen to
+                                            // show for it.
+                                            let currentPath = (userFiles_panel && userFiles_panel.currentPath) || '/';
+                                            if (!currentPath.endsWith('/'))
+                                                currentPath += '/'
+
+                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath);
+                                        } catch (e) {
+                                            console.error('Upload menu failed:', e);
+                                            infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
                                         }
-                                        if (!currentPath.endsWith('/'))
-                                            currentPath += '/'
-
-
-                                        let menu = await exec('baja/ml/upload-large-file.js', currentPath);
                                     })
                                 },
                                 {

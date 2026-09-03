@@ -787,14 +787,20 @@ function (path, filebrowserplease) {
                                         // manchester/fb.js's own Files & Folder Upload item already
                                         // uses correctly (real script, current folder as the path).
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                            let currentPath = userFiles_panel.currentPath;
-                                            if (!currentPath || currentPath.length <= 0) {
-                                                currentPath = '/'
-                                            }
-                                            if (!currentPath.endsWith('/'))
-                                                currentPath += '/'
+                                            try {
+                                                // Guarded rather than assumed -- an unguarded
+                                                // .currentPath on undefined here throws before
+                                                // anything else runs, with nothing on screen to
+                                                // show for it.
+                                                let currentPath = (userFiles_panel && userFiles_panel.currentPath) || '/';
+                                                if (!currentPath.endsWith('/'))
+                                                    currentPath += '/'
 
-                                            let menu = await exec('baja/ml/upload-large-file.js', currentPath);
+                                                let menu = await exec('baja/ml/upload-large-file.js', currentPath);
+                                            } catch (e) {
+                                                console.error('Upload menu failed:', e);
+                                                infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
+                                            }
                                         })
                                     },
                                     {
@@ -1045,7 +1051,12 @@ function (path, filebrowserplease) {
                                         // call already did before this fix, just now against a
                                         // script that actually exists.
                                         'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                            let menu = await exec('baja/ml/upload-large-file.js');
+                                            try {
+                                                let menu = await exec('baja/ml/upload-large-file.js');
+                                            } catch (e) {
+                                                console.error('Upload menu failed:', e);
+                                                infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
+                                            }
                                         })
                                     },
                                     {
