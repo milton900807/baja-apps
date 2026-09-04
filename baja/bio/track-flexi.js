@@ -2080,6 +2080,43 @@ return new Promise(async (resolve, reject) => {
         // line rather than not drawn at all -- which is what the first cut did, and it meant
         // the button was missing on exactly the short selections (a 20mer at normal zoom)
         // where it is most wanted.
+        // The one-shot magenta landing ring a compound paints when it is added
+        // (Oligo.landingBurst / SIRNA.landingBurst set __burstT0, __burstColor, __burstMs).
+        // Each class paints this inside its own draw(), which the track stops calling once
+        // the view is zoomed out -- precisely the zoom the ring exists for. Painted from the
+        // track so every modality gets it at every zoom. Centre comes from the caller, which
+        // has already mapped the compound to the screen.
+        __drawLandingBurst(graph, o, bx, by) {
+            try {
+                if (!o || !o.__burstT0) return;
+                const ctx = graph.canvas && graph.canvas.getCTX();
+                if (!ctx || !isFinite(bx) || !isFinite(by)) return;
+                const el = Date.now() - o.__burstT0;
+                const ms = o.__burstMs || 950;
+                if (!(el >= 0 && el < ms)) { o.__burstT0 = null; return; }
+                const p = el / ms;
+                const named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
+                const c = named[('' + (o.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
+                const rgba = (a) => 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+                const R = 30 + 64 * p;
+                ctx.save();
+                ctx.shadowColor = rgba(0.85 * (1 - p));
+                ctx.shadowBlur = 20;
+                const g = ctx.createRadialGradient(bx, by, 2, bx, by, R);
+                g.addColorStop(0, rgba(0.42 * (1 - p)));
+                g.addColorStop(1, rgba(0));
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2); ctx.fill();
+                ctx.lineWidth = Math.max(1.5, 5 * (1 - p));
+                ctx.strokeStyle = rgba(0.95 * (1 - p));
+                ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2); ctx.stroke();
+                ctx.strokeStyle = rgba(0.7 * (1 - p));
+                ctx.beginPath(); ctx.arc(bx, by, 14 + 42 * p, 0, Math.PI * 2); ctx.stroke();
+                ctx.restore();
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+            } catch (e) { }
+        }
+
         selectionClearButton(xs, xe, y) {
             // R is a LOCAL constant, deliberately not a class field. A track restored from a
             // saved .baja file or an autosave is rebuilt from JSON, which brings back the
@@ -4616,6 +4653,11 @@ return new Promise(async (resolve, reject) => {
                             o.drawIcon(graph, this.grid)
                         else
                             drawLine(ctx, xa, yy, Math.max(xb, xa + 1), yy, 'gray', 1, 'round')
+                        // Out here the compound is a pixel or two wide and draws no landing
+                        // ring of its own -- draw() is not called at all -- so the track paints
+                        // it. At this zoom the ring is the only thing that says where a
+                        // just-designed compound landed, whatever modality it is.
+                        this.__drawLandingBurst(graph, o, (xa + xb) / 2, yy);
                     }
 
                 }

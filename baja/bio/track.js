@@ -4226,6 +4226,49 @@ return new Promise(async (resolve, reject) => {
     //
     // A mark already inside [xi, xf] is taken as absolute; one outside it is read as an offset
     // and xi is added. That is right in both conventions instead of right in one of them.
+    // The one-shot magenta landing ring a compound paints when it is added
+    // (Oligo.landingBurst / SIRNA.landingBurst set __burstT0, __burstColor, __burstMs).
+    //
+    // Each class already paints this inside its own draw(), but the track stops calling
+    // draw() once the view is zoomed out -- which is precisely the zoom the ring exists for.
+    // So the same compound rang when it was designed over a few hundred bases and landed
+    // silently when it was designed across a whole transcript, and which modality that hit
+    // depended only on how far out you happened to be working. Painted from the track, every
+    // modality gets it at every zoom.
+    __drawLandingBurst(graph, o) {
+      try {
+        if (!o || !o.__burstT0) return;
+        const ctx = graph.canvas && graph.canvas.getCTX();
+        if (!ctx) return;
+        const el = Date.now() - o.__burstT0;
+        const ms = o.__burstMs || 950;
+        if (!(el >= 0 && el < ms)) { o.__burstT0 = null; return; }
+        const p = el / ms;
+        const named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
+        const c = named[('' + (o.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
+        const bx = (graph.X(this.tgraph.X(o.xi)) + graph.X(this.tgraph.X(o.xf))) / 2;
+        const by = graph.Y(this.tgraph.Y(o.y));
+        if (!isFinite(bx) || !isFinite(by)) return;
+        const R = 30 + 64 * p;
+        ctx.save();
+        ctx.shadowColor = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.85 * (1 - p)) + ')';
+        ctx.shadowBlur = 20;
+        const g = ctx.createRadialGradient(bx, by, 2, bx, by, R);
+        g.addColorStop(0, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.42 * (1 - p)) + ')');
+        g.addColorStop(1, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = Math.max(1.5, 5 * (1 - p));
+        ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.95 * (1 - p)) + ')';
+        ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2); ctx.stroke();
+        const R2 = 14 + 42 * p;
+        ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.7 * (1 - p)) + ')';
+        ctx.beginPath(); ctx.arc(bx, by, R2, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+        try { if (graph.wake) graph.wake(); } catch (e) { }
+      } catch (e) { }
+    }
+
     selectedRange() {
       try {
         let s = this.markstart, e = this.markend;
@@ -7079,7 +7122,13 @@ return new Promise(async (resolve, reject) => {
             }
           } catch (e) { }
 
-          if (screencell > 1) {
+          // The ONE place oligos get drawn. draw() runs down to 0.3 px/base rather than 1:
+          // the second loop further down (the `screencell > 0.3` one, in the else-branch of
+          // the per-base detail block) was calling draw() on these same objects in the SAME
+          // frame, so between 0.3 and 1 every compound was rendered twice -- once as the
+          // cheap icon here and once as the real graphic there, one sitting on the other.
+          // That loop is gone and this covers every band by itself.
+          if (screencell > 0.3) {
             for (let o of visOligos) {
               try {
                 o.showOfftargets = this.showOfftargets;
@@ -7095,6 +7144,10 @@ return new Promise(async (resolve, reject) => {
               }
               if (o.drawIcon) o.drawIcon(graph, this.tgraph);
               else graph.drawLine(this.tgraph.X(o.xi), this.tgraph.Y(o.y), this.tgraph.X(o.xf), this.tgraph.Y(o.y), o.__overlapsAmplicon ? 'magenta' : GX_INTRON, 1, "round");
+              // Out here the compound is a couple of pixels wide and draws no ring of its
+              // own, so the track paints it -- the ring is the only thing that says where a
+              // just-designed compound landed at this zoom.
+              this.__drawLandingBurst(graph, o);
             }
           }
         }
@@ -7329,16 +7382,8 @@ return new Promise(async (resolve, reject) => {
             let oin = 0;
             let y = 0;
             if (ctx) ctx.font = this.detail_ffont7;
-            if (screencell > 0.3) {
-              for (let o of visOligos) {
-                if (o) {
-                  try {
-                    o.showOfftargets = this.showOfftargets;
-                    o.draw(graph, this.tgraph, y);
-                  } catch (e) { }
-                }
-              }
-            }
+            // The oligo loop that used to sit here drew the same compounds the loop near the
+            // top of draw() had already drawn this frame -- see the comment there.
           }
         }
 
