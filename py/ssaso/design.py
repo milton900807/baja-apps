@@ -941,6 +941,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     min_separation = request["min_separation"]
     endonuclease_motifs = normalize_motif_list(request["endonuclease_motifs"])
     exclude_gap_cleavage_motif_hits = request["exclude_gap_cleavage_motif_hits"]
+    tissue = request.get("tissue", "")
     offtarget_index = request["offtarget_index"]
     offtarget_edit_distance = request["offtarget_edit_distance"]
     offtarget_oversample = request["offtarget_oversample"]
@@ -1236,6 +1237,28 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
             "gap_rule": "Central DNA gap typically 8-10 nt",
             "wing_rule": "Modified wings improve stability and affinity",
             "gc_rule": "Prefer 40-60% GC",
+            # Only present when a tissue is requested, so a caller that does not use the
+            # feature sees the same design_rules block it always saw.
+            **({"composition_rule": {
+                "tissue": tissue,
+                "cns": "Prefer G 10-20% of the oligo. Severe FOB rate rises 6% -> 22% -> 51% "
+                       "-> 73% across <10 / 10-20 / 20-30 / >=30% G (n=1845 gapmers, 5/5 CNS "
+                       "programmes). G >= 30% is strictly dominated: no measurable potency "
+                       "benefit over the 10-20% band. Below 10% costs ~10.7 points of in "
+                       "vitro knockdown.",
+                "liver": "Prefer A 15-35%. Fraction exceeding 2x vehicle ALT falls 54% -> 48% "
+                         "-> 37% -> 29% across <15 / 15-25 / 25-35 / >=35% A (n=777, mouse). "
+                         "A >= 35% costs ~9.3 points of knockdown.",
+                "caveat": "Derived from published patent tolerability tables, which are "
+                          "survivorship-censored. The hepatic rule is mouse-only and did not "
+                          "transfer across species. A confirmation attempt on an independent "
+                          "CNS endpoint (AIF1/GFAP) was null and underpowered. Use as a prior "
+                          "for window selection, not as a substitute for a tolerability screen.",
+                "distinct_from_g_run_penalty": "This is base COMPOSITION, not run structure. "
+                       "Adjusting the composition effect for longest G-run, GGG count and "
+                       "G4Hunter leaves it intact while those collapse to ~0; no sequence in "
+                       "the reference corpus could form a G-quadruplex.",
+            }} if tissue else {}),
             "tm_rule": "Prefer Tm around 55-65C after applying modification-aware adjustment",
             "avoid": [
                 "CpG motifs",
