@@ -117,20 +117,98 @@ function (graph, genegraph_panel_layout) {
             scroll.style.cssText = 'flex:1 1 auto;overflow:auto;padding:18px 22px 28px;';
 
             let onKey = null;
+            let chip = null, watch = null, sawChild = false;
+
+            const dropChip = () => {
+                try { if (watch) clearInterval(watch); } catch (e) { }
+                watch = null;
+                try { if (chip && chip.parentNode) chip.parentNode.removeChild(chip); } catch (e) { }
+                chip = null;
+            };
             const close = () => {
+                dropChip();
                 try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
                 try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
             };
+
+            // Is one of the libraries still on screen? Every one of them -- the four that run on
+            // baja/lib/shelf.js and the four with their own overlay -- mounts a position:fixed
+            // element on document.body in the same z-index band (2147483000-2147483350). Asking
+            // the band makes this a property of the family rather than a list of DOM ids that
+            // would silently fall out of step the next time one is added.
+            const libraryUp = () => {
+                try {
+                    const kids = (document.body && document.body.children) || [];
+                    for (let i = 0; i < kids.length; i++) {
+                        const el = kids[i];
+                        if (el === overlay || el === chip) continue;
+                        const st = (typeof window !== 'undefined' && window.getComputedStyle)
+                            ? window.getComputedStyle(el) : null;
+                        if (!st || st.position !== 'fixed' || st.display === 'none') continue;
+                        if (parseInt(st.zIndex, 10) >= 2147483000) return true;
+                    }
+                } catch (e) { }
+                return false;
+            };
+
+            const backHome = () => {
+                dropChip();
+                try { overlay.style.display = 'flex'; } catch (e) { }
+            };
+
+            // The way back to the root. Bottom-left, clear of every library's own header --
+            // shelf.js puts Back top-left and Search/Close top-right, and the four custom ones
+            // put Close top-right too.
+            const showChip = (name) => {
+                try {
+                    dropChip();
+                    chip = document.createElement('div');
+                    chip.title = 'Back to The Library';
+                    chip.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483400;cursor:pointer;'
+                        + 'display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;'
+                        + 'background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.22);'
+                        + 'box-shadow:0 10px 26px rgba(0,0,0,0.5);'
+                        + 'font:700 12.5px Arial,Helvetica,sans-serif;';
+                    chip.innerHTML = '<span>\u2039 The Library</span>'
+                        + (name ? '<span style="font-weight:400;color:#9fb3c8;">' + esc(name) + '</span>' : '');
+                    chip.onclick = backHome;
+                    document.body.appendChild(chip);
+
+                    // The chip belongs to the library it was raised for, so it goes when that
+                    // library does -- otherwise it sits over the canvas offering to reopen a
+                    // window the user has already left.
+                    sawChild = false;
+                    watch = setInterval(() => {
+                        try {
+                            if (libraryUp()) { sawChild = true; return; }
+                            // Not before the child has actually appeared. exec() is async, so for
+                            // a moment after the click nothing is up yet, and checking blind would
+                            // remove the chip before the thing it belongs to existed.
+                            if (sawChild) dropChip();
+                        } catch (e) { }
+                    }, 500);
+                } catch (e) { }
+            };
+
             const openShelf = (it) => {
-                // Close this one first: two full-screen overlays stacked would leave the user
-                // closing twice to get back to the canvas.
-                close();
+                // HIDDEN, not destroyed. Every one of these libraries used to be a dead end:
+                // its Close puts you on the canvas, so getting back to the shelf you were
+                // reading meant finding the menu that opened The Library in the first place.
+                // Keeping the root alive underneath makes the chip below a real Back.
+                //
+                // Hidden rather than left showing, because a child overlay is opaque and
+                // full-bleed anyway, and a display:none root cannot take Escape or a stray
+                // click meant for the library on top of it.
+                try { overlay.style.display = 'none'; } catch (e) { }
+                showChip(it.name);
                 try {
                     Promise.resolve(exec(it.path, graph, genegraph_panel_layout)).catch((e) => {
                         try { graph.setMessage(' ' + it.name + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                        backHome();
                     });
                 } catch (e) {
                     try { graph.setMessage(' ' + it.name + ' failed: ' + e + ' '); } catch (e2) { }
+                    backHome();
                 }
             };
 
@@ -169,7 +247,16 @@ function (graph, genegraph_panel_layout) {
                 }
             }
 
-            onKey = (e) => { try { if (e.key === 'Escape') { close(); restoreHover(); } } catch (er) { } };
+            // Escape only while the root is the thing on screen. Hidden behind a library, its
+            // listener is still attached, and without this the one Escape that closes the child
+            // would tear down the root behind it too -- taking the way back with it.
+            onKey = (e) => {
+                try {
+                    if (e.key !== 'Escape') return;
+                    if (overlay.style.display === 'none') return;
+                    close(); restoreHover();
+                } catch (er) { }
+            };
             x.onclick = () => { close(); restoreHover(); };
             // No click-the-backdrop dismiss any more: full-bleed, the "backdrop" is the empty
             // space between cards, and closing the window on a miss-click there would be a
