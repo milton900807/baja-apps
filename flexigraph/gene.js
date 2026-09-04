@@ -7872,10 +7872,15 @@ pattern, GGGG | Required`
                         // menu's own would print it twice.
                         title: raw.replace(/\s*[▸►]\s*$/, '') || 'Item',
                         icon: this.__selectionIcon(raw, isSub, isBack),
-                        badge: isBack ? 'Back' : (isSub ? 'Opens' : 'Action'),
-                        blurb: isBack ? 'Return to the level above.'
-                            : (isSub ? 'Opens the next level of this selection.'
-                                : 'Runs this action on the selection.'),
+                        // What KIND of row this is, as a glyph rather than a word: '‹' goes
+                        // back a level, '›' opens the next one, '•' runs on the selection.
+                        // Same three marks __selectionIcon falls back to, so the vocabulary is
+                        // one set, not two. The sentences that used to sit under each card
+                        // ('Opens the next level of this selection.', 'Runs this action on the
+                        // selection.') said the same thing on every card of a kind and pushed
+                        // the actual titles apart, so the glyph carries it instead.
+                        badge: isBack ? '‹' : (isSub ? '›' : '•'),
+                        blurb: '',
                         open: () => { try { it.click(); } catch (e) { } }
                     };
                 });
