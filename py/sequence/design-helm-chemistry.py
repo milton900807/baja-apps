@@ -130,8 +130,13 @@ def design(helm, prompt, mons, sequence=None, properties=None):
         "disagrees with the HELM's own bases, follow the sequence.\n"
         "- HELM syntax: each nucleotide is sugar(base) plus an optional trailing linker, e.g. "
         "m(A)[sp] or d(T)p. Multi-character monomer symbols MUST be wrapped in square brackets "
-        "(e.g. [moe], [fl2r], [sp]); single-character symbols (m, d, r, p, A, C, G, T, U) are "
-        "written bare.\n"
+        "(e.g. [moe], [fl2r], [sp], [lna], [cet]); single-character symbols (m, d, r, p, A, C, "
+        "G, T, U) are written bare.\n"
+        "- The LINKER is that trailing token and you must actually write it. A "
+        "phosphorothioate backbone is [sp] on every linkage (d(A)[sp].d(C)[sp]...), a normal "
+        "phosphate is p. If the request asks for phosphorothioate, or PS, or a stabilised "
+        "backbone, put [sp] between every residue -- do not leave p in place and mention the "
+        "change in notes instead. The last residue in a strand carries no trailing linker.\n"
         "Respond with ONLY a JSON object, no prose:\n"
         '{"helm": "<the new HELM string>", "notes": "<one short line describing what changed>"}'
     )

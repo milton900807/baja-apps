@@ -53,8 +53,14 @@ function (graph, genegraph_panel_layout, oligos) {
             return;
         }
 
+        // The CURATED library, not the full one: baja/chem/monomers.js is 552 monomers /
+        // ~1.5 MB, 1.0 MB of it molfile structure blocks that nothing downstream reads, and
+        // sending that failed outright with the request being too long. common-monomers.js
+        // is the same data trimmed to the therapeutic chemistries (LNA, cEt, MOE, 2'-OMe,
+        // 2'-F, the peptides, the GalNAc conjugates, the standard sugars/linkers/bases) with
+        // molfiles dropped -- 147 monomers, ~18 KB.
         let monomersRaw = null;
-        try { monomersRaw = await exec('baja/chem/monomers.js'); } catch (e) { monomersRaw = null; }
+        try { monomersRaw = await exec('baja/chem/common-monomers.js'); } catch (e) { monomersRaw = null; }
         const monomers = (monomersRaw && (monomersRaw.monomers || monomersRaw)) || [];
         let Biopolymer = null;
         try { Biopolymer = await exec('baja/chem/biopolymer.js'); } catch (e) { Biopolymer = null; }
