@@ -305,8 +305,8 @@ function (graph, genegraph_panel_layout, tracks) {
 
         await exec('baja/lib/shelf.js', {
             id: 'baja-data-resources',
-            title: 'Data Resources',
-            subtitle: 'Pick a class of data to add to the board as track layers',
+            title: 'Design,  Data & Operations',
+            subtitle: '...applied to all tracks on the workbench',
             books: RESOURCES,
             graph: graph,
             onClose: restoreHover
