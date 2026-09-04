@@ -877,7 +877,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         default_backbone: __p.default_backbone || "PS",
                         po_link_positions: [],
                         output_alphabet: __p.output_alphabet || "DNA",
-                        enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
+                        // Default TRUE, same as the gapmer call above and for the same reason:
+                        // sent as false this asks for the global top N with overlaps allowed,
+                        // which returns the length variants of a few good sites rather than a
+                        // design spread across the transcript.
+                        enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
                         annotations: [] // optional: populate if you have site annotations
                     };
 
