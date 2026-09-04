@@ -150,15 +150,15 @@ function (path, config) {
             //
             // This decides PRESENTATION only. The 5-per-month cap on AI and off-target calls is
             // enforced in freeGate (baja-server), which is the only place a browser cannot edit.
-            if (!window.__bajaFreeTier) {
-                try {
-                    const SUB = await exec('lib/subscription.js');
-                    const active = await SUB.checkSubscription();
-                    if (active === false) { window.__bajaFreeTier = true; }
-                } catch (e) {
-                    console.warn('subscription check failed; leaving the editor unrestricted', e);
-                }
-            }
+            // if (!window.__bajaFreeTier) {
+            //     try {
+            //         const SUB = await exec('lib/subscription.js');
+            //         const active = await SUB.checkSubscription();
+            //         if (active === false) { window.__bajaFreeTier = true; }
+            //     } catch (e) {
+            //         console.warn('subscription check failed; leaving the editor unrestricted', e);
+            //     }
+            // }
             // News headlines for the startup newspaper shown INSIDE the progress bar while
             // the editor loads (server-installed via get-news.py; the widget falls back to
             // its own defaults if this is empty). Fetched here so it's ready when the bar
