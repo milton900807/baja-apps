@@ -7,11 +7,15 @@ function (graph, genegraph_panel_layout) {
     // any of them was. This is that place: one card each, and clicking one opens it.
     //
     // Grouped by what opening one DOES to you, because that is the distinction a user needs
-    // before clicking, not after. READING ROOMS describe things and change nothing. DATA ROOMS
-    // are curated collections you browse, where opening an entry brings its subject onto the
-    // board. WORKING LIBRARIES load data onto tracks or run models against them. A flat list
-    // would hide exactly the difference that decides whether it is safe to open one
-    // mid-analysis.
+    // before clicking, not after. A flat list would hide exactly the difference that decides
+    // whether it is safe to open one mid-analysis. Ordered by how much it does, most first, so
+    // the shelves someone came here to USE are at the top and the reading is at the bottom
+    // where it can be scrolled to:
+    //
+    //   WORKING LIBRARIES  load data onto tracks or run models against them
+    //   DATA ROOMS         curated collections you browse; opening an entry brings its subject
+    //                      onto the board
+    //   READING ROOMS      describe things and change nothing
 
     return (async () => {
         const restoreHover = () => {
@@ -22,6 +26,35 @@ function (graph, genegraph_panel_layout) {
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         const SHELVES = [
+            {
+                group: 'Working libraries', note: 'These load data onto tracks or run a model against them.',
+                items: [
+                    {
+                        name: 'Data Resources Library',
+                        blurb: 'The catalogue of loadable data: RNASeq coverage, variants, conservation, '
+                            + 'microRNA sites, patents, your own files and public resources. Datasets land '
+                            + 'on every track on the board.',
+                        path: 'baja/data/data-resources-library.js'
+                    },
+                    {
+                        name: 'ML Models Library',
+                        blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR and djPrimer, each '
+                            + 'writing its prediction onto a track as a layer.',
+                        path: 'baja/ml/models-library.js'
+                    }
+                ]
+            },
+            {
+                group: 'Data rooms', note: 'Curated collections — browse one, and opening an entry brings its subject onto the board.',
+                items: [
+                    {
+                        name: 'The Clinical Compounds Library',
+                        blurb: 'Clinical RNA-targeting compounds with their trial records. Opening one loads '
+                            + 'its target, maps the compound onto it and zooms to the site.',
+                        path: 'manchester/clinical-library.js'
+                    }
+                ]
+            },
             {
                 group: 'Reading rooms', note: 'Reference only — these describe things and change nothing on the board.',
                 items: [
@@ -43,35 +76,6 @@ function (graph, genegraph_panel_layout) {
                         blurb: 'Every model with its method, its measured evidence against a control, and '
                             + 'its known limits. Read this before trusting a prediction.',
                         path: 'baja/ml/institute-of-models-library.js'
-                    }
-                ]
-            },
-            {
-                group: 'Data rooms', note: 'Curated collections — browse one, and opening an entry brings its subject onto the board.',
-                items: [
-                    {
-                        name: 'The Clinical Compounds Library',
-                        blurb: 'Clinical RNA-targeting compounds with their trial records. Opening one loads '
-                            + 'its target, maps the compound onto it and zooms to the site.',
-                        path: 'manchester/clinical-library.js'
-                    }
-                ]
-            },
-            {
-                group: 'Working libraries', note: 'These load data onto tracks or run a model against them.',
-                items: [
-                    {
-                        name: 'Data Resources Library',
-                        blurb: 'The catalogue of loadable data: RNASeq coverage, variants, conservation, '
-                            + 'microRNA sites, patents, your own files and public resources. Datasets land '
-                            + 'on every track on the board.',
-                        path: 'baja/data/data-resources-library.js'
-                    },
-                    {
-                        name: 'ML Models Library',
-                        blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR and djPrimer, each '
-                            + 'writing its prediction onto a track as a layer.',
-                        path: 'baja/ml/models-library.js'
                     }
                 ]
             }
