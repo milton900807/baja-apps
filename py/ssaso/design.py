@@ -90,6 +90,17 @@ class GapmerCandidate:
     score: float = 0.0
     normalized_score: float = 0.0
     score_breakdown: Dict[str, float] = field(default_factory=dict)
+    # Filled only for candidates that reached the off-target screen (see the funnel in
+    # design_gapmer_sites). intrinsic_score is what the sequence terms alone said, kept
+    # alongside the final score so the screen's effect on a candidate is readable.
+    intrinsic_score: float = 0.0
+    offtarget_screened: bool = False
+    offtarget_index: str = ""
+    offtarget_edit_distance: int = 0
+    offtarget_genes_by_distance: Dict[str, int] = field(default_factory=dict)
+    offtarget_burden: float = 0.0
+    offtarget_component: float = 0.0
+    offtarget_symbols: List[str] = field(default_factory=list)
     cleavage_motif_hits: List[str] = field(default_factory=list)
 
 
@@ -365,6 +376,194 @@ def find_gap_cleavage_motif_hits(gap_seq_rna: str, motifs_dna: Sequence[str]) ->
     return hits
 
 
+# ---------------------------------------------------------------------------------------
+# OFF-TARGET SCREEN
+#
+# The intrinsic terms below score an ASO against itself -- GC, Tm, self-structure, runs.
+# None of them can see the thing that most often kills a gapmer, which is that the same
+# 16 bases occur in some other transcript. That is a property of the TRANSCRIPTOME, not of
+# the oligo, so it is measured rather than estimated: py/sequence/offtarget/search.py over a
+# prebuilt 2-bit index, the same index and the same search the off-target tool runs.
+#
+# WEIGHTS PER DISTINCT GENE SYMBOL, not per hit. A hit in each of one gene's nine isoforms
+# is one liability, not nine, and counting sites would rank a candidate by how well its
+# off-target happens to be annotated.
+#
+# Measured against the human cDNA index (40 random oligos each, distinct symbols hit):
+#
+#            ED0            ED1                    ED2
+#   16-mer   median 0       median 4, max 54       median 85, max 436
+#   20-mer   median 0       median 0               median 0, max 9
+#
+# So ED0 and ED1 are the discriminating band for a gapmer-length oligo and ED2 is largely
+# chance -- which is why ED2 is weighted at a fortieth of ED1 rather than dropped: 436 genes
+# at two mismatches is still worse than 20, and the weight lets that show without letting it
+# decide. The 20-mer row is why this term can move length preference at all: a 20-mer is
+# essentially unique in the transcriptome and a 16-mer is not.
+OFFTARGET_GENE_WEIGHT_BY_DISTANCE = {0: 40.0, 1: 8.0, 2: 0.35, 3: 0.05}
+
+# burden -> component, as 1/(1 + burden/SCALE). Saturating rather than linear: the difference
+# between 0 and 10 off-target genes matters, the difference between 300 and 400 does not, and
+# a linear penalty would spend most of its range on candidates nobody would pick.
+# At SCALE = 40 a typical 16-mer (0 / 4 / 85) lands near 0.39 and a clean one near 0.85.
+OFFTARGET_BURDEN_SCALE = 40.0
+
+# How much of the final score the screen is worth. The intrinsic terms keep 0.80 of it, so
+# a candidate cannot be carried by a clean transcriptome alone, nor sunk by one marginal
+# ED1 hit.
+OFFTARGET_WEIGHT = 0.20
+
+
+def _load_offtarget_search():
+    """py/sequence/offtarget/search.py, imported by path. Returns None when it cannot be
+    used -- no numpy, no index root, file moved -- which is a normal outcome, not an error:
+    the design then runs on its intrinsic terms and says so in the result."""
+    import importlib.util
+    import os
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.normpath(os.path.join(here, "..", "sequence", "offtarget", "search.py"))
+    if not os.path.exists(path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("_baja_offtarget_search", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_baja_offtarget_search"] = mod
+        spec.loader.exec_module(mod)
+        # search.py drives works.progress() per oligo; this is one step inside a larger
+        # design, so its progress must not overwrite the design's own.
+        try:
+            mod.works = None
+        except Exception:
+            pass
+        return mod
+    except Exception:
+        return None
+
+
+def offtarget_burden_from_hits(hits, on_target_symbols=()):
+    """(burden, {distance: gene_count}, top symbols) for one oligo's hit list.
+
+    The intended site is subtracted rather than searched for. Every candidate matches its
+    own target transcript perfectly, so exactly one gene symbol at distance 0 is the design
+    working as intended; a caller that knows the gene can name it in on_target_symbols and
+    that guess is not needed.
+    """
+    ignore = {str(x).strip().upper() for x in (on_target_symbols or []) if str(x).strip()}
+    by_distance = {}
+    for h in hits:
+        if not isinstance(h, dict):
+            continue
+        sym = str(h.get("symbol") or "").strip()
+        if not sym or sym.upper() in ignore:
+            continue
+        d = int(h.get("editdistance", 0))
+        by_distance.setdefault(d, set()).add(sym)
+
+    counts = {d: len(v) for d, v in sorted(by_distance.items())}
+    if not ignore and counts.get(0):
+        counts[0] = max(0, counts[0] - 1)          # the on-target transcript
+
+    burden = sum(OFFTARGET_GENE_WEIGHT_BY_DISTANCE.get(d, 0.0) * n for d, n in counts.items())
+    # Named examples for the notes, worst distance first -- a count says how much, a symbol
+    # says what, and what is what a reader acts on.
+    symbols = []
+    for d in sorted(by_distance):
+        for sym in sorted(by_distance[d]):
+            if sym.upper() in ignore:
+                continue
+            symbols.append("%s (ED%d)" % (sym, d))
+            if len(symbols) >= 8:
+                break
+        if len(symbols) >= 8:
+            break
+    return burden, counts, symbols
+
+
+def offtarget_component(burden):
+    return clamp01(1.0 / (1.0 + max(0.0, float(burden)) / OFFTARGET_BURDEN_SCALE))
+
+
+# ---------------------------------------------------------------------------------------
+# NUCLEOBASE COMPOSITION -> IN VIVO TOLERABILITY
+#
+# Derived from published Ionis/Biogen tolerability tables (see aso_patents/): 1,845 gapmers
+# with functional-observational-battery scores after IT/ICV dosing across 7 CNS programmes,
+# and 777 with mouse ALT fold-change. Both associations are cluster-aware (sequence families
+# permuted as units) and survive residualising out the target programme.
+#
+#   CNS      guanine content tracks WORSE tolerability. rho = +0.38, positive in 5/5 genes.
+#            Severe-finding rate (FOB >= 5) runs 6% -> 22% -> 51% -> 73% across the bands
+#            below. It is guanine CONTENT, not run structure: adjusting for longest G-run,
+#            GGG count and G4Hunter leaves it intact (each of those collapses to ~0 the
+#            other way round), and no sequence in that corpus can even form a G-quadruplex.
+#            Note this is a different claim from the existing g_run_penalty term, which is
+#            about runs; the two are only weakly related and both are kept.
+#   LIVER    adenine content tracks BETTER tolerability. rho = -0.23, 5/5 programmes.
+#            Fraction exceeding 2x vehicle ALT runs 54% -> 48% -> 37% -> 29%.
+#
+# The bands are NOT monotonic once potency is included. From 8,461 compounds with in vitro
+# knockdown, relative to the best band: G >= 30% costs no measurable potency (+1.4 pts,
+# 95% CI [-0.8, +3.7]) while carrying the 73% severe rate -- so it is strictly dominated and
+# cutting G there is free. Below 10% G costs a real 10.7 pts of knockdown (CI [8.5, 12.9])
+# to buy the severe rate down to 6%, and A >= 35% costs 9.3 pts (CI [7.3, 11.3]). The anchors
+# below encode that shape: the optimum is a BAND, not an extreme.
+#
+# Caveats that belong with the numbers: patent tables are survivorship-censored (only
+# compounds that passed tolerability get published), the hepatic rule is mouse-only and
+# cross-species transfer of it was ~zero, and an attempt to confirm the CNS rule on an
+# independent endpoint (AIF1/GFAP induction) was null and underpowered. Treat this as a
+# strong prior for window selection, not a replacement for a tolerability screen.
+COMPOSITION_ANCHORS = {
+    # tissue: [(base fraction, component value), ...] piecewise-linear, clamped at the ends
+    "cns":   [(0.05, 0.92), (0.15, 1.00), (0.25, 0.55), (0.35, 0.28), (0.50, 0.20)],
+    "liver": [(0.075, 0.64), (0.20, 0.73), (0.30, 0.88), (0.40, 0.92), (0.50, 0.92)],
+}
+COMPOSITION_BASE = {"cns": "G", "liver": "A"}
+
+# Weight taken from the intrinsic block when a tissue is requested. Deliberately modest: the
+# effect is real but the spread it explains is a fraction of what Tm and self-structure do,
+# and it should reorder near-ties rather than override sequence quality.
+COMPOSITION_WEIGHT = 0.12
+
+
+def _interp(anchors, x):
+    if x <= anchors[0][0]:
+        return anchors[0][1]
+    if x >= anchors[-1][0]:
+        return anchors[-1][1]
+    for (x0, y0), (x1, y1) in zip(anchors, anchors[1:]):
+        if x0 <= x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return anchors[-1][1]
+
+
+def composition_component(seq_rna: str, tissue: str):
+    """(component, detail) for the requested tissue, or (None, {}) when disabled.
+
+    "both" takes the MINIMUM of the two rules rather than the mean: they are independent
+    findings about different organs, and a design that is fine for liver but G-rich is not
+    made acceptable for an intrathecal programme by averaging. In practice the two optima
+    are compatible (G 10-20%, A 15-35% describe the same A/T-rich windows), so the minimum
+    is rarely a hard constraint.
+    """
+    tissue = (tissue or "").strip().lower()
+    if tissue not in ("cns", "liver", "both"):
+        return None, {}
+    seq = (seq_rna or "").upper().replace("U", "T")
+    if not seq:
+        return None, {}
+    detail = {}
+    parts = []
+    for t in (("cns", "liver") if tissue == "both" else (tissue,)):
+        frac = seq.count(COMPOSITION_BASE[t]) / len(seq)
+        val = _interp(COMPOSITION_ANCHORS[t], frac)
+        detail[f"{t}_{COMPOSITION_BASE[t]}_fraction"] = round(frac, 4)
+        detail[f"{t}_component"] = round(val, 4)
+        parts.append(val)
+    return clamp01(min(parts)), detail
+
+
 def score_gapmer_candidate(
     antisense_core_rna: str,
     chemistry_layout: List[Dict[str, Any]],
@@ -372,6 +571,7 @@ def score_gapmer_candidate(
     left_wing_size: int,
     right_wing_size: int,
     cleavage_motif_hits: Sequence[str],
+    tissue: str = "",
 ) -> Tuple[float, Dict[str, float], List[str], float, float, float]:
     notes: List[str] = []
     breakdown: Dict[str, float] = {}
@@ -409,6 +609,17 @@ def score_gapmer_candidate(
         "gap_cleavage_motif_clear": 0.05,
     }
     weighted = sum(weights[k] * breakdown[k] for k in weights)
+
+    # Composition rides on top of the intrinsic block, which is rescaled so the total stays
+    # in [0, 1]. With no tissue requested this is a no-op and the score is bit-identical to
+    # what it was before the term existed.
+    comp, comp_detail = composition_component(antisense_core_rna, tissue)
+    if comp is not None:
+        weighted = (1.0 - COMPOSITION_WEIGHT) * weighted + COMPOSITION_WEIGHT * comp
+        breakdown["composition_tolerability"] = round(comp, 6)
+        for k, v in comp_detail.items():
+            breakdown[k] = v
+
     final_score = 0.0 if cleavage_motif_hits else clamp01(weighted)
 
     notes.append(f"GC% = {gc * 100:.1f}; GC component = {breakdown['gc']:.3f}")
@@ -428,6 +639,23 @@ def score_gapmer_candidate(
         notes.append("Excluded because the internal DNA gap matches forbidden endonuclease cleavage motif(s): " + ", ".join(cleavage_motif_hits))
     else:
         notes.append("Internal DNA gap is clear of configured endonuclease cleavage motifs")
+    if comp is not None:
+        t = (tissue or "").lower()
+        for key in ("cns", "liver"):
+            fk = f"{key}_{COMPOSITION_BASE[key]}_fraction"
+            if fk in comp_detail:
+                notes.append(
+                    f"{key.upper()} composition rule: {COMPOSITION_BASE[key]} = "
+                    f"{comp_detail[fk] * 100:.1f}%; component = {comp_detail[f'{key}_component']:.3f} "
+                    f"(target band {'G 10-20%' if key == 'cns' else 'A 15-35%'})")
+        if t in ("cns", "both") and comp_detail.get("cns_G_fraction", 0) >= 0.30:
+            notes.append("G content >= 30%: strictly dominated -- ~73% severe-FOB rate in the "
+                         "reference corpus with no measurable potency benefit over the 10-20% band")
+        if t in ("cns", "both") and 0 < comp_detail.get("cns_G_fraction", 1) < 0.10:
+            notes.append("G content < 10%: best tolerability band, but costs ~10.7 points of "
+                         "in vitro knockdown versus the 10-20% optimum")
+        notes.append("Composition rule is derived from patent tolerability tables and is "
+                     "survivorship-censored; it is a prior for window choice, not a screen")
     notes.append(f"Tm includes modification bonus of +{tm_modification_bonus_c:.2f}C from wing chemistry")
     notes.append("Score is directly computed on a 0-1 scale; no min-max normalization step is used")
     notes.append("Structured RNA accessibility and protein-bound sites are not modeled explicitly in this heuristic scorer")
@@ -494,6 +722,7 @@ def generate_gapmer_candidates(
     helm_symbols: Dict[str, Any] | None = None,
     endonuclease_motifs: Sequence[str] | None = None,
     exclude_gap_cleavage_motif_hits: bool = True,
+    tissue: str = "",
 ) -> List[GapmerCandidate]:
     seq_rna = clean_sequence(long_sequence)
     lengths = list(lengths)
@@ -548,13 +777,15 @@ def generate_gapmer_candidates(
                 if exclude_gap_cleavage_motif_hits and cleavage_motif_hits:
                     continue
 
-                score, score_breakdown, notes, gc_percent, tm_c, tm_modification_bonus_c = score_gapmer_candidate(
+                (score, score_breakdown, notes, gc_percent, tm_c,
+                 tm_modification_bonus_c) = score_gapmer_candidate(
                     antisense_core_rna=antisense_core_rna,
                     chemistry_layout=chemistry_layout,
                     gap_size=gap_size,
                     left_wing_size=left_wing_size,
                     right_wing_size=right_wing_size,
                     cleavage_motif_hits=cleavage_motif_hits,
+                    tissue=tissue,
                 )
 
                 structure = build_helm_structure(
@@ -631,6 +862,12 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "min_separation": 0,
             "endonuclease_motifs": list(DEFAULT_ENDONUCLEASE_MOTIFS_DNA),
             "exclude_gap_cleavage_motif_hits": True,
+            "offtarget_index": None,
+            "offtarget_edit_distance": 2,
+            "offtarget_oversample": 3,
+            "offtarget_screen_cap": 400,
+            "on_target_symbols": [],
+            "tissue": "",
         }
 
     if isinstance(payload, dict):
@@ -666,6 +903,22 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "min_separation": int(payload.get("min_separation", 0)),
             "endonuclease_motifs": list(motifs),
             "exclude_gap_cleavage_motif_hits": bool(payload.get("exclude_gap_cleavage_motif_hits", True)),
+            # Off-target screen. No index named, no screen -- and the design then runs exactly
+            # as it did before this existed, which is what makes it safe to ask for by default
+            # from a caller that may or may not have an index to offer.
+            "offtarget_index": payload.get("offtarget_index") or None,
+            "offtarget_edit_distance": int(payload.get("offtarget_edit_distance", 2)),
+            # How many ranked sites to screen for every one returned. The screen can only
+            # reorder what it sees, so this is the room the penalty has to work in: at 3, a
+            # site has to be beaten by three others to be pushed out of the answer.
+            "offtarget_oversample": max(1, int(payload.get("offtarget_oversample", 3))),
+            "offtarget_screen_cap": max(1, int(payload.get("offtarget_screen_cap", 400))),
+            "on_target_symbols": list(payload.get("on_target_symbols", []) or []),
+            # "" (off), "cns", "liver" or "both". OFF BY DEFAULT: the composition rules are
+            # organ-specific and opposite in direction, so applying one to the wrong
+            # programme is worse than applying neither, and an existing caller that does not
+            # set this gets exactly the scores it got before the term existed.
+            "tissue": str(payload.get("tissue", "") or "").strip().lower(),
         }
 
     raise ValueError("Input must be either a sequence string or a JSON object.")
@@ -688,6 +941,11 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     min_separation = request["min_separation"]
     endonuclease_motifs = normalize_motif_list(request["endonuclease_motifs"])
     exclude_gap_cleavage_motif_hits = request["exclude_gap_cleavage_motif_hits"]
+    offtarget_index = request["offtarget_index"]
+    offtarget_edit_distance = request["offtarget_edit_distance"]
+    offtarget_oversample = request["offtarget_oversample"]
+    offtarget_screen_cap = request["offtarget_screen_cap"]
+    on_target_symbols = request["on_target_symbols"]
 
     normalized_rna = clean_sequence(raw_sequence)
     symbol_map = build_symbol_map(helm_symbols)
@@ -737,6 +995,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         helm_symbols=helm_symbols,
         endonuclease_motifs=endonuclease_motifs,
         exclude_gap_cleavage_motif_hits=exclude_gap_cleavage_motif_hits,
+        tissue=tissue,
     )
 
     # What the scoring pass actually cost, and what the motif filter removed -- a design that
@@ -763,19 +1022,107 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
     # 44,025 candidates scored, and the top 100 held 49 distinct start positions, 21 of them
     # overlapping the single best site, covering 7.9% of the transcript. It is available as
     # enforce_non_overlapping: false for a caller that wants the layout variants of a site.
+    # The off-target screen is a funnel, not another term in the loop above. Searching a
+    # transcriptome for all 44,000-odd candidates would take hours; searching the best few
+    # hundred takes seconds, and the ones it would have rejected further down were never
+    # going to be returned anyway. So: rank on the intrinsic terms, take MORE sites than
+    # asked for, screen those, re-score, and keep the best of them.
+    #
+    # The oversample is the room the penalty has. Screening exactly top_n could only reorder
+    # the answer; screening 3x can change which sites are in it.
+    screen = _load_offtarget_search() if offtarget_index else None
+    want = (top_n * offtarget_oversample) if screen else top_n
+    if screen:
+        want = min(want, offtarget_screen_cap)
+
     if enforce_non_overlapping:
         works.msg(
             "Ranking every candidate, then taking the best %d sites%s"
-            % (top_n, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
+            % (want, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
         )
         top_candidates = select_top_non_overlapping(
             all_candidates,
-            top_n=top_n,
+            top_n=want,
             min_separation=min_separation,
         )
     else:
-        works.msg("Taking the best %d by score, overlapping layouts of one site included" % top_n)
-        top_candidates = all_candidates[:top_n]
+        works.msg("Taking the best %d by score, overlapping layouts of one site included" % want)
+        top_candidates = all_candidates[:want]
+
+    offtarget_report: Dict[str, Any] = {
+        "requested": bool(offtarget_index),
+        "ran": False,
+        "index": offtarget_index or None,
+        "edit_distance": offtarget_edit_distance,
+        "screened": 0,
+        "reason": None,
+    }
+    if offtarget_index and not screen:
+        offtarget_report["reason"] = (
+            "off-target search is unavailable in this interpreter (numpy or "
+            "py/sequence/offtarget/search.py missing); scored on sequence terms only"
+        )
+        works.msg(offtarget_report["reason"])
+    elif screen and top_candidates:
+        works.msg(
+            "Screening %d sites against %s at edit distance %d"
+            % (len(top_candidates), offtarget_index, offtarget_edit_distance)
+        )
+        try:
+            probe = [
+                {"id": i, "synthesisSequence": to_requested_alphabet(c.antisense_core_rna, "DNA")}
+                for i, c in enumerate(top_candidates)
+            ]
+            res = screen.search(offtarget_index, probe, offtarget_edit_distance, "+-")
+            rows = (res or {}).get("oligoQuery", []) or []
+            for i, c in enumerate(top_candidates):
+                hits = rows[i].get("offtarget", []) if i < len(rows) else []
+                burden, counts, symbols = offtarget_burden_from_hits(hits, on_target_symbols)
+                comp = offtarget_component(burden)
+                c.offtarget_screened = True
+                c.offtarget_index = str(offtarget_index)
+                c.offtarget_edit_distance = int(offtarget_edit_distance)
+                c.offtarget_genes_by_distance = {str(k): int(v) for k, v in counts.items()}
+                c.offtarget_burden = round(burden, 4)
+                c.offtarget_component = round(comp, 6)
+                c.offtarget_symbols = symbols
+                c.intrinsic_score = c.score
+                c.score_breakdown = dict(c.score_breakdown)
+                c.score_breakdown["offtarget"] = round(comp, 6)
+                # The intrinsic terms keep 0.80 of the score. Every candidate being ranked
+                # here has been screened, so the two are compared on the same basis.
+                c.score = round((1.0 - OFFTARGET_WEIGHT) * c.intrinsic_score
+                                + OFFTARGET_WEIGHT * comp, 6)
+                c.normalized_score = c.score
+                c.notes = list(c.notes) + [
+                    "Off-target screen (%s, ED<=%d): %s; burden %.1f, component %.3f"
+                    % (offtarget_index, offtarget_edit_distance,
+                       (", ".join("%d gene(s) at ED%d" % (v, int(k)) for k, v in sorted(counts.items()))
+                        or "no other gene hit"),
+                       burden, comp),
+                    "Final score = 0.80 x sequence terms + 0.20 x off-target component",
+                ]
+                if symbols:
+                    c.notes.append("Nearest off-targets: " + ", ".join(symbols))
+            top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 60.0),
+                                               abs(x.gc_percent - 50.0), -x.length))
+            top_candidates = top_candidates[:top_n]
+            for idx, c in enumerate(top_candidates, start=1):
+                c.rank = idx
+            offtarget_report["ran"] = True
+            offtarget_report["screened"] = len(probe)
+            works.msg("Off-target screen applied; kept the best %d of %d screened"
+                      % (len(top_candidates), len(probe)))
+        except Exception as exc:
+            # A missing index, a corrupt one, an oligo outside the searchable length -- none
+            # of it should lose the design that has already been computed.
+            offtarget_report["reason"] = "off-target screen failed: %s" % (exc,)
+            works.msg(offtarget_report["reason"])
+            top_candidates = top_candidates[:top_n]
+            for idx, c in enumerate(top_candidates, start=1):
+                c.rank = idx
+    else:
+        top_candidates = top_candidates[:top_n]
 
     hits: List[Dict[str, Any]] = []
     works.progress(90)
@@ -831,6 +1178,7 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
         ),
         "top_n": top_n,
         "coverage": coverage,
+        "offtarget_screen": offtarget_report,
         "selection_mode": "rank_order_across_sequence_space" if enforce_non_overlapping else "global_top_n_overlaps_allowed",
         "min_separation": min_separation,
         "lengths_scanned": list(lengths),
@@ -856,6 +1204,14 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
                 "common, because the GC and Tm components are plateaus -- are settled by Tm nearest 60C, "
                 "then GC nearest 50%, then the longer candidate, so a run of equal scores does not "
                 "resolve toward the GC-richest stretch of the transcript."
+            ),
+            "offtarget_note": (
+                "When an index is named, the best sites are additionally screened against it "
+                "with py/sequence/offtarget/search.py and the final score becomes 0.80 x the "
+                "sequence terms + 0.20 x an off-target component. The component is "
+                "1/(1 + burden/40), where burden weights DISTINCT GENE SYMBOLS hit at each "
+                "edit distance (ED0 x40, ED1 x8, ED2 x0.35, ED3 x0.05) and one gene at ED0 is "
+                "subtracted as the intended target unless on_target_symbols names it."
             ),
             "selection_note": (
                 "Selection then walks that ranking from the top and takes a candidate only if it does not "
