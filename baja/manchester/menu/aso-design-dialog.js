@@ -47,7 +47,8 @@ function (kind) {
                         + '<div style="flex:1;"><label style="' + lbl + '">Backbone</label><select id="ad-bb" style="' + inp + '"><option value="PS">PS (phosphorothioate)</option><option value="PO">PO</option></select></div></div>'))
                 + '<label style="' + lbl + '">Output alphabet</label>'
                 + '<select id="ad-alpha" style="' + inp + '"><option value="DNA">DNA</option><option value="RNA">RNA</option></select>'
-                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-nonoverlap"/> Enforce non-overlapping candidates</label>'
+                + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap"/> Include overlapping layouts of the same site</label>'
+                + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Off, the design walks the ranking and takes one candidate per site, so it spans the transcript. On, it returns the global top N, which is mostly the same few sites at different lengths and gap sizes.</div>'
                 + '</div>'
                 + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
                 + '<button id="ad-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
@@ -86,7 +87,9 @@ function (kind) {
                     params.chemistry_template = params.wing_modification;
                     params.default_backbone = q('#ad-bb') ? q('#ad-bb').value : 'PS';
                     params.output_alphabet = q('#ad-alpha') ? q('#ad-alpha').value : 'DNA';
-                    params.enforce_non_overlapping = !!(q('#ad-nonoverlap') && q('#ad-nonoverlap').checked);
+                    // The checkbox asks the opposite question now: ticking it opts INTO the
+                    // overlapping layouts, which is the exception rather than the default.
+                    params.enforce_non_overlapping = !(q('#ad-overlap') && q('#ad-overlap').checked);
                 }
                 close(); resolve(params);
             };

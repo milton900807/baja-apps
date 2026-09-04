@@ -647,7 +647,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "po_link_positions": [],
 
                         "output_alphabet": __p.output_alphabet || "DNA",
-                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : false),
+                        // Default TRUE. Sent as false, this asked design.py for the global top N
+                        // with overlaps allowed, which is not the best N ASOs: every start is
+                        // generated at five lengths and three gap sizes, so the variants of one
+                        // good site fill the top of the list. The dialog's Advanced tab can still
+                        // ask for those variants explicitly.
+                        "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
 
                         "helm_symbols": {
                             "DNA": "d",
