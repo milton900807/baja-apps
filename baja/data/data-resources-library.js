@@ -217,10 +217,48 @@ function (graph, genegraph_panel_layout, tracks) {
             }
         ];
 
+        // ---- Design: the working designers, for one track --------------------------------
+        // track-design-menu.js is per-track (graph, track, layout), so which track has to be
+        // settled first. One track on the board is not a question -- go straight in. Several
+        // is a real choice, and it is asked the way every other choice in this library is: as
+        // another level of the same shelf, not a popup in the corner.
+        //
+        // This opens the WORKING designers (Therapeutics, Primer probes, Off-targets,
+        // Compounds, Clinical Library), not baja/lib/institute-rna-design.js -- that one is
+        // the roadmap reading room, where every entry is marked COMING SOON, and it is what
+        // the Design toolbar button already opens.
+        const designTargets = () => ((tracks && tracks.length) ? tracks : (graph.track || [])).filter(Boolean);
+        const openDesignFor = (t) => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout);
+        const designBooks = () => designTargets().map((t, i) => ({
+            title: t.name || ('track ' + (i + 1)),
+            badge: (t.track_type || 'Track'),
+            blurb: 'Open the design library for ' + (t.name || 'this track')
+                + ' — therapeutics, primer probes, off-targets and the compounds already on it.',
+            open: () => openDesignFor(t)
+        }));
+
         // ---- The top shelf ---------------------------------------------------------------
         // `ready:false` cards are shown greyed with a note instead of being hidden, so the
         // catalogue reads as complete rather than silently short.
         const RESOURCES = [
+            {
+                title: 'Design',
+                badge: 'Therapeutics',
+                subtitle: 'Pick the track to design against',
+                blurb: 'The designers themselves — siRNA, gapmer and steric-blocking ASOs, primer '
+                    + 'probes, off-target search, and the compounds already on a track. Everything '
+                    + 'else in this library ADDS DATA to look at; this is what makes something new '
+                    + 'from it.',
+                // One track: no question to ask, open its design library directly. Several:
+                // one more level to choose between them. None: say so rather than opening an
+                // empty shelf, since every designer here needs a track to work on.
+                open: (designTargets().length === 1)
+                    ? (() => openDesignFor(designTargets()[0]))
+                    : (designTargets().length ? null : (() => {
+                        try { graph.setResultMessage(' Load a track first — the designers all work against one. '); } catch (e) { }
+                    })),
+                books: (designTargets().length > 1) ? designBooks : null
+            },
             {
                 title: 'RNASeq',
                 badge: 'Coverage',
