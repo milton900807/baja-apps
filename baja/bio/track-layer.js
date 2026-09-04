@@ -725,9 +725,30 @@ return new Promise(async (resolve, reject) => {
                 // arcs sharing a donor crest within a few pixels of each other, so flat
                 // numbers collided horizontally where turned ones do not. Dark ink over a
                 // white halo, the same pairing the interval labels use.
-                const label = s.toFixed(2);
-                // Skip trivial weights (0 or 1) — only show the interesting ones.
-                if (chord > 22 && label !== '0.00' && label !== '1.00') {
+                //
+                // The number shown is s / magMax, NOT s. The magnitude carried on a junction
+                // is a drawing weight -- site strength is presented on a 0-2 scale -- so the
+                // raw field is twice the model's probability in sites mode, and printing it
+                // put a "1.86" on a junction the model scored 0.93.
+                //
+                // PSI is a percentage by definition and reads as one. 0% and 100% are kept:
+                // a constitutive exon fully included, and a skip arc for one, are the two most
+                // informative answers PSINet gives, and the old "skip the round numbers" rule
+                // meant a PSI plot of a well-behaved transcript carried no numbers at all.
+                const __isPsi = (this.magnitudeMode === 'psi');
+                const __value = s / magMax;              // back to the model's own 0..1 scale
+                let label, __show;
+                if (__isPsi) {
+                    // Named when the arc is wide enough to carry the word, because inclusion
+                    // and skip arcs quote different quantities (PSI and 1-PSI) and sit on top
+                    // of each other at the same event.
+                    label = (chord > 60 ? (isSkip ? 'skip ' : 'PSI ') : '') + Math.round(__value * 100) + '%';
+                    __show = chord > 12;
+                } else {
+                    label = __value.toFixed(2);
+                    __show = chord > 22 && label !== '0.00';
+                }
+                if (__show) {
                     let topY = centerY - radius;
                     ctx.save();
                     ctx.font = 'bold 10px Arial';
