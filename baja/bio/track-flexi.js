@@ -132,9 +132,11 @@ return new Promise(async (resolve, reject) => {
         // only caller is the showResizeBar block below), so it sits under the sequence letters
         // and everything else on the track: it has to read as "this is selected" without
         // tinting what is drawn on top of it. The previous faint blue was close enough to the
-        // track's own colouring to be missed. Alpha stays low for the same reason.
-        fillStyle = 'rgba(255,214,10,0.16)',
-        strokeStyle = 'rgba(255,214,10,0.16)',
+        // track's own colouring to be missed. Alpha stays low for the same reason -- raised
+        // from 0.16 to 0.24, which reads more clearly as "selected" while still leaving the
+        // sequence letters and everything drawn on top of it untinted.
+        fillStyle = 'rgba(255,214,10,0.24)',
+        strokeStyle = 'rgba(255,214,10,0.24)',
         doStroke = false
     } = {}) {
         ctx.save();
