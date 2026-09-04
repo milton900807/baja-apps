@@ -7938,6 +7938,60 @@ return new Promise(async (resolve, reject) => {
             };
             drawGrabHead(screenStartX, 1);
             drawGrabHead(screenEndX, -1);
+
+            // Deselect button -- the same tropical orange as the two heads, on the same line,
+            // halfway between them. Dropping a selection had no visible control at all before
+            // this; you had to know some other route to it.
+            //
+            // Geometry is computed inline here and then recorded on the track as
+            // __selClearBtn, so gene.js's __hitSelectionClear() hit-tests the disc that was
+            // actually painted rather than recomputing where it ought to be. Between the heads
+            // when there is room for it, just below the line when there is not, so a short
+            // selection still gets a button.
+            let __btn = null;
+            try {
+              const __R = 8;
+              const __gap = Math.abs(screenEndX - screenStartX);
+              if (isFinite(screenStartX) && isFinite(screenEndX) && isFinite(yPosition) && __gap >= (2 * __R)) {
+                const __fits = __gap >= (2 * hL) + (2 * __R) + 2;
+                __btn = {
+                  x: (screenStartX + screenEndX) / 2,
+                  y: __fits ? yPosition : (yPosition + __R + 7),
+                  r: __R
+                };
+              }
+            } catch (e) { console.error('deselect button geometry:', e); }
+            this.__selClearBtn = __btn;
+            if (__btn) try {
+              const R = __btn.r, __mid = __btn.x, __by = __btn.y;
+              ctx.save();
+              ctx.shadowColor = 'rgba(120,52,0,0.50)';
+              ctx.shadowBlur = 9;
+              ctx.shadowOffsetY = 3;
+              const gg = ctx.createLinearGradient(0, __by - R, 0, __by + R);
+              gg.addColorStop(0, '#ffc07a');     // same lit top as the heads
+              gg.addColorStop(0.45, '#ff8c2f');  // same body
+              gg.addColorStop(1, '#dd5f14');     // same shaded underside
+              ctx.beginPath();
+              ctx.arc(__mid, __by, R, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.fillStyle = gg;
+              ctx.fill();
+              ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+              ctx.lineWidth = 1.25;
+              ctx.strokeStyle = '#9c4409';       // same dark edge as the heads
+              ctx.stroke();
+              // The X itself, in that same dark edge tone so it reads against the orange.
+              const k = R * 0.42;
+              ctx.beginPath();
+              ctx.moveTo(__mid - k, __by - k); ctx.lineTo(__mid + k, __by + k);
+              ctx.moveTo(__mid + k, __by - k); ctx.lineTo(__mid - k, __by + k);
+              ctx.lineWidth = 2;
+              ctx.lineCap = 'round';
+              ctx.strokeStyle = '#9c4409';
+              ctx.stroke();
+              ctx.restore();
+            } catch (e) { console.error('deselect button draw:', e); }
           }
           ctx.restore();
 
@@ -8158,7 +8212,7 @@ return new Promise(async (resolve, reject) => {
           // Lighter: at 0.28 the wash sat visibly over the base letters and the layers, and
           // it covers the WHOLE track, so on a track with a sequence selected it was the
           // largest thing on screen. It only has to say "this one is selected".
-          ctx.fillStyle = 'rgba(224,242,254,0.10)';   // light blue-white wash
+          ctx.fillStyle = 'rgba(224,242,254,0.16)';   // light blue-white wash
           ctx.fillRect(_sx, _sy, _sw, _sh);
           ctx.restore();
         }

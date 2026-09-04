@@ -5060,6 +5060,10 @@ function (progress, options) {
                                 __clr.markstart = null;
                                 __clr.markend = null;
                                 __clr.showResizeBar = false;
+                                // The draw records the button it painted; with no selection
+                                // left it will not run again, so drop it here rather than
+                                // leaving a live hit box over empty canvas.
+                                __clr.__selClearBtn = null;
                                 // The drag that made the range leaves state behind; without this
                                 // the coming mouse-up can re-apply the range just cleared -- the
                                 // same reason clearSequenceSelections() resets these.
