@@ -2278,19 +2278,20 @@ function (path, config) {
                                                             return;
                                                         }
 
-                                                        // Straight to the Data Resources Library panel -- no more center
-                                                        // menu asking Models / Data / Edit first. Its loaders already lay
-                                                        // a dataset over every track on the board (see
-                                                        // baja/data/rnaseq-library.js), so this needs no flag beyond the
-                                                        // status message, same as the old 'Data' choice did. Per-track
-                                                        // layer editing (the old 'Edit' choice) is still reachable from
-                                                        // the File menu's 'Track Layers' item. The ML Models Library
-                                                        // (the old 'Models' choice) is still reachable per-track from a
-                                                        // sequence selection and the track hover menu
-                                                        // (baja/manchester/menu/selected-sequence-menu.js,
-                                                        // mouse-over-highlight.js) -- this button was its only
-                                                        // whole-board "apply to every track at once" shortcut, and that
-                                                        // specific shortcut is gone now that this goes straight to Data.
+                                                        // Straight to the Institute -- the library of libraries -- and no
+                                                        // further. It used to open Data Resources directly; then the
+                                                        // Institute was put in front of it and the old call was left
+                                                        // underneath, so the button raised TWO overlays. The Institute
+                                                        // has the higher z-index of the two, which made it look like a
+                                                        // single window whose Close button did not work: closing it just
+                                                        // uncovered the Data Resources shelf that had been behind it the
+                                                        // whole time. Data Resources is a card inside the Institute, so
+                                                        // nothing is out of reach for having dropped the second call.
+                                                        //
+                                                        // __bajaApplyAllTracks still goes up first: it means "whatever
+                                                        // you pick from here applies to the whole board", which is what
+                                                        // this button has always meant, and whichever library the user
+                                                        // ends up in consumes and clears it (baja/lib/for-each-track.js).
                                                         graph.showSideMenu(null);
                                                         const n = (graph.track || []).length;
                                                         try { window.__bajaApplyAllTracks = true; } catch (e) { }
@@ -2298,7 +2299,8 @@ function (path, config) {
                                                             window.__workStatus = 'Data · will load onto all ' + n + ' track' + (n === 1 ? '' : 's') + ' on the canvas…';
                                                             if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                                                         } catch (e) { }
-                                                        exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, (graph.track || []).slice());
+                                                        try { exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setMessage(' Library failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                                                     })
                                                 },
                                                 {
