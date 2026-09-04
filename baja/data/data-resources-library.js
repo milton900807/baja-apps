@@ -187,29 +187,6 @@ function (graph, genegraph_panel_layout, tracks) {
         // question again in a popup menu.
         const myDataBooks = () => [
             {
-                title: 'RNASeq coverage (bigWig)', badge: 'bigWig',
-                blurb: 'A bigWig you uploaded, added as a coverage layer. Click a track, then pick '
-                    + 'the file.',
-                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'rnaseq')
-            },
-            {
-                title: 'Variants (VCF)', badge: 'VCF',
-                blurb: 'A phased VCF you uploaded, added to the track as SNPs and indels. Click a '
-                    + 'track, then pick the file.',
-                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'vcf')
-            },
-            {
-                title: 'Intervals (BED)', badge: 'BED',
-                blurb: 'A BED file you uploaded, added as an interval layer. Click a track, then '
-                    + 'pick the file.',
-                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'bed')
-            },
-            {
-                title: 'Edit the layers on a track', badge: 'Layers',
-                blurb: 'Rename, recolour or remove the layers already on a track. Nothing is loaded.',
-                open: () => exec('baja/data/my-data.js', graph, genegraph_panel_layout, 'layers')
-            },
-            {
                 title: 'Browse all my files', badge: 'File browser',
                 blurb: 'Your whole space in the file browser — everything, not only the three types '
                     + 'above. Opening a file there loads it into the app.',
