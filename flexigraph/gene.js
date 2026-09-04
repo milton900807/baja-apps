@@ -11119,18 +11119,19 @@ pattern, GGGG | Required`
                                 // cpd/*.js and open-screen.js, which is why the shared script
                                 // still returns the toolbar for them.)
                                 //
-                                // So render its buttons as an on-canvas side menu instead --
-                                // the same conversion annotation-tools2.js does, for exactly
-                                // this reason, reusing each button's own ionFunction.
+                                // So its buttons are shown in a floating modal instead, in the
+                                // same shape as the editor's "Play a script" panel
+                                // (baja/lib/action-modal.js), reusing each button's own
+                                // ionFunction. Being an overlay on document.body it is also
+                                // immune to the other failure here -- a menu closing behind it
+                                // restoring a panel over the top.
                                 try {
                                     Promise.resolve(exec('baja/manchester/menu/compound-editor-panel-all.js', this, L))
                                         .then((panel) => {
                                             const btns = (panel && panel.data && panel.data.buttons) || [];
                                             const items = btns.filter((b) => b && b.label).map((b) => ({
                                                 label: b.label,
-                                                move: () => { },
                                                 click: () => {
-                                                    try { this.showSideMenu(null); } catch (e) { }
                                                     try {
                                                         const fn = getIonFunction(b.ionFunction);
                                                         if (typeof fn === 'function') fn();
@@ -11138,8 +11139,14 @@ pattern, GGGG | Required`
                                                 }
                                             }));
                                             if (!items.length) { this.setMessage(' No compound tools available. '); return; }
-                                            items.push({ label: 'Close', move: () => { }, click: () => { try { this.showSideMenu(null); } catch (e) { } } });
-                                            try { this.showSideMenu(items, null, 'Compound tools ▸'); } catch (e) { }
+                                            try {
+                                                exec('baja/lib/action-modal.js', {
+                                                    id: 'baja-compound-tools',
+                                                    title: '⚗ Compound tools',
+                                                    hint: 'Applies across the compounds on the canvas.',
+                                                    items: items
+                                                });
+                                            } catch (e) { }
                                         })
                                         .catch(() => { });
                                 } catch (e) { }
