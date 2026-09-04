@@ -59,9 +59,6 @@ function (graph, genegraph_panel_layout, preAction) {
     let loadData = async (__selectedTrack, element) => {
       let TrackLayer = await exec("baja/bio/track-layer.js");
 
-
-      debugger;
-
       let em = new EngineMonitor((msg) => {
         log(msg);
       });
