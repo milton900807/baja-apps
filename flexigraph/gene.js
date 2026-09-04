@@ -11108,15 +11108,38 @@ pattern, GGGG | Required`
                                 closeHandoff();
                                 try { window.current = refsOf()[0]; } catch (e) { }
                                 // compound-editor-panel-all.js BUILDS and RETURNS a toolbar; it
-                                // does not mount itself. The result used to be discarded here, so
-                                // clicking this did nothing at all -- mount it, the same way every
-                                // other caller of a panel-returning script does.
+                                // does not mount itself, and the result used to be discarded
+                                // here, so this did nothing at all.
+                                //
+                                // Mounting it into 'buttonMenuPanel' does not work either, in
+                                // THIS editor: manchester/editor.js builds a buttonMenuPanel
+                                // layout object but never places it in the main_layout it
+                                // actually shows, so that slot is not rendered and
+                                // setComponent on it is a silent no-op. (It IS a real slot in
+                                // cpd/*.js and open-screen.js, which is why the shared script
+                                // still returns the toolbar for them.)
+                                //
+                                // So render its buttons as an on-canvas side menu instead --
+                                // the same conversion annotation-tools2.js does, for exactly
+                                // this reason, reusing each button's own ionFunction.
                                 try {
                                     Promise.resolve(exec('baja/manchester/menu/compound-editor-panel-all.js', this, L))
                                         .then((panel) => {
-                                            if (!panel) return;
-                                            try { CurrentLayout.clearComponent('buttonMenuPanel|labelPanel'); } catch (e) { }
-                                            try { CurrentLayout.setComponent('buttonMenuPanel', panel); } catch (e) { }
+                                            const btns = (panel && panel.data && panel.data.buttons) || [];
+                                            const items = btns.filter((b) => b && b.label).map((b) => ({
+                                                label: b.label,
+                                                move: () => { },
+                                                click: () => {
+                                                    try { this.showSideMenu(null); } catch (e) { }
+                                                    try {
+                                                        const fn = getIonFunction(b.ionFunction);
+                                                        if (typeof fn === 'function') fn();
+                                                    } catch (e) { }
+                                                }
+                                            }));
+                                            if (!items.length) { this.setMessage(' No compound tools available. '); return; }
+                                            items.push({ label: 'Close', move: () => { }, click: () => { try { this.showSideMenu(null); } catch (e) { } } });
+                                            try { this.showSideMenu(items, null, 'Compound tools ▸'); } catch (e) { }
                                         })
                                         .catch(() => { });
                                 } catch (e) { }
