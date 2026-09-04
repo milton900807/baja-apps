@@ -26,8 +26,26 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 let xi = (track && track.xi != null) ? track.xi : 0;
                 if (range && mode !== 'psi' && Number.isFinite(+range.start) && Number.isFinite(+range.end) && +range.end > +range.start) {
                     try {
-                        const sub = track.getSequenceRange ? track.getSequenceRange(range.start, range.end) : null;
-                        if (sub && sub.length) { seq = sub; xi = Math.floor(+range.start); }
+                        // Cut the selection WITH flanking context. SpliceNet scores a position
+                        // from 2,000 nt around it, so a bare cut-out arrives zero-padded on
+                        // both sides: every site within 1,000 nt of either edge is scored
+                        // against padding instead of sequence, and a selection shorter than
+                        // that is nothing but edge. It comes back with no site over the 0.10
+                        // threshold and the run reports no junctions -- the model working
+                        // exactly as told on a question it was not given enough to answer.
+                        //
+                        // A junction also needs both of its ends inside what was sent, so a
+                        // selection over an exon had no downstream acceptor to pair with.
+                        //
+                        // The pad is sequence the track already has, so this costs one wider
+                        // cut and nothing else. xi moves to the padded start, which is what
+                        // keeps the returned coordinates absolute.
+                        const PAD = 1000;                       // context // 2
+                        const lo = Math.min(track.xi, track.xf), hi = Math.max(track.xi, track.xf);
+                        const cutStart = Math.max(lo, Math.floor(+range.start) - PAD);
+                        const cutEnd = Math.min(hi, Math.ceil(+range.end) + PAD);
+                        const sub = track.getSequenceRange ? track.getSequenceRange(cutStart, cutEnd) : null;
+                        if (sub && sub.length) { seq = sub; xi = cutStart; }
                     } catch (e) { }
                 }
                 if (!seq || !seq.length) {
@@ -73,9 +91,23 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 let junc = [];
                 try { junc = JSON.parse((data && data.junctions) || '[]'); } catch (e) { junc = []; }
                 if (!junc.length) {
+                    // Say WHAT the model saw, not just that the answer was empty. An empty
+                    // sashimi plot has two very different causes -- a sequence with no splice
+                    // sites in it, and a run that never got far enough to look -- and "no
+                    // junctions predicted" reads like a failure in both cases. The site counts
+                    // and the best score separate them: sites found but no pairing is a real
+                    // biological answer, nothing found at all is worth a second look.
+                    let __d = [], __a = [];
+                    try { __d = JSON.parse((data && data.donor) || '[]'); } catch (e) { }
+                    try { __a = JSON.parse((data && data.acceptor) || '[]'); } catch (e) { }
+                    const __best = (arr) => arr.reduce((m, p) => Math.max(m, +p[1] || 0), 0);
+                    const __top = Math.max(__best(__d), __best(__a));
                     graph.setMessage(mode === 'psi'
                         ? ' No cassette-exon events detected in that sequence. '
-                        : ' No splice junctions predicted for that sequence. ');
+                        : (' No splice junctions predicted over ' + (data && data.n ? data.n : seq.length)
+                            + ' nt — ' + __d.length + ' donor and ' + __a.length + ' acceptor positions '
+                            + 'scored above 0.02, best ' + __top.toFixed(2) + '. A junction needs a donor '
+                            + 'and an acceptor, both at least 0.10, inside the same sequence. '));
                     restoreHover(); return false;
                 }
 
