@@ -3,14 +3,15 @@ function (graph, genegraph_panel_layout) {
     // The Library — a library OF the libraries.
     //   exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout)
     //
-    // There are eight of them now, scattered across the File, Layers and track menus, and no
-    // single place said what any of them was. This is that place: one card each, and clicking
-    // one opens it.
+    // They are scattered across the File, Layers and track menus, and no single place said what
+    // any of them was. This is that place: one card each, and clicking one opens it.
     //
-    // Split into READING and WORKING, because that is the distinction a user actually needs
-    // before clicking. Two of these describe things and change nothing; the rest load data onto
-    // tracks or run models against them. A flat list of eight would hide exactly the difference
-    // that decides whether it is safe to open one mid-analysis.
+    // Grouped by what opening one DOES to you, because that is the distinction a user needs
+    // before clicking, not after. READING ROOMS describe things and change nothing. DATA ROOMS
+    // are curated collections you browse, where opening an entry brings its subject onto the
+    // board. WORKING LIBRARIES load data onto tracks or run models against them. A flat list
+    // would hide exactly the difference that decides whether it is safe to open one
+    // mid-analysis.
 
     return (async () => {
         const restoreHover = () => {
@@ -46,36 +47,31 @@ function (graph, genegraph_panel_layout) {
                 ]
             },
             {
-                group: 'Working libraries', note: 'These load data onto tracks or run a model against them.',
+                group: 'Data rooms', note: 'Curated collections — browse one, and opening an entry brings its subject onto the board.',
                 items: [
                     {
                         name: 'The Clinical Compounds Library',
                         blurb: 'Clinical RNA-targeting compounds with their trial records. Opening one loads '
                             + 'its target, maps the compound onto it and zooms to the site.',
                         path: 'manchester/clinical-library.js'
-                    },
+                    }
+                ]
+            },
+            {
+                group: 'Working libraries', note: 'These load data onto tracks or run a model against them.',
+                items: [
                     {
                         name: 'Data Resources Library',
-                        blurb: 'The catalogue of loadable data: RNASeq coverage, your own files and public '
-                            + 'resources. Datasets land on every track on the board.',
+                        blurb: 'The catalogue of loadable data: RNASeq coverage, variants, conservation, '
+                            + 'microRNA sites, patents, your own files and public resources. Datasets land '
+                            + 'on every track on the board.',
                         path: 'baja/data/data-resources-library.js'
-                    },
-                    {
-                        name: 'RNASeq Library',
-                        blurb: 'The RNASeq datasets on their own, described by species and tissue, laid over '
-                            + 'every track as a coverage layer.',
-                        path: 'baja/data/rnaseq-library.js'
                     },
                     {
                         name: 'ML Models Library',
                         blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR and djPrimer, each '
                             + 'writing its prediction onto a track as a layer.',
                         path: 'baja/ml/models-library.js'
-                    },
-                    {
-                        name: 'Data Library',
-                        blurb: 'The layer sources as a bookshelf, with documentation links for each dataset.',
-                        path: 'baja/data/data-library.js'
                     }
                 ]
             }
