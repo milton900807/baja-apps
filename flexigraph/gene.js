@@ -8077,11 +8077,18 @@ pattern, GGGG | Required`
                     for (const t of (this.track || [])) {
                         if (!t) continue;
                         if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
-                        // The track itself says where its button is (and whether it has one) --
-                        // the same call the drawing makes, so the hit box is always the disc
-                        // that was actually drawn. A track class without this method does not
-                        // draw the button (only baja/bio/track-flexi.js does), so it gets no
-                        // invisible target either.
+                        // First choice is the geometry the DRAW recorded on the track
+                        // (__selClearBtn), because that is by definition the disc the user can
+                        // see -- no recomputation, so the two cannot drift apart, and a track
+                        // whose draw decided against a button leaves it null and gets no
+                        // invisible target. The recomputation below is only for a renderer that
+                        // has the method but has not painted yet this frame.
+                        if (t.__selClearBtn) {
+                            const b = t.__selClearBtn;
+                            const bx = sx - b.x, by = sy - b.y;
+                            if ((bx * bx + by * by) <= (b.r + 3) * (b.r + 3)) return t;
+                            continue;
+                        }
                         if (typeof t.selectionClearButton !== 'function') continue;
 
                         // Same two mappings __hitSelectionArrow collects, for the same reason:

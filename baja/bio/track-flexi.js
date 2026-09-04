@@ -5005,11 +5005,31 @@ return new Promise(async (resolve, reject) => {
                 // line, halfway between them. Dropping a selection had no visible control at
                 // all before this; you had to know some other route to it.
                 //
-                // Position comes from selectionClearButton() so the drawing and gene.js's
-                // __hitSelectionClear() cannot disagree about where it is: between the heads
-                // when there is room, just below the line when there is not.
-                const __btn = this.selectionClearButton(screenStartX, screenEndX, yPosition);
-                if (__btn) {
+                // Geometry is computed HERE, inline, rather than through a method on the
+                // track. This block runs mid-draw, after the two heads and before everything
+                // below them, so anything that throws in it takes the rest of the pass with
+                // it -- and a track handed back through Object.assign / JSON has no guarantee
+                // of carrying every method the class declares. The result is recorded on the
+                // instance as __selClearBtn so gene.js's __hitSelectionClear() can hit-test
+                // the disc that was actually painted instead of recomputing it.
+                let __btn = null;
+                try {
+                    const __R = 8;
+                    const __HEAD = 15;                 // arrowheadLength, the inward reach of a head
+                    const __gap = Math.abs(screenEndX - screenStartX);
+                    if (isFinite(screenStartX) && isFinite(screenEndX) && isFinite(yPosition) && __gap >= (2 * __R)) {
+                        // Between the heads when there is room for it, just below the line when
+                        // there is not, so a short selection still gets a button.
+                        const __fits = __gap >= (2 * __HEAD) + (2 * __R) + 2;
+                        __btn = {
+                            x: (screenStartX + screenEndX) / 2,
+                            y: __fits ? yPosition : (yPosition + __R + 7),
+                            r: __R
+                        };
+                    }
+                } catch (e) { console.error('deselect button geometry:', e); }
+                this.__selClearBtn = __btn;
+                if (__btn) try {
                     const R = __btn.r;
                     const __mid = __btn.x;
                     const __by = __btn.y;
@@ -5040,7 +5060,7 @@ return new Promise(async (resolve, reject) => {
                     ctx.strokeStyle = '#9c4409';
                     ctx.stroke();
                     ctx.restore();
-                }
+                } catch (e) { console.error('deselect button draw:', e); }
                 ctx.restore();
 
                 drawString(
