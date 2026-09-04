@@ -189,6 +189,15 @@ return new Promise(async (resolve, reject) => {
         sequence;
         markstart;
         markend;
+        // Geometry of the deselect (X) button drawn between the two selection arrow heads.
+        // Declared here rather than inline at the draw because gene.js's
+        // __hitSelectionClear() reads the SAME two numbers off the track to build its hit
+        // box -- if the drawing and the hit test each carried their own copy they would
+        // drift, and the button would either miss clicks or catch them where nothing is
+        // drawn. MIN_GAP is the head-to-head distance below which the button is not drawn
+        // (and so must not be clickable) because it would sit on top of the heads.
+        SELECTION_CLEAR_RADIUS = 8;
+        SELECTION_CLEAR_MIN_GAP = 46;
         highlightstart;
         highlightend;
         grid;
@@ -4965,6 +4974,46 @@ return new Promise(async (resolve, reject) => {
                 };
                 __drawGrabHead(screenStartX, 1);    // start head opens to the right
                 __drawGrabHead(screenEndX, -1);     // end head opens to the left
+
+                // Deselect button — the same tropical orange as the two heads, on the same
+                // line, halfway between them. Dropping a selection had no visible control at
+                // all before this; you had to know some other route to it.
+                //
+                // Only drawn when the heads are far enough apart to leave room: on a narrow
+                // selection the disc would sit on top of them and the thing meant to clear the
+                // selection would be covering the handles that resize it. __hitSelectionClear()
+                // in gene.js applies the SAME gap rule, so there is never an invisible hit box.
+                const __mid = (screenStartX + screenEndX) / 2;
+                if (Math.abs(screenEndX - screenStartX) > this.SELECTION_CLEAR_MIN_GAP) {
+                    const R = this.SELECTION_CLEAR_RADIUS;
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(120,52,0,0.50)';
+                    ctx.shadowBlur = 9;
+                    ctx.shadowOffsetY = 3;
+                    const gg = ctx.createLinearGradient(0, yPosition - R, 0, yPosition + R);
+                    gg.addColorStop(0, '#ffc07a');     // same lit top as the heads
+                    gg.addColorStop(0.45, '#ff8c2f');  // same body
+                    gg.addColorStop(1, '#dd5f14');     // same shaded underside
+                    ctx.beginPath();
+                    ctx.arc(__mid, yPosition, R, 0, Math.PI * 2);
+                    ctx.closePath();
+                    ctx.fillStyle = gg;
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                    ctx.lineWidth = 1.25;
+                    ctx.strokeStyle = '#9c4409';       // same dark edge as the heads
+                    ctx.stroke();
+                    // The X itself, in that same dark edge tone so it reads against the orange.
+                    const k = R * 0.42;
+                    ctx.beginPath();
+                    ctx.moveTo(__mid - k, yPosition - k); ctx.lineTo(__mid + k, yPosition + k);
+                    ctx.moveTo(__mid + k, yPosition - k); ctx.lineTo(__mid - k, yPosition + k);
+                    ctx.lineWidth = 2;
+                    ctx.lineCap = 'round';
+                    ctx.strokeStyle = '#9c4409';
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 ctx.restore();
 
                 drawString(

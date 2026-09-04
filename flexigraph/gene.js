@@ -5049,6 +5049,25 @@ function (progress, options) {
                         if (this.select_) {
                             this.startX = xwc;
                         }
+                        // Deselect button: the X between the two arrow heads drops THIS track's
+                        // selection. Tested before the head drag and before the selection menu,
+                        // because it sits inside the selection and would otherwise be swallowed
+                        // by the "click inside a selection opens its menu" branch below.
+                        try {
+                            const __clr = this.__hitSelectionClear(this.graph.X(xwc), this.graph.Y(ywc));
+                            if (__clr) {
+                                this.__downMenuHandled = true;
+                                __clr.markstart = null;
+                                __clr.markend = null;
+                                __clr.showResizeBar = false;
+                                // The drag that made the range leaves state behind; without this
+                                // the coming mouse-up can re-apply the range just cleared -- the
+                                // same reason clearSequenceSelections() resets these.
+                                try { this.select_ = false; this.startX = null; this.endX = null; this.__dragMark = null; } catch (e) { }
+                                try { if (this.wake) this.wake(); } catch (e) { }
+                                return;
+                            }
+                        } catch (e) { }
                         // Arrow-head drag: a press on a selection arrow head starts resizing THAT edge
                         // of the selection window (updated in mouseMove, cleared in mouseUp). Consume
                         // the press so it doesn't also start a new lasso/selection.
@@ -8042,6 +8061,64 @@ pattern, GGGG | Required`
                         }
                     }
                     return best;
+                } catch (e) { }
+                return null;
+            }
+            // Hit-test a SCREEN point against the deselect (X) button drawn halfway between a
+            // selection's two arrow heads (see track-flexi.js, the __drawGrabHead block).
+            // Returns the track whose button was hit, else null.
+            //
+            // The radius and the minimum head-to-head gap are read OFF THE TRACK, the same two
+            // fields the drawing uses, so the hit box is the circle that was actually drawn --
+            // and when the selection is too narrow for the button to be drawn at all, this
+            // matches nothing rather than leaving an invisible target sitting on the heads.
+            __hitSelectionClear(sx, sy) {
+                try {
+                    for (const t of (this.track || [])) {
+                        if (!t) continue;
+                        if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
+                        // No fallback defaults on purpose: a track class that does not declare
+                        // these does not DRAW the button (only baja/bio/track-flexi.js does),
+                        // so defaulting would put an invisible clickable disc in the middle of
+                        // its selection.
+                        const R = t.SELECTION_CLEAR_RADIUS;
+                        const MINGAP = t.SELECTION_CLEAR_MIN_GAP;
+                        if (R == null || MINGAP == null) continue;
+
+                        // Same two mappings __hitSelectionArrow collects, for the same reason:
+                        // the two track renderers put the selection line in different places.
+                        const cands = [];
+                        try {
+                            if (t.grid && typeof t.grid.Y === 'function') {
+                                cands.push({
+                                    y: this.graph.Y(t.grid.Y(-20)),
+                                    xs: this.graph.X(t.grid.X(Math.floor(t.markstart))),
+                                    xe: this.graph.X(t.grid.X(t.markend))
+                                });
+                            }
+                        } catch (e) { }
+                        try {
+                            if (t.tgraph && typeof t.tgraph.Y === 'function') {
+                                const yMin = t.tgraph.getymin(), yMax = t.tgraph.getymax();
+                                const toWorld = (m) => (m != null && m < t.xi) ? (t.xi + m) : m;
+                                cands.push({
+                                    y: this.graph.Y(t.tgraph.Y(yMin + (yMax - yMin) * 0.25)),
+                                    xs: this.graph.X(Math.round(t.tgraph.X(toWorld(t.markstart)))),
+                                    xe: this.graph.X(Math.round(t.tgraph.X(toWorld(t.markend))))
+                                });
+                            }
+                        } catch (e) { }
+
+                        for (const c of cands) {
+                            if (!isFinite(c.y) || !isFinite(c.xs) || !isFinite(c.xe)) continue;
+                            if (Math.abs(c.xe - c.xs) <= MINGAP) continue;   // not drawn -> not clickable
+                            const mx = (c.xs + c.xe) / 2;
+                            const dx = sx - mx, dy = sy - c.y;
+                            // A couple of pixels of slack around the disc, so it is reachable
+                            // without being pixel-perfect.
+                            if ((dx * dx + dy * dy) <= (R + 3) * (R + 3)) return t;
+                        }
+                    }
                 } catch (e) { }
                 return null;
             }
