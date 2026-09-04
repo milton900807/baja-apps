@@ -86,19 +86,23 @@ function (graph, genegraph_panel_layout) {
             const old = document.getElementById(ID);
             if (old && old.parentNode) old.parentNode.removeChild(old);
 
+            // Maximized, exactly like the libraries it opens. This was a 940px card floating on
+            // a dimmed backdrop while every shelf it launches (baja/lib/shelf.js) is full-bleed
+            // inset:0 -- so the one screen whose job is to introduce the libraries was the only
+            // one that did not look like them, and clicking into a library made the window jump.
             const overlay = document.createElement('div');
             overlay.id = ID;
-            overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483350;background:rgba(6,14,26,0.74);'
-                + 'display:flex;align-items:stretch;justify-content:center;padding:22px;font-family:Arial,Helvetica,sans-serif;';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483350;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
 
-            const pane = document.createElement('div');
-            pane.style.cssText = 'width:100%;max-width:940px;height:100%;display:flex;flex-direction:column;'
-                + 'background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.14);border-radius:12px;'
-                + 'box-shadow:0 24px 60px rgba(0,0,0,0.5);overflow:hidden;';
+            // The overlay IS the pane now. Kept as a name so the rest of the function reads the
+            // same, and so the header/body still mount in one place.
+            const pane = overlay;
 
             const head = document.createElement('div');
-            head.style.cssText = 'flex:0 0 auto;display:flex;align-items:flex-end;gap:16px;padding:18px 24px 15px;'
-                + 'border-bottom:1px solid rgba(255,255,255,0.12);';
+            head.style.cssText = 'flex:0 0 auto;display:flex;align-items:flex-end;gap:16px;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
+                + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
             const total = SHELVES.reduce((n, s) => n + s.items.length, 0);
             head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">The Library</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
@@ -110,7 +114,7 @@ function (graph, genegraph_panel_layout) {
             head.appendChild(x);
 
             const scroll = document.createElement('div');
-            scroll.style.cssText = 'flex:1 1 auto;overflow:auto;padding:16px 24px 26px;';
+            scroll.style.cssText = 'flex:1 1 auto;overflow:auto;padding:18px 22px 28px;';
 
             let onKey = null;
             const close = () => {
@@ -138,14 +142,22 @@ function (graph, genegraph_panel_layout) {
                 scroll.appendChild(h);
 
                 const n = document.createElement('div');
-                n.style.cssText = 'font:12.5px Arial;color:#9fb3c8;margin-bottom:10px;';
+                n.style.cssText = 'font:12.5px Arial;color:#9fb3c8;margin-bottom:12px;';
                 n.textContent = shelf.note;
                 scroll.appendChild(n);
+
+                // A grid, not a stack: at full width a stacked card runs the whole monitor for
+                // two lines of text. Same shape the shelves use, so a library and the list of
+                // libraries lay their cards out the same way.
+                const grid = document.createElement('div');
+                grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));'
+                    + 'gap:16px;align-content:start;margin-bottom:22px;';
+                scroll.appendChild(grid);
 
                 for (const it of shelf.items) {
                     const card = document.createElement('div');
                     card.style.cssText = 'cursor:pointer;border:1px solid rgba(255,255,255,0.12);border-radius:10px;'
-                        + 'background:rgba(255,255,255,0.04);padding:14px 16px;margin-bottom:10px;';
+                        + 'background:rgba(255,255,255,0.04);padding:14px 16px;display:flex;flex-direction:column;';
                     card.innerHTML = '<div style="display:flex;align-items:center;gap:10px;">'
                         + '<div style="font:700 15.5px Arial;flex:1 1 auto;">' + esc(it.name) + '</div>'
                         + '<div style="color:#7f9bb8;">▸</div></div>'
@@ -153,17 +165,18 @@ function (graph, genegraph_panel_layout) {
                     card.onmouseenter = () => { card.style.background = 'rgba(255,255,255,0.09)'; };
                     card.onmouseleave = () => { card.style.background = 'rgba(255,255,255,0.04)'; };
                     card.onclick = () => openShelf(it);
-                    scroll.appendChild(card);
+                    grid.appendChild(card);
                 }
             }
 
             onKey = (e) => { try { if (e.key === 'Escape') { close(); restoreHover(); } } catch (er) { } };
             x.onclick = () => { close(); restoreHover(); };
-            overlay.onclick = (ev) => { if (ev.target === overlay) { close(); restoreHover(); } };
+            // No click-the-backdrop dismiss any more: full-bleed, the "backdrop" is the empty
+            // space between cards, and closing the window on a miss-click there would be a
+            // trapdoor. Escape and Close are the ways out, as they are on the shelves.
             document.addEventListener('keydown', onKey, true);
 
             pane.appendChild(head); pane.appendChild(scroll);
-            overlay.appendChild(pane);
             document.body.appendChild(overlay);
         } catch (e) {
             try { graph.setMessage(' Could not open the library: ' + e + ' '); } catch (e2) { }
