@@ -9770,7 +9770,11 @@ pattern, GGGG | Required`
                     const all = [];
                     for (const t of tracks) for (const o of (t.oligos || [])) all.push(o);
                     if (!all.length) { this.setMessage(' No oligos to modify chemistry on. '); return; }
-                    close();
+                    // closeHandoff, NOT close: close() clears __selMenuChain, which tells the
+                    // shelf this level was dismissed rather than handed off -- it then tears
+                    // the chain down and takes the panel the handed-off script just opened
+                    // with it. Every other item here that opens another script uses this.
+                    closeHandoff();
                     try {
                         Promise.resolve(exec('baja/manchester/menu/annotation/modify-chemistry.js', this, this.genegraph_panel_layout, all)).catch(() => { });
                     } catch (e) { this.setMessage(' Could not open the chemistry tool: ' + e); }
@@ -10324,7 +10328,10 @@ pattern, GGGG | Required`
                         .filter((s) => (s.kind === 'oligo' || s.kind === 'amplicon') && s.ref && (!kind || s.kind === kind))
                         .map((s) => s.ref);
                     if (!refs.length) { this.setMessage(' No oligos selected to modify chemistry on. '); return; }
-                    close();
+                    // closeHandoff, NOT close -- see modifyChemistryAll above: close() clears
+                    // __selMenuChain and the shelf then tears down over the top of whatever
+                    // this opens.
+                    closeHandoff();
                     try {
                         Promise.resolve(exec('baja/manchester/menu/annotation/modify-chemistry.js',
                             this, this.genegraph_panel_layout, refs)).catch(() => { });
