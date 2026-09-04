@@ -2266,7 +2266,11 @@ function (path, config) {
 
 
                                                 {
-                                                    label: 'Layers', icon: 'layers',
+                                                    // 'local_library' rather than 'layers': the stack-of-sheets glyph
+                                                    // described what a dataset BECOMES on a track, which was right when
+                                                    // this button went straight to a loader. It opens a library now, and
+                                                    // the icon is the first thing read on a top bar of eight.
+                                                    label: 'Layers', icon: 'local_library',
                                                     tooltip: 'Data layers and models on a track', ionFunction: createIonFunction(() => {
 
                                                         if (!graph.track || graph.track.length === 0) {
