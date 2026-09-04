@@ -4544,7 +4544,19 @@ return new Promise(async (resolve, reject) => {
                 if (ctx)
                     ctx.font = this.detail_ffont7;
 
-                if (screencell > 1) {
+                // The ONE place oligos/amplicons get drawn. A second loop further down (the
+                // `screencell > 0.3` one, in the else-branch of the per-base detail block)
+                // used to draw the very same objects in the SAME frame:
+                //   screencell 1-5    both loops called draw()  -> the same graphic twice
+                //   screencell 0.3-1  this called drawIcon(), that called draw()
+                //                     -> two DIFFERENT graphics on one amplicon, which is the
+                //                        magenta/blue rendering sitting on the green/red/
+                //                        yellow one
+                // That loop is now gone and this covers every band by itself.
+                //
+                // draw() also runs down to 0.3 px/base rather than 1, so the real rendering
+                // survives further out instead of being swapped for the cheap icon partway.
+                if (screencell > 0.3) {
                     for (let o of visOligos) {
                         o.showOfftargets = this.showOfftargets;
 
@@ -4553,14 +4565,22 @@ return new Promise(async (resolve, reject) => {
                 } else {
                     for (let o of visOligos) {
 
+                        // Below ~0.3 px/base a 16-20mer gapmer is only a pixel or two wide, so
+                        // the two end ticks land on the same pixel with nothing between them
+                        // and read as a single stray vertical line. Draw the span too, so a
+                        // short compound reads as a (small) bar instead.
+                        const xa = graph.X(this.grid.X(o.xi));
+                        const xb = graph.X(this.grid.X(o.xf));
+                        const yy = graph.Y(this.grid.Y(o.y));
                         if (o.highlight__) {
-                            graph.drawVerticalLineScreen(graph.X(this.grid.X(o.xi)), graph.Y(this.grid.Y(o.y)), 2, o.highlight__, 1)
-                            graph.drawVerticalLineScreen(graph.X(this.grid.X(o.xf)), graph.Y(this.grid.Y(o.y)), 2, o.highlight__, 1)
+                            graph.drawVerticalLineScreen(xa, yy, 2, o.highlight__, 1)
+                            graph.drawVerticalLineScreen(xb, yy, 2, o.highlight__, 1)
+                            drawLine(ctx, xa, yy, Math.max(xb, xa + 1), yy, o.highlight__, 1, 'round')
                         }
                         if (o.drawIcon)
                             o.drawIcon(graph, this.grid)
                         else
-                            drawLine(ctx, graph.X(this.grid.X(o.xi)), graph.Y(this.grid.Y(o.y)), graph.X(this.grid.X(o.xf)), graph.Y(this.grid.Y(o.y)), 'gray', 1, 'round')
+                            drawLine(ctx, xa, yy, Math.max(xb, xa + 1), yy, 'gray', 1, 'round')
                     }
 
                 }
@@ -4785,14 +4805,11 @@ return new Promise(async (resolve, reject) => {
                     let y = 0;
                     if (ctx) ctx.font = this.detail_ffont7;
 
-                    if (screencell > 0.3) {
-                        for (let o of visOligos) {
-                            if (o) {
-                                o.showOfftargets = this.showOfftargets;
-                                await o.draw(graph, this.grid, y);
-                            }
-                        }
-                    }
+                    // The oligo/amplicon loop that used to sit here has been removed: the loop
+                    // near the top of draw() already renders every one of these objects, at
+                    // every zoom band, and running both drew each of them twice in the same
+                    // frame -- as two DIFFERENT graphics between 0.3 and 1 px/base, since the
+                    // two loops called different renderers there. See the comment on that loop.
                 }
 
             }
