@@ -437,7 +437,7 @@ function (__path) {
                             // Applies straight onto the currently-open graph's tracks and comes
                             // right back here -- no clear(), this isn't navigating anywhere.
                             await applyGzFileToCurrentGraph(element);
-                            try { CurrentLayout.reset('mainFilePanel1'); } catch (e) { }
+                            try { CurrentLayout.reset('mainPanel'); } catch (e) { }
                             return;
                         }
 

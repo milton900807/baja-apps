@@ -59,6 +59,9 @@ function (graph, genegraph_panel_layout, preAction) {
     let loadData = async (__selectedTrack, element) => {
       let TrackLayer = await exec("baja/bio/track-layer.js");
 
+
+      debugger;
+
       let em = new EngineMonitor((msg) => {
         log(msg);
       });
@@ -69,11 +72,11 @@ function (graph, genegraph_panel_layout, preAction) {
         end: __selectedTrack.xf,
       };
       // The track's own selectedRange() rather than the raw marks: it resolves
-        // world-coordinate marks and offset marks to the same absolute span.
-        {
-            const __sel = (__selectedTrack.selectedRange && __selectedTrack.selectedRange()) || null;
-            if (__sel) { range.start = __sel.start; range.end = __sel.end; }
-        }
+      // world-coordinate marks and offset marks to the same absolute span.
+      {
+        const __sel = (__selectedTrack.selectedRange && __selectedTrack.selectedRange()) || null;
+        if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+      }
 
       let fix = (ochr) => {
         const regex = /^chrx$/i;
@@ -131,11 +134,11 @@ function (graph, genegraph_panel_layout, preAction) {
         end: selectedTrack.xf,
       };
       // The track's own selectedRange() rather than the raw marks: it resolves
-        // world-coordinate marks and offset marks to the same absolute span.
-        {
-            const __sel = (selectedTrack.selectedRange && selectedTrack.selectedRange()) || null;
-            if (__sel) { range.start = __sel.start; range.end = __sel.end; }
-        }
+      // world-coordinate marks and offset marks to the same absolute span.
+      {
+        const __sel = (selectedTrack.selectedRange && selectedTrack.selectedRange()) || null;
+        if (__sel) { range.start = __sel.start; range.end = __sel.end; }
+      }
       let em = new EngineMonitor((msg) => {
         log(msg);
       });
@@ -271,10 +274,7 @@ function (graph, genegraph_panel_layout, preAction) {
                   },
                 };
                 let t_offset = 0.001;
-                CurrentLayout.clearComponent("mainPanel");
-                CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
-                CurrentLayout.clearComponent("buttonMenuPanel|labelPanel");
-                CurrentLayout.setComponent("buttonMenuPanel", w);
+                CurrentLayout.reset("mainPanel");
                 let em = new EngineMonitor((msg) => {
                   log(msg);
                 });
@@ -289,8 +289,8 @@ function (graph, genegraph_panel_layout, preAction) {
                   }
                 }
               }),
-              "ionfunction.openfile": createIonFunction(async (file, text) => {}),
-              "ionfunction.path": createIonFunction(async (path, nodes) => {}),
+              "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+              "ionfunction.path": createIonFunction(async (path, nodes) => { }),
             },
           };
 
@@ -320,8 +320,7 @@ function (graph, genegraph_panel_layout, preAction) {
                           {
                             label: "Cancel",
                             ionFunction: createIonFunction(async () => {
-                              CurrentLayout.clearComponent("mainPanel");
-                              CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
+                              CurrentLayout.reset("mainPanel");
                             }),
                           },
                         ],
@@ -339,8 +338,7 @@ function (graph, genegraph_panel_layout, preAction) {
             },
           };
 
-          CurrentLayout.clearComponent("mainPanel");
-          CurrentLayout.setComponent("mainPanel", bwpanel);
+          CurrentLayout.reset("mainPanel");
         }
       },
       move: () => {
@@ -392,10 +390,7 @@ function (graph, genegraph_panel_layout, preAction) {
                   },
                 };
                 let t_offset = 0.001;
-                CurrentLayout.clearComponent("mainPanel");
-                CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
-                CurrentLayout.clearComponent("buttonMenuPanel|labelPanel");
-                CurrentLayout.setComponent("buttonMenuPanel", w);
+                CurrentLayout.reset("mainPanel");
                 let em = new EngineMonitor((msg) => {
                   log(msg);
                 });
@@ -555,8 +550,8 @@ function (graph, genegraph_panel_layout, preAction) {
                   }
                 }
               }),
-              "ionfunction.openfile": createIonFunction(async (file, text) => {}),
-              "ionfunction.path": createIonFunction(async (path, nodes) => {}),
+              "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+              "ionfunction.path": createIonFunction(async (path, nodes) => { }),
             },
           };
 
@@ -586,8 +581,7 @@ function (graph, genegraph_panel_layout, preAction) {
                           {
                             label: "Cancel",
                             ionFunction: createIonFunction(async () => {
-                              CurrentLayout.clearComponent("mainPanel");
-                              CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
+                              CurrentLayout.reset("mainPanel");
                             }),
                           },
                         ],
@@ -605,8 +599,7 @@ function (graph, genegraph_panel_layout, preAction) {
             },
           };
 
-          CurrentLayout.clearComponent("mainPanel");
-          CurrentLayout.setComponent("mainPanel", bwpanel);
+          CurrentLayout.reset("mainPanel");
         }
       },
       move: () => {
@@ -680,10 +673,7 @@ function (graph, genegraph_panel_layout, preAction) {
                   },
                 };
                 let t_offset = 0.001;
-                CurrentLayout.clearComponent("mainPanel");
-                CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
-                CurrentLayout.clearComponent("buttonMenuPanel|labelPanel");
-                CurrentLayout.setComponent("buttonMenuPanel", w);
+                CurrentLayout.reset("mainPanel");
                 let em = new EngineMonitor((msg) => {
                   log(msg);
                 });
@@ -751,7 +741,7 @@ function (graph, genegraph_panel_layout, preAction) {
                     );
                     let color = getBedIntervalColor(bed);
                     layer.setIntervalColor(x1, x2, y, label, color);
-                  } 
+                  }
                   selectedTrack.addLayer(layer);
                   // Toast, so the user sees that the data landed.
                   graph.setResultMessage(" Loaded BED layer: " + rs_base + " with " + count + " items. ");
@@ -766,8 +756,8 @@ function (graph, genegraph_panel_layout, preAction) {
                 try { graph.setMouseMode('navigate'); } catch (e) { }
                 try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
               }),
-              "ionfunction.openfile": createIonFunction(async (file, text) => {}),
-              "ionfunction.path": createIonFunction(async (path, nodes) => {}),
+              "ionfunction.openfile": createIonFunction(async (file, text) => { }),
+              "ionfunction.path": createIonFunction(async (path, nodes) => { }),
             },
           };
 
@@ -797,8 +787,7 @@ function (graph, genegraph_panel_layout, preAction) {
                           {
                             label: "Cancel",
                             ionFunction: createIonFunction(async () => {
-                              CurrentLayout.clearComponent("mainPanel");
-                              CurrentLayout.setComponent("mainPanel", genegraph_panel_layout);
+                              CurrentLayout.reset("mainPanel");
                             }),
                           },
                         ],
@@ -816,8 +805,7 @@ function (graph, genegraph_panel_layout, preAction) {
             },
           };
 
-          CurrentLayout.clearComponent("mainPanel");
-          CurrentLayout.setComponent("mainPanel", bwpanel);
+          CurrentLayout.reset("mainPanel");
         }
       },
       move: () => {
@@ -834,8 +822,7 @@ function (graph, genegraph_panel_layout, preAction) {
           selectedTrack,
           genegraph_panel_layout,
         );
-        CurrentLayout.clearComponent("mainPanel");
-        CurrentLayout.setComponent("mainPanel", track_layers_panel);
+        CurrentLayout.reset("mainPanel");
       },
       move: () => {
         log("");
