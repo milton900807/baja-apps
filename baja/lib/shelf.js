@@ -7,7 +7,9 @@ function (opts) {
     //       id: 'baja-data-library',          // DOM id, so re-opening replaces rather than stacks
     //       title: 'Data Library',
     //       subtitle: '10 data sources — click one to add it to your tracks',
-    //       books: [{ title, badge, blurb, ready, open }],
+    //       books: [{ title, badge, blurb, ready, open, section, note }],
+    //                                       // section: full-width heading when the name changes
+    //                                       // note: true  -> a line of prose, not a card
     //       graph,                            // optional, for setMessage on failure
     //       onClose                           // optional, e.g. re-arm the hover highlight
     //   });
@@ -128,7 +130,38 @@ function (opts) {
                 shelf.appendChild(empty);
                 return;
             }
+            // SECTIONS. A book carrying `section` opens a full-width heading when the name
+            // changes, so one shelf can hold two kinds of thing without reading as one list --
+            // the selection library's tools and the things currently selected, say. Books with
+            // no `section` render exactly as before, so every existing shelf is untouched.
+            //
+            // Headings come off the books that SURVIVED the search filter, so a section whose
+            // cards were all filtered out does not leave its title standing over nothing.
+            //
+            // A book with `note: true` is not a card at all: a full-width line of prose. It is
+            // how a section says something when it has nothing to show -- "nothing is selected
+            // yet" belongs under the Selected items heading, not in place of it.
+            let lastSection = null;
             for (const b of shown) {
+                const sec = b.section || null;
+                if (sec !== lastSection) {
+                    lastSection = sec;
+                    if (sec) {
+                        const sh = document.createElement('div');
+                        sh.style.cssText = 'grid-column:1/-1;margin:6px 0 -2px;font:700 11px Arial;'
+                            + 'letter-spacing:1.6px;text-transform:uppercase;color:#7f9bb8;';
+                        sh.textContent = sec;
+                        shelf.appendChild(sh);
+                    }
+                }
+                if (b.note) {
+                    const nt = document.createElement('div');
+                    nt.style.cssText = 'grid-column:1/-1;color:#9fb3c8;font:13px/1.6 Arial;'
+                        + 'padding:2px 2px 6px;';
+                    nt.textContent = ('' + (b.blurb || b.title || '')).trim();
+                    shelf.appendChild(nt);
+                    continue;
+                }
                 const ready = (b.ready !== false);
                 const card = document.createElement('div');
                 card.style.cssText = 'background:#0b2545;border:1px solid rgba(255,255,255,0.12);border-radius:12px;'

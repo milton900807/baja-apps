@@ -7784,20 +7784,28 @@ pattern, GGGG | Required`
                         try { this.setError(' Could not start that selection: ' + e + ' '); } catch (e2) { }
                     }
                 };
+                // Every card here is tagged SELECTION TOOLS, and the entries the caller adds
+                // after them are tagged Selected items, so the shelf shows the two as separate
+                // sections instead of one run of cards where a tool and a selected compound
+                // looked like the same kind of thing.
+                const TOOLS = 'Selection tools';
                 return [
                     {
+                        section: TOOLS,
                         title: 'Rectangle', icon: '▭', badge: 'Drag a box', accent: 'sunset',
                         blurb: 'Drag a rectangle over the canvas. Everything inside it — compounds, '
                             + 'annotations, variants, whole tracks — is selected.',
                         open: arm(() => this._startLasso(true))
                     },
                     {
+                        section: TOOLS,
                         title: 'Lasso', icon: '✧', badge: 'Draw a loop', accent: 'sunset',
                         blurb: 'Draw a freehand loop instead of a box, for a selection a rectangle '
                             + 'would have to include things you do not want.',
                         open: arm(() => this._startLasso(false))
                     },
                     {
+                        section: TOOLS,
                         title: 'Sequence', icon: '⌇', badge: 'Pick bases', accent: 'sunset',
                         blurb: 'Select a range of BASES on a track. Everything that follows — the '
                             + 'designers, the models, the data layers — then works only inside it.',
@@ -7812,6 +7820,7 @@ pattern, GGGG | Required`
                     //
                     // Only shown when there IS something to clear: offering it over an empty
                     // library would be a button that does nothing.
+                    section: TOOLS,
                     title: 'Clear selection', icon: '○', badge: 'Start over', accent: 'sunset',
                     blurb: 'Deselect everything — the objects in this library AND any sequence '
                         + 'range marked on a track.',
@@ -7908,11 +7917,31 @@ pattern, GGGG | Required`
                     };
                 });
                 let tools = [];
-                if (this.__selTopLevel) {
+                const atTop = !!this.__selTopLevel;
+                if (atTop) {
                     this.__selTopLevel = false;
                     try { tools = this.__selectionToolBooks(this.__hasAnySelection()); } catch (e) { tools = []; }
                 }
-                const all = tools.concat(books);
+                // Two sections at the top level, and only there: deeper levels are one list of
+                // options about one thing, and a heading over them would be naming a section of
+                // one. The heading also has to appear when the section is EMPTY -- a library
+                // that simply omits Selected items reads as though the section does not exist,
+                // rather than as nothing being selected, which is the one thing the user most
+                // needs told at that moment.
+                let listed = books;
+                if (atTop) {
+                    const ITEMS = 'Selected items';
+                    listed = books.length
+                        ? books.map((b) => Object.assign({ section: ITEMS }, b))
+                        : [{
+                            section: ITEMS, note: true,
+                            title: 'Nothing selected',
+                            blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
+                                + 'box or a lasso over the canvas, or select a range of bases on a '
+                                + 'track — and what you catch will be listed here.'
+                        }];
+                }
+                const all = tools.concat(listed);
                 if (!all.length) {
                     try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
                     return;
@@ -7962,7 +7991,13 @@ pattern, GGGG | Required`
                             id: 'baja-selection-library',
                             title: 'Selection',
                             subtitle: 'Nothing is selected yet — pick a way to select something',
-                            books: this.__selectionToolBooks(this.__hasAnySelection()),
+                            books: this.__selectionToolBooks(this.__hasAnySelection()).concat([{
+                                section: 'Selected items', note: true,
+                                title: 'Nothing selected',
+                                blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
+                                    + 'box or a lasso over the canvas, or select a range of bases on a '
+                                    + 'track — and what you catch will be listed here.'
+                            }]),
                             graph: this,
                             onClose: (reason) => {
                                 if (reason === 'open') return;
