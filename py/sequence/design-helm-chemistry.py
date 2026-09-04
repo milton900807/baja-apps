@@ -24,6 +24,11 @@ except Exception:
 #              the HELM is empty or doesn't need to be trusted for the base order; the HELM
 #              itself always still wins when both are present and disagree, since HELM is
 #              the thing actually being edited.
+#   param(5) : JSON object of the oligo's other properties (optional) -- name, id, type,
+#              strand, length, target gene and so on. Context only: it lets a request like
+#              "make the antisense strand a gapmer" or "use siRNA chemistry" resolve against
+#              what this compound actually IS, without the model having to guess from the
+#              sequence alone.
 #
 # Env (forwarded by the server into the spawned python process):
 #   ANTHROPIC_API_KEY, ANTHROPIC_MODEL
@@ -33,6 +38,7 @@ helm_text = works.param(1)
 prompt_text = works.param(2)
 monomers_json = works.param(3)
 sequence_text = works.param(4)
+properties_json = works.param(5)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
@@ -71,7 +77,28 @@ def parse_json_blob(txt):
         return None
 
 
-def design(helm, prompt, mons, sequence=None):
+def summarize_properties(txt):
+    """A short 'key: value' block of an oligo's own properties, for context. Only simple
+    scalar values -- nested objects/arrays are the app's internal bookkeeping (render state,
+    off-target hit lists) and would bury the useful fields."""
+    try:
+        p = json.loads(txt) if txt else None
+    except Exception:
+        return ""
+    if not isinstance(p, dict):
+        return ""
+    lines = []
+    for k, v in p.items():
+        if v is None or isinstance(v, (dict, list)):
+            continue
+        s = str(v)
+        if not s or s in ("NaN", "undefined"):
+            continue
+        lines.append("%s: %s" % (k, s[:120]))
+    return "\n".join(lines[:25])
+
+
+def design(helm, prompt, mons, sequence=None, properties=None):
     """Modify the chemistry. Returns (parsed_dict, error_string)."""
     if not requests:
         return None, "python 'requests' library unavailable"
@@ -93,12 +120,14 @@ def design(helm, prompt, mons, sequence=None):
         "- Return a SINGLE valid HELM string of the form RNA1{...}$$$$ (or with connections "
         "for a duplex).\n"
         "- Use ONLY monomer symbols that appear in the provided library list.\n"
-        "- Preserve the base sequence unless the user explicitly asks to change it; change "
-        "only sugars, linkers and modifications as requested. If the HELM is empty but a base "
-        "sequence is given, build the HELM from that sequence.\n"
+        "- NEVER change the base sequence. The bases (the letters inside the parentheses, "
+        "e.g. the A in m(A)) must come out in exactly the same order, and the same count, as "
+        "they went in. Change ONLY the sugars, linkers and modifications around them. This "
+        "holds even if the user's request seems to ask for a different sequence -- in that "
+        "case keep the bases and say so in notes. If the HELM is empty but a base sequence is "
+        "given, build the HELM from that sequence, unchanged.\n"
         "- The base sequence, when given, is the source of truth for base order -- if it "
-        "disagrees with the HELM's own bases, follow the sequence unless the request is "
-        "specifically about changing bases.\n"
+        "disagrees with the HELM's own bases, follow the sequence.\n"
         "- HELM syntax: each nucleotide is sugar(base) plus an optional trailing linker, e.g. "
         "m(A)[sp] or d(T)p. Multi-character monomer symbols MUST be wrapped in square brackets "
         "(e.g. [moe], [fl2r], [sp]); single-character symbols (m, d, r, p, A, C, G, T, U) are "
@@ -107,9 +136,11 @@ def design(helm, prompt, mons, sequence=None):
         '{"helm": "<the new HELM string>", "notes": "<one short line describing what changed>"}'
     )
 
+    props = summarize_properties(properties)
     user = (
         "Current HELM:\n" + str(helm or "(empty)") +
-        (("\n\nBase sequence (5'->3'):\n" + str(sequence)) if sequence else "") +
+        (("\n\nBase sequence (5'->3'), which must not change:\n" + str(sequence)) if sequence else "") +
+        (("\n\nThis compound's properties:\n" + props) if props else "") +
         "\n\nAvailable monomer symbols:\n" + (symbols or "(none provided)") +
         "\n\nRequest:\n" + str(prompt)
     )
@@ -147,14 +178,33 @@ def design(helm, prompt, mons, sequence=None):
         return None, str(e)
 
 
+def helm_bases(helm):
+    """The bases of a HELM string, in order -- everything inside each (...) pair. Same
+    reading baja/chem/biopolymer.js's Biopolymer.getSequence() does on the client."""
+    return "".join(re.findall(r"\(([^)]*)\)", helm or "")).upper()
+
+
 mons = parse_monomers(monomers_json)
 works.progress(40)
-parsed, err = design(helm_text, prompt_text, mons, sequence_text)
+parsed, err = design(helm_text, prompt_text, mons, sequence_text, properties_json)
 works.progress(100)
 
 result_helm = (parsed or {}).get("helm") if parsed else None
 if not result_helm and not err:
     err = "no HELM returned by the model"
+
+# Sequence preservation is CHECKED, not just requested. The system prompt forbids changing
+# the bases, but a model that does it anyway would silently hand back a different compound
+# wearing the same name -- so the bases that came out are compared against the bases that
+# went in (the caller's sequence when given, else the original HELM's own), and a mismatch
+# is reported as an error with the new HELM withheld rather than applied.
+if result_helm and not err:
+    want = ("" + (sequence_text or "")).upper().replace("U", "T") or helm_bases(helm_text).replace("U", "T")
+    got = helm_bases(result_helm).replace("U", "T")
+    if want and got and want != got:
+        err = ("the model changed the base sequence (%s -> %s) -- chemistry not applied"
+               % (want[:40], got[:40]))
+        result_helm = ""
 
 works.resolve({
     "helm": result_helm or "",

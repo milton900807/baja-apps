@@ -63,6 +63,21 @@ function (graph, genegraph_panel_layout, onSelected) {
                                 "wid": 'mt-button', data: {
                                     buttons: [
                                         {
+                                            // The other way to choose chemistry: describe it in plain
+                                            // language and have it designed onto the compounds already
+                                            // selected, rather than picking a template from the list
+                                            // above for compounds not yet made. The picker stays as it
+                                            // was -- ~20 design flows call this script to set
+                                            // props.selected_chemistry before building anything, and
+                                            // they still get exactly that.
+                                            label: 'Describe chemistry…', ionFunction: createIonFunction(async () => {
+                                                CurrentLayout.clearComponent('mainPanel');
+                                                CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+                                                try { hideAllModal(); } catch (e) { }
+                                                await exec('baja/chem/ui/describe-chemistry-window.js', graph, genegraph_panel_layout);
+                                            })
+                                        },
+                                        {
                                             label: 'Close', ionFunction: createIonFunction(async () => {
                                                 CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
                                                 hideAllModal();
