@@ -191,7 +191,6 @@ return new Promise(async (resolve, reject) => {
         sequence;
         markstart;
         markend;
-        SELECTION_CLEAR_RADIUS = 8;
         highlightstart;
         highlightend;
         grid;
@@ -2082,7 +2081,14 @@ return new Promise(async (resolve, reject) => {
         // the button was missing on exactly the short selections (a 20mer at normal zoom)
         // where it is most wanted.
         selectionClearButton(xs, xe, y) {
-            const R = this.SELECTION_CLEAR_RADIUS;
+            // R is a LOCAL constant, deliberately not a class field. A track restored from a
+            // saved .baja file or an autosave is rebuilt from JSON, which brings back the
+            // properties the serializer lists (markstart, markend, ...) and nothing else --
+            // class-field defaults are not among them. Reading the radius off `this` meant an
+            // undefined R on exactly those tracks, and undefined silently poisons the
+            // arithmetic: ctx.arc(x, NaN, undefined, ...) draws nothing at all while the arrow
+            // heads either side of it carry on rendering normally.
+            const R = 8;
             if (!isFinite(xs) || !isFinite(xe) || !isFinite(y)) return null;
             const gap = Math.abs(xe - xs);
             // Under a disc's width there is nothing to point at; the heads are on top of each
