@@ -2402,17 +2402,12 @@ function (path, config) {
                                                     })
                                                 },
 
-                                                {
-                                                    // Opens the Institute for RNA Therapeutics Design: the map of the
-                                                    // design space in three centres. Everything in it is marked as in
-                                                    // preparation, so the button leads somewhere honest rather than
-                                                    // doing nothing at all, which is what it did before.
-                                                    label: 'Design', icon: 'science',
-                                                    tooltip: 'The Institute for RNA Therapeutics Design', ionFunction: createIonFunction(() => {
-                                                        try { exec('baja/lib/institute-rna-design.js', graph, genegraph_panel_layout); }
-                                                        catch (e) { try { graph.setMessage(' Design institute failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
-                                                    })
-                                                },
+                                                // The 'Design' button that opened baja/lib/institute-rna-design.js
+                                                // is gone from the top bar. That shelf is now the Library of
+                                                // Modalities inside baja/lib/library-of-libraries.js, which is
+                                                // itself the Institute for RNA Therapeutics Design -- a top-level
+                                                // button labelled Design that led to a roadmap rather than to a
+                                                // designer was reading as the way to design something.
                                                 // The selection library, built above so its badge can be
                                                 // updated. Before Navigate because it is about WHAT is
                                                 // selected rather than about moving the view.

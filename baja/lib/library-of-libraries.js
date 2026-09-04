@@ -1,7 +1,10 @@
 function (graph, genegraph_panel_layout) {
 
-    // The Library — a library OF the libraries.
+    // The Institute for RNA Therapeutics Design — a library OF the libraries.
     //   exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout)
+    //
+    // The name used to belong to baja/lib/institute-rna-design.js, which is one shelf among
+    // these and now carries the name of what it actually holds: the Library of Modalities.
     //
     // They are scattered across the File, Layers and track menus, and no single place said what
     // any of them was. This is that place: one card each, and clicking one opens it.
@@ -25,10 +28,49 @@ function (graph, genegraph_panel_layout) {
         };
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+        // Design Library. Unlike every other card here it cannot be reached by path alone:
+        // track-design-menu.js takes (graph, TRACK, layout), so a track has to be settled
+        // first. One track and there is nothing to ask; several and that is one more shelf;
+        // none and say so, because every designer in there works against a track.
+        //
+        // Returns false when it opens nothing, which is openShelf's signal to put the root
+        // back rather than leave the user on a hidden window behind a chip.
+        const designTargets = () => ((graph && graph.track) || []).filter(Boolean);
+        const openDesignFor = (t) => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout);
+        const openDesignLibrary = async () => {
+            const ts = designTargets();
+            if (!ts.length) {
+                const msg = ' Load a track first — the designers all work against one. ';
+                try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+                return false;
+            }
+            if (ts.length === 1) return openDesignFor(ts[0]);
+            return exec('baja/lib/shelf.js', {
+                id: 'baja-design-library-tracks',
+                title: 'Design Library',
+                subtitle: 'Pick the track to design against',
+                graph: graph,
+                books: ts.map((t, i) => ({
+                    title: t.name || ('track ' + (i + 1)),
+                    badge: (t.track_type || 'Track'),
+                    blurb: 'Open the designers for ' + (t.name || 'this track')
+                        + ' — therapeutics, primer probes, off-targets and the compounds already on it.',
+                    open: () => openDesignFor(t)
+                }))
+            });
+        };
+
         const SHELVES = [
             {
                 group: 'Working libraries', note: 'These load data onto tracks or run a model against them.',
                 items: [
+                    {
+                        name: 'Design Library',
+                        blurb: 'The designers themselves — siRNA, gapmer and steric-blocking ASOs, primer '
+                            + 'probes, off-target search, and the compounds already on a track. Everything '
+                            + 'else here brings data to look at; this is what makes something new from it.',
+                        open: openDesignLibrary
+                    },
                     {
                         name: 'Data Resources Library',
                         blurb: 'The catalogue of loadable data: RNASeq coverage, variants, conservation, '
@@ -72,6 +114,13 @@ function (graph, genegraph_panel_layout) {
                         path: 'baja/data/data-loading-library.js'
                     },
                     {
+                        name: 'Library of Modalities',
+                        blurb: 'The design space as a map rather than a tool: every modality with what it '
+                            + 'does, what it is for, and the clinical precedent for it — RNA as the target, '
+                            + 'RNA as the medicine, and the strategies that cut across both.',
+                        path: 'baja/lib/institute-rna-design.js'
+                    },
+                    {
                         name: 'Institute of Machine Learning Models',
                         blurb: 'Every model with its method, its measured evidence against a control, and '
                             + 'its known limits. Read this before trusting a prediction.',
@@ -104,7 +153,7 @@ function (graph, genegraph_panel_layout) {
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
                 + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
             const total = SHELVES.reduce((n, s) => n + s.items.length, 0);
-            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">The Library</div>'
+            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Institute for RNA Therapeutics Design</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
                 + total + ' libraries · pick one to open it</div></div>';
             const x = document.createElement('button');
@@ -163,14 +212,15 @@ function (graph, genegraph_panel_layout) {
                 try {
                     dropChip();
                     chip = document.createElement('div');
-                    chip.title = 'Back to The Library';
+                    chip.title = 'Back to the Institute';
                     chip.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483400;cursor:pointer;'
                         + 'display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;'
                         + 'background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.22);'
                         + 'box-shadow:0 10px 26px rgba(0,0,0,0.5);'
                         + 'font:700 12.5px Arial,Helvetica,sans-serif;';
-                    chip.innerHTML = '<span>\u2039 The Library</span>'
-                        + (name ? '<span style="font-weight:400;color:#9fb3c8;">' + esc(name) + '</span>' : '');
+                    // The library's own name is not repeated here: its header already says where
+                    // you are, and the two together made a pill wider than some of the windows.
+                    chip.innerHTML = '<span>\u2039 Institute for RNA Therapeutics Design</span>';
                     chip.onclick = backHome;
                     document.body.appendChild(chip);
 
@@ -178,13 +228,20 @@ function (graph, genegraph_panel_layout) {
                     // library does -- otherwise it sits over the canvas offering to reopen a
                     // window the user has already left.
                     sawChild = false;
+                    let ticks = 0;
                     watch = setInterval(() => {
                         try {
+                            ticks++;
                             if (libraryUp()) { sawChild = true; return; }
                             // Not before the child has actually appeared. exec() is async, so for
                             // a moment after the click nothing is up yet, and checking blind would
                             // remove the chip before the thing it belongs to existed.
-                            if (sawChild) dropChip();
+                            if (sawChild) { dropChip(); return; }
+                            // Nothing after five seconds means nothing is coming -- a script that
+                            // threw before it drew, or one that decided against opening. Put the
+                            // root back rather than leave a hidden window and a chip over the
+                            // canvas as the only trace of the click.
+                            if (ticks >= 10) backHome();
                         } catch (e) { }
                     }, 500);
                 } catch (e) { }
@@ -193,7 +250,7 @@ function (graph, genegraph_panel_layout) {
             const openShelf = (it) => {
                 // HIDDEN, not destroyed. Every one of these libraries used to be a dead end:
                 // its Close puts you on the canvas, so getting back to the shelf you were
-                // reading meant finding the menu that opened The Library in the first place.
+                // reading meant finding the menu that opened the Institute in the first place.
                 // Keeping the root alive underneath makes the chip below a real Back.
                 //
                 // Hidden rather than left showing, because a child overlay is opaque and
@@ -201,8 +258,17 @@ function (graph, genegraph_panel_layout) {
                 // click meant for the library on top of it.
                 try { overlay.style.display = 'none'; } catch (e) { }
                 showChip(it.name);
+                // A card is either a path to exec or an open() of its own -- Design needs the
+                // second, because it has to settle a track before it can name its arguments.
+                const run = () => (typeof it.open === 'function')
+                    ? it.open()
+                    : exec(it.path, graph, genegraph_panel_layout);
                 try {
-                    Promise.resolve(exec(it.path, graph, genegraph_panel_layout)).catch((e) => {
+                    Promise.resolve(run()).then((r) => {
+                        // false means it decided there was nothing to open. Without this the
+                        // root stays hidden behind a chip for a window that never appeared.
+                        if (r === false) backHome();
+                    }).catch((e) => {
                         try { graph.setMessage(' ' + it.name + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
                         backHome();
                     });
