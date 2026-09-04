@@ -189,15 +189,7 @@ return new Promise(async (resolve, reject) => {
         sequence;
         markstart;
         markend;
-        // Geometry of the deselect (X) button drawn between the two selection arrow heads.
-        // Declared here rather than inline at the draw because gene.js's
-        // __hitSelectionClear() reads the SAME two numbers off the track to build its hit
-        // box -- if the drawing and the hit test each carried their own copy they would
-        // drift, and the button would either miss clicks or catch them where nothing is
-        // drawn. MIN_GAP is the head-to-head distance below which the button is not drawn
-        // (and so must not be clickable) because it would sit on top of the heads.
         SELECTION_CLEAR_RADIUS = 8;
-        SELECTION_CLEAR_MIN_GAP = 46;
         highlightstart;
         highlightend;
         grid;
@@ -2074,6 +2066,32 @@ return new Promise(async (resolve, reject) => {
         //
         // A mark already inside [xi, xf] is taken as absolute; one outside it is read as an offset
         // and xi is added. That is right in both conventions instead of right in one of them.
+        // Where the deselect (X) button sits, given the two arrow heads' SCREEN tips and the
+        // line they sit on. Returns {x, y, r} or null when there is no sensible place for it.
+        //
+        // ONE function, called by both the drawing (below, in draw()) and gene.js's
+        // __hitSelectionClear(). It was two shared constants, and that was not enough: the
+        // rule for WHERE the button goes has to be identical on both sides, not just the
+        // radius, or the hit box ends up somewhere the disc is not.
+        //
+        // Each head extends ~15px INWARD from its tip, so a selection needs 2*15 + the disc
+        // before the button fits between them. Narrower than that it is dropped BELOW the
+        // line rather than not drawn at all -- which is what the first cut did, and it meant
+        // the button was missing on exactly the short selections (a 20mer at normal zoom)
+        // where it is most wanted.
+        selectionClearButton(xs, xe, y) {
+            const R = this.SELECTION_CLEAR_RADIUS;
+            if (!isFinite(xs) || !isFinite(xe) || !isFinite(y)) return null;
+            const gap = Math.abs(xe - xs);
+            // Under a disc's width there is nothing to point at; the heads are on top of each
+            // other and a click there means "grab an edge", not "clear".
+            if (gap < (2 * R)) return null;
+            const HEAD = 15;
+            const x = (xs + xe) / 2;
+            const fitsBetweenHeads = gap >= (2 * HEAD) + (2 * R) + 2;
+            return { x: x, y: fitsBetweenHeads ? y : (y + R + 7), r: R };
+        }
+
         selectedRange() {
           try {
             let s = this.markstart, e = this.markend;
@@ -4979,23 +4997,24 @@ return new Promise(async (resolve, reject) => {
                 // line, halfway between them. Dropping a selection had no visible control at
                 // all before this; you had to know some other route to it.
                 //
-                // Only drawn when the heads are far enough apart to leave room: on a narrow
-                // selection the disc would sit on top of them and the thing meant to clear the
-                // selection would be covering the handles that resize it. __hitSelectionClear()
-                // in gene.js applies the SAME gap rule, so there is never an invisible hit box.
-                const __mid = (screenStartX + screenEndX) / 2;
-                if (Math.abs(screenEndX - screenStartX) > this.SELECTION_CLEAR_MIN_GAP) {
-                    const R = this.SELECTION_CLEAR_RADIUS;
+                // Position comes from selectionClearButton() so the drawing and gene.js's
+                // __hitSelectionClear() cannot disagree about where it is: between the heads
+                // when there is room, just below the line when there is not.
+                const __btn = this.selectionClearButton(screenStartX, screenEndX, yPosition);
+                if (__btn) {
+                    const R = __btn.r;
+                    const __mid = __btn.x;
+                    const __by = __btn.y;
                     ctx.save();
                     ctx.shadowColor = 'rgba(120,52,0,0.50)';
                     ctx.shadowBlur = 9;
                     ctx.shadowOffsetY = 3;
-                    const gg = ctx.createLinearGradient(0, yPosition - R, 0, yPosition + R);
+                    const gg = ctx.createLinearGradient(0, __by - R, 0, __by + R);
                     gg.addColorStop(0, '#ffc07a');     // same lit top as the heads
                     gg.addColorStop(0.45, '#ff8c2f');  // same body
                     gg.addColorStop(1, '#dd5f14');     // same shaded underside
                     ctx.beginPath();
-                    ctx.arc(__mid, yPosition, R, 0, Math.PI * 2);
+                    ctx.arc(__mid, __by, R, 0, Math.PI * 2);
                     ctx.closePath();
                     ctx.fillStyle = gg;
                     ctx.fill();
@@ -5006,8 +5025,8 @@ return new Promise(async (resolve, reject) => {
                     // The X itself, in that same dark edge tone so it reads against the orange.
                     const k = R * 0.42;
                     ctx.beginPath();
-                    ctx.moveTo(__mid - k, yPosition - k); ctx.lineTo(__mid + k, yPosition + k);
-                    ctx.moveTo(__mid + k, yPosition - k); ctx.lineTo(__mid - k, yPosition + k);
+                    ctx.moveTo(__mid - k, __by - k); ctx.lineTo(__mid + k, __by + k);
+                    ctx.moveTo(__mid + k, __by - k); ctx.lineTo(__mid - k, __by + k);
                     ctx.lineWidth = 2;
                     ctx.lineCap = 'round';
                     ctx.strokeStyle = '#9c4409';

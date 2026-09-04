@@ -8077,13 +8077,12 @@ pattern, GGGG | Required`
                     for (const t of (this.track || [])) {
                         if (!t) continue;
                         if (t.markstart == null || t.markend == null || t.markstart < 0 || !(t.markend > t.markstart)) continue;
-                        // No fallback defaults on purpose: a track class that does not declare
-                        // these does not DRAW the button (only baja/bio/track-flexi.js does),
-                        // so defaulting would put an invisible clickable disc in the middle of
-                        // its selection.
-                        const R = t.SELECTION_CLEAR_RADIUS;
-                        const MINGAP = t.SELECTION_CLEAR_MIN_GAP;
-                        if (R == null || MINGAP == null) continue;
+                        // The track itself says where its button is (and whether it has one) --
+                        // the same call the drawing makes, so the hit box is always the disc
+                        // that was actually drawn. A track class without this method does not
+                        // draw the button (only baja/bio/track-flexi.js does), so it gets no
+                        // invisible target either.
+                        if (typeof t.selectionClearButton !== 'function') continue;
 
                         // Same two mappings __hitSelectionArrow collects, for the same reason:
                         // the two track renderers put the selection line in different places.
@@ -8110,13 +8109,12 @@ pattern, GGGG | Required`
                         } catch (e) { }
 
                         for (const c of cands) {
-                            if (!isFinite(c.y) || !isFinite(c.xs) || !isFinite(c.xe)) continue;
-                            if (Math.abs(c.xe - c.xs) <= MINGAP) continue;   // not drawn -> not clickable
-                            const mx = (c.xs + c.xe) / 2;
-                            const dx = sx - mx, dy = sy - c.y;
+                            const btn = t.selectionClearButton(c.xs, c.xe, c.y);
+                            if (!btn) continue;                 // not drawn -> not clickable
+                            const dx = sx - btn.x, dy = sy - btn.y;
                             // A couple of pixels of slack around the disc, so it is reachable
                             // without being pixel-perfect.
-                            if ((dx * dx + dy * dy) <= (R + 3) * (R + 3)) return t;
+                            if ((dx * dx + dy * dy) <= (btn.r + 3) * (btn.r + 3)) return t;
                         }
                     }
                 } catch (e) { }
