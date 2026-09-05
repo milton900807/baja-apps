@@ -7895,24 +7895,58 @@ pattern, GGGG | Required`
                 // A header row is the menu's caption ('Selected (7) —'), not something to click.
                 const header = items.find((it) => it && it.header);
                 const rows = items.filter((it) => it && !it.header && typeof it.click === 'function');
+                // What TYPE of thing a row is about, from its own label. The menu names its
+                // rows after the kind they open ('Oligos (7) ▸', a track's own name, 'Variants
+                // (12) ▸'), so the word is already there to be read -- it just was not being
+                // shown. It becomes the card's badge, which is the one place on a card that is
+                // for saying what something IS.
+                const TYPES = [
+                    [/^tracks?\b|^track\s|\btrack\b/i, 'Track'],
+                    [/^sequence\b|selected sequence/i, 'Sequence'],
+                    [/^oligos?\b|\baso\b|\bsirna\b|gapmer|compound/i, 'Oligo'],
+                    [/amplicon|primer|probe/i, 'Amplicon'],
+                    [/^variants?\b|\bsnp\b|indel|mutation/i, 'Variant'],
+                    [/annotation|^exon\b|domain/i, 'Annotation'],
+                    [/^layer/i, 'Layer'],
+                    [/^librar/i, 'Library']
+                ];
+                const typeOf = (raw) => {
+                    for (const [re, w] of TYPES) { if (re.test(raw)) return w; }
+                    return 'Item';
+                };
+
                 const books = rows.map((it) => {
                     const raw = ('' + (it.label || '')).trim();
+                    // A row that opens another level is a SELECTED THING; one that just runs is
+                    // an ACTION on the selection. That is the same distinction the badge glyph
+                    // was already drawing ('›' against '•'), so the sections below are not a
+                    // new rule -- they are the existing one, made structural instead of
+                    // decorative. 'Download all as CSV' sat between two selected objects
+                    // looking like a third.
                     const isSub = /[▸►]/.test(raw);
                     const isBack = /^(‹|«|<|←)/.test(raw) || /^Back\b/i.test(raw);
+                    const type = isSub ? typeOf(raw) : null;
+                    const isTrack = (type === 'Track');
                     return {
                         // The ▸ is what the shelf itself adds for a nested card, so carrying the
                         // menu's own would print it twice.
-                        title: raw.replace(/\s*[▸►]\s*$/, '') || 'Item',
+                        // The ‹ goes with the ▸: both are the menu's own marks, and the card
+                        // has an icon for each of them already.
+                        title: raw.replace(/\s*[▸►]\s*$/, '').replace(/^\s*(‹|«|<|←)\s*/, '') || 'Item',
                         icon: this.__selectionIcon(raw, isSub, isBack),
-                        // What KIND of row this is, as a glyph rather than a word: '‹' goes
-                        // back a level, '›' opens the next one, '•' runs on the selection.
-                        // Same three marks __selectionIcon falls back to, so the vocabulary is
-                        // one set, not two. The sentences that used to sit under each card
-                        // ('Opens the next level of this selection.', 'Runs this action on the
-                        // selection.') said the same thing on every card of a kind and pushed
-                        // the actual titles apart, so the glyph carries it instead.
-                        badge: isBack ? '‹' : (isSub ? '›' : '•'),
+                        // The TYPE for a selected thing, and the word Action for one that acts.
+                        // Was a glyph ('‹' back, '›' opens, '•' runs), which said what a row
+                        // does but never what it is about -- and what it is about is the thing
+                        // a reader is looking for. Back gets none: it is not a kind of thing,
+                        // and its own icon has already said what it is.
+                        badge: isBack ? '' : (isSub ? type : 'Action'),
                         blurb: '',
+                        // A track is not one selected object among many: it is what the others
+                        // sit on. Its own accent, and it sorts to the front below.
+                        accent: isTrack ? 'track' : undefined,
+                        __back: isBack,
+                        __sub: isSub,
+                        __track: isTrack,
                         open: () => { try { it.click(); } catch (e) { } }
                     };
                 });
@@ -7922,26 +7956,46 @@ pattern, GGGG | Required`
                     this.__selTopLevel = false;
                     try { tools = this.__selectionToolBooks(this.__hasAnySelection()); } catch (e) { tools = []; }
                 }
-                // Two sections at the top level, and only there: deeper levels are one list of
-                // options about one thing, and a heading over them would be naming a section of
-                // one. The heading also has to appear when the section is EMPTY -- a library
-                // that simply omits Selected items reads as though the section does not exist,
-                // rather than as nothing being selected, which is the one thing the user most
-                // needs told at that moment.
-                let listed = books;
-                if (atTop) {
-                    const ITEMS = 'Selected items';
-                    listed = books.length
-                        ? books.map((b) => Object.assign({ section: ITEMS }, b))
-                        : [{
-                            section: ITEMS, note: true,
-                            title: 'Nothing selected',
-                            blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
-                                + 'box or a lasso over the canvas, or select a range of bases on a '
-                                + 'track — and what you catch will be listed here.'
-                        }];
+                // SECTIONS, in the order a reader needs them.
+                //
+                //   Back            first, unsectioned -- it is navigation, not content
+                //   Selection tools top level only
+                //   Selected items  what is selected, TRACKS FIRST
+                //   Actions         what can be done to it, last
+                //
+                // Actions were mixed in among the selected objects, so 'Download all as CSV'
+                // sat between two compounds looking like a third thing that had been selected.
+                // Splitting them applies at every level, not just the top: the actions that
+                // most need separating -- export, delete, run -- live one level down, inside
+                // a kind, and were never at the top at all.
+                //
+                // Tracks lead the items because a track is what the rest sit on, so a reader
+                // scanning the list is orienting themselves before they look for a compound.
+                const ITEMS = 'Selected items';
+                const ACTIONS = 'Actions';
+                const backs = books.filter((b) => b.__back);
+                const subs = books.filter((b) => !b.__back && b.__sub);
+                const acts = books.filter((b) => !b.__back && !b.__sub);
+                subs.sort((a, b) => (b.__track ? 1 : 0) - (a.__track ? 1 : 0));
+
+                // The Selected items heading appears at the top level even when the section is
+                // EMPTY, with a line saying so: a library that simply omits it reads as though
+                // the section does not exist rather than as nothing being selected, which is
+                // the one thing the user most needs told at that moment.
+                let listed = [];
+                if (subs.length) {
+                    listed = subs.map((b) => Object.assign({}, b, { section: ITEMS }));
+                } else if (atTop) {
+                    listed = [{
+                        section: ITEMS, note: true,
+                        title: 'Nothing selected',
+                        blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
+                            + 'box or a lasso over the canvas, or select a range of bases on a '
+                            + 'track — and what you catch will be listed here.'
+                    }];
                 }
-                const all = tools.concat(listed);
+                const actioned = acts.map((b) => Object.assign({}, b, { section: ACTIONS }));
+                const all = backs.concat(tools, listed, actioned);
                 if (!all.length) {
                     try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
                     return;

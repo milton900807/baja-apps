@@ -176,29 +176,47 @@ function (opts) {
                 // things -- a card that arms a gesture on the canvas, not one that opens a
                 // level or acts on something already selected. Same shelf, one visual break,
                 // so the two kinds are not read as one list.
-                const __sun = (b.accent === 'sunset');
-                if (__sun) {
-                    card.style.background = 'linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%)';
-                    card.style.borderColor = 'rgba(255,163,72,0.55)';
-                    card.onmouseenter = () => { card.style.borderColor = '#ffb35c'; card.style.transform = 'translateY(-2px)'; };
-                    card.onmouseleave = () => { card.style.borderColor = 'rgba(255,163,72,0.55)'; card.style.transform = ''; };
+                // ACCENTS. One card look was a boolean for 'sunset'; it is a small palette now,
+                // because a shelf that mixes kinds of card needs more than two states. Each
+                // entry is [background, resting border, hover border, chip wash, chip ink,
+                // title ink, blurb ink]. Unlisted accents fall through to the default look, so
+                // an accent this file does not know is a plain card rather than a broken one.
+                const ACCENTS = {
+                    // Warm: a TOOL that arms a gesture on the canvas.
+                    sunset: ['linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%)',
+                        'rgba(255,163,72,0.55)', '#ffb35c',
+                        'rgba(255,163,72,0.18)', '#ffc98a', '#ffe6c7', '#e0b48a'],
+                    // Cool violet: a TRACK. Distinct from both the default cyan and the tools,
+                    // because a track is not one selected object among many -- it is the thing
+                    // the others sit on, and reading it as a peer of an oligo is the mistake
+                    // this colour exists to prevent.
+                    track: ['linear-gradient(160deg,#181233 0%,#241a4d 55%,#2f2266 100%)',
+                        'rgba(167,139,250,0.55)', '#c4b5fd',
+                        'rgba(167,139,250,0.18)', '#ddd6fe', '#ede9fe', '#b9aee8']
+                };
+                const A = ACCENTS[b.accent] || null;
+                if (A) {
+                    card.style.background = A[0];
+                    card.style.borderColor = A[1];
+                    card.onmouseenter = () => { card.style.borderColor = A[2]; card.style.transform = 'translateY(-2px)'; };
+                    card.onmouseleave = () => { card.style.borderColor = A[1]; card.style.transform = ''; };
                 }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
                     + (b.icon ? ('<span style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;'
                         + 'display:inline-flex;align-items:center;justify-content:center;font:16px/1 Arial;'
-                        + 'background:' + (__sun ? 'rgba(255,163,72,0.18)' : 'rgba(18,194,224,0.14)') + ';">'
+                        + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.14)') + ';">'
                         + esc(b.icon) + '</span>') : '')
                     + (b.badge ? ('<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;'
-                        + 'background:' + (__sun ? 'rgba(255,163,72,0.18)' : 'rgba(18,194,224,0.16)') + ';'
-                        + 'color:' + (__sun ? '#ffc98a' : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')
+                        + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
+                        + 'color:' + (A ? A[4] : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')
                     + (ready ? '' : '<span style="color:#8fb8c8;font:11.5px Arial;margin-left:auto;">coming soon</span>')
                     + '</div>'
                     // The › marks a card that opens ANOTHER library rather than loading
                     // something, so the difference is visible before the click, not after it.
-                    + '<div style="font:700 15px Arial;color:' + (__sun ? '#ffe6c7' : '#eaf6f9') + ';">' + esc(b.title)
+                    + '<div style="font:700 15px Arial;color:' + (A ? A[5] : '#eaf6f9') + ';">' + esc(b.title)
                     + (b.books ? ' <span style="color:#4fd0e6;font:700 15px Arial;">\u203a</span>' : '') + '</div>'
-                    + '<div style="font:12px/1.55 Arial;color:' + (__sun ? '#e0b48a' : '#9fb3c8') + ';">'
+                    + '<div style="font:12px/1.55 Arial;color:' + (A ? A[6] : '#9fb3c8') + ';">'
                     + esc(b.blurb || '') + '</div>';
                 if (ready) {
                     card.onclick = async () => {
