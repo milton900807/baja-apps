@@ -414,74 +414,49 @@ OFFTARGET_BURDEN_SCALE = 40.0
 OFFTARGET_WEIGHT = 0.20
 
 
-def _load_offtarget_search():
-    """py/sequence/offtarget/search.py, imported by path. Returns None when it cannot be
-    used -- no numpy, no index root, file moved -- which is a normal outcome, not an error:
-    the design then runs on its intrinsic terms and says so in the result."""
+def _offtarget_module():
+    """offtarget_screen.py, imported by path -- py/ssaso is not a package.
+
+    The burden model lives there rather than here because design-steric-blocking.py runs the
+    same screen, and a CALIBRATED model copied into two files is one that will disagree with
+    itself. What stays here is what is per-modality: the weights and the scale above.
+    """
     import importlib.util
     import os
     import sys
-    here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.normpath(os.path.join(here, "..", "sequence", "offtarget", "search.py"))
+    if "_baja_offtarget_screen" in sys.modules:
+        return sys.modules["_baja_offtarget_screen"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "offtarget_screen.py")
     if not os.path.exists(path):
         return None
     try:
-        spec = importlib.util.spec_from_file_location("_baja_offtarget_search", path)
+        spec = importlib.util.spec_from_file_location("_baja_offtarget_screen", path)
         mod = importlib.util.module_from_spec(spec)
-        sys.modules["_baja_offtarget_search"] = mod
+        sys.modules["_baja_offtarget_screen"] = mod
         spec.loader.exec_module(mod)
-        # search.py drives works.progress() per oligo; this is one step inside a larger
-        # design, so its progress must not overwrite the design's own.
-        try:
-            mod.works = None
-        except Exception:
-            pass
         return mod
     except Exception:
         return None
 
 
+def _load_offtarget_search():
+    ot = _offtarget_module()
+    return ot.load_search() if ot else None
+
+
 def offtarget_burden_from_hits(hits, on_target_symbols=()):
-    """(burden, {distance: gene_count}, top symbols) for one oligo's hit list.
-
-    The intended site is subtracted rather than searched for. Every candidate matches its
-    own target transcript perfectly, so exactly one gene symbol at distance 0 is the design
-    working as intended; a caller that knows the gene can name it in on_target_symbols and
-    that guess is not needed.
-    """
-    ignore = {str(x).strip().upper() for x in (on_target_symbols or []) if str(x).strip()}
-    by_distance = {}
-    for h in hits:
-        if not isinstance(h, dict):
-            continue
-        sym = str(h.get("symbol") or "").strip()
-        if not sym or sym.upper() in ignore:
-            continue
-        d = int(h.get("editdistance", 0))
-        by_distance.setdefault(d, set()).add(sym)
-
-    counts = {d: len(v) for d, v in sorted(by_distance.items())}
-    if not ignore and counts.get(0):
-        counts[0] = max(0, counts[0] - 1)          # the on-target transcript
-
-    burden = sum(OFFTARGET_GENE_WEIGHT_BY_DISTANCE.get(d, 0.0) * n for d, n in counts.items())
-    # Named examples for the notes, worst distance first -- a count says how much, a symbol
-    # says what, and what is what a reader acts on.
-    symbols = []
-    for d in sorted(by_distance):
-        for sym in sorted(by_distance[d]):
-            if sym.upper() in ignore:
-                continue
-            symbols.append("%s (ED%d)" % (sym, d))
-            if len(symbols) >= 8:
-                break
-        if len(symbols) >= 8:
-            break
-    return burden, counts, symbols
+    ot = _offtarget_module()
+    if not ot:
+        return 0.0, {}, []
+    return ot.burden_from_hits(hits, OFFTARGET_GENE_WEIGHT_BY_DISTANCE, on_target_symbols)
 
 
 def offtarget_component(burden):
-    return clamp01(1.0 / (1.0 + max(0.0, float(burden)) / OFFTARGET_BURDEN_SCALE))
+    ot = _offtarget_module()
+    if not ot:
+        return 1.0
+    return ot.cleanliness(burden, OFFTARGET_BURDEN_SCALE)
+
 
 
 # ---------------------------------------------------------------------------------------

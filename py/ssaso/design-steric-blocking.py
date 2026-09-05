@@ -48,6 +48,18 @@ class StericBlockingASOCandidate:
     annotation_summary: Dict[str, Any] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
     score: float = 0.0
+    # Filled only for candidates that reached the off-target screen. intrinsic_score is what
+    # the sequence and annotation terms alone said, kept beside the final score so what the
+    # screen did to a candidate is readable rather than inferred.
+    intrinsic_score: float = 0.0
+    offtarget_screened: bool = False
+    offtarget_index: str = ""
+    offtarget_edit_distance: int = 0
+    offtarget_genes_by_distance: Dict[str, int] = field(default_factory=dict)
+    offtarget_burden: float = 0.0
+    offtarget_cleanliness: float = 0.0
+    offtarget_penalty: float = 0.0
+    offtarget_symbols: List[str] = field(default_factory=list)
 
 
 def clean_sequence(seq: str) -> str:
@@ -182,6 +194,60 @@ def build_chemistry_layout(
         })
 
     return layout
+
+
+# ---------------------------------------------------------------------------------------
+# OFF-TARGET SCREEN
+#
+# Model and calibration live in offtarget_screen.py next to this file; the constants here
+# are what makes it a STERIC screen rather than the gapmer's, and they differ for a measured
+# reason, not a stylistic one.
+#
+# Distinct gene symbols hit against human_cdna_all, 30 random oligos per row:
+#
+#     20-mer   ED0 median 0   ED1 median 0   ED2 median 1, max 10   ED3 median 9,  max 80
+#     18-mer   ED0 median 0   ED1 median 0   ED2 median 5, max 34   ED3 median 88, max 354
+#
+# A steric blocker is 18-20 nt and essentially unique in the transcriptome below ED3. Screen
+# it at the gapmer's ED2 and almost every candidate comes back with a burden of zero: a term
+# that cannot discriminate is worse than no term, because it looks like it did something.
+# ED3 is where the variance is at this length, and it costs no more to search. Hence the
+# default of 3 here against the gapmer's 2.
+#
+# The weights follow from that. ED3 over 20 nt is weak evidence of real occupancy -- three
+# mismatches will not hold at body temperature for most chemistries -- so it is weighted
+# low, but it is the only band with anything in it, so it is not dropped.
+OFFTARGET_GENE_WEIGHT_BY_DISTANCE = {0: 40.0, 1: 12.0, 2: 3.0, 3: 0.25}
+OFFTARGET_BURDEN_SCALE = 25.0
+
+# POINTS, not a fraction. This scorer is a points total -- GC contributes up to 20, Tm up to
+# 18 -- so the screen has to speak the same units to sit beside them. A candidate loses up
+# to 20 points, scaled by how dirty it is: a typical 20-mer (0/0/1/9 genes) gives up about
+# 3.5, a bad one (0/1/10/80) about 14.
+#
+# The gapmer blends 0.80/0.20 instead, because its score is already normalized to 0-1. Same
+# model, expressed in each scorer's own currency.
+OFFTARGET_MAX_PENALTY = 20.0
+
+
+def _offtarget_module():
+    """offtarget_screen.py, imported by path -- py/ssaso is not a package."""
+    import importlib.util
+    import os
+    import sys
+    if "_baja_offtarget_screen" in sys.modules:
+        return sys.modules["_baja_offtarget_screen"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "offtarget_screen.py")
+    if not os.path.exists(path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("_baja_offtarget_screen", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_baja_offtarget_screen"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
 
 
 def score_gc(gc: float) -> Tuple[float, str]:
@@ -707,6 +773,11 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "annotations": [],
             "enforce_non_overlapping": True,
             "min_separation": 0,
+            "offtarget_index": None,
+            "offtarget_edit_distance": 3,
+            "offtarget_oversample": 3,
+            "offtarget_screen_cap": 400,
+            "on_target_symbols": [],
         }
 
     if isinstance(payload, dict):
@@ -737,6 +808,19 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             # allowed is the best site written out N times, not the best N ASOs.
             "enforce_non_overlapping": bool(payload.get("enforce_non_overlapping", True)),
             "min_separation": int(payload.get("min_separation", 0)),
+            # Off-target screen. No index named, no screen -- and the design then runs exactly
+            # as it did before this existed, which is what makes it safe for a caller that may
+            # or may not have an index to offer to ask for it unconditionally.
+            "offtarget_index": payload.get("offtarget_index") or None,
+            # 3, not the gapmer's 2. See the note by OFFTARGET_GENE_WEIGHT_BY_DISTANCE: at
+            # 18-20 nt an ED2 screen returns a burden of zero for nearly everything.
+            "offtarget_edit_distance": int(payload.get("offtarget_edit_distance", 3)),
+            # How many ranked sites to screen for each one returned -- the room the penalty
+            # has. Screening exactly top_n could only reorder the answer; 3x changes which
+            # sites are in it.
+            "offtarget_oversample": max(1, int(payload.get("offtarget_oversample", 3))),
+            "offtarget_screen_cap": max(1, int(payload.get("offtarget_screen_cap", 400))),
+            "on_target_symbols": list(payload.get("on_target_symbols", []) or []),
         }
 
     raise ValueError("Input must be either a sequence string or a JSON object.")
@@ -757,6 +841,11 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     annotations = request["annotations"]
     enforce_non_overlapping = request["enforce_non_overlapping"]
     min_separation = request["min_separation"]
+    offtarget_index = request["offtarget_index"]
+    offtarget_edit_distance = request["offtarget_edit_distance"]
+    offtarget_oversample = request["offtarget_oversample"]
+    offtarget_screen_cap = request["offtarget_screen_cap"]
+    on_target_symbols = request["on_target_symbols"]
 
     normalized_rna = clean_sequence(raw_sequence)
     symbol_map = build_symbol_map(helm_symbols)
@@ -820,19 +909,98 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     # sequence, top 100 requested: 46 distinct start positions, 31 of the hundred overlapping
     # the single best site, 6.9% of the transcript covered. Still available as
     # enforce_non_overlapping: false for a caller that wants a site's length variants.
+    # The off-target screen is a funnel, not another term in the loop above. Searching a
+    # transcriptome for every candidate would take hours; searching the best few hundred
+    # takes about a second, and the ones it would have rejected further down were never going
+    # to be returned anyway. Rank on the sequence and annotation terms, take MORE sites than
+    # asked for, screen those, re-score, keep the best of them.
+    _ot = _offtarget_module() if offtarget_index else None
+    screen = _ot.load_search() if _ot else None
+    want = (min(top_n * offtarget_oversample, offtarget_screen_cap)) if screen else top_n
+
     if enforce_non_overlapping:
         works.msg(
             "Ranking every candidate, then taking the best %d sites%s"
-            % (top_n, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
+            % (want, (" at least %d nt apart" % min_separation) if min_separation else ", non-overlapping")
         )
         top_candidates = select_top_non_overlapping(
             all_candidates,
-            top_n=top_n,
+            top_n=want,
             min_separation=min_separation,
         )
     else:
-        works.msg("Taking the best %d by score, overlapping layouts of one site included" % top_n)
-        top_candidates = all_candidates[:top_n]
+        works.msg("Taking the best %d by score, overlapping layouts of one site included" % want)
+        top_candidates = all_candidates[:want]
+
+    offtarget_report: Dict[str, Any] = {
+        "requested": bool(offtarget_index),
+        "ran": False,
+        "index": offtarget_index or None,
+        "edit_distance": offtarget_edit_distance,
+        "screened": 0,
+        "reason": None,
+    }
+    if offtarget_index and not screen:
+        offtarget_report["reason"] = (
+            "off-target search is unavailable in this interpreter (numpy or "
+            "py/sequence/offtarget/search.py missing); scored on sequence terms only"
+        )
+        works.msg(offtarget_report["reason"])
+        top_candidates = top_candidates[:top_n]
+    elif screen and top_candidates:
+        works.msg(
+            "Screening %d sites against %s at edit distance %d"
+            % (len(top_candidates), offtarget_index, offtarget_edit_distance)
+        )
+        try:
+            probe = [
+                {"id": i, "synthesisSequence": to_requested_alphabet(c.antisense_core_rna, "DNA")}
+                for i, c in enumerate(top_candidates)
+            ]
+            res = screen.search(offtarget_index, probe, offtarget_edit_distance, "+-")
+            rows = (res or {}).get("oligoQuery", []) or []
+            for i, c in enumerate(top_candidates):
+                hits = rows[i].get("offtarget", []) if i < len(rows) else []
+                burden, counts, symbols = _ot.burden_from_hits(
+                    hits, OFFTARGET_GENE_WEIGHT_BY_DISTANCE, on_target_symbols)
+                clean = _ot.cleanliness(burden, OFFTARGET_BURDEN_SCALE)
+                penalty = OFFTARGET_MAX_PENALTY * (1.0 - clean)
+                c.offtarget_screened = True
+                c.offtarget_index = str(offtarget_index)
+                c.offtarget_edit_distance = int(offtarget_edit_distance)
+                c.offtarget_genes_by_distance = {str(k): int(v) for k, v in counts.items()}
+                c.offtarget_burden = round(burden, 4)
+                c.offtarget_cleanliness = round(clean, 6)
+                c.offtarget_penalty = round(penalty, 4)
+                c.offtarget_symbols = symbols
+                c.intrinsic_score = c.score
+                c.score = round(c.score - penalty, 4)
+                c.notes = list(c.notes) + [
+                    "Off-target screen (%s, ED<=%d): %s; burden %.1f, penalty -%.1f points"
+                    % (offtarget_index, offtarget_edit_distance,
+                       _ot.describe_counts(counts), burden, penalty),
+                ]
+                if symbols:
+                    c.notes.append("Nearest off-targets: " + ", ".join(symbols))
+            top_candidates.sort(key=lambda x: (-x.score, abs(x.tm_c - 65.0),
+                                               abs(x.gc_percent - 50.0), -x.length))
+            top_candidates = top_candidates[:top_n]
+            for idx, c in enumerate(top_candidates, start=1):
+                c.rank = idx
+            offtarget_report["ran"] = True
+            offtarget_report["screened"] = len(probe)
+            works.msg("Off-target screen applied; kept the best %d of %d screened"
+                      % (len(top_candidates), len(probe)))
+        except Exception as exc:
+            # A missing index, a corrupt one, an oligo outside the searchable length -- none
+            # of it should lose a design that has already been computed.
+            offtarget_report["reason"] = "off-target screen failed: %s" % (exc,)
+            works.msg(offtarget_report["reason"])
+            top_candidates = top_candidates[:top_n]
+            for idx, c in enumerate(top_candidates, start=1):
+                c.rank = idx
+    else:
+        top_candidates = top_candidates[:top_n]
 
     works.progress(90)
     works.msg("Top candidates: %d" % len(top_candidates))
@@ -876,6 +1044,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         ),
         "top_n": top_n,
         "coverage": coverage,
+        "offtarget_screen": offtarget_report,
         "selection_mode": "rank_order_across_sequence_space" if enforce_non_overlapping else "global_top_n_overlaps_allowed",
         "min_separation": min_separation,
         "lengths_scanned": list(lengths),
