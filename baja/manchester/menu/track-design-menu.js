@@ -316,7 +316,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // and a design that placed NONE looked like a design that had not finished.
     //
     // setResultMessage, not setMessage: the canvas draws only error and result toasts.
-    const __designDone = (modality, oligos, track, chemistry) => {
+    const __designDone = (modality, oligos, track, chemistry, result, algorithm) => {
         try {
             const n = (oligos && oligos.length) | 0;
             const chem = chemistry ? (' — ' + chemistry) : '';
@@ -339,6 +339,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             graph.setResultMessage(' ' + modality + chem + ': ' + n + ' compound' + (n === 1 ? '' : 's')
                 + ' placed' + where + span
                 + (best != null ? (', best score ' + best.toFixed(2)) : '') + '. ');
+
+            // The report. The toast above says how many; this says how, and is where the
+            // exports and the off-target run live. Every modality reaches it through this one
+            // function, so none of them can end without one.
+            try {
+                exec('baja/manchester/menu/design-summary.js', graph, genegraph_panel_layout, {
+                    modality: modality,
+                    algorithm: algorithm,
+                    chemistry: chemistry,
+                    track: track,
+                    oligos: oligos,
+                    result: result
+                });
+            } catch (e) { }
         } catch (e) { }
     };
 
@@ -636,7 +650,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         i.xf = i.xi + length
                         selectedTrack.addOligo(i)
                     }
-                    __designDone('siRNA', sirnaArray, selectedTrack, __chemistryOf(str, json_input));
+                    __designDone('siRNA', sirnaArray, selectedTrack, __chemistryOf(str, json_input), r, str);
 
                     // showModal({
                     //     wid: 'json',
@@ -881,7 +895,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
-                    __designDone('ASO', gapmerArray, selectedTrack, __chemistryOf(str, json_input));
+                    __designDone('ASO', gapmerArray, selectedTrack, __chemistryOf(str, json_input), r, str);
 
                     // // Optional:
                     // showModal({
@@ -1064,7 +1078,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
-                    __designDone('ASO', stericBlockingArray, selectedTrack, __chemistryOf(str, json_input));
+                    __designDone('ASO', stericBlockingArray, selectedTrack, __chemistryOf(str, json_input), r, str);
 
                     // Optional:
                     // showModal({
