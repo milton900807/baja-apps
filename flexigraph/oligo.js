@@ -266,11 +266,61 @@ function () {
                     return;
                 }
 
-                if (!this.shapeFunction) {
-                    this.shapeFunction = getIon(chem_draw[this.type]);
+                // The shape for this compound's type -- and a REAL fallback when there is
+                // none. Missing key used to mean the draw below fell through to a bare
+                // graph.drawLine in this.color, which for a compound with no colour set is a
+                // black line: no beads, no sugars, no linkers, nothing that says what it is.
+                //
+                // chem_draw has keys for gapmer / aso / steric_blocking_aso / siRNA and not
+                // for everything a designer or an importer can produce, and a type that only
+                // differs by case or by a hyphen ('ASO', 'steric-blocking-aso') misses too.
+                // So: normalise the lookup, then fall back to the ASO polymer, which draws
+                // whatever the HELM in `structure` actually says -- sugars, bases and the
+                // PS/PO linkages -- rather than to a line that says nothing.
+                //
+                // The polymer is the right fallback rather than a neutral one: every
+                // single-stranded oligo in this app is that polymer, and one whose type this
+                // file has not heard of is far more likely to be a variant spelling of one of
+                // them than something that should render as a stick.
+                // Say which type had no shape, once per type per session. A compound that
+                // renders as a plain line is a question this file cannot answer on its own --
+                // it depends what the thing that created it set as the type -- and without
+                // this the only way to find out is to guess.
+                if (!this.__warnNoShape) {
+                    this.__warnNoShape = () => {
+                        try {
+                            const t = '' + (this.type == null ? '(none)' : this.type);
+                            window.__bajaNoShape = window.__bajaNoShape || {};
+                            if (window.__bajaNoShape[t]) return;
+                            window.__bajaNoShape[t] = 1;
+                            console.warn('[chem-draw] no shape for oligo type ' + JSON.stringify(t)
+                                + ' and no structure to draw from - rendered as a plain line.');
+                        } catch (e) { }
+                    };
                 }
-                if (!this.detailedShapeFunction) {
-                    this.detailedShapeFunction = getIon(chem_draw[this.type + '.detailed']);
+                if (!this.shapeFunction || !this.detailedShapeFunction) {
+                    const __key = (t, suffix) => {
+                        const raw = '' + (t == null ? '' : t);
+                        if (chem_draw[raw + suffix]) return raw + suffix;
+                        const norm = raw.toLowerCase().replace(/[\s-]+/g, '_');
+                        for (const k of Object.keys(chem_draw)) {
+                            const kn = k.toLowerCase();
+                            if (kn === norm + suffix) return k;
+                        }
+                        return null;
+                    };
+                    const __shape = (suffix, thin) => {
+                        const k = __key(this.type, suffix);
+                        if (k) return getIon(chem_draw[k]);
+                        // Unknown type: the ASO polymer, but only for a compound that HAS
+                        // chemistry to draw. With a HELM there is a real answer and a line is
+                        // hiding it; without one the polymer would be inventing a backbone,
+                        // and a primer or a marker is better left as the mark it was.
+                        if (this.structure) return getIon(chem_draw[thin ? 'aso.detailed' : 'aso']);
+                        return null;
+                    };
+                    if (!this.shapeFunction) this.shapeFunction = __shape('', false);
+                    if (!this.detailedShapeFunction) this.detailedShapeFunction = __shape('.detailed', true);
                 }
 
                 const screenX1 = graph.X(tgraph.X(this.xi));
@@ -517,15 +567,20 @@ function () {
                             this.structure
                         );
                     } else {
+                        // Reached only by a compound with no chemistry AND no shape for its
+                        // type. this.color is often unset on those, and drawLine with an
+                        // undefined colour paints BLACK -- a 1px black line that reads as a
+                        // stray mark rather than a compound. Teal is the app's oligo colour.
                         await graph.drawLine(
                             tgraph.X(this.xi),
                             tgraph.Y(y),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.__overlapsAmplicon ? "magenta" : this.color,
-                            1,
+                            this.__overlapsAmplicon ? "magenta" : (this.color || '#159a91'),
+                            2,
                             "round"
                         );
+                        this.__warnNoShape();
                     }
 
                     // Oligo overlaps an amplicon on this track — warn: magenta body (above)
@@ -620,15 +675,20 @@ function () {
                             this.structure
                         );
                     } else {
+                        // Reached only by a compound with no chemistry AND no shape for its
+                        // type. this.color is often unset on those, and drawLine with an
+                        // undefined colour paints BLACK -- a 1px black line that reads as a
+                        // stray mark rather than a compound. Teal is the app's oligo colour.
                         await graph.drawLine(
                             tgraph.X(this.xi),
                             tgraph.Y(y),
                             tgraph.X(this.xf),
                             tgraph.Y(y),
-                            this.__overlapsAmplicon ? "magenta" : this.color,
-                            1,
+                            this.__overlapsAmplicon ? "magenta" : (this.color || '#159a91'),
+                            2,
                             "round"
                         );
+                        this.__warnNoShape();
                     }
                 }
 
