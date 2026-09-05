@@ -7945,12 +7945,16 @@ pattern, GGGG | Required`
                         return !!bare && trackNames.has(bare);
                     } catch (e) { return false; }
                 };
-                // Rows that ACT, whatever mark the menu gave them. 'Design ▸' carries a ▸
-                // because it opens the designer's own screens, but opening it is not browsing
-                // the selection -- it is starting the most consequential thing in the app. The
-                // ▸ describes the mechanism; this describes what the click means, and what the
-                // click means is what belongs on the card.
-                const ACTS = /^\s*design\b/i;
+                // Rows that ACT, whatever mark the menu gave them. 'Design ▸' and 'Export ▸'
+                // both carry a ▸ because each opens its own screens first -- which designer,
+                // which format -- but neither is browsing the selection. One starts the most
+                // consequential thing in the app and the other writes a file. The ▸ describes
+                // the mechanism; this describes what the click MEANS, and what it means is
+                // what belongs on the card.
+                //
+                // Matched at the START of the label, so a row that merely mentions the word --
+                // 'Compounds from a design ▸' -- is still what it says it is.
+                const ACTS = /^\s*(design|export)\b/i;
                 const typeOf = (raw) => {
                     // A real track name is definitive -- it IS a track, whatever it is called.
                     if (isTrackNamed(raw)) return 'Track';
