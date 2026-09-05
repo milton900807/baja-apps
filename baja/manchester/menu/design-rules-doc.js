@@ -8,10 +8,15 @@ function (kind) {
     // the numbers; Default showed one field. So the rules are written out where the choice is
     // being made, rather than being discoverable only by reading the python afterwards.
     //
-    // The numbers here are the scripts' own defaults and weights (py/ssaso/design.py,
-    // design-steric-blocking.py, py/sirna/design.py). They have to be kept in step by hand,
-    // so each block names its script: a claim in this file that the script no longer makes is
-    // worse than no claim at all.
+    // The numbers here are the scripts' own defaults and weights. They have to be kept in
+    // step by hand, so each block names its script: a claim in this file that the script no
+    // longer makes is worse than no claim at all.
+    //
+    // NAMED, never PATHED. Nothing user-facing shows a source path -- the convention is
+    // baja/lib/script-name.js's, applied by hand here because these are prose rather than a
+    // value being formatted. The real paths stay in comments, where they are for whoever
+    // maintains this and are not on anyone's screen: py/ssaso/design.py,
+    // py/ssaso/design-steric-blocking.py, py/sirna/design.py.
 
     const K = ('' + (kind || 'gapmer')).toLowerCase();
 
@@ -43,7 +48,7 @@ function (kind) {
 
     if (K.indexOf('gap') >= 0) {
         return H('What runs')
-            + P('<b>py/ssaso/design.py</b> — an RNase&nbsp;H1 gapmer designer. It scans every start '
+            + P('<b>py_ssaso_design</b> — an RNase&nbsp;H1 gapmer designer. It scans every start '
                 + 'position on the sequence at each length and gap size, scores all of them, and '
                 + 'returns the best non-overlapping sites.')
             + H('The candidate space')
@@ -93,7 +98,7 @@ function (kind) {
 
     if (K.indexOf('ster') >= 0 || K.indexOf('block') >= 0) {
         return H('What runs')
-            + P('<b>py/ssaso/design-steric-blocking.py</b> — a fully modified single strand that '
+            + P('<b>py_ssaso_design-steric-blocking</b> — a fully modified single strand that '
                 + 'occupies its site rather than triggering cleavage. No DNA gap, so no '
                 + 'RNase&nbsp;H1 and no degradation of the transcript.')
             + H('The candidate space')
@@ -130,7 +135,7 @@ function (kind) {
     }
 
     return H('What runs')
-        + P('<b>py/sirna/design.py</b> — an siRNA duplex designer. It slides across the whole '
+        + P('<b>py_sirna_design</b> — an siRNA duplex designer. It slides across the whole '
             + 'sequence, scores every candidate window, and ranks them.')
         + H('The candidate space')
         + UL([

@@ -27,6 +27,11 @@ function (graph, genegraph_panel_layout) {
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Nothing user-facing shows a source path, and a thrown error is exactly where one
+        // arrives without anyone deciding to put it there. If the helper cannot be loaded the
+        // message still goes out, unchanged -- a message is better than no message.
+        let __scrub = (t) => '' + (t == null ? '' : t);
+        try { const __sn = await exec('baja/lib/script-name.js'); if (__sn && __sn.scrub) __scrub = __sn.scrub; } catch (e) { }
 
         // Design Library. Unlike every other card here it cannot be reached by path alone:
         // track-design-menu.js takes (graph, TRACK, layout), so a track has to be settled
@@ -269,11 +274,11 @@ function (graph, genegraph_panel_layout) {
                         // root stays hidden behind a chip for a window that never appeared.
                         if (r === false) backHome();
                     }).catch((e) => {
-                        try { graph.setMessage(' ' + it.name + ' failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                        try { graph.setMessage(' ' + it.name + ' failed: ' + __scrub(e && e.message ? e.message : e) + ' '); } catch (e2) { }
                         backHome();
                     });
                 } catch (e) {
-                    try { graph.setMessage(' ' + it.name + ' failed: ' + e + ' '); } catch (e2) { }
+                    try { graph.setMessage(' ' + it.name + ' failed: ' + __scrub(e) + ' '); } catch (e2) { }
                     backHome();
                 }
             };
@@ -344,7 +349,7 @@ function (graph, genegraph_panel_layout) {
             pane.appendChild(head); pane.appendChild(scroll);
             document.body.appendChild(overlay);
         } catch (e) {
-            try { graph.setMessage(' Could not open the library: ' + e + ' '); } catch (e2) { }
+            try { graph.setMessage(' Could not open the library: ' + __scrub(e) + ' '); } catch (e2) { }
         }
         return graph;
     })();

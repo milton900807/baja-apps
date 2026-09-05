@@ -169,7 +169,13 @@ function (graph, genegraph_panel_layout, info) {
         // that shows one applies the same convention. Falls back to the raw value if the
         // helper cannot be loaded, since a path is still better than a blank row.
         let algoName = (v) => ('' + (v == null ? '' : v));
-        try { algoName = await exec('baja/lib/script-name.js') || algoName; } catch (e) { }
+        // scrub() is the same convention applied to a whole message, for the error strings
+        // below: a path arrives in those without anyone choosing to put it there.
+        let scrub = (t) => '' + (t == null ? '' : t);
+        try {
+            const __sn = await exec('baja/lib/script-name.js');
+            if (__sn) { algoName = __sn; if (__sn.scrub) scrub = __sn.scrub; }
+        } catch (e) { }
         add('Algorithm', algoName(o.algorithm) || res.design_type || '—');
         add('Chemistry', o.chemistry);
         add('Track', track && track.name);
