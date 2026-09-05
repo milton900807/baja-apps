@@ -171,11 +171,20 @@ function (opts) {
                     card.onmouseenter = () => { card.style.borderColor = '#12c2e0'; card.style.transform = 'translateY(-2px)'; };
                     card.onmouseleave = () => { card.style.borderColor = 'rgba(255,255,255,0.12)'; card.style.transform = ''; };
                 }
-                // `accent: 'sunset'` is the warm look the canvas uses for its own prompts
-                // (setSunsetMessage), and it marks the cards that are TOOLS rather than
-                // things -- a card that arms a gesture on the canvas, not one that opens a
-                // level or acts on something already selected. Same shelf, one visual break,
-                // so the two kinds are not read as one list.
+                // `sunset` is the warm look the canvas uses for its own prompts
+                // (setSunsetMessage), and it marks a card that DOES something.
+                //
+                // Every LEAF gets it now, without being asked. A shelf holds two kinds of card
+                // and the difference is the only thing a reader needs before clicking: one
+                // opens another level and costs nothing, the other runs -- loads data onto
+                // every track, starts a design, deletes a selection. That was carried by a
+                // small '›' at the end of a title, which is a lot of weight for one glyph.
+                // Warm for the leaves, cool for the levels, so the two are told apart at a
+                // glance across every library rather than only where someone remembered to
+                // set an accent.
+                //
+                // An explicit accent still wins, so a card that has something more particular
+                // to say -- a track's violet in the selection library -- keeps saying it.
                 // ACCENTS. One card look was a boolean for 'sunset'; it is a small palette now,
                 // because a shelf that mixes kinds of card needs more than two states. Each
                 // entry is [background, resting border, hover border, chip wash, chip ink,
@@ -194,7 +203,17 @@ function (opts) {
                         'rgba(167,139,250,0.55)', '#c4b5fd',
                         'rgba(167,139,250,0.18)', '#ddd6fe', '#ede9fe', '#b9aee8']
                 };
-                const A = ACCENTS[b.accent] || null;
+                // `books` is what makes a card a level rather than a leaf -- an array, or a
+                // function returning one. Same test the '›' at the end of the title uses, so
+                // the colour and the glyph cannot disagree about what a card is.
+                //
+                // `leaf` overrides it, for a shelf whose cards open the next level THEMSELVES
+                // rather than by handing back books. The selection library is the one that
+                // does: every card there carries an open() that calls the menu's own click
+                // handler, so by the books test all of them look like leaves and the whole
+                // shelf would come out warm. It says which of its cards act and which navigate.
+                const isLeaf = (b.leaf != null) ? !!b.leaf : !b.books;
+                const A = ACCENTS[b.accent] || (isLeaf ? ACCENTS.sunset : null);
                 if (A) {
                     card.style.background = A[0];
                     card.style.borderColor = A[1];

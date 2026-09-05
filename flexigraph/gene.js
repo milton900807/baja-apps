@@ -7941,6 +7941,11 @@ pattern, GGGG | Required`
                         // and its own icon has already said what it is.
                         badge: isBack ? '' : (isSub ? type : 'Action'),
                         blurb: '',
+                        // Which cards ACT and which navigate. Every card here carries an
+                        // open() that calls the menu's own click handler -- including the ones
+                        // that open the next level -- so shelf.js cannot tell them apart by
+                        // its usual test and would paint the whole shelf warm.
+                        leaf: !isSub && !isBack,
                         // A track is not one selected object among many: it is what the others
                         // sit on. Its own accent, and it sorts to the front below.
                         accent: isTrack ? 'track' : undefined,
