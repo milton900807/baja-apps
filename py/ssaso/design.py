@@ -462,16 +462,19 @@ def offtarget_component(burden):
 # ---------------------------------------------------------------------------------------
 # NUCLEOBASE COMPOSITION -> IN VIVO TOLERABILITY
 #
-# Derived from published Ionis/Biogen tolerability tables (see aso_patents/): 1,845 gapmers
+# Derived from published Ionis/Biogen tolerability tables (see aso_patents/): 1,287 gapmers
 # with functional-observational-battery scores after IT/ICV dosing across 7 CNS programmes,
 # and 777 with mouse ALT fold-change. Both associations are cluster-aware (sequence families
 # permuted as units) and survive residualising out the target programme.
 #
-#   CNS      guanine content tracks WORSE tolerability. rho = +0.38, positive in 5/5 genes.
-#            Severe-finding rate (FOB >= 5) runs 6% -> 22% -> 51% -> 73% across the bands
-#            below. It is guanine CONTENT, not run structure: adjusting for longest G-run,
-#            GGG count and G4Hunter leaves it intact (each of those collapses to ~0 the
-#            other way round), and no sequence in that corpus can even form a G-quadruplex.
+#   CNS      guanine content tracks WORSE tolerability. rho = +0.44, positive in 4/4 genes
+#            with enough compounds to test (PRION +0.66, SCN2A +0.46, UBE3A-ATS +0.46,
+#            ATXN3 +0.31). Rate of FOB >= 3 runs 9% -> 37% -> 64% -> 79% across the bands
+#            below; at the stricter FOB >= 5 the same bands run 1% -> 5% -> 23% -> 40%.
+#            It is guanine CONTENT, not run structure: adjusting for longest G-run,
+#            GGG count and G4Hunter leaves it intact (G4Hunter falls from +0.39 to +0.05,
+#            p = 0.32, once G content is held fixed), and no sequence in that corpus can
+#            even form a G-quadruplex -- zero of 1,287 carry the four G-runs required.
 #            Note this is a different claim from the existing g_run_penalty term, which is
 #            about runs; the two are only weakly related and both are kept.
 #   LIVER    adenine content tracks BETTER tolerability. rho = -0.23, 5/5 programmes.
@@ -479,19 +482,31 @@ def offtarget_component(burden):
 #
 # The bands are NOT monotonic once potency is included. From 8,461 compounds with in vitro
 # knockdown, relative to the best band: G >= 30% costs no measurable potency (+1.4 pts,
-# 95% CI [-0.8, +3.7]) while carrying the 73% severe rate -- so it is strictly dominated and
-# cutting G there is free. Below 10% G costs a real 10.7 pts of knockdown (CI [8.5, 12.9])
-# to buy the severe rate down to 6%, and A >= 35% costs 9.3 pts (CI [7.3, 11.3]). The anchors
-# below encode that shape: the optimum is a BAND, not an extreme.
+# 95% CI [-0.8, +3.7]) while 79% of that band scores FOB >= 3 against 37% in the 10-20%
+# band -- so it is strictly dominated and cutting G there is free. Below 10% G costs a real
+# 10.7 pts of knockdown (CI [8.5, 12.9]) to buy that rate down to 9%, and A >= 35% costs
+# 9.3 pts (CI [7.3, 11.3]). The anchors below encode that shape: the optimum is a BAND, not
+# an extreme.
 #
 # Caveats that belong with the numbers: patent tables are survivorship-censored (only
 # compounds that passed tolerability get published), the hepatic rule is mouse-only and
-# cross-species transfer of it was ~zero, and an attempt to confirm the CNS rule on an
-# independent endpoint (AIF1/GFAP induction) was null and underpowered. Treat this as a
+# cross-species transfer of it was ~zero (mouse->rat ALT agreement is kappa 0.05-0.16, most
+# intervals spanning zero), and an attempt to confirm the CNS rule on an independent
+# endpoint (AIF1/GFAP induction) was null and underpowered. The CNS rule does transfer
+# across rodents -- mouse->rat FOB is rho = +0.55 over 190 clusters with kappa = +0.40 at
+# FOB >= 3, positive in 4/4 studies -- and guanine is the top feature of a FOB model fitted
+# separately in each species, which is the likely reason the call carries. Treat this as a
 # strong prior for window selection, not a replacement for a tolerability screen.
+#
+# Revised 2026-09-05. The CNS figures above supersede an earlier set (rho = +0.38, rates
+# 6/22/51/73%, 5/5 genes) computed before a fault was found in the FOB table extractor: it
+# carried its parse state across table boundaries, so efficacy and IC50 tables and an
+# adjacent body-weight column were being read as tolerability scores. That inflated the
+# corpus to 2,163 compounds with a maximum score of 30; the real maximum is 11. The rule
+# survived the correction and strengthened.
 COMPOSITION_ANCHORS = {
     # tissue: [(base fraction, component value), ...] piecewise-linear, clamped at the ends
-    "cns":   [(0.05, 0.92), (0.15, 1.00), (0.25, 0.55), (0.35, 0.28), (0.50, 0.20)],
+    "cns":   [(0.05, 0.92), (0.15, 1.00), (0.25, 0.57), (0.35, 0.34), (0.50, 0.24)],
     "liver": [(0.075, 0.64), (0.20, 0.73), (0.30, 0.88), (0.40, 0.92), (0.50, 0.92)],
 }
 COMPOSITION_BASE = {"cns": "G", "liver": "A"}
@@ -624,8 +639,9 @@ def score_gapmer_candidate(
                     f"{comp_detail[fk] * 100:.1f}%; component = {comp_detail[f'{key}_component']:.3f} "
                     f"(target band {'G 10-20%' if key == 'cns' else 'A 15-35%'})")
         if t in ("cns", "both") and comp_detail.get("cns_G_fraction", 0) >= 0.30:
-            notes.append("G content >= 30%: strictly dominated -- ~73% severe-FOB rate in the "
-                         "reference corpus with no measurable potency benefit over the 10-20% band")
+            notes.append("G content >= 30%: strictly dominated -- ~79% of that band scores "
+                         "FOB >= 3 in the reference corpus, against ~37% at 10-20% G, with no "
+                         "measurable potency benefit over the 10-20% band")
         if t in ("cns", "both") and 0 < comp_detail.get("cns_G_fraction", 1) < 0.10:
             notes.append("G content < 10%: best tolerability band, but costs ~10.7 points of "
                          "in vitro knockdown versus the 10-20% optimum")
@@ -1216,18 +1232,20 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
             # feature sees the same design_rules block it always saw.
             **({"composition_rule": {
                 "tissue": tissue,
-                "cns": "Prefer G 10-20% of the oligo. Severe FOB rate rises 6% -> 22% -> 51% "
-                       "-> 73% across <10 / 10-20 / 20-30 / >=30% G (n=1845 gapmers, 5/5 CNS "
-                       "programmes). G >= 30% is strictly dominated: no measurable potency "
-                       "benefit over the 10-20% band. Below 10% costs ~10.7 points of in "
-                       "vitro knockdown.",
+                "cns": "Prefer G 10-20% of the oligo. Rate of FOB >= 3 rises 9% -> 37% -> 64% "
+                       "-> 79% across <10 / 10-20 / 20-30 / >=30% G (n=1287 gapmers, 4/4 CNS "
+                       "programmes, rho = +0.44). G >= 30% is strictly dominated: no measurable "
+                       "potency benefit over the 10-20% band. Below 10% costs ~10.7 points of "
+                       "in vitro knockdown.",
                 "liver": "Prefer A 15-35%. Fraction exceeding 2x vehicle ALT falls 54% -> 48% "
                          "-> 37% -> 29% across <15 / 15-25 / 25-35 / >=35% A (n=777, mouse). "
                          "A >= 35% costs ~9.3 points of knockdown.",
                 "caveat": "Derived from published patent tolerability tables, which are "
                           "survivorship-censored. The hepatic rule is mouse-only and did not "
-                          "transfer across species. A confirmation attempt on an independent "
-                          "CNS endpoint (AIF1/GFAP) was null and underpowered. Use as a prior "
+                          "transfer across species (mouse->rat ALT kappa 0.05-0.16). The CNS "
+                          "rule does transfer (mouse->rat FOB rho = +0.55, kappa = +0.40 at "
+                          "FOB >= 3). A confirmation attempt on an independent CNS endpoint "
+                          "(AIF1/GFAP) was null and underpowered. Use as a prior "
                           "for window selection, not as a substitute for a tolerability screen.",
                 "distinct_from_g_run_penalty": "This is base COMPOSITION, not run structure. "
                        "Adjusting the composition effect for longest G-run, GGG count and "
