@@ -958,10 +958,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         return "red";
                     }
 
-                    showModal({
-                        wid: 'json',
-                        data: JSON.stringify(r, null, 2)
-                    });
+                    // A raw JSON dump of the design result used to fire here, before the
+                    // compounds were even built -- leftover debugging that put a modal over
+                    // every steric run. What it was showing is in the design report now, in
+                    // a form that can be read and exported.
 
                     function buildStericBlockingArray(resultJson, options = {}) {
                         if (!resultJson || !Array.isArray(resultJson.top_candidates)) {
