@@ -7910,8 +7910,53 @@ pattern, GGGG | Required`
                     [/^layer/i, 'Layer'],
                     [/^librar/i, 'Library']
                 ];
+                // A track's row is labelled with the TRACK'S OWN NAME -- 'SOD1', 'GAPDH' -- so
+                // nothing in the text says what it is and every one of them badged as 'Item'.
+                // Two ways to know better, cheapest first:
+                //
+                //   1. The shelf's own label. The level that lists tracks is opened with
+                //      menuLabel('track') -- 'Tracks ▸' -- so on that level EVERY row is a
+                //      track, whatever it happens to be called.
+                //   2. Otherwise, match the row against the names of the tracks that exist.
+                //      That catches a track's row reached by some other route.
+                //
+                // Name matching second, and only second, because it is the guessable half: an
+                // oligo named after its target would match. The level check cannot be wrong.
+                const onTrackLevel = /^\s*tracks?\b/i.test('' + (label || ''));
+                const trackNames = (() => {
+                    const out = new Set();
+                    try {
+                        for (const t of (this.track || [])) {
+                            const n = ('' + ((t && t.name) || '')).trim();
+                            if (n) out.add(n.toLowerCase());
+                        }
+                    } catch (e) { }
+                    return out;
+                })();
+                const isTrackNamed = (raw) => {
+                    try {
+                        // '‹ ' and ' ▸' are the menu's marks, and a row often carries a count
+                        // or a note after the name -- 'SOD1 (3 layers)'. Compare the name only.
+                        const bare = ('' + raw)
+                            .replace(/\s*[▸►]\s*$/, '')
+                            .replace(/^\s*(‹|«|<|←)\s*/, '')
+                            .replace(/\s*\([^)]*\)\s*$/, '')
+                            .trim().toLowerCase();
+                        return !!bare && trackNames.has(bare);
+                    } catch (e) { return false; }
+                };
                 const typeOf = (raw) => {
+                    // A real track name is definitive -- it IS a track, whatever it is called.
+                    if (isTrackNamed(raw)) return 'Track';
+                    // Then the patterns, BEFORE the level fallback. The tracks level carries
+                    // rows that are not tracks: 'Mutations (4) ▸' drills into variants and sits
+                    // right there among them, and a blanket "everything here is a track" badged
+                    // it Track.
                     for (const [re, w] of TYPES) { if (re.test(raw)) return w; }
+                    // Last: on the tracks level, a row that matched nothing is a track whose
+                    // name simply is not in this.track -- which is still a better guess than
+                    // 'Item'.
+                    if (onTrackLevel) return 'Track';
                     return 'Item';
                 };
 
