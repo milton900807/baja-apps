@@ -8002,6 +8002,10 @@ pattern, GGGG | Required`
                         // that open the next level -- so shelf.js cannot tell them apart by
                         // its usual test and would paint the whole shelf warm.
                         leaf: !isSub && !isBack,
+                        // Declared, not inferred: shelf.js gives a back card its own
+                        // silhouette, and reading it off the title would catch a compound
+                        // that happens to be called 'Back'.
+                        back: isBack,
                         // A track keeps its badge and its place at the front of the selection,
                         // but not a colour of its own: three card looks in one window was one
                         // more than the window had distinctions worth drawing, and the warm/cool

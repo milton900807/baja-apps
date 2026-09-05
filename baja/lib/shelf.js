@@ -7,7 +7,8 @@ function (opts) {
     //       id: 'baja-data-library',          // DOM id, so re-opening replaces rather than stacks
     //       title: 'Data Library',
     //       subtitle: '10 data sources — click one to add it to your tracks',
-    //       books: [{ title, badge, blurb, ready, open, section, note }],
+    //       books: [{ title, badge, blurb, ready, open, section, note, back, leaf }],
+    //                                       // back: true  -> the left-pointing tag shape
     //                                       // section: full-width heading when the name changes
     //                                       // note: true  -> a line of prose, not a card
     //       graph,                            // optional, for setMessage on failure
@@ -55,9 +56,17 @@ function (opts) {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;gap:16px;'
             + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
         header.innerHTML = ''
-            + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;border-radius:8px;'
-            + 'padding:9px 14px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);'
-            + 'background:transparent;color:#fff;">\u2039 Back</button>'
+            // BACK IS A DIFFERENT SHAPE. Every other control in this app is a rounded
+            // rectangle, so Back was one more of them wearing a different word -- and it is
+            // the one control that does not act on anything, it only moves you. A left-
+            // pointing tag says that in the silhouette, before the label is read.
+            //
+            // clip-path CUTS the border off along the angled edge, so this carries a filled
+            // background instead of an outline; a 1px border would come out sliced.
+            + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;'
+            + 'clip-path:polygon(0% 50%, 13px 0%, 100% 0%, 100% 100%, 13px 100%);'
+            + 'border-radius:0 8px 8px 0;padding:9px 16px 9px 22px;font:700 13px Arial;border:0;'
+            + 'background:rgba(255,255,255,0.16);color:#fff;">\u2039 Back</button>'
             + '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">'
             + '<div id="shelf-title" style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
             + '<div id="shelf-sub" style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
@@ -163,13 +172,32 @@ function (opts) {
                     continue;
                 }
                 const ready = (b.ready !== false);
+                // A card that goes BACK takes the same left-pointing tag as the header
+                // button, for the same reason and so the two read as one control in two
+                // places. `back: true` is the book's to declare -- a shelf whose cards open
+                // the next level themselves knows which of them navigate, and guessing from
+                // the title would catch a compound that happens to be called 'Back'.
+                const isBack = !!b.back;
                 const card = document.createElement('div');
-                card.style.cssText = 'background:#0b2545;border:1px solid rgba(255,255,255,0.12);border-radius:12px;'
-                    + 'padding:16px 18px;display:flex;flex-direction:column;gap:9px;'
+                card.style.cssText = 'background:#0b2545;'
+                    + (isBack
+                        ? 'border:0;clip-path:polygon(0% 50%, 18px 0%, 100% 0%, 100% 100%, 18px 100%);'
+                        + 'border-radius:0 12px 12px 0;padding:16px 18px 16px 30px;'
+                        : 'border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px 18px;')
+                    + 'display:flex;flex-direction:column;gap:9px;'
                     + 'box-shadow:0 6px 18px rgba(0,0,0,0.28);' + (ready ? 'cursor:pointer;' : 'opacity:0.55;');
                 if (ready) {
-                    card.onmouseenter = () => { card.style.borderColor = '#12c2e0'; card.style.transform = 'translateY(-2px)'; };
-                    card.onmouseleave = () => { card.style.borderColor = 'rgba(255,255,255,0.12)'; card.style.transform = ''; };
+                    // A clipped card has no border to light up, so it brightens instead.
+                    card.onmouseenter = () => {
+                        if (isBack) card.style.background = '#123663';
+                        else card.style.borderColor = '#12c2e0';
+                        card.style.transform = 'translateY(-2px)';
+                    };
+                    card.onmouseleave = () => {
+                        if (isBack) card.style.background = '#0b2545';
+                        else card.style.borderColor = 'rgba(255,255,255,0.12)';
+                        card.style.transform = '';
+                    };
                 }
                 // `sunset` is the warm look the canvas uses for its own prompts
                 // (setSunsetMessage), and it marks a card that DOES something.
@@ -206,7 +234,9 @@ function (opts) {
                 // handler, so by the books test all of them look like leaves and the whole
                 // shelf would come out warm. It says which of its cards act and which navigate.
                 const isLeaf = (b.leaf != null) ? !!b.leaf : !b.books;
-                const A = ACCENTS[b.accent] || (isLeaf ? ACCENTS.sunset : null);
+                // Back is never accented: it is not a leaf that acts, and giving it the warm
+                // look would say it does something.
+                const A = isBack ? null : (ACCENTS[b.accent] || (isLeaf ? ACCENTS.sunset : null));
                 if (A) {
                     card.style.background = A[0];
                     card.style.borderColor = A[1];
