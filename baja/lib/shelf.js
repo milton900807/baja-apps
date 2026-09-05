@@ -194,14 +194,7 @@ function (opts) {
                     // Warm: a TOOL that arms a gesture on the canvas.
                     sunset: ['linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%)',
                         'rgba(255,163,72,0.55)', '#ffb35c',
-                        'rgba(255,163,72,0.18)', '#ffc98a', '#ffe6c7', '#e0b48a'],
-                    // Cool violet: a TRACK. Distinct from both the default cyan and the tools,
-                    // because a track is not one selected object among many -- it is the thing
-                    // the others sit on, and reading it as a peer of an oligo is the mistake
-                    // this colour exists to prevent.
-                    track: ['linear-gradient(160deg,#181233 0%,#241a4d 55%,#2f2266 100%)',
-                        'rgba(167,139,250,0.55)', '#c4b5fd',
-                        'rgba(167,139,250,0.18)', '#ddd6fe', '#ede9fe', '#b9aee8']
+                        'rgba(255,163,72,0.18)', '#ffc98a', '#ffe6c7', '#e0b48a']
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so

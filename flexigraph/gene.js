@@ -7945,6 +7945,12 @@ pattern, GGGG | Required`
                         return !!bare && trackNames.has(bare);
                     } catch (e) { return false; }
                 };
+                // Rows that ACT, whatever mark the menu gave them. 'Design ▸' carries a ▸
+                // because it opens the designer's own screens, but opening it is not browsing
+                // the selection -- it is starting the most consequential thing in the app. The
+                // ▸ describes the mechanism; this describes what the click means, and what the
+                // click means is what belongs on the card.
+                const ACTS = /^\s*design\b/i;
                 const typeOf = (raw) => {
                     // A real track name is definitive -- it IS a track, whatever it is called.
                     if (isTrackNamed(raw)) return 'Track';
@@ -7968,8 +7974,9 @@ pattern, GGGG | Required`
                     // new rule -- they are the existing one, made structural instead of
                     // decorative. 'Download all as CSV' sat between two selected objects
                     // looking like a third.
-                    const isSub = /[▸►]/.test(raw);
                     const isBack = /^(‹|«|<|←)/.test(raw) || /^Back\b/i.test(raw);
+                    // ACTS overrides the ▸: see the note by ACTS above.
+                    const isSub = /[▸►]/.test(raw) && !ACTS.test(raw);
                     const type = isSub ? typeOf(raw) : null;
                     const isTrack = (type === 'Track');
                     return {
@@ -7991,9 +7998,11 @@ pattern, GGGG | Required`
                         // that open the next level -- so shelf.js cannot tell them apart by
                         // its usual test and would paint the whole shelf warm.
                         leaf: !isSub && !isBack,
-                        // A track is not one selected object among many: it is what the others
-                        // sit on. Its own accent, and it sorts to the front below.
-                        accent: isTrack ? 'track' : undefined,
+                        // A track keeps its badge and its place at the front of the selection,
+                        // but not a colour of its own: three card looks in one window was one
+                        // more than the window had distinctions worth drawing, and the warm/cool
+                        // split -- acts against navigates -- is the one that earns its keep.
+
                         __back: isBack,
                         __sub: isSub,
                         __track: isTrack,
