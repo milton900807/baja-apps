@@ -538,26 +538,15 @@ function () {
                 };
 
                 if (screencell > 1) {
-                    if (this.__dupSeq) {
-                        // Duplicate-sequence oligo: draw a maroon stick with a yellow
-                        // glow instead of the normal body so repeats stand out.
-                        ctx.save();
-                        ctx.lineCap = 'round';
-                        ctx.shadowColor = 'rgba(255, 230, 0, 0.95)';   // yellow glow
-                        ctx.shadowBlur = 14;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = '#800000';                   // maroon
-                        ctx.lineWidth = 3;
-                        const h = 10;
-                        ctx.beginPath();
-                        ctx.moveTo(screenMidX, screenY - h);
-                        ctx.lineTo(screenMidX, screenY + h);
-                        ctx.stroke();
-                        ctx.shadowBlur = 5;                            // second pass sharpens the stick
-                        ctx.stroke();
-                        ctx.restore();
-                    } else if (this.shapeFunction) {
+                    // A duplicate-sequence compound used to take an early branch here and
+                    // render as a maroon stick INSTEAD of its body -- no sugars, no bases, no
+                    // backbone, no span. Marking a repeat by deleting the compound takes away
+                    // exactly what you need to judge whether the repeat matters: its length,
+                    // where it sits, its wing/gap pattern, its chemistry.
+                    //
+                    // It draws normally now and says so in a label, the way an
+                    // amplicon overlap does.
+                    if (this.shapeFunction) {
                         this.shapeFunction(
                             graph,
                             tgraph.X(this.xi),
@@ -591,6 +580,21 @@ function () {
                             textColor: "magenta",
                             fillColor: "white",
                             strokeColor: "magenta",
+                        });
+                    }
+
+                    // The same sequence is on this track more than once. Worth saying: two
+                    // compounds that synthesise identically are one compound ordered twice,
+                    // and at a glance on a crowded track they look like two results.
+                    //
+                    // Stacked ABOVE the amplicon warning rather than over it, so a compound
+                    // that is both keeps both -- they are independent problems.
+                    if (this.__dupSeq) {
+                        drawCenteredOvalLabel("⚠ duplicate sequence", this.__overlapsAmplicon ? -58 : -40, {
+                            font: "10px Arial",
+                            textColor: "#a1121f",
+                            fillColor: "white",
+                            strokeColor: "#a1121f",
                         });
                     }
 

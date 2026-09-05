@@ -7142,6 +7142,35 @@ return new Promise(async (resolve, reject) => {
               }
               o.__overlapsAmplicon = over;
             }
+
+            // DUPLICATE SEQUENCES on this track. Two compounds that synthesise identically
+            // are one compound ordered twice, and on a crowded track they read as two
+            // results. oligo.js draws a warning on each; nothing was setting the flag it
+            // reads, so the warning could never appear.
+            //
+            // Keyed on what would actually be MADE -- synthesisSequence, falling back to the
+            // plain sequence -- rather than on name or position. Two designs at different
+            // sites cannot collide, and two names for one sequence still collide, which is
+            // the case worth catching.
+            //
+            // Chemistry is deliberately NOT part of the key. Two oligos with the same bases
+            // and different backbones are different compounds, but they are also the pair
+            // most often produced by mistake, and a warning that points at them is right to.
+            //
+            // Amplicons are excluded: a composite has no synthesis sequence of its own, and
+            // its primers are not on this list.
+            const __seen = {};
+            for (const o of this.oligos) {
+              if (!o || o.type === 'amplicon' || (o.left && o.right)) { if (o) o.__dupSeq = false; continue; }
+              const k = ('' + ((o.synthesisSequence || o.sequence) || '')).trim().toUpperCase();
+              o.__dupSeq = false;
+              if (!k) continue;
+              (__seen[k] = __seen[k] || []).push(o);
+            }
+            for (const k of Object.keys(__seen)) {
+              if (__seen[k].length < 2) continue;
+              for (const o of __seen[k]) o.__dupSeq = true;
+            }
           } catch (e) { }
 
           // The ONE place oligos get drawn. draw() runs down to 0.3 px/base rather than 1:
