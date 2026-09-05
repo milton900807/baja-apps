@@ -57,14 +57,35 @@ function (graph, genegraph_panel_layout, info) {
             } catch (e) { return null; }
         };
 
+        // An amplicon is a COMPOSITE -- two primers and sometimes a probe -- not an oligo with
+        // a sequence of its own, and its own xf is not the end of the product (see track.js,
+        // which reads the right primer's xf instead). So its span comes from its primers, and
+        // everything a reader wants from it (the two sequences, their Tms, the product size)
+        // lives one level down.
+        const isAmp = (x) => !!(x && x.left && x.right) || (x && x.type === 'amplicon');
+        const seqOf = (o) => (o && (o.sequence || o.synthesisSequence)) || '';
+        const tmOf = (o) => (o && isFinite(+o.tm)) ? +o.tm : null;
+
         const rows = oligos.map((x, i) => {
-            const g = genomic(x);
+            const amp = isAmp(x);
+            const xa = amp ? Math.floor(x.left.xi) : Math.floor(x.xi);
+            const xb = amp ? Math.floor(x.right.xf) : Math.floor(x.xf);
+            const g = genomic(amp ? { xi: xa, xf: xb } : x);
             return {
+                isAmplicon: amp,
+                fwd: amp ? seqOf(x.left) : '',
+                rev: amp ? seqOf(x.right) : '',
+                probe: amp ? seqOf(x.mid) : '',
+                fwdTm: amp ? tmOf(x.left) : null,
+                revTm: amp ? tmOf(x.right) : null,
+                probeTm: amp ? tmOf(x.mid) : null,
+                product: amp ? (isFinite(+x.size) ? +x.size : (xb - xa)) : null,
+                info: (x.info || ''),
                 rank: (x.rank != null ? x.rank : i + 1),
                 name: x.name || (modality + '-' + (i + 1)),
-                start: Math.floor(x.xi),
-                end: Math.floor(x.xf),
-                length: Math.abs(Math.floor(x.xf) - Math.floor(x.xi)),
+                start: xa,
+                end: xb,
+                length: Math.abs(xb - xa),
                 gStart: g ? g.start : null,
                 gEnd: g ? g.end : null,
                 score: scoreOf(x),
@@ -91,6 +112,54 @@ function (graph, genegraph_panel_layout, info) {
         // Is this run a duplex modality? Asked of the compounds rather than of the modality
         // name, so it stays right for anything else two-stranded that gets designed later.
         const anyDuplex = rows.some((r) => !!r.passenger);
+        const anyAmplicon = rows.some((r) => r.isAmplicon);
+
+        // ONE column definition, read by both the table and the sheet. They were drifting
+        // apart the moment a modality needed different columns, and a report whose export
+        // does not match what it shows on screen is worse than either alone.
+        const COLUMNS = anyAmplicon
+            ? [
+                ['#', 'Rank', (r) => r.rank, 'dim'],
+                ['Name', 'Name', (r) => r.name],
+                ['Span', 'Track start', (r) => r.start, 'dim'],
+                [null, 'Track end', (r) => r.end],
+                ['Product', 'Product (bp)', (r) => r.product, 'dim'],
+                [null, 'Genomic start', (r) => r.gStart],
+                [null, 'Genomic end', (r) => r.gEnd],
+                ['Forward', 'Forward primer', (r) => r.fwd, 'seq'],
+                ['Fwd Tm', 'Forward Tm (C)', (r) => r.fwdTm, 'dim'],
+                ['Reverse', 'Reverse primer', (r) => r.rev, 'seq'],
+                ['Rev Tm', 'Reverse Tm (C)', (r) => r.revTm, 'dim'],
+                ['Probe', 'Probe', (r) => r.probe, 'seq2'],
+                [null, 'Probe Tm (C)', (r) => r.probeTm],
+                ['Notes', 'Notes', (r) => r.info, 'dim']
+            ]
+            : [
+                ['#', 'Rank', (r) => r.rank, 'dim'],
+                ['Name', 'Name', (r) => r.name],
+                ['Site', 'Track start', (r) => r.start, 'dim'],
+                [null, 'Track end', (r) => r.end],
+                ['Len', 'Length', (r) => r.length, 'dim'],
+                [null, 'Genomic start', (r) => r.gStart],
+                [null, 'Genomic end', (r) => r.gEnd],
+                ['Score', 'Score', (r) => r.score],
+                ['GC%', 'GC%', (r) => r.gc, 'dim'],
+                ['Tm', 'Tm (C)', (r) => r.tm, 'dim'],
+                [(anyDuplex ? 'Guide (antisense)' : 'Sequence'),
+                    (anyDuplex ? 'Guide (antisense)' : 'Synthesis sequence'), (r) => r.sequence, 'seq']
+            ].concat(anyDuplex ? [
+                ['Passenger (sense)', 'Passenger (sense)', (r) => r.passenger, 'seq2'],
+                [null, 'Guide as synthesised', (r) => r.guideDuplex],
+                [null, 'Passenger as synthesised', (r) => r.senseDuplex]
+            ] : []).concat([
+                [null, 'Target site', (r) => r.target],
+                [null, 'HELM', (r) => r.structure],
+                [null, 'Off-target genes by ED', (r) => r.offtarget]
+            ]);
+
+        // A column with a null screen header is export-only: too wide or too incidental for
+        // the table, and wanted in the spreadsheet.
+        const SCREEN = COLUMNS.filter((c) => c[0] != null);
 
         // ---- what the algorithm actually did --------------------------------------------
         const facts = [];
@@ -105,6 +174,19 @@ function (graph, genegraph_panel_layout, info) {
         if (res.wing_modification) add('Wings', res.wing_modification);
         if (res.full_modification) add('Modification', res.full_modification);
         if (res.default_backbone) add('Backbone', res.default_backbone);
+        // djPrimer / primer3 report their own shape: how many candidates primer3 produced and
+        // the decision threshold the assay-success model ranked against.
+        if (res.n_candidates != null) add('Candidates designed', Number(res.n_candidates).toLocaleString());
+        if (res.n_returned != null) add('Candidates returned', res.n_returned);
+        if (res.decision_threshold_star != null) add('Decision threshold', num(res.decision_threshold_star, 3));
+        if (res.ct_threshold_used != null) add('Ct threshold used', num(res.ct_threshold_used, 2));
+        if (anyAmplicon) {
+            const ps = rows.map((r) => r.product).filter((v) => isFinite(v));
+            if (ps.length) add('Product size', Math.min.apply(null, ps) + '–' + Math.max.apply(null, ps) + ' bp');
+            const tms = rows.map((r) => r.fwdTm).concat(rows.map((r) => r.revTm)).filter((v) => v != null);
+            if (tms.length) add('Primer Tm range', num(Math.min.apply(null, tms), 1) + '–' + num(Math.max.apply(null, tms), 1) + ' C');
+            add('Probes', rows.filter((r) => r.probe).length + ' of ' + rows.length + ' amplicons carry one');
+        }
         if (res.output_alphabet) add('Output alphabet', res.output_alphabet);
         if (res.overhangs && (res.overhangs.sense || res.overhangs.antisense)) {
             add("3' overhangs", "sense " + (res.overhangs.sense || '—')
@@ -169,21 +251,11 @@ function (graph, genegraph_panel_layout, info) {
         const baseName = ((track && track.name) || 'design').replace(/[^A-Za-z0-9._-]+/g, '_')
             + '_' + modality.replace(/[^A-Za-z0-9]+/g, '') + '_' + stamp();
 
-        const sheetRows = () => {
-            // The duplex columns are only there when something in the run is a duplex, so an
-            // ASO sheet does not carry two empty columns and an siRNA sheet does not lose the
-            // passenger strand -- which is half of what gets ordered.
-            const head = ['Rank', 'Name', 'Track start', 'Track end', 'Length',
-                'Genomic start', 'Genomic end', 'Score', 'GC%', 'Tm (C)',
-                (anyDuplex ? 'Guide (antisense)' : 'Synthesis sequence')]
-                .concat(anyDuplex ? ['Passenger (sense)', 'Guide as synthesised', 'Passenger as synthesised'] : [])
-                .concat(['Target site', 'HELM', 'Off-target genes by ED']);
-            return [head].concat(rows.map((r) => [
-                r.rank, r.name, r.start, r.end, r.length,
-                r.gStart, r.gEnd, r.score, r.gc, r.tm, r.sequence
-            ].concat(anyDuplex ? [r.passenger, r.guideDuplex, r.senseDuplex] : [])
-                .concat([r.target, r.structure, r.offtarget])));
-        };
+        const sheetRows = () => [COLUMNS.map((c) => c[1])]
+            .concat(rows.map((r) => COLUMNS.map((c) => {
+                const v = c[2](r);
+                return (v === undefined) ? null : v;
+            })));
 
         // BED is 0-based half-open, and the score column is 0-1000 integer -- a 0-1 design
         // score written straight in would be read as "essentially zero" by every viewer that
@@ -285,29 +357,24 @@ function (graph, genegraph_panel_layout, info) {
             right.style.cssText = 'min-width:0;';
             const SHOW = 60;
             const cell = 'padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.07);font:12.5px Arial;white-space:nowrap;';
+            const tint = { dim: 'color:#c3d2e2;', seq: 'font-family:monospace;color:#9fe8c8;',
+                seq2: 'font-family:monospace;color:#c9b6ff;' };
+            const show = (v) => {
+                if (v === null || v === undefined || v === '') return '—';
+                return (typeof v === 'number') ? num(v, (Math.abs(v) >= 100 || v % 1 === 0) ? 0 : 2) : ('' + v);
+            };
             right.innerHTML = '<div style="font:700 11px Arial;letter-spacing:1.6px;text-transform:uppercase;'
                 + 'color:#7f9bb8;margin-bottom:10px;">The compounds'
                 + (rows.length > SHOW ? (' — first ' + SHOW + ' of ' + rows.length + ', all of them are in the exports') : '')
                 + '</div>'
                 + '<div style="overflow-x:auto;border:1px solid rgba(255,255,255,0.12);border-radius:10px;">'
                 + '<table style="border-collapse:collapse;width:100%;">'
-                + '<thead><tr>' + (['#', 'Name', 'Site', 'Len', 'Score', 'GC%', 'Tm',
-                    (anyDuplex ? 'Guide (antisense)' : 'Sequence')]
-                    .concat(anyDuplex ? ['Passenger (sense)'] : []))
-                    .map((h) => '<th style="' + cell + 'text-align:left;color:#9fb3c8;font-weight:700;'
-                        + 'position:sticky;top:0;background:#0b2545;">' + h + '</th>').join('') + '</tr></thead>'
-                + '<tbody>' + rows.slice(0, SHOW).map((r) => '<tr>'
-                    + '<td style="' + cell + 'color:#7f9bb8;">' + r.rank + '</td>'
-                    + '<td style="' + cell + '">' + esc(r.name) + '</td>'
-                    + '<td style="' + cell + 'color:#c3d2e2;">' + r.start + '–' + r.end + '</td>'
-                    + '<td style="' + cell + 'color:#c3d2e2;">' + r.length + '</td>'
-                    + '<td style="' + cell + '">' + (r.score == null ? '—' : num(r.score)) + '</td>'
-                    + '<td style="' + cell + 'color:#c3d2e2;">' + (r.gc == null ? '—' : num(r.gc, 1)) + '</td>'
-                    + '<td style="' + cell + 'color:#c3d2e2;">' + (r.tm == null ? '—' : num(r.tm, 1)) + '</td>'
-                    + '<td style="' + cell + 'font-family:monospace;color:#9fe8c8;">' + esc(r.sequence) + '</td>'
-                    + (anyDuplex ? ('<td style="' + cell + 'font-family:monospace;color:#c9b6ff;">'
-                        + esc(r.passenger || '—') + '</td>') : '')
-                    + '</tr>').join('') + '</tbody></table></div>';
+                + '<thead><tr>' + SCREEN.map((c) => '<th style="' + cell + 'text-align:left;color:#9fb3c8;'
+                    + 'font-weight:700;position:sticky;top:0;background:#0b2545;">' + esc(c[0]) + '</th>').join('')
+                + '</tr></thead><tbody>'
+                + rows.slice(0, SHOW).map((r) => '<tr>' + SCREEN.map((c) => '<td style="' + cell
+                    + (tint[c[3]] || '') + '">' + esc(show(c[2](r))) + '</td>').join('') + '</tr>').join('')
+                + '</tbody></table></div>';
 
             body.appendChild(left); body.appendChild(right);
             overlay.appendChild(head); overlay.appendChild(body);

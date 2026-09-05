@@ -1219,16 +1219,31 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             infoPrompt(' That track has no sequence to design against. ');
             return false;
         };
+        // What a primer run just PUT on the track. The apply-*.js scripts resolve with a
+        // count, not the objects, so the compounds are taken as the difference across the
+        // call. Diffing rather than changing their contract keeps two scripts with other
+        // callers out of it, and it is right for any placement route, including one that does
+        // not go through an apply script at all.
+        const __placedDuring = async (fn) => {
+            const before = new Set((selectedTrack && selectedTrack.oligos) || []);
+            await fn();
+            return ((selectedTrack && selectedTrack.oligos) || []).filter((o) => o && !before.has(o));
+        };
+
         const runPrimer3 = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
             const sequence = __wholeTrackSequence();
             graph.setMessage(' Generating primers (primer3)... ');
             const em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
-            const r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
-            await exec('baja/manchester/ppsets/apply-primer3.js', r, __designOffset(), selectedTrack, graph);
+            let r = null;
+            const placed = await __placedDuring(async () => {
+                r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
+                await exec('baja/manchester/ppsets/apply-primer3.js', r, __designOffset(), selectedTrack, graph);
+            });
             if (graph.wake) graph.wake();
             __ppRefresh();
+            __designDone('Primer-probe', placed, selectedTrack, 'primer3', r, '/py/ppsets/generate-ppsets.py');
         };
         const runDjprimer = async () => {
             if (!__needSequence()) return;
@@ -1237,11 +1252,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             const gene = selectedTrack.geneID || selectedTrack.name || '';
             const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
             graph.setMessage(' Designing primers (djPrimer)... ');
-            const r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
-            selectedTrack.ampliconResults = r;
-            await exec('baja/manchester/ppsets/apply-djprimer.js', r, __designOffset(), selectedTrack, graph);
+            let r = null;
+            const placed = await __placedDuring(async () => {
+                r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                selectedTrack.ampliconResults = r;
+                await exec('baja/manchester/ppsets/apply-djprimer.js', r, __designOffset(), selectedTrack, graph);
+            });
             if (graph.wake) graph.wake();
             __ppRefresh();
+            __designDone('Primer-probe', placed, selectedTrack, 'djPrimer assay-success ranking',
+                r, 'py/ppsets/models/find-primer-amplicons.py');
         };
         const runExonExon = async () => {
             if (!__needSequence()) return;
