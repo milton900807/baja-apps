@@ -41,6 +41,11 @@ function (opts) {
             const src = (typeof b.books === 'function') ? await b.books() : b.books;
             return Array.isArray(src) ? src : [];
         };
+        // The yellow that marks Back, and the ring built from it. Same value the canvas uses
+        // for a selection wash, so the app has one yellow rather than two that nearly match.
+        const BACK_YELLOW = '#ffd60a';
+        const BACK_RING = 'drop-shadow(1.5px 0 0 ' + BACK_YELLOW + ') drop-shadow(-1.5px 0 0 ' + BACK_YELLOW + ')'
+            + ' drop-shadow(0 1.5px 0 ' + BACK_YELLOW + ') drop-shadow(0 -1.5px 0 ' + BACK_YELLOW + ')';
         const id = o.id || 'baja-shelf';
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -63,9 +68,15 @@ function (opts) {
             //
             // clip-path CUTS the border off along the angled edge, so this carries a filled
             // background instead of an outline; a 1px border would come out sliced.
+            // The yellow outline is four drop-shadows rather than a border, because a border
+            // is drawn on the BOX and clip-path then cuts it off along the angled edge --
+            // which is why this control carries none. A drop-shadow is cast from the
+            // element's alpha, so it traces the clipped silhouette exactly, point included.
+            // Four offsets make a ring; the text sits on opaque fill, so nothing haloes it.
             + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;'
             + 'clip-path:polygon(0% 50%, 13px 0%, 100% 0%, 100% 100%, 13px 100%);'
             + 'border-radius:0 8px 8px 0;padding:9px 16px 9px 22px;font:700 13px Arial;border:0;'
+            + 'filter:' + BACK_RING + ';'
             + 'background:rgba(255,255,255,0.16);color:#fff;">\u2039 Back</button>'
             + '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">'
             + '<div id="shelf-title" style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
@@ -183,6 +194,7 @@ function (opts) {
                     + (isBack
                         ? 'border:0;clip-path:polygon(0% 50%, 18px 0%, 100% 0%, 100% 100%, 18px 100%);'
                         + 'border-radius:0 12px 12px 0;padding:16px 18px 16px 30px;'
+                        + 'filter:' + BACK_RING + ';'
                         : 'border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px 18px;')
                     + 'display:flex;flex-direction:column;gap:9px;'
                     + 'box-shadow:0 6px 18px rgba(0,0,0,0.28);' + (ready ? 'cursor:pointer;' : 'opacity:0.55;');
