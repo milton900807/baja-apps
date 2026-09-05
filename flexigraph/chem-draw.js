@@ -158,8 +158,25 @@ function () {
         //    the P raised above the backbone (sugar-low / P-high zig-zag), O–P–O bridging bonds,
         //    a non-bridging =O, and the defining substituent (=S gold for phosphorothioate PS,
         //    O⁻ for phosphodiester PO). Otherwise: a single chemistry-colored bond.
-        const CHEM_PER = 30;
+        // Two levels of backbone chemistry, because one was set so high that in practice
+        // there was none.
+        //
+        // The full phosphate group -- P raised off the backbone with its bridging oxygens and
+        // its =O and =S -- needs room, and at 30 px per residue a 16mer has to be 480 px wide
+        // on screen before it appears (a 20mer, 600). That is one compound filling half the
+        // canvas. At every zoom anyone actually works at, including the one where base letters
+        // are perfectly readable at 176 px, the backbone drew as an unadorned bond: the
+        // sugars and bases said what they were and the linkages said nothing.
+        //
+        // So the identity comes in far earlier than the anatomy. From 6 px per residue a
+        // linkage carries a NODE at the midpoint of its bond -- filled gold for
+        // phosphorothioate, hollow grey for phosphodiester -- which is the one fact about the
+        // backbone a reader needs at a glance and costs two arcs. The full group still takes
+        // over when there is room for it, now at 22 rather than 30.
+        const CHEM_PER = 22;
+        const NODE_PER = 6;
         const chemMode = !opts.thin && per >= CHEM_PER && !lowDetail;
+        const nodeMode = !opts.thin && per >= NODE_PER && per < CHEM_PER && !lowDetail;
         for (let i = 0; i < n - 1; i++) {
             const cx = x0 + (i + 0.5) * per, nx = x0 + (i + 1.5) * per;
             if (nx < visMin || cx > visMax) continue;   // off-screen linkage — skip
@@ -199,6 +216,22 @@ function () {
                 ctx.strokeStyle = LINK_COL[lk] || __darken(baseCol, 0.1);
                 ctx.lineWidth = Math.max(1.5, R * 0.55);
                 ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(nx, sy); ctx.stroke();
+                // The node: which chemistry this linkage is, without the anatomy. Filled for
+                // PS because it is the substituted one and the one a reader is usually
+                // checking for; hollow for PO so the two are told apart by more than a hue,
+                // which matters on a small mark.
+                if (nodeMode && (isPS || isPO)) {
+                    const nx2 = (cx + nx) / 2;
+                    const nr = Math.max(2, Math.min(4.5, R * 0.30));
+                    ctx.beginPath(); ctx.arc(nx2, sy, nr, 0, Math.PI * 2);
+                    if (isPS) {
+                        ctx.fillStyle = '#d9a520'; ctx.fill();
+                        ctx.lineWidth = 1; ctx.strokeStyle = '#8a6a10'; ctx.stroke();
+                    } else {
+                        ctx.fillStyle = '#0d2237'; ctx.fill();
+                        ctx.lineWidth = 1.2; ctx.strokeStyle = '#9aa6b2'; ctx.stroke();
+                    }
+                }
             }
         }
         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
