@@ -68,6 +68,12 @@ function (djresult, xoffset, track, graph) {
             // stagger vertically so overlapping amplicons stay individually visible/draggable
             amp.setY ? amp.setY(0.15 + (i % 7) * 0.1) : (amp.y = 0.15 + (i % 7) * 0.1);
             amp.size = +h.amp_len || (end - start);
+            // The probe sequence, when the designer produced one (the exon-exon route always
+            // does; djPrimer's SYBR path does not). Carried as DATA only -- not built into a
+            // mid Oligo -- so the track still gets a bare amplicon and renders exactly as it
+            // did, while the design report has the third oligo of a TaqMan assay to show. A
+            // primer-probe set reported as two primers is not the thing that gets ordered.
+            if (h.probe) amp.probeSequence = '' + h.probe;
             if (h.djprimer_probability != null) {
                 const p = (+h.djprimer_probability).toFixed(2);
                 amp.info = 'djPrimer p=' + p;

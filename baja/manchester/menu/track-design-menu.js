@@ -1266,9 +1266,27 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         const runExonExon = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
-            const r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', selectedTrack);
-            selectedTrack.ampliconResults = r;
-            showModal({ wid: 'json', data: JSON.stringify(r) });
+            graph.setMessage(' Designing junction-spanning primer-probes... ');
+            let r = null;
+            const placed = await __placedDuring(async () => {
+                r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', selectedTrack);
+                selectedTrack.ampliconResults = r;
+                // OFFSET 0, unlike the two routes above, and this is not an oversight.
+                //
+                // They are handed __wholeTrackSequence(), which is the SELECTION when there is
+                // one, so their amp_start is relative to it and __designOffset() puts it back.
+                // This one is handed the TRACK and reads track.sequence together with
+                // track.annotations -- it has to, because exon junctions are an annotation and
+                // a cut-out selection no longer describes them -- so its coordinates are
+                // already whole-track. Adding the offset would count the selection start twice
+                // and place every amplicon that far downstream of where it belongs.
+                await exec('baja/manchester/ppsets/apply-djprimer.js', r, 0, selectedTrack, graph);
+            });
+            if (graph.wake) graph.wake();
+            __ppRefresh();
+            __designDone('Primer-probe (exon-exon)', placed, selectedTrack,
+                'Junction-spanning, Ct-model ranked', r,
+                'py/ppsets/models/find-primer-amplicons-exon-exon.py');
         };
 
         // Compounds ▸ Highlight — make every compound on the track twinkle magenta.

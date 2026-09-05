@@ -75,7 +75,7 @@ function (graph, genegraph_panel_layout, info) {
                 isAmplicon: amp,
                 fwd: amp ? seqOf(x.left) : '',
                 rev: amp ? seqOf(x.right) : '',
-                probe: amp ? seqOf(x.mid) : '',
+                probe: amp ? (seqOf(x.mid) || x.probeSequence || '') : '',
                 fwdTm: amp ? tmOf(x.left) : null,
                 revTm: amp ? tmOf(x.right) : null,
                 probeTm: amp ? tmOf(x.mid) : null,
@@ -176,6 +176,19 @@ function (graph, genegraph_panel_layout, info) {
         if (res.default_backbone) add('Backbone', res.default_backbone);
         // djPrimer / primer3 report their own shape: how many candidates primer3 produced and
         // the decision threshold the assay-success model ranked against.
+        if (res.junction_count != null) {
+            add('Exon junctions', res.junction_count);
+            add('Junction filter', String(res.junction_filter || '')
+                .replace(/_/g, ' ')
+                // The script's own words for the two fallbacks, which are the answer to
+                // "why does this design not span a junction" and were previously only
+                // visible in a raw JSON dump.
+                .replace('amplicon spans exon junction', 'every amplicon spans an exon-exon junction')
+                .replace('no hits spanning junction fallback to unfiltered',
+                    'none spanned a junction — fell back to unfiltered top-N')
+                .replace('no exon junctions fallback to unfiltered',
+                    'this track has no exon junctions — fell back to unfiltered top-N'));
+        }
         if (res.n_candidates != null) add('Candidates designed', Number(res.n_candidates).toLocaleString());
         if (res.n_returned != null) add('Candidates returned', res.n_returned);
         if (res.decision_threshold_star != null) add('Decision threshold', num(res.decision_threshold_star, 3));
