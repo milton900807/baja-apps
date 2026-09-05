@@ -70,8 +70,16 @@ function (graph, genegraph_panel_layout, info) {
                 score: scoreOf(x),
                 gc: (x.gc_percent != null ? +x.gc_percent : null),
                 tm: (x.tm_c != null ? +x.tm_c : null),
+                // The SYNTHESIS sequence: for an ASO the oligo itself, for an siRNA the guide,
+                // which is what synthesisSequence already means on both classes.
                 sequence: x.synthesisSequence || x.antisense_display || x.sequence || '',
-                target: x.target_site_input_alphabet || x.target_site || '',
+                // A duplex has a second strand, and a report that shows only the guide is
+                // describing half the compound. Empty for a single-stranded ASO, and the
+                // column is dropped entirely when nothing in the run has one.
+                passenger: x.sense || x.senseCoreRna || '',
+                guideDuplex: x.synthesisSequenceDuplex || x.antisenseDuplex || '',
+                senseDuplex: x.senseDuplex || '',
+                target: x.target_site_input_alphabet || x.target_site || x.targetSiteRna || '',
                 structure: x.structure || '',
                 offtarget: (x.offtarget_genes_by_distance
                     ? Object.keys(x.offtarget_genes_by_distance)
@@ -79,6 +87,10 @@ function (graph, genegraph_panel_layout, info) {
                     : '')
             };
         });
+
+        // Is this run a duplex modality? Asked of the compounds rather than of the modality
+        // name, so it stays right for anything else two-stranded that gets designed later.
+        const anyDuplex = rows.some((r) => !!r.passenger);
 
         // ---- what the algorithm actually did --------------------------------------------
         const facts = [];
@@ -93,15 +105,35 @@ function (graph, genegraph_panel_layout, info) {
         if (res.wing_modification) add('Wings', res.wing_modification);
         if (res.full_modification) add('Modification', res.full_modification);
         if (res.default_backbone) add('Backbone', res.default_backbone);
-        const cov = res.coverage || {};
-        if (cov.candidates_scored != null) add('Candidates scored', cov.candidates_scored.toLocaleString());
-        if (cov.sites_returned != null) {
-            add('Distinct sites returned', cov.sites_returned
-                + (cov.first_site != null ? ('  (' + cov.first_site + '–' + cov.last_site + ')') : ''));
+        if (res.output_alphabet) add('Output alphabet', res.output_alphabet);
+        if (res.overhangs && (res.overhangs.sense || res.overhangs.antisense)) {
+            add("3' overhangs", "sense " + (res.overhangs.sense || '—')
+                + ", antisense " + (res.overhangs.antisense || '—'));
         }
-        if (cov.fraction_of_transcript_covered != null) {
-            add('Transcript covered', num(100 * cov.fraction_of_transcript_covered, 1) + '%'
-                + (cov.nt_covered != null ? ('  (' + cov.nt_covered.toLocaleString() + ' nt)') : ''));
+
+        // Coverage. The ASO scripts report their own; py/sirna/design.py reports only
+        // total_candidates, so the rest is derived from the compounds that were actually
+        // placed -- which gives every modality the same three lines rather than a report
+        // that is fuller for one of them because its script happens to say more.
+        const cov = res.coverage || {};
+        const scored = (cov.candidates_scored != null) ? cov.candidates_scored : res.total_candidates;
+        if (scored != null) add('Candidates scored', Number(scored).toLocaleString());
+        const starts = rows.map((r) => r.start).filter((v) => isFinite(v));
+        const sites = (cov.sites_returned != null) ? cov.sites_returned : new Set(starts).size;
+        const lo = (cov.first_site != null) ? cov.first_site : (starts.length ? Math.min.apply(null, starts) : null);
+        const hi = (cov.last_site != null) ? cov.last_site : (starts.length ? Math.max.apply(null, starts) : null);
+        if (sites) add('Distinct sites returned', sites + (lo != null ? ('  (' + lo + '–' + hi + ')') : ''));
+        let ntCov = cov.nt_covered, frac = cov.fraction_of_transcript_covered;
+        if (ntCov == null && rows.length) {
+            const seen = new Set();
+            for (const r of rows) for (let i = r.start; i <= r.end; i++) seen.add(i);
+            ntCov = seen.size;
+            const total = res.input_length || (track && track.sequence && track.sequence.length) || 0;
+            frac = total ? (ntCov / total) : null;
+        }
+        if (ntCov != null) {
+            add('Transcript covered', (frac != null ? (num(100 * frac, 1) + '%  ') : '')
+                + '(' + Number(ntCov).toLocaleString() + ' nt)');
         }
         if (res.selection_mode) {
             add('Selection', res.selection_mode === 'rank_order_across_sequence_space'
@@ -118,6 +150,16 @@ function (graph, genegraph_panel_layout, info) {
         const scores = rows.map((r) => r.score).filter((v) => v != null);
         if (scores.length) add('Score range', num(Math.max.apply(null, scores)) + ' … ' + num(Math.min.apply(null, scores)));
 
+        // py/sirna/design.py describes its own ranking in scoring_model -- the GC rule and the
+        // strand-selection rules that decide which strand loads. That IS the algorithm for
+        // this modality, in the script's own words, so it is shown rather than paraphrased.
+        const sm = res.scoring_model || {};
+        const rules = [];
+        if (sm.gc_rule) rules.push(sm.gc_rule);
+        for (const r of (sm.strand_selection_rules || [])) rules.push(r);
+        for (const r of (sm.penalties || [])) rules.push(r);
+        if (sm.windowing) add('Windowing', sm.windowing);
+
         // ---- exports ---------------------------------------------------------------------
         const stamp = () => {
             const d = new Date();
@@ -128,14 +170,19 @@ function (graph, genegraph_panel_layout, info) {
             + '_' + modality.replace(/[^A-Za-z0-9]+/g, '') + '_' + stamp();
 
         const sheetRows = () => {
+            // The duplex columns are only there when something in the run is a duplex, so an
+            // ASO sheet does not carry two empty columns and an siRNA sheet does not lose the
+            // passenger strand -- which is half of what gets ordered.
             const head = ['Rank', 'Name', 'Track start', 'Track end', 'Length',
                 'Genomic start', 'Genomic end', 'Score', 'GC%', 'Tm (C)',
-                'Synthesis sequence', 'Target site', 'HELM', 'Off-target genes by ED'];
+                (anyDuplex ? 'Guide (antisense)' : 'Synthesis sequence')]
+                .concat(anyDuplex ? ['Passenger (sense)', 'Guide as synthesised', 'Passenger as synthesised'] : [])
+                .concat(['Target site', 'HELM', 'Off-target genes by ED']);
             return [head].concat(rows.map((r) => [
                 r.rank, r.name, r.start, r.end, r.length,
-                r.gStart, r.gEnd, r.score, r.gc, r.tm,
-                r.sequence, r.target, r.structure, r.offtarget
-            ]));
+                r.gStart, r.gEnd, r.score, r.gc, r.tm, r.sequence
+            ].concat(anyDuplex ? [r.passenger, r.guideDuplex, r.senseDuplex] : [])
+                .concat([r.target, r.structure, r.offtarget])));
         };
 
         // BED is 0-based half-open, and the score column is 0-1000 integer -- a 0-1 design
@@ -225,7 +272,13 @@ function (graph, genegraph_panel_layout, info) {
                 + facts.map(([k, v]) => '<div style="display:flex;gap:10px;padding:5px 0;'
                     + 'border-bottom:1px solid rgba(255,255,255,0.06);">'
                     + '<div style="font:12.5px Arial;color:#9fb3c8;flex:0 0 46%;">' + esc(k) + '</div>'
-                    + '<div style="font:12.5px Arial;color:#e8f0fb;flex:1 1 auto;">' + esc(v) + '</div></div>').join('');
+                    + '<div style="font:12.5px Arial;color:#e8f0fb;flex:1 1 auto;">' + esc(v) + '</div></div>').join('')
+                + (rules.length
+                    ? ('<div style="font:700 11px Arial;letter-spacing:1.6px;text-transform:uppercase;'
+                        + 'color:#7f9bb8;margin:16px 0 8px;">Ranking rules</div>'
+                        + '<ul style="margin:0;padding-left:18px;font:12.5px/1.6 Arial;color:#c3d2e2;">'
+                        + rules.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>')
+                    : '');
 
             // right: the compounds
             const right = document.createElement('div');
@@ -238,7 +291,9 @@ function (graph, genegraph_panel_layout, info) {
                 + '</div>'
                 + '<div style="overflow-x:auto;border:1px solid rgba(255,255,255,0.12);border-radius:10px;">'
                 + '<table style="border-collapse:collapse;width:100%;">'
-                + '<thead><tr>' + ['#', 'Name', 'Site', 'Len', 'Score', 'GC%', 'Tm', 'Sequence']
+                + '<thead><tr>' + (['#', 'Name', 'Site', 'Len', 'Score', 'GC%', 'Tm',
+                    (anyDuplex ? 'Guide (antisense)' : 'Sequence')]
+                    .concat(anyDuplex ? ['Passenger (sense)'] : []))
                     .map((h) => '<th style="' + cell + 'text-align:left;color:#9fb3c8;font-weight:700;'
                         + 'position:sticky;top:0;background:#0b2545;">' + h + '</th>').join('') + '</tr></thead>'
                 + '<tbody>' + rows.slice(0, SHOW).map((r) => '<tr>'
@@ -250,6 +305,8 @@ function (graph, genegraph_panel_layout, info) {
                     + '<td style="' + cell + 'color:#c3d2e2;">' + (r.gc == null ? '—' : num(r.gc, 1)) + '</td>'
                     + '<td style="' + cell + 'color:#c3d2e2;">' + (r.tm == null ? '—' : num(r.tm, 1)) + '</td>'
                     + '<td style="' + cell + 'font-family:monospace;color:#9fe8c8;">' + esc(r.sequence) + '</td>'
+                    + (anyDuplex ? ('<td style="' + cell + 'font-family:monospace;color:#c9b6ff;">'
+                        + esc(r.passenger || '—') + '</td>') : '')
                     + '</tr>').join('') + '</tbody></table></div>';
 
             body.appendChild(left); body.appendChild(right);
