@@ -2047,42 +2047,42 @@ function (graph, genegraph_panel_layout) {
                                         //  - djPrimer: primer3 design ranked by the assay-success model.
                                         // Hoisted out of the Primer-probes item so that item can be a
                                         // nested LIBRARY level rather than a click that opens a menu.
-                                const runPrimer3 = async () => {
-                                    graph.pushOntoHistory();
-                                    graph.clearMouseListeners();
-                                    for (let selectedTrack of graph.track) {
-                                        if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
-                                            let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
-                                            graph.setMessage(' Generating primers (primer3)... ');
-                                            let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
-                                            let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
-                                            await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
-                                            if (graph.wake) graph.wake();
-                                        }
-                                    }
-                                    // Primers placed — return to mouse-over-highlight + navigate mode.
-                                    graph.setMouseMode('navigate');
-                                    try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                };
-                                const runDjprimer = async () => {
-                                    graph.pushOntoHistory();
-                                    graph.clearMouseListeners();
-                                    for (let selectedTrack of graph.track) {
-                                        if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
-                                            let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
-                                            const gene = selectedTrack.geneID || selectedTrack.name || '';
-                                            const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-                                            graph.setMessage(' Designing primers (djPrimer)... ');
-                                            let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
-                                            selectedTrack.ampliconResults = r;
-                                            await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
-                                            if (graph.wake) graph.wake();
-                                        }
-                                    }
-                                    // Primers placed — return to mouse-over-highlight + navigate mode.
-                                    graph.setMouseMode('navigate');
-                                    try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
-                                };
+                                        const runPrimer3 = async () => {
+                                            graph.pushOntoHistory();
+                                            graph.clearMouseListeners();
+                                            for (let selectedTrack of graph.track) {
+                                                if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                                    let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                                    graph.setMessage(' Generating primers (primer3)... ');
+                                                    let em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
+                                                    let r = await exec('/py/ppsets/generate-ppsets.py', em, '' + sequence, '', 1);
+                                                    await exec('baja/manchester/ppsets/apply-primer3.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                                    if (graph.wake) graph.wake();
+                                                }
+                                            }
+                                            // Primers placed — return to mouse-over-highlight + navigate mode.
+                                            graph.setMouseMode('navigate');
+                                            try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                        };
+                                        const runDjprimer = async () => {
+                                            graph.pushOntoHistory();
+                                            graph.clearMouseListeners();
+                                            for (let selectedTrack of graph.track) {
+                                                if (selectedTrack && selectedTrack.markend > selectedTrack.markstart) {
+                                                    let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
+                                                    const gene = selectedTrack.geneID || selectedTrack.name || '';
+                                                    const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
+                                                    graph.setMessage(' Designing primers (djPrimer)... ');
+                                                    let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                                                    selectedTrack.ampliconResults = r;
+                                                    await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
+                                                    if (graph.wake) graph.wake();
+                                                }
+                                            }
+                                            // Primers placed — return to mouse-over-highlight + navigate mode.
+                                            graph.setMouseMode('navigate');
+                                            try { graph.clearMouseListeners(); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
+                                        };
                                         const lll = [
                                             {
                                                 'label': 'Primer-probes',
@@ -3212,58 +3212,58 @@ function (graph, genegraph_panel_layout) {
                     //         }
                     //     }
                     // },
-                    {
-                        label: 'Layers',
-                        click: async () => {
-                            graph.showSideMenu(null)
+                    // {
+                    //     label: 'Layers',
+                    //     click: async () => {
+                    //         graph.showSideMenu(null)
 
-                            const golist = [
-                            ];
+                    //         const golist = [
+                    //         ];
 
-                            golist.push({
-                                label: selectedTrack.showLayers ? 'Hide' : 'Show',
-                                click: () => {
-                                    selectedTrack.showLayers = !selectedTrack.showLayers;
-                                    graph.rescale();
-                                }
-                            });
+                    //         golist.push({
+                    //             label: selectedTrack.showLayers ? 'Hide' : 'Show',
+                    //             click: () => {
+                    //                 selectedTrack.showLayers = !selectedTrack.showLayers;
+                    //                 graph.rescale();
+                    //             }
+                    //         });
 
-                            // Data / Models live HERE — this is the Layers menu that actually
-                            // renders (it reaches track_list via ...golist). The other 'Layers'
-                            // entry further down is shadowed by this one.
-                            golist.push({
-                                // Data opens the Data Resources Library directly rather than
-                                // expanding a short list of shortcuts into it. The library is the
-                                // catalogue; a submenu naming three of its shelves was a second,
-                                // narrower index of the same thing. '...' not '▸': it opens a
-                                // panel, it is not a submenu.
-                                label: 'Data...',
-                                move: () => { },
-                                click: async () => {
-                                    graph.showSideMenu(null);
-                                    await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
-                                }
-                            });
+                    //         // Data / Models live HERE — this is the Layers menu that actually
+                    //         // renders (it reaches track_list via ...golist). The other 'Layers'
+                    //         // entry further down is shadowed by this one.
+                    //         golist.push({
+                    //             // Data opens the Data Resources Library directly rather than
+                    //             // expanding a short list of shortcuts into it. The library is the
+                    //             // catalogue; a submenu naming three of its shelves was a second,
+                    //             // narrower index of the same thing. '...' not '▸': it opens a
+                    //             // panel, it is not a submenu.
+                    //             label: 'Data...',
+                    //             move: () => { },
+                    //             click: async () => {
+                    //                 graph.showSideMenu(null);
+                    //                 await exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
+                    //             }
+                    //         });
 
-                            golist.push({
-                                // Models opens the ML Models Library rather than listing model
-                                // names: the library carries what each one predicts and what it
-                                // cannot, which is the part worth reading before running it. The
-                                // runners fall back to the SELECTED track when not handed one,
-                                // so launching from the library still acts on this track.
-                                label: 'Models...',
-                                move: () => { },
-                                click: async () => {
-                                    graph.showSideMenu(null);
-                                    // From a TRACK menu: this track is the target, so it is passed in rather than
-                                    // left to be guessed from the selection.
-                                    await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
-                                }
-                            });
+                    //         golist.push({
+                    //             // Models opens the ML Models Library rather than listing model
+                    //             // names: the library carries what each one predicts and what it
+                    //             // cannot, which is the part worth reading before running it. The
+                    //             // runners fall back to the SELECTED track when not handed one,
+                    //             // so launching from the library still acts on this track.
+                    //             label: 'Models...',
+                    //             move: () => { },
+                    //             click: async () => {
+                    //                 graph.showSideMenu(null);
+                    //                 // From a TRACK menu: this track is the target, so it is passed in rather than
+                    //                 // left to be guessed from the selection.
+                    //                 await exec('baja/ml/models-library.js', graph, genegraph_panel_layout, selectedTrack ? [selectedTrack] : []);
+                    //             }
+                    //         });
 
-                            graph.showSideMenu(golist, null, "Layers");
-                        }
-                    },
+                    //         graph.showSideMenu(golist, null, "Layers");
+                    //     }
+                    // },
                     {
                         // Sequence-specific operations for THIS track. Everything here acts on
                         // the current selection (markstart/markend) when there is one and on the
@@ -4412,11 +4412,23 @@ function (graph, genegraph_panel_layout) {
                         label: 'Layers ▸',
                         click: async (scx, scy) => {
 
+                            // The three actions below EDIT layers that already exist. Offering
+                            // them on a track with none is a menu describing work that cannot be
+                            // done: each one opened, checked, and closed again with "that track
+                            // has no layers" -- an answer the menu had before it was clicked and
+                            // could have given by not being there.
+                            //
+                            // Counted once, here, because the menu is rebuilt each time it opens,
+                            // so this is as current as anything the items could read for
+                            // themselves. The guards inside them stay: a layer can be removed by
+                            // something else while the menu sits open, and the last one deleted
+                            // must not leave a live Delete behind it.
+                            //
+                            // The loaders below are untouched -- Data, Models and New ADD layers,
+                            // which is exactly what a track with none needs offered.
+                            const __layerCount = ((selectedTrack && selectedTrack.track_layers) || []).length;
                             const golist = [
-
-
-
-
+                                ...(__layerCount ? [
                                 {
                                     // Edit the layers this track ALREADY has: show/hide, remove,
                                     // interaction, background, per layer and in bulk.
@@ -4506,7 +4518,8 @@ function (graph, genegraph_panel_layout) {
                                             { label: 'Cancel', move: () => { }, click: () => { showSideMenuDelayed(golist, undefined, undefined, 'Layers ▸'); } }
                                         ], null, 'Remove all layers ▸');
                                     }
-                                },
+                                }
+                                ] : []),
                                 {
                                     // The library of data classes that can become layers —
                                     // RNASeq opens the RNASeq Library, which loads a chosen
