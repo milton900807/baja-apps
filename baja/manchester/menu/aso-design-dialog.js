@@ -15,7 +15,17 @@ function (kind) {
             const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:8px 10px;font:13px Arial;';
             const panel = document.createElement('div');
             panel.id = 'baja-aso-design';
-            panel.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:86vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+            // Maximized, like the libraries it sits among and the report the run ends in
+            // (baja/lib/shelf.js, design-summary.js). It was a 560px card floating on the
+            // canvas, which is the wrong shape for the last decision before a design: the
+            // Advanced side is eight fields deep and scrolled inside its own box while most
+            // of the screen sat empty behind it.
+            //
+            // Full-bleed, but the FORM stays a column. Text inputs stretched to the width of
+            // a monitor are harder to use, not easier; what the extra room buys is every
+            // field visible at once rather than a wider field.
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
 
             // Template chemistry options. Gapmer: the WING chemistry (the gap stays DNA). Steric-
             // blocking: the FULL-length chemistry — including PMO (phosphorodiamidate morpholino),
@@ -26,9 +36,21 @@ function (kind) {
             const wingSelect = (id, sel) => '<select id="' + id + '" style="' + inp + '">'
                 + wingOptions.map((w) => '<option value="' + w + '"' + (w === sel ? ' selected' : '') + '>' + (w === 'PMO' ? 'PMO (morpholino)' : w) + '</option>').join('') + '</select>';
 
+            // Header in the same navy language as every other maximized surface, with the two
+            // actions in it rather than at the foot of a scrolling form -- where Run design
+            // would have been below the fold on the Advanced side.
             panel.innerHTML = ''
-                + '<div style="font:700 17px Arial;margin-bottom:2px;">' + title + '</div>'
-                + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">Choose Default, or Advanced to tune the design algorithm.</div>'
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
+                + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">' + title + '</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">Choose Default, or Advanced to tune the design algorithm.</div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                + '<button id="ad-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                + '<button id="ad-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
+                + '</div></div>'
+                + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
+                + '<div style="width:100%;max-width:640px;margin:0 auto;">'
                 + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
                 + '<button id="ad-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
                 + '<button id="ad-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
@@ -50,10 +72,7 @@ function (kind) {
                 + '<label style="font:13px Arial;color:#e8f0fb;display:flex;align-items:center;gap:8px;margin-top:12px;"><input type="checkbox" id="ad-overlap"/> Include overlapping layouts of the same site</label>'
                 + '<div style="font:11.5px Arial;color:#9fb3c8;margin:4px 0 0 26px;">Off, the design walks the ranking and takes one candidate per site, so it spans the transcript. On, it returns the global top N, which is mostly the same few sites at different lengths and gap sizes.</div>'
                 + '</div>'
-                + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
-                + '<button id="ad-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
-                + '<button id="ad-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
-                + '</div>';
+                + '</div></div>';
             document.body.appendChild(panel);
 
             const q = (id) => panel.querySelector(id);
