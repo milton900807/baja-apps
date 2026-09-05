@@ -517,16 +517,101 @@ function (graph, genegraph_panel_layout, oligos, options) {
                 }
 
                 // Navy DOM overlay matching the demo.js popup look-and-feel (instead of a wid modal).
+                // ---- the results, per compound ------------------------------------------
+                // The panel used to be statistics only: how many hits in total, how many genes
+                // across the run. Which COMPOUND carries them is the question the run was asked,
+                // and it was the one thing the report did not answer -- you had to go back to the
+                // canvas and inspect them one at a time.
+                const __sym = (o) => (o && o.offtargetsymbols) ? o.offtargetsymbols.filter(Boolean) : [];
+                const resultRows = (oligos || []).map((o, i) => {
+                    const hits = __offCount(o);
+                    const syms = __sym(o);
+                    return {
+                        name: (o && o.name) || ('compound ' + (i + 1)),
+                        seq: (o && (o.synthesisSequence || o.sequence)) || '',
+                        len: ((o && (o.synthesisSequence || o.sequence)) || '').length || null,
+                        hits: hits,
+                        genes: syms.length,
+                        top: syms.slice(0, 6).join(', ')
+                    };
+                // Worst first. A report of a screen is read to find what to drop, so the
+                // compounds that fail it are the ones that should not need scrolling to.
+                }).sort((a, b) => (b.hits - a.hits) || (b.genes - a.genes));
+
+                const __stamp = () => {
+                    const d = new Date(), z = (n) => (n < 10 ? '0' : '') + n;
+                    return d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '-' + z(d.getHours()) + z(d.getMinutes());
+                };
+                const baseName = 'offtargets_' + (dataset || 'index').replace(/[^A-Za-z0-9._-]+/g, '_') + '_' + __stamp();
+                const META = [
+                    ['Dataset (index)', dataset],
+                    ['Edit distance', '<= ' + __editDistance + ', both strands'],
+                    ['Search mode', (returnMode || 'editdistance')],
+                    ['Compounds run', oligos.length],
+                    ['Queries run', queriesRun],
+                    ['Compounds with off-targets', withHits + ' / ' + oligos.length],
+                    ['Total off-target hits', totalHits.toLocaleString()],
+                    ['Distinct gene symbols', distinctSymbols.size.toLocaleString()],
+                    ['Elapsed time', elapsedS.toFixed(1) + ' s']
+                ];
+                const COLS = ['Compound', 'Length', 'Off-target hits', 'Distinct genes', 'Nearest genes', 'Sequence'];
+                const asRow = (r) => [r.name, r.len, r.hits, r.genes, r.top, r.seq];
+
                 const __closeReport = () => { try { const p = document.getElementById('baja-ott-report'); if (p && p.parentNode) p.parentNode.removeChild(p); } catch (e) { } };
                 __closeReport();
                 const panelEl = document.createElement('div');
                 panelEl.id = 'baja-ott-report';
-                panelEl.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(' + (single ? 640 : 520) + 'px,92vw);'
-                    + 'max-height:82vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);'
-                    + 'border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:16px;';
-                panelEl.innerHTML = html;
+                // Maximized, like the design report this is the other half of. A run over a
+                // hundred compounds has a hundred rows of answer; a 520px card could show the
+                // totals and nothing else, which is how it came to show only the totals.
+                panelEl.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                    + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+
+                const headEl = document.createElement('div');
+                headEl.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                    + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
+                    + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
+                headEl.innerHTML = '<div style="min-width:0;">'
+                    + '<div style="font:700 20px Arial;">Off-target run complete</div>'
+                    + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
+                    + oligos.length + ' compound' + (oligos.length === 1 ? '' : 's') + ' against '
+                    + (dataset || 'the index') + ', edit distance \u2264 ' + __editDistance
+                    + '  \u00b7  ' + withHits + ' with off-targets, ' + totalHits.toLocaleString() + ' hits</div></div>';
+
+                const bodyEl = document.createElement('div');
+                bodyEl.style.cssText = 'flex:1 1 auto;overflow:auto;padding:18px 22px 28px;'
+                    + 'display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:22px;align-items:start;';
+                const leftEl = document.createElement('div');
+                leftEl.innerHTML = html;
+                const rightEl = document.createElement('div');
+                rightEl.style.cssText = 'min-width:0;';
+                const SHOW = 200;
+                const cellCss = 'padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.07);font:12.5px Arial;white-space:nowrap;';
+                rightEl.innerHTML = '<div style="font:700 11px Arial;letter-spacing:1.6px;text-transform:uppercase;'
+                    + 'color:#7f9bb8;margin-bottom:10px;">Per compound, worst first'
+                    + (resultRows.length > SHOW ? (' \u2014 first ' + SHOW + ' of ' + resultRows.length
+                        + ', all of them are in the downloads') : '') + '</div>'
+                    + '<div style="overflow-x:auto;border:1px solid rgba(255,255,255,0.12);border-radius:10px;">'
+                    + '<table style="border-collapse:collapse;width:100%;"><thead><tr>'
+                    + COLS.map((c) => '<th style="' + cellCss + 'text-align:left;color:#9fb3c8;font-weight:700;'
+                        + 'position:sticky;top:0;background:#0b2545;">' + c + '</th>').join('')
+                    + '</tr></thead><tbody>'
+                    + resultRows.slice(0, SHOW).map((r) => {
+                        const bad = r.hits > 0;
+                        return '<tr>'
+                            + '<td style="' + cellCss + '">' + ('' + r.name).replace(/</g, '&lt;') + '</td>'
+                            + '<td style="' + cellCss + 'color:#c3d2e2;">' + (r.len == null ? '\u2014' : r.len) + '</td>'
+                            + '<td style="' + cellCss + 'font-weight:700;color:' + (bad ? '#ff8c2f' : '#4ade80') + ';">' + r.hits + '</td>'
+                            + '<td style="' + cellCss + 'color:#c3d2e2;">' + r.genes + '</td>'
+                            + '<td style="' + cellCss + 'color:#c3d2e2;">' + (('' + r.top).replace(/</g, '&lt;') || '\u2014') + '</td>'
+                            + '<td style="' + cellCss + 'font-family:monospace;color:#9fe8c8;">'
+                            + ('' + r.seq).replace(/</g, '&lt;') + '</td></tr>';
+                    }).join('')
+                    + '</tbody></table></div>';
+                bodyEl.appendChild(leftEl); bodyEl.appendChild(rightEl);
+
                 const rowEl = document.createElement('div');
-                rowEl.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:14px;';
+                rowEl.style.cssText = 'margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;';
                 const mkBtn = (label, primary, onClick) => {
                     const b = document.createElement('button');
                     b.textContent = label;
@@ -538,14 +623,52 @@ function (graph, genegraph_panel_layout, oligos, options) {
                     b.onclick = onClick;
                     return b;
                 };
+                const __say = (m) => { try { graph.setResultMessage(' ' + m + ' '); } catch (e) { } };
+                // The whole run leaves in either download, not the first 200 rows the table
+                // shows: the table is for reading, the file is for keeping.
+                rowEl.appendChild(mkBtn('\u2b73 Excel (.xlsx)', false, async () => {
+                    try {
+                        const X = await exec('baja/io/xlsx-writer.js');
+                        X.download([COLS].concat(resultRows.map(asRow)), baseName + '.xlsx', 'Off-targets');
+                        __say(resultRows.length + ' compounds exported to ' + baseName + '.xlsx');
+                    } catch (e) { __say('Excel export failed: ' + (e && e.message ? e.message : e)); }
+                }));
+                rowEl.appendChild(mkBtn('\u2b73 PDF', false, async () => {
+                    try {
+                        const P = await exec('baja/io/pdf-writer.js');
+                        P.download({
+                            title: 'Off-target screen',
+                            subtitle: dataset + ', edit distance <= ' + __editDistance
+                                + ', both strands \u2014 ' + new Date().toLocaleString(),
+                            meta: META,
+                            columns: COLS,
+                            rows: resultRows.map(asRow),
+                            filename: baseName + '.pdf'
+                        });
+                        __say(resultRows.length + ' compounds exported to ' + baseName + '.pdf');
+                    } catch (e) { __say('PDF export failed: ' + (e && e.message ? e.message : e)); }
+                }));
                 // Link to the off-target MAPPING panel (load & map onto any off-target transcript/
                 // gene) — shown for a single-oligo report whenever it actually has off-targets.
                 if (single && __anyOff) rowEl.appendChild(mkBtn('↗ Off-target mapper', false, () => { __closeReport(); try { exec('baja/manchester/menu/off-target-summary.js', graph, single, genegraph_panel_layout); } catch (e) { try { graph.setMessage(' Mapper failed: ' + (e && e.message ? e.message : e)); } catch (e2) { } } }));
                 if (__anyOff) rowEl.appendChild(mkBtn('Filter by off-targets', false, () => { __closeReport(); exec('baja/manchester/menu/annotation/filter-compounds-panel.js', graph, genegraph_panel_layout); }));
                 rowEl.appendChild(mkBtn('Continue designing', false, () => { __closeReport(); exec('baja/manchester/menu/compound-editor.js', graph, genegraph_panel_layout); }));
                 rowEl.appendChild(mkBtn('Close', true, () => { __closeReport(); }));
-                panelEl.appendChild(rowEl);
+                headEl.appendChild(rowEl);
+                panelEl.appendChild(headEl);
+                panelEl.appendChild(bodyEl);
                 document.body.appendChild(panelEl);
+                // Escape closes it, like every other maximized surface.
+                try {
+                    const __k = (ev) => {
+                        try {
+                            if (ev.key !== 'Escape') return;
+                            document.removeEventListener('keydown', __k, true);
+                            __closeReport();
+                        } catch (e) { }
+                    };
+                    document.addEventListener('keydown', __k, true);
+                } catch (e) { }
                 // Wire the ↗ Map buttons (single-oligo report) to the off-target mapper.
                 if (single) {
                     try {
