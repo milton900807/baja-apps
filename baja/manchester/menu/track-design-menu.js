@@ -287,6 +287,40 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // and a design that placed NONE looked like a design that had not finished.
     //
     // setResultMessage, not setMessage: the canvas draws only error and result toasts.
+    // How far apart the compounds land. Each one rings 120 ms after the one before it, so a
+    // run is a sequence of arrivals rather than everything appearing at once -- which is what
+    // makes it possible to see WHERE they went.
+    //
+    // The report waits that out. It used to open the moment the last addOligo returned, while
+    // the compounds were still arriving underneath it: a full-screen panel over the one part
+    // of the run worth watching, and over a track that did not yet hold what the panel was
+    // describing.
+    const LAND_STAGGER_MS = 120;
+    // A hundred compounds would otherwise hold the report for twelve seconds. Past a couple of
+    // seconds the arrivals have made their point and the wait is just a wait.
+    const LAND_CAP_MS = 2400;
+    const __landingTime = (n) => Math.min(LAND_CAP_MS, Math.max(0, ((n | 0) - 1)) * LAND_STAGGER_MS) + 260;
+
+    // Are they all actually ON the track? The timer above covers the animation; this covers
+    // the placement, which is what the request was about. Polled rather than assumed because
+    // a modality can add asynchronously, and it gives up rather than hanging: a report that
+    // never opens is worse than one that opens a moment early.
+    const __whenPlaced = (track, oligos) => new Promise((resolve) => {
+        const list = (oligos || []).filter(Boolean);
+        if (!list.length || !track) { resolve(false); return; }
+        const t0 = Date.now();
+        const tick = () => {
+            let on = [];
+            try { on = track.oligos || []; } catch (e) { on = []; }
+            let missing = 0;
+            for (const o of list) if (on.indexOf(o) < 0) missing++;
+            if (!missing) { resolve(true); return; }
+            if (Date.now() - t0 > 4000) { resolve(false); return; }
+            setTimeout(tick, 60);
+        };
+        tick();
+    });
+
     const __designDone = (modality, oligos, track, chemistry, result, algorithm) => {
         try {
             const n = (oligos && oligos.length) | 0;
@@ -314,16 +348,23 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             // The report. The toast above says how many; this says how, and is where the
             // exports and the off-target run live. Every modality reaches it through this one
             // function, so none of them can end without one.
-            try {
-                exec('baja/manchester/menu/design-summary.js', graph, genegraph_panel_layout, {
-                    modality: modality,
-                    algorithm: algorithm,
-                    chemistry: chemistry,
-                    track: track,
-                    oligos: oligos,
-                    result: result
-                });
-            } catch (e) { }
+            //
+            // Opened only once every compound is on the track AND the last of them has landed.
+            // The toast still goes up immediately, so the run is never silent while this waits.
+            (async () => {
+                try {
+                    const placed = await __whenPlaced(track, oligos);
+                    await new Promise((r) => setTimeout(r, placed ? __landingTime(n) : 0));
+                    exec('baja/manchester/menu/design-summary.js', graph, genegraph_panel_layout, {
+                        modality: modality,
+                        algorithm: algorithm,
+                        chemistry: chemistry,
+                        track: track,
+                        oligos: oligos,
+                        result: result
+                    });
+                } catch (e) { }
+            })();
         } catch (e) { }
     };
 
@@ -621,7 +662,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                     // see where they fall on the track (like ASO design).
                                     try {
                                         const __gi = sirnas.length;
-                                        setTimeout(() => { try { sirna.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __gi * 120);
+                                        setTimeout(() => { try { sirna.highlight(1800, 'magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __gi * LAND_STAGGER_MS);
                                     } catch (e) { }
                                 }
 
@@ -886,7 +927,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 track.addOligo(oligo);
                                 // Bright landing bling, staggered by add order, so each ASO is seen landing.
                                 try {
-                                    const __d = (__gi++) * 120;
+                                    const __d = (__gi++) * LAND_STAGGER_MS;
                                     setTimeout(() => { try { if (oligo.highlight) oligo.highlight(1800, 'magenta'); else if (oligo.landingBurst) oligo.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
                                 } catch (e) { }
                             }
@@ -1064,7 +1105,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 track.addOligo(oligo);
                                 // Bright landing bling, staggered by add order, so each ASO is seen landing.
                                 try {
-                                    const __d = (__gi++) * 120;
+                                    const __d = (__gi++) * LAND_STAGGER_MS;
                                     setTimeout(() => { try { if (oligo.highlight) oligo.highlight(1800, 'magenta'); else if (oligo.landingBurst) oligo.landingBurst('magenta'); if (graph.wake) graph.wake(); } catch (e) { } }, __d);
                                 } catch (e) { }
                             }
