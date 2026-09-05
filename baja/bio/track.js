@@ -6454,6 +6454,28 @@ return new Promise(async (resolve, reject) => {
       ctx.rect(clipX, clipY, clipW, clipH);
       ctx.clip();
 
+
+
+
+      if (this.showResizeBar) {
+        if (!this.description) {
+          this.description = "";
+        }
+        // Selected track: lighten the background a bit more (no border).
+        const _sx = graph.X(this.tgraph.xi);
+        const _sy = graph.Y(this.tgraph.yi);
+        const _sw = graph.screenWidth(this.tgraph.width);
+        const _sh = graph.screenHeight(-1 * this.tgraph.height);
+        ctx.save();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        // Lighter: at 0.28 the wash sat visibly over the base letters and the layers, and
+        // it covers the WHOLE track, so on a track with a sequence selected it was the
+        // largest thing on screen. It only has to say "this one is selected".
+        ctx.fillStyle = 'rgba(224,242,254,0.46)';   // light blue-white wash
+        ctx.fillRect(_sx, _sy, _sw, _sh);
+        ctx.restore();
+      }
       // THE SELECTED BASES, marked on the track.
       //
       // Drawn HERE, first, so the sequence letters and every layer land on top of it. The
@@ -6477,7 +6499,7 @@ return new Promise(async (resolve, reject) => {
             ctx.save();
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
-            ctx.fillStyle = 'rgba(255,205,45,0.055)';
+            ctx.fillStyle = 'rgba(255,205,45,0.155)';
             ctx.fillRect(__sx, __sy, __sw, __sh);
             ctx.restore();
           }
@@ -7134,7 +7156,24 @@ return new Promise(async (resolve, reject) => {
                 o.showOfftargets = this.showOfftargets;
 
                 o.draw(graph, this.tgraph, y);
-              } catch (e) { }
+              } catch (e) {
+                // NOT silent. This is the call that draws every compound on the board, and
+                // an empty catch here means a compound that throws renders as whatever was
+                // on the canvas before it -- a bare line, or nothing -- with no error
+                // anywhere. A rendering bug then looks like a drawing decision, which is
+                // several rounds of looking in the wrong place.
+                //
+                // Once per message: a throw in draw() repeats every frame, and a console
+                // filling at 60 fps is its own kind of silence.
+                try {
+                    const k = ((e && e.message) || ('' + e)) + ' | type=' + (o && o.type);
+                    window.__bajaDrawErr = window.__bajaDrawErr || {};
+                    if (!window.__bajaDrawErr[k]) {
+                        window.__bajaDrawErr[k] = 1;
+                        console.error('[track] compound draw failed —', o && o.name, '(type ' + (o && o.type) + ')', e);
+                    }
+                } catch (e2) { }
+              }
             }
           } else {
             for (let o of visOligos) {
@@ -8242,25 +8281,7 @@ return new Promise(async (resolve, reject) => {
           } catch (exception) { }
         }
 
-        if (this.showResizeBar) {
-          if (!this.description) {
-            this.description = "";
-          }
-          // Selected track: lighten the background a bit more (no border).
-          const _sx = graph.X(this.tgraph.xi);
-          const _sy = graph.Y(this.tgraph.yi);
-          const _sw = graph.screenWidth(this.tgraph.width);
-          const _sh = graph.screenHeight(-1 * this.tgraph.height);
-          ctx.save();
-          ctx.shadowColor = 'transparent';
-          ctx.shadowBlur = 0;
-          // Lighter: at 0.28 the wash sat visibly over the base letters and the layers, and
-          // it covers the WHOLE track, so on a track with a sequence selected it was the
-          // largest thing on screen. It only has to say "this one is selected".
-          ctx.fillStyle = 'rgba(224,242,254,0.16)';   // light blue-white wash
-          ctx.fillRect(_sx, _sy, _sw, _sh);
-          ctx.restore();
-        }
+
         if (this.showOligoMap) {
           for (let o of this.oligos) {
             graph.drawVerticalLineScreen(graph.X(this.tgraph.X(o.xi)), graph.Y(this.tgraph.Y(o.y)), 5, GX_START, 2);

@@ -4631,8 +4631,21 @@ return new Promise(async (resolve, reject) => {
                 if (screencell > 0.3) {
                     for (let o of visOligos) {
                         o.showOfftargets = this.showOfftargets;
-
-                        o.draw(graph, this.grid, y);
+                        // Unguarded here, deliberately: one compound that throws would take
+                        // the whole track's draw with it. Guarded AND reported, like track.js.
+                        try {
+                            o.draw(graph, this.grid, y);
+                        } catch (e) {
+                            try {
+                                const k = ((e && e.message) || ('' + e)) + ' | type=' + (o && o.type);
+                                window.__bajaDrawErr = window.__bajaDrawErr || {};
+                                if (!window.__bajaDrawErr[k]) {
+                                    window.__bajaDrawErr[k] = 1;
+                                    console.error('[track-flexi] compound draw failed —', o && o.name,
+                                        '(type ' + (o && o.type) + ')', e);
+                                }
+                            } catch (e2) { }
+                        }
                     }
                 } else {
                     for (let o of visOligos) {
