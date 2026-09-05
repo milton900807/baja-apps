@@ -37,6 +37,16 @@ function (kind) {
     const NOTE = (t) => '<div style="font:12.5px/1.6 Arial;color:#9fb3c8;border-left:2px solid rgba(255,255,255,0.18);'
         + 'padding:2px 0 2px 12px;margin:10px 0 4px;">' + t + '</div>';
 
+    // Said on every modality, because it is the same fact three times and the one a reader
+    // is most likely to assume the other way round.
+    const NO_OFFTARGETS = H('What this does NOT do')
+        + P('It does <b>not</b> screen the transcriptome. Nothing here is checked against any '
+            + 'other gene: the ranking is the sequence in front of it and no more.')
+        + NOTE('Off-target screening is its own step, run over the compounds you decide to keep '
+            + '\u2014 Run off-targets, from the report this design ends in or from the selection. '
+            + 'Keeping it separate means the design ranking is the same answer every time, '
+            + 'rather than one that depends on an index being reachable.');
+
     const SHARED_SELECTION = H('How the winners are chosen')
         + P('Every candidate over the whole sequence is scored, then the list is walked from the '
             + 'top and a candidate is taken only if it does not overlap one already taken. '
@@ -86,14 +96,7 @@ function (kind) {
             + NOTE('Not highest Tm: highest Tm means most GC, so a run of ties would resolve '
                 + 'toward whichever stretch of the transcript happens to be GC-richest.')
             + SHARED_SELECTION
-            + H('Off-target screen')
-            + P('The best sites — three times as many as requested — are searched against a cDNA '
-                + 'index for the track’s species at <b>edit distance ≤ 2</b>. Burden counts '
-                + '<b>distinct gene symbols</b>, weighted 40 / 8 / 0.35 by distance, and one gene '
-                + 'at distance 0 is subtracted as the intended target.')
-            + P('Final score = <b>0.80 × the sequence terms + 0.20 × off-target cleanliness</b>. '
-                + 'With no index reachable, the run scores on the sequence terms alone and the '
-                + 'report says so.');
+            + NO_OFFTARGETS;
     }
 
     if (K.indexOf('ster') >= 0 || K.indexOf('block') >= 0) {
@@ -127,11 +130,7 @@ function (kind) {
                 + '<b>longer</b> candidate — 65 and 50 being this scorer’s own optima, so a '
                 + 'tie is settled by the same criteria that produced it.')
             + SHARED_SELECTION
-            + H('Off-target screen')
-            + P('Searched at <b>edit distance ≤ 3</b>, not 2. At 18–20&nbsp;nt an ASO is '
-                + 'essentially unique in the transcriptome below ED3 — a 20-mer hits a median of '
-                + '0 genes at ED1 and 1 at ED2 — so an ED2 screen returns a burden of zero for '
-                + 'nearly everything and cannot discriminate. Costs up to <b>−20 points</b>.');
+            + NO_OFFTARGETS;
     }
 
     return H('What runs')
@@ -157,5 +156,6 @@ function (kind) {
             + 'strand loads is an off-target reagent, so thermodynamic asymmetry is weighted as '
             + 'heavily as the sequence itself.')
         + P('The guide is always the <b>reverse complement of the target</b>. The track sequence '
-            + 'is read as sense mRNA regardless of which genomic strand the gene sits on.');
+            + 'is read as sense mRNA regardless of which genomic strand the gene sits on.')
+        + NO_OFFTARGETS;
 }

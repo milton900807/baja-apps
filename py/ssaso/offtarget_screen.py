@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Shared off-target screen for the ASO designers.
+"""Shared off-target screen for the ASO designers -- available, not automatic.
+
+NOT RUN DURING DESIGN. Neither designer names an index, so neither screens: a design ranks
+on its sequence terms and nothing else. This is here for a caller that asks for it, and for
+the separate off-target step that runs over the compounds a user decides to keep.
 
 design.py (gapmer) and design-steric-blocking.py both rank candidates on terms that read
 the oligo against ITSELF -- GC, Tm, self-structure, runs. None of those can see the thing

@@ -197,7 +197,13 @@ def build_chemistry_layout(
 
 
 # ---------------------------------------------------------------------------------------
-# OFF-TARGET SCREEN
+# OFF-TARGET SCREEN -- NOT RUN BY DEFAULT
+#
+# The app's designers do not ask for this. No index named means no screen, and the score is
+# the sequence and annotation terms alone; screening is a separate step over the compounds a
+# user decides to keep, so a design ranking is the same answer every time rather than one
+# that depends on an index being reachable. What follows describes what happens when a
+# caller DOES name an index.
 #
 # Model and calibration live in offtarget_screen.py next to this file; the constants here
 # are what makes it a STERIC screen rather than the gapmer's, and they differ for a measured

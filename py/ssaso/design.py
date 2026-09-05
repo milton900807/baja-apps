@@ -377,7 +377,12 @@ def find_gap_cleavage_motif_hits(gap_seq_rna: str, motifs_dna: Sequence[str]) ->
 
 
 # ---------------------------------------------------------------------------------------
-# OFF-TARGET SCREEN
+# OFF-TARGET SCREEN -- NOT RUN BY DEFAULT
+#
+# The app's designers do not ask for this. No index named means no screen, and the score is
+# the sequence terms alone; screening is a separate step over the compounds a user decides to
+# keep, so a design ranking is the same answer every time rather than one that depends on an
+# index being reachable. What follows describes what happens when a caller DOES name one.
 #
 # The intrinsic terms below score an ASO against itself -- GC, Tm, self-structure, runs.
 # None of them can see the thing that most often kills a gapmer, which is that the same
@@ -1198,12 +1203,16 @@ def design_gapmer_sites(payload: Any) -> Dict[str, Any]:
                 "resolve toward the GC-richest stretch of the transcript."
             ),
             "offtarget_note": (
-                "When an index is named, the best sites are additionally screened against it "
-                "with py/sequence/offtarget/search.py and the final score becomes 0.80 x the "
-                "sequence terms + 0.20 x an off-target component. The component is "
-                "1/(1 + burden/40), where burden weights DISTINCT GENE SYMBOLS hit at each "
-                "edit distance (ED0 x40, ED1 x8, ED2 x0.35, ED3 x0.05) and one gene at ED0 is "
-                "subtracted as the intended target unless on_target_symbols names it."
+                "NOT RUN BY DEFAULT, and the app's designers do not ask for it: no index named "
+                "means no screen, and the score is the sequence terms alone. Screening is a "
+                "separate step over the compounds a user decides to keep, so a design ranking "
+                "is the same answer every time rather than one that depends on an index being "
+                "reachable. When a caller DOES name an index, the best sites are screened with "
+                "py/sequence/offtarget/search.py and the final score becomes 0.80 x the "
+                "sequence terms + 0.20 x an off-target component: 1/(1 + burden/40), where "
+                "burden weights DISTINCT GENE SYMBOLS hit at each edit distance (ED0 x40, "
+                "ED1 x8, ED2 x0.35, ED3 x0.05) and one gene at ED0 is subtracted as the "
+                "intended target unless on_target_symbols names it."
             ),
             "selection_note": (
                 "Selection then walks that ranking from the top and takes a candidate only if it does not "

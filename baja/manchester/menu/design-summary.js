@@ -246,12 +246,15 @@ function (graph, genegraph_panel_layout, info) {
                 ? 'Rank order across the whole sequence space, one design per site'
                 : String(res.selection_mode).replace(/_/g, ' '));
         }
+        // Only when a screen was actually asked for. The designers do not ask -- screening is
+        // its own step now -- so a row reading "not requested" on every report would be a line
+        // about something that did not happen, on every design, forever. It comes back the
+        // moment something asks, which is the point of keeping it.
         const ot = res.offtarget_screen || null;
-        if (ot) {
+        if (ot && ot.requested) {
             add('Off-target screen', ot.ran
                 ? (ot.index + ', edit distance ≤ ' + ot.edit_distance + ', ' + ot.screened + ' sites screened')
-                : (ot.requested ? ('not applied — ' + (ot.reason || 'unavailable'))
-                    : 'not requested — scored on sequence terms only'));
+                : ('not applied — ' + (ot.reason || 'unavailable')));
         }
         const scores = rows.map((r) => r.score).filter((v) => v != null);
         if (scores.length) add('Score range', num(Math.max.apply(null, scores)) + ' … ' + num(Math.min.apply(null, scores)));
