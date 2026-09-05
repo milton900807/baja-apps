@@ -29,7 +29,10 @@ function () {
 
     // 2'-sugar modification, backbone linkage, and base color palettes.
     const SUGAR_COL = { moe: '#e0a83c', mo: '#e0a83c', lna: '#8e5cc0', bna: '#8e5cc0', cet: '#5c9dc0', dna: '#8894a5', d: '#8894a5', rna: '#1aa3bd', r: '#1aa3bd', fana: '#c07a3c', f: '#c07a3c', 'me-d': '#6b7a8c' };
-    const LINK_COL = { sp: '#ef7d3a', ps: '#ef7d3a', po: '#9aa6b2', p: '#9aa6b2' };   // sp/ps = phosphorothioate (orange), po = phosphodiester (gray)
+    // sp/ps = phosphorothioate (orange), po/p = phosphodiester (gray). Rsp/Ssp are the
+    // stereodefined phosphorothioates in this app's monomer set -- same linkage, a fixed
+    // configuration at phosphorus -- so they read as PS rather than as an unknown bond.
+    const LINK_COL = { sp: '#ef7d3a', ps: '#ef7d3a', rsp: '#ef7d3a', ssp: '#ef7d3a', po: '#9aa6b2', p: '#9aa6b2' };
     const BASE_COL = { A: '#2ca25f', C: '#2b7bba', G: '#d9a441', T: '#d1495b', U: '#d1495b' };
 
     // Parse a HELM-ish ASO structure: RNA1{[moe](C)[sp].[moe](T)[sp]. … }
@@ -44,9 +47,19 @@ function () {
             for (const unit of body.split('.')) {
                 const u = ('' + unit).trim();
                 if (!u) continue;
-                // [sugar](Base)[linkage]?
-                const m = u.match(/\[?([A-Za-z0-9\-]+)\]?\s*\(([^)]+)\)\s*(?:\[([^\]]+)\])?/);
-                if (m) monos.push({ sugar: ('' + (m[1] || '')).toLowerCase(), base: ('' + (m[2] || '')).toUpperCase(), linkage: ('' + (m[3] || '')).toLowerCase() });
+                // [sugar](Base) then the linkage, which HELM writes EITHER WAY:
+                //   [moe](C)[sp]   multi-character symbols are bracketed
+                //   d(A)p          single-character ones are bare -- that is the notation,
+                //                  not a malformed string
+                //
+                // Only the bracketed form was read, so every bare linker parsed as no linker
+                // at all: phosphodiester `p` is single-character by definition, so a PO
+                // backbone lost its whole chemistry, and any mixed backbone lost the PO half
+                // of it. With linkage '' the renderer's `isPS || isPO` is false and it draws a
+                // plain bond -- no phosphorus, no =O, no =S -- which is the backbone chemistry
+                // going missing while the sugars and bases around it render fine.
+                const m = u.match(/\[?([A-Za-z0-9\-]+)\]?\s*\(([^)]+)\)\s*(?:\[([^\]]+)\]|([A-Za-z0-9]+))?/);
+                if (m) monos.push({ sugar: ('' + (m[1] || '')).toLowerCase(), base: ('' + (m[2] || '')).toUpperCase(), linkage: ('' + (m[3] || m[4] || '')).toLowerCase() });
                 else { const b = u.replace(/[^A-Za-z]/g, '').toUpperCase(); monos.push({ sugar: '', base: b ? b[0] : '?', linkage: '' }); }
             }
         } catch (e) { }
@@ -151,7 +164,7 @@ function () {
             const cx = x0 + (i + 0.5) * per, nx = x0 + (i + 1.5) * per;
             if (nx < visMin || cx > visMax) continue;   // off-screen linkage — skip
             const lk = (monos[i] && monos[i].linkage) || '';
-            const isPS = (lk === 'sp' || lk === 'ps');
+            const isPS = (lk === 'sp' || lk === 'ps' || lk === 'rsp' || lk === 'ssp');
             const isPO = (lk === 'po' || lk === 'p');
             if (chemMode && (isPS || isPO)) {
                 const mx = (cx + nx) / 2, Py = sy - R * 0.85;      // phosphorus raised above the line
