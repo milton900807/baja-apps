@@ -1251,7 +1251,7 @@ function (path, config) {
                             + '  <button id="baja-play-run" style="background:#22c55e;color:#06230f;font-weight:700;border:none;border-radius:999px;padding:7px 20px;cursor:pointer;">Play ▶</button>'
                             + '</div>';
                         document.body.appendChild(wrap);
-                        const ta = document.getElementById('baja-play-text'); try { ta.focus(); } catch (e) { }
+                        const ta = document.getElementById('baja-play-text'); focusUnlessMobile(ta);
                         const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
                         document.getElementById('baja-play-cancel').onclick = close;
                         document.getElementById('baja-play-run').onclick = () => {

@@ -113,7 +113,7 @@ function (opts) {
         pane.appendChild(head); pane.appendChild(body);
         overlay.appendChild(pane);
         document.body.appendChild(overlay);
-        try { search.focus(); } catch (e) { }
+        focusUnlessMobile(search);
         return true;
     })();
 }

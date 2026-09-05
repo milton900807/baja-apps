@@ -293,7 +293,7 @@ function (opts) {
                             q.value = '';
                             render();
                             try { shelf.scrollTop = 0; } catch (e) { }
-                            try { q.focus(); } catch (e) { }
+                            focusUnlessMobile(q);
                             return;
                         }
                         // A book WITH docs opens its reference view first; the action is then an
@@ -392,7 +392,7 @@ function (opts) {
 
         q.oninput = render;
         render();
-        try { q.focus(); } catch (e) { }
+        focusUnlessMobile(q);
         return true;
     })();
 }

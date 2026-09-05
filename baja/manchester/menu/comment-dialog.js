@@ -42,7 +42,7 @@ function (title, subtitle, initial) {
                 else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); done(input ? input.value : ''); }
             };
             document.addEventListener('keydown', onKey, true);
-            try { input.focus(); } catch (e) { }
+            focusUnlessMobile(input);
         } catch (e) { resolve(null); }
     });
 }

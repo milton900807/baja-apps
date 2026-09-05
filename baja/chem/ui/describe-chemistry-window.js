@@ -112,7 +112,7 @@ function (graph, genegraph_panel_layout, oligos) {
                 + '</div>';
             document.body.appendChild(wrap);
 
-            const ta = document.getElementById('baja-chem-text'); try { ta.focus(); } catch (e) { }
+            const ta = document.getElementById('baja-chem-text'); focusUnlessMobile(ta);
             const statusEl = document.getElementById('baja-chem-status');
             const setStatus = (html) => { try { if (statusEl) statusEl.innerHTML = html; } catch (e) { } };
             const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
