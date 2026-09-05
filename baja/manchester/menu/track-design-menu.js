@@ -154,35 +154,6 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     };
 
     // Progress for a design run. The python designers report their stages through works.msg
-    // Which off-target index the designers screen against. The design scripts take an
-    // `offtarget_index` and, given one, weight every returned site by how many OTHER genes
-    // its sequence hits (py/ssaso/design.py). They score on sequence terms alone without it,
-    // so everything here fails soft: no server, no /genomes, no match -> no index passed, and
-    // the design runs exactly as it did before the screen existed.
-    //
-    // Preference order is a cDNA index for the track's own species, then any cDNA index, then
-    // whatever is there. cDNA rather than pre-mRNA because a gapmer's competition is the
-    // mature transcript pool, and pre-mRNA indexes are much larger for the same answer.
-    const __pickOffTargetIndex = async (track) => {
-        try {
-            const base = (window['env'] && window['env']['apiUrl']) || '';
-            if (!base) return null;
-            const r = await GETJSON(base + '/genomes');
-            let names = [];
-            if (Array.isArray(r)) names = r.map((g) => '' + g);
-            else if (r && typeof r === 'object') names = Object.keys(r);
-            names = names.filter(Boolean);
-            if (!names.length) return null;
-            const sp = ('' + ((track && track.species) || '')).toLowerCase().replace(/[^a-z0-9]+/g, '_');
-            const cdna = names.filter((n) => n.toLowerCase().indexOf('cdna') >= 0);
-            if (sp) {
-                const mine = cdna.filter((n) => n.toLowerCase().indexOf(sp) >= 0);
-                if (mine.length) return mine[0];
-            }
-            return cdna.length ? cdna[0] : names[0];
-        } catch (e) { return null; }
-    };
-
     // (see py/ssaso/design.py and design-steric-blocking.py); this puts each one in the status
     // badge under the canvas buttons, prefixed with the modality so the line says WHAT is being
     // designed as well as what stage it is at.
@@ -726,13 +697,16 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // ask for those variants explicitly.
                         "enforce_non_overlapping": (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
 
-                        // Off-target screen. Null when no index is reachable, which the script
+                        // NO off-target screen during design. py/ssaso/design.py can run one --
+                        // pass offtarget_index and it weights every site by the other genes it
+                        // hits -- and naming no index is how you say don't, which the script
                         // reads as "score on sequence terms only".
-                        "offtarget_index": await __pickOffTargetIndex(selectedTrack),
-                        "offtarget_edit_distance": 2,
-                        // The track's own gene is the intended target; naming it stops its own
-                        // transcripts being counted against every candidate.
-                        "on_target_symbols": [selectedTrack && selectedTrack.name].filter(Boolean),
+                        //
+                        // Design ranks on the sequence; screening is its own step, run
+                        // deliberately over the compounds you decide to keep (Run off-targets,
+                        // which ends in its own report). Folding it into the design spent a
+                        // transcriptome search on candidates before anyone had looked at them,
+                        // and made the ranking depend on an index being reachable.
 
                         "helm_symbols": {
                             "DNA": "d",
@@ -964,12 +938,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         // design spread across the transcript.
                         enforce_non_overlapping: (__p.enforce_non_overlapping != null ? __p.enforce_non_overlapping : true),
 
-                        // Off-target screen, same as the gapmer above. design-steric-blocking.py
-                        // ignores these until it grows the screen too; passing them now costs
-                        // nothing and means only one place has to change when it does.
-                        offtarget_index: await __pickOffTargetIndex(selectedTrack),
-                        offtarget_edit_distance: 2,
-                        on_target_symbols: [selectedTrack && selectedTrack.name].filter(Boolean),
+                        // No off-target screen here either -- see the note in the gapmer
+                        // request above.
                         annotations: [] // optional: populate if you have site annotations
                     };
 
