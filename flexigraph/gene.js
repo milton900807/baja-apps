@@ -7785,9 +7785,9 @@ pattern, GGGG | Required`
                     }
                 };
                 // Every card here is tagged SELECTION TOOLS, and the entries the caller adds
-                // after them are tagged Selected items, so the shelf shows the two as separate
-                // sections instead of one run of cards where a tool and a selected compound
-                // looked like the same kind of thing.
+                // after them are the selection itself, which carries no heading, so the tools
+                // read as a named group rather than as more of the same run of cards -- a tool
+                // and a selected compound are not the same kind of thing.
                 const TOOLS = 'Selection tools';
                 return [
                     {
@@ -7963,10 +7963,22 @@ pattern, GGGG | Required`
                 }
                 // SECTIONS, in the order a reader needs them.
                 //
-                //   Back            first, unsectioned -- it is navigation, not content
-                //   Selection tools top level only
-                //   Selected items  what is selected, TRACKS FIRST
-                //   Actions         what can be done to it, last
+                //   Back                first -- navigation, not content
+                //   the selection       UNLABELLED, tracks first
+                //   Selection tools     top level only
+                //   Actions             what can be done to it, last
+                //
+                // The selected things carry no heading. 'Selected items' was naming the
+                // obvious: this is the selection library, the cards are what is selected, and
+                // a title saying so was a row of text between the reader and the thing they
+                // opened the window to see. The two groups that DO need naming are the ones
+                // that are not the selection -- the tools that make one and the actions that
+                // consume it -- and they still say what they are.
+                //
+                // Which is also why the selection comes first now. Unlabelled cards under a
+                // 'Selection tools' heading would read as more tools; leading with them, and
+                // letting the first heading mark where the selection stops, is the ordering
+                // that survives having no label.
                 //
                 // Actions were mixed in among the selected objects, so 'Download all as CSV'
                 // sat between two compounds looking like a third thing that had been selected.
@@ -7976,31 +7988,27 @@ pattern, GGGG | Required`
                 //
                 // Tracks lead the items because a track is what the rest sit on, so a reader
                 // scanning the list is orienting themselves before they look for a compound.
-                const ITEMS = 'Selected items';
                 const ACTIONS = 'Actions';
                 const backs = books.filter((b) => b.__back);
                 const subs = books.filter((b) => !b.__back && b.__sub);
                 const acts = books.filter((b) => !b.__back && !b.__sub);
                 subs.sort((a, b) => (b.__track ? 1 : 0) - (a.__track ? 1 : 0));
 
-                // The Selected items heading appears at the top level even when the section is
-                // EMPTY, with a line saying so: a library that simply omits it reads as though
-                // the section does not exist rather than as nothing being selected, which is
-                // the one thing the user most needs told at that moment.
-                let listed = [];
-                if (subs.length) {
-                    listed = subs.map((b) => Object.assign({}, b, { section: ITEMS }));
-                } else if (atTop) {
+                // An empty selection still says so. Losing the heading would otherwise leave
+                // the window opening on nothing at all, and nothing at all is indistinguishable
+                // from a window that failed to load.
+                let listed = subs;
+                if (!subs.length && atTop) {
                     listed = [{
-                        section: ITEMS, note: true,
+                        note: true,
                         title: 'Nothing selected',
-                        blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
+                        blurb: 'Nothing is selected yet. Pick one of the tools below — drag a '
                             + 'box or a lasso over the canvas, or select a range of bases on a '
                             + 'track — and what you catch will be listed here.'
                     }];
                 }
                 const actioned = acts.map((b) => Object.assign({}, b, { section: ACTIONS }));
-                const all = backs.concat(tools, listed, actioned);
+                const all = backs.concat(listed, tools, actioned);
                 if (!all.length) {
                     try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
                     return;
@@ -8050,13 +8058,17 @@ pattern, GGGG | Required`
                             id: 'baja-selection-library',
                             title: 'Selection',
                             subtitle: 'Nothing is selected yet — pick a way to select something',
-                            books: this.__selectionToolBooks(this.__hasAnySelection()).concat([{
-                                section: 'Selected items', note: true,
+                            // The line comes FIRST here, unheaded, for the same reason the
+                            // selection does in __showSelectionShelf: it is what the window is
+                            // about, and it cannot sit under the Selection tools heading
+                            // without reading as a caption for the tools.
+                            books: [{
+                                note: true,
                                 title: 'Nothing selected',
-                                blurb: 'Nothing is selected yet. Pick one of the tools above — drag a '
+                                blurb: 'Nothing is selected yet. Pick one of the tools below — drag a '
                                     + 'box or a lasso over the canvas, or select a range of bases on a '
                                     + 'track — and what you catch will be listed here.'
-                            }]),
+                            }].concat(this.__selectionToolBooks(this.__hasAnySelection())),
                             graph: this,
                             onClose: (reason) => {
                                 if (reason === 'open') return;

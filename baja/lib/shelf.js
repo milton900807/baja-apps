@@ -140,7 +140,7 @@ function (opts) {
             //
             // A book with `note: true` is not a card at all: a full-width line of prose. It is
             // how a section says something when it has nothing to show -- "nothing is selected
-            // yet" belongs under the Selected items heading, not in place of it.
+            // yet" is a line the section says, not a card standing in for one.
             let lastSection = null;
             for (const b of shown) {
                 const sec = b.section || null;
