@@ -300,14 +300,26 @@ function (graph, genegraph_panel_layout) {
 
                 for (const it of shelf.items) {
                     const card = document.createElement('div');
-                    card.style.cssText = 'cursor:pointer;border:1px solid rgba(255,255,255,0.12);border-radius:10px;'
-                        + 'background:rgba(255,255,255,0.04);padding:14px 16px;display:flex;flex-direction:column;';
+                    // The warm 'sunset' look, in the same values baja/lib/shelf.js uses for it
+                    // (ACCENTS.sunset there), so a card here and a card on a shelf are the same
+                    // card rather than two that merely resemble each other.
+                    //
+                    // Warm because every card here OPENS something. Inside a shelf the warm/cool
+                    // split separates acting from navigating, and by that reading these would be
+                    // cool -- but this window holds nothing else to be cool against. A screen of
+                    // uniformly cool cards is not making a distinction, it is just quieter, and
+                    // clicking one of these is the most consequential click in the app.
+                    card.style.cssText = 'cursor:pointer;border-radius:10px;padding:14px 16px;'
+                        + 'display:flex;flex-direction:column;'
+                        + 'background:linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%);'
+                        + 'border:1px solid rgba(255,163,72,0.55);'
+                        + 'box-shadow:0 6px 18px rgba(0,0,0,0.28);transition:transform .12s ease;';
                     card.innerHTML = '<div style="display:flex;align-items:center;gap:10px;">'
-                        + '<div style="font:700 15.5px Arial;flex:1 1 auto;">' + esc(it.name) + '</div>'
-                        + '<div style="color:#7f9bb8;">▸</div></div>'
-                        + '<div style="font:13px/1.55 Arial;color:#c3d2e2;margin-top:5px;">' + esc(it.blurb) + '</div>';
-                    card.onmouseenter = () => { card.style.background = 'rgba(255,255,255,0.09)'; };
-                    card.onmouseleave = () => { card.style.background = 'rgba(255,255,255,0.04)'; };
+                        + '<div style="font:700 15.5px Arial;color:#ffe6c7;flex:1 1 auto;">' + esc(it.name) + '</div>'
+                        + '<div style="color:#ffc98a;">▸</div></div>'
+                        + '<div style="font:13px/1.55 Arial;color:#e0b48a;margin-top:5px;">' + esc(it.blurb) + '</div>';
+                    card.onmouseenter = () => { card.style.borderColor = '#ffb35c'; card.style.transform = 'translateY(-2px)'; };
+                    card.onmouseleave = () => { card.style.borderColor = 'rgba(255,163,72,0.55)'; card.style.transform = ''; };
                     card.onclick = () => openShelf(it);
                     grid.appendChild(card);
                 }
