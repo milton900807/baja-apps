@@ -396,10 +396,24 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:8px 10px;font:13px Arial;';
                             const panel = document.createElement('div');
                             panel.id = 'baja-sirna-design';
-                            panel.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:86vh;overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+                            // Maximized, like the ASO dialog and the report the run ends in. The
+                            // form stays a 640px column: text inputs stretched to the width of a
+                            // monitor are harder to use, and what the room buys is every field
+                            // and the rules document visible at once, not a wider field.
+                            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
                             panel.innerHTML = ''
-                                + '<div style="font:700 17px Arial;margin-bottom:2px;">siRNA Design</div>'
-                                + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">Choose Default, or Advanced to tune the design algorithm.</div>'
+                                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
+                                + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                                + '<div style="min-width:0;"><div style="font:700 20px Arial;">siRNA Design</div>'
+                                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">Choose Default, or Advanced to tune the design algorithm.</div></div>'
+                                + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                                + '<button id="sd-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                                + '<button id="sd-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
+                                + '</div></div>'
+                                + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
+                                + '<div style="width:100%;max-width:640px;margin:0 auto;">'
                                 + '<div style="display:inline-flex;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:3px;">'
                                 + '<button id="sd-default" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:#22c55e;color:#04210f;">Default</button>'
                                 + '<button id="sd-advanced" style="cursor:pointer;border:0;border-radius:999px;padding:6px 16px;font:700 12px Arial;background:transparent;color:#fff;">Advanced</button>'
@@ -414,6 +428,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 + '<option value="galnac_esc">GalNAc-conjugated ESC</option>'
                                 + '<option value="all_2ome">Fully 2\'-OMe</option>'
                                 + '</select>'
+                                // The rules a Default run applies, written out. Same reason as
+                                // the ASO dialog: Default chooses everything and used to say
+                                // nothing about what it chose.
+                                + '<div id="sd-doc"></div>'
                                 + '<div id="sd-adv" style="display:none;">'
                                 + '<label style="' + lbl + '">siRNA lengths</label>'
                                 + '<div style="display:flex;gap:16px;font:13px Arial;"><label><input type="checkbox" id="sd-l21" checked/> 21</label><label><input type="checkbox" id="sd-l22" checked/> 22</label><label><input type="checkbox" id="sd-l23" checked/> 23</label></div>'
@@ -429,21 +447,28 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 + '<div><label style="' + lbl + '">Sense pos 1</label><input id="sd-w-sp1" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
                                 + '<div><label style="' + lbl + '">Repeats/runs</label><input id="sd-w-rep" type="number" step="0.1" value="1" style="' + inp + '"/></div>'
                                 + '</div></div>'
-                                + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
-                                + '<button id="sd-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
-                                + '<button id="sd-run" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Run design</button>'
-                                + '</div>';
+                                + '</div></div>';
                             document.body.appendChild(panel);
                             const q = (id) => panel.querySelector(id);
                             let mode = 'default';
+                            let sdDoc = null;
+                            const fillSirnaDoc = async () => {
+                                try {
+                                    if (sdDoc == null) sdDoc = await exec('baja/manchester/menu/design-rules-doc.js', 'sirna');
+                                    q('#sd-doc').innerHTML = sdDoc || '';
+                                } catch (e) { try { q('#sd-doc').innerHTML = ''; } catch (e2) { } }
+                            };
                             const setMode = (m) => {
                                 mode = m;
+                                q('#sd-doc').style.display = (m === 'default') ? 'block' : 'none';
+                                if (m === 'default') fillSirnaDoc();
                                 q('#sd-adv').style.display = (m === 'advanced') ? 'block' : 'none';
                                 q('#sd-default').style.background = (m === 'default') ? '#22c55e' : 'transparent';
                                 q('#sd-default').style.color = (m === 'default') ? '#04210f' : '#fff';
                                 q('#sd-advanced').style.background = (m === 'advanced') ? '#22c55e' : 'transparent';
                                 q('#sd-advanced').style.color = (m === 'advanced') ? '#04210f' : '#fff';
                             };
+                            fillSirnaDoc();
                             q('#sd-default').onclick = () => setMode('default');
                             q('#sd-advanced').onclick = () => setMode('advanced');
                             const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
@@ -482,6 +507,9 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     });
                     const __p = await showSirnaDesignDialog();
                     if (!__p) return;   // cancelled
+                    // Run design was clicked: frame what the run will operate on before it
+                    // starts, so the compounds land in view rather than somewhere off-screen.
+                    await __zoomToDesignScope();
                     let json_input = {
                         sequence: __wholeTrackSequence(),
                         // The track sequence is the SENSE mRNA (5'->3'), so the guide is ALWAYS its
@@ -671,6 +699,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // Default / Advanced design dialog — the LAST interface before the design runs.
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'gapmer');
                     if (!__p) return;   // cancelled
+                    await __zoomToDesignScope();
                     let va = parseInt(__p.top_n) || 100;
                     let _sequence = __wholeTrackSequence();
 
@@ -916,6 +945,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     // Default / Advanced design dialog — the LAST interface before the design runs.
                     const __p = await exec('baja/manchester/menu/aso-design-dialog.js', 'steric');
                     if (!__p) return;   // cancelled
+                    await __zoomToDesignScope();
                     let _sequence = __wholeTrackSequence();
 
                     let json_input = {
@@ -1208,6 +1238,37 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // Where the design began, as an index into the track's sequence: the selection's start
         // when there is one, the track origin otherwise. Results are placed from here, so a
         // design over a selection lands on the selection rather than at the start of the track.
+        // Frame what the design is about to work on. Every route reads either the SELECTED
+        // range or the whole track, and which of those it is has until now been invisible at
+        // the moment it matters most -- the click that starts the run. Zooming to it makes the
+        // scope of the design something the user sees rather than remembers.
+        //
+        // Not a no-op when there is no selection: framing the whole track is still the honest
+        // answer to "what is this about to design against", and it is the case where a user is
+        // most likely to have meant to select something first.
+        const __zoomToDesignScope = async () => {
+            try {
+                const t = selectedTrack;
+                const g = t && (t.tgraph || t.grid);
+                if (!g || !graph || typeof graph.zoomRect !== 'function') return;
+                const lo = g.xi, hi = g.xi + (g.width || 0);
+                let a = lo, b = hi;
+                try {
+                    const r = t.selectedRange && t.selectedRange();
+                    if (r && isFinite(+r.start) && isFinite(+r.end) && +r.end > +r.start) {
+                        a = Math.max(lo, +r.start); b = Math.min(hi, +r.end);
+                    }
+                } catch (e) { }
+                if (!(b > a)) { a = lo; b = hi; }
+                const xpad = Math.max(50, (b - a) * 0.08);
+                const yA = g.yi, yB = g.yi + (g.height || 0);
+                const cy = (yA + yB) / 2;
+                const yhalf = (Math.abs(yB - yA) || 1) * 1.65;
+                await graph.zoomRect(a - xpad, b + xpad, cy + yhalf, cy - yhalf, 150);
+                if (graph.wake) graph.wake();
+            } catch (e) { }
+        };
+
         const __designOffset = () => {
             const t = selectedTrack;
             try { return (t && t.selectedOffset) ? t.selectedOffset() : 0; } catch (e) { return 0; }
@@ -1233,6 +1294,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         const runPrimer3 = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
+            await __zoomToDesignScope();
             const sequence = __wholeTrackSequence();
             graph.setMessage(' Generating primers (primer3)... ');
             const em = new EngineMonitor((msg) => { try { graph.setMessage(msg); } catch (e) { } });
@@ -1248,6 +1310,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         const runDjprimer = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
+            await __zoomToDesignScope();
             const sequence = __wholeTrackSequence();
             const gene = selectedTrack.geneID || selectedTrack.name || '';
             const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
@@ -1266,6 +1329,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         const runExonExon = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
+            await __zoomToDesignScope();
             graph.setMessage(' Designing junction-spanning primer-probes... ');
             let r = null;
             const placed = await __placedDuring(async () => {

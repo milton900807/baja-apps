@@ -57,6 +57,10 @@ function (kind) {
                 + '</div>'
                 + '<label style="' + lbl + '">Maximum candidates</label>'
                 + '<input id="ad-topn" type="number" min="1" max="1000" value="100" style="' + inp + '"/>'
+                // Default mode takes every parameter out of the user's hands, which is the point
+                // of it, and used to leave them with no way to see what it chose -- the Advanced
+                // tab at least showed the numbers. The rules go here, where the choice is made.
+                + '<div id="ad-doc"></div>'
                 + '<div id="ad-adv" style="display:none;">'
                 + '<label style="' + lbl + '">ASO lengths (nt, comma-separated)</label>'
                 + '<input id="ad-lengths" value="' + (isGapmer ? '16,17,18,19,20' : '18,19,20') + '" style="' + inp + '"/>'
@@ -78,14 +82,30 @@ function (kind) {
             const q = (id) => panel.querySelector(id);
             const parseList = (s, d) => { try { const a = ('' + s).split(/[,\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0); return a.length ? a : d; } catch (e) { return d; } };
             let mode = 'default';
+            // Fetched once, on the first switch into Default, and reused after that.
+            let docHtml = null;
+            const fillDoc = async () => {
+                try {
+                    if (docHtml == null) {
+                        docHtml = await exec('baja/manchester/menu/design-rules-doc.js', K);
+                    }
+                    q('#ad-doc').innerHTML = docHtml || '';
+                } catch (e) { try { q('#ad-doc').innerHTML = ''; } catch (e2) { } }
+            };
             const setMode = (m) => {
                 mode = m;
+                // The document is what Default HAS to say; in Advanced the fields say it, and
+                // showing both would be the same information twice with the reader left to
+                // work out which one is in force.
+                q('#ad-doc').style.display = (m === 'default') ? 'block' : 'none';
+                if (m === 'default') fillDoc();
                 q('#ad-adv').style.display = (m === 'advanced') ? 'block' : 'none';
                 q('#ad-default').style.background = (m === 'default') ? '#22c55e' : 'transparent';
                 q('#ad-default').style.color = (m === 'default') ? '#04210f' : '#fff';
                 q('#ad-advanced').style.background = (m === 'advanced') ? '#22c55e' : 'transparent';
                 q('#ad-advanced').style.color = (m === 'advanced') ? '#04210f' : '#fff';
             };
+            fillDoc();
             q('#ad-default').onclick = () => setMode('default');
             q('#ad-advanced').onclick = () => setMode('advanced');
             const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };

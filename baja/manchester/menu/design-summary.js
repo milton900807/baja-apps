@@ -165,7 +165,12 @@ function (graph, genegraph_panel_layout, info) {
         const facts = [];
         const add = (k, v) => { if (v !== null && v !== undefined && v !== '') facts.push([k, v]); };
         add('Modality', modality);
-        add('Algorithm', o.algorithm || res.design_type || '—');
+        // The algorithm as a NAME, not a path -- baja/lib/script-name.js, so every surface
+        // that shows one applies the same convention. Falls back to the raw value if the
+        // helper cannot be loaded, since a path is still better than a blank row.
+        let algoName = (v) => ('' + (v == null ? '' : v));
+        try { algoName = await exec('baja/lib/script-name.js') || algoName; } catch (e) { }
+        add('Algorithm', algoName(o.algorithm) || res.design_type || '—');
         add('Chemistry', o.chemistry);
         add('Track', track && track.name);
         add('Compounds placed', oligos.length);
