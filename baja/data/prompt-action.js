@@ -127,9 +127,11 @@ function (server, graph, genegraph_panel_layout, context, presetQuery) {
         const animateToTrack = (t) => {
             if (!t || !t.tgraph) return false;
             const xi = t.tgraph.xi, w = t.tgraph.width, off = w / 6;
-            try { graph.animateTo(xi - off, xi + w + off,
-                t.tgraph.yi - Math.abs(t.tgraph.height) - 10,
-                t.tgraph.yi + t.tgraph.height + 10); } catch (e) { }
+            try {
+                graph.animateTo(xi - off, xi + w + off,
+                    t.tgraph.yi - Math.abs(t.tgraph.height) - 10,
+                    t.tgraph.yi + t.tgraph.height + 10);
+            } catch (e) { }
             graph.setMouseMode('navigate');
             return true;
         };
