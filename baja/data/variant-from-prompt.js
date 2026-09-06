@@ -17,7 +17,12 @@ function (server, graph, genegraph_panel_layout, tracks) {
     const say = (m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } };
     const restoreHover = () => { try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
 
-    return (async () => {
+    // A failed attempt puts the FORM BACK, with what was typed still in it and the reason
+    // above it. The resolver's usual failure is a request for clarification -- "a protein
+    // change or a nucleotide position must be given" -- which is a question, and a question
+    // asked of someone whose form has just closed is a question nobody can answer. Re-entering
+    // with the previous values turns it into an edit. Cancel still ends it.
+    const run = async (prefill) => {
         const Strand = await exec('baja/bio/track-strand.js');
         const preset = (Array.isArray(tracks) ? tracks.filter(Boolean) : (tracks ? [tracks] : []));
 
@@ -33,6 +38,7 @@ function (server, graph, genegraph_panel_layout, tracks) {
         //                 land on some other track that happens to be open.
         const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const showForm = () => new Promise((resolve) => {
+            const pre = prefill || {};
             try { const old = document.getElementById('baja-variant-prompt'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
             const lbl = 'display:block;font:600 12px Arial;color:#9fb3c8;margin:14px 0 4px;';
             const inp = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;'
@@ -52,6 +58,9 @@ function (server, graph, genegraph_panel_layout, tracks) {
                 + '</div></div>'
                 + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
                 + '<div style="width:100%;max-width:640px;margin:0 auto;">'
+                + (pre.notice ? ('<div style="margin-bottom:16px;padding:12px 14px;border-radius:8px;'
+                    + 'background:rgba(224,112,59,0.12);border:1px solid rgba(224,112,59,0.55);'
+                    + 'color:#ffd9c7;font:13px Arial;">' + esc(pre.notice) + '</div>') : '')
                 + '<label style="' + lbl + '">The variant</label>'
                 + '<textarea id="vp-text" rows="3" placeholder="K27M" style="' + inp + 'resize:vertical;"></textarea>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
@@ -93,6 +102,12 @@ function (server, graph, genegraph_panel_layout, tracks) {
                     ? 'The variant is placed on a track that is already open. Nothing is loaded.'
                     : 'The transcripts named in the description are found and loaded FIRST, and the variant is then placed on those — not on anything already open.';
             };
+            // Put back what was typed, so a second attempt is an edit rather than a retype.
+            try {
+                if (pre.text) q('#vp-text').value = pre.text;
+                if (pre.extra) q('#vp-extra').value = pre.extra;
+                if (pre.constrain === false) q('#vp-constrain').checked = false;
+            } catch (e) { }
             q('#vp-constrain').onchange = note; note();
 
             // PRESETS. The ones in baja/data/variant-prompt-presets.js are in the repo, so a
@@ -193,6 +208,9 @@ function (server, graph, genegraph_panel_layout, tracks) {
             });
         });
 
+        // Re-enter with what was typed and why it failed.
+        const again = (why, prev) => run({ text: prev.text, constrain: prev.constrain, extra: prev.extra, notice: why });
+
         const form = await showForm();
         if (!form) { restoreHover(); return false; }
         const text = form.text;
@@ -211,11 +229,10 @@ function (server, graph, genegraph_panel_layout, tracks) {
             const before = new Set((graph.track || []).map((t) => t));
             say('Finding the transcripts for "' + text + '"…');
             try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, text); }
-            catch (e) { say('Could not load transcripts for "' + text + '": ' + (e && e.message ? e.message : e)); restoreHover(); return false; }
+            catch (e) { return again('Could not load transcripts for "' + text + '": ' + (e && e.message ? e.message : e), form); }
             targets = (graph.track || []).filter((t) => t && !before.has(t));
             if (!targets.length) {
-                say('No transcript was loaded for "' + text + '", so there is nothing to place the variant on. Name the gene in the description, or tick "Constrain to tracks already loaded" and pick a track.');
-                restoreHover(); return false;
+                return again('No transcript was loaded for "' + text + '", so there is nothing to place the variant on. Name the gene in the description, or tick "Constrain to tracks already loaded" and pick a track.', form);
             }
             say('Loaded ' + targets.length + ' transcript' + (targets.length === 1 ? '' : 's') + '; placing the variant on ' + (targets.length === 1 ? 'it' : 'them') + '…');
         }
@@ -326,8 +343,9 @@ function (server, graph, genegraph_panel_layout, tracks) {
                 try { exec('baja/data/prompt-variant.js', server, graph, genegraph_panel_layout); } catch (e) { }
                 return false;
             }
-            say('Could not place "' + text + '": ' + (results.map((x) => x.why).filter(Boolean).join('; ') || 'no result') + '.');
-            restoreHover(); return false;
+            // The resolver's reason IS the thing to act on -- usually a question about the
+            // description -- so it goes above the form rather than into a toast that outlives it.
+            return again('Could not place "' + text + '" — ' + (results.map((x) => x.why).filter(Boolean).join('; ') || 'no result'), form);
         }
 
         // Show the first one placed: select it and zoom to it, as the tours do.
@@ -347,5 +365,6 @@ function (server, graph, genegraph_panel_layout, tracks) {
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
         return true;
-    })();
+    };
+    return run(null);
 }
