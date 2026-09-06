@@ -119,14 +119,48 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             }
 
             if (!list.length) {
-                // Say what the resolver said, not just that nothing came back: "no valid
-                // transcript ids returned by the model" and "the model replied in prose" are
-                // different problems and lead to different edits.
-                backToPrompt(" No transcripts found for \"" + query + "\""
-                    + (res && res.error ? " — " + res.error : "")
-                    + ". Edit the description and try again. ");
-                resolve(null);
-                return;
+                // A DISEASE IS NOT A GENE, AND ASKING FOR ITS TRANSCRIPTS DIRECTLY ASKS THE
+                // WRONG QUESTION. "heart disease" names no gene, so a transcript search has
+                // nothing to match -- but the mutations associated with it do have genes, and
+                // those genes have transcripts. Ask for the mutations, take the genes out of
+                // the answer, and resolve each of those the ordinary way.
+                let genes = [];
+                try {
+                    const dv = await exec('/py/bio/disease-variants.py', em, query, '12');
+                    if (dv && (dv.is_context === true || dv.is_context === 'true') && !dv.error) {
+                        try { genes = JSON.parse(dv.genes || '[]'); } catch (e) { genes = []; }
+                        if (genes.length) {
+                            const sample = (dv.sample === true || dv.sample === 'true');
+                            graph.setMessage(' ' + (dv.disease || query) + ' — '
+                                + (sample ? 'a SAMPLE of ' : '') + genes.length + ' gene'
+                                + (genes.length === 1 ? '' : 's') + ': ' + genes.join(', ')
+                                + (sample ? ', drawn across its major subtypes rather than the full set' : '')
+                                + '. Finding their transcripts… ');
+                        }
+                    }
+                } catch (e) { genes = []; }
+                const found = [];
+                for (const g of genes) {
+                    let r2 = null;
+                    try { r2 = await exec(PY, em, 'canonical ' + g + ' in human'); } catch (e) { r2 = null; }
+                    let l2 = [];
+                    try { l2 = JSON.parse((r2 && r2.transcripts) || '[]'); } catch (e) { l2 = []; }
+                    // One per gene: the canonical, which is what a gene name on its own means.
+                    const pick = l2.find((x) => x && x.canonical) || l2[0];
+                    if (pick) found.push(Object.assign({ gene: g }, pick));
+                }
+                if (found.length) {
+                    list = found;
+                } else {
+                    // Say what the resolver said, not just that nothing came back: "no valid
+                    // transcript ids returned" and "the reply was prose" are different problems
+                    // and lead to different edits.
+                    backToPrompt(" No transcripts found for \"" + query + "\""
+                        + (res && res.error ? " — " + res.error : "")
+                        + ". Edit the description and try again. ");
+                    resolve(null);
+                    return;
+                }
             }
 
             if (list.length === 1) {

@@ -69,7 +69,7 @@ function (graph) {
 
             },
             {
-                label: 'Describe transcript (AI)....',
+                label: 'Describe transcript....',
                 click: () => {
                     let v = '';
                     let describe_transcript = {

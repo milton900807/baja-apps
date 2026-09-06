@@ -3746,7 +3746,7 @@ function (graph, genegraph_panel_layout) {
                                             // A described change (K27M, c.83A>T) placed on THIS track: the model
                                             // reads the description, the track's own coding sequence decides the
                                             // base. baja/data/variant-from-prompt.js.
-                                            label: 'Describe a variant (AI)…', move: () => { },
+                                            label: 'Describe a variant…', move: () => { },
                                             click: () => { graph.showSideMenu(null); exec('baja/data/variant-from-prompt.js', server, graph, genegraph_panel_layout, tr); }
                                         },
                                         { label: 'Filter', move: () => { }, click: () => { graph.showSideMenu(null); exec('baja/manchester/menu/edit-snps-filter-menu.js', graph, genegraph_panel_layout, tr, selRange()); } },
@@ -4619,7 +4619,7 @@ function (graph, genegraph_panel_layout) {
                                                     })
                                                 })).concat([
                                                     {
-                                                        label: 'Describe a variant (AI)…', move: () => { },
+                                                        label: 'Describe a variant…', move: () => { },
                                                         click: () => __runData(async () => {
                                                             await exec('baja/data/variant-from-prompt.js', host, graph, genegraph_panel_layout, __only());
                                                         })

@@ -3496,7 +3496,7 @@ function (progress, options) {
                     if (!__noAiResolve) {
                         try {
                             const sp = /^ENSMUST/i.test(ensembleId) ? 'mouse' : (/^ENSRNOT/i.test(ensembleId) ? 'rat' : 'human');
-                            if (this.setMessage) this.setMessage('Transcript "' + ensembleId + '" not found — finding the current version with AI…');
+                            if (this.setMessage) this.setMessage('Transcript "' + ensembleId + '" not found — finding the current version…');
                             const em = (typeof EngineMonitor === 'function') ? new EngineMonitor((m) => { try { if (this.setMessage) this.setMessage('' + m); } catch (e) { } }) : null;
                             const promptTxt = 'The Ensembl transcript stable ID "' + ensembleId + '" is retired or invalid. '
                                 + 'Return the current, closest-matching Ensembl transcript stable ID for the SAME transcript/gene '

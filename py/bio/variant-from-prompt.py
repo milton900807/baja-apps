@@ -115,6 +115,93 @@ def one_letter(a):
     return AA1.get(a.upper()[:3], "")
 
 
+# A description that names a gene and a context but no single change is not a mistake -- it
+# is a different question. "KRAS lung cancer" cannot be normalised to one edit, and refusing it
+# is correct for the single-variant path; but the variants it denotes ARE nameable, and each one
+# can then be checked against this transcript exactly like a typed one. VAGUE marks the failures
+# that mean "no single change was named" so that the caller can ask the other question, and
+# never marks a description that named a change badly.
+VAGUE = "VAGUE: "
+MAX_COHORT = 12
+
+
+def ask_cohort(text, ctx, protein, extra=""):
+    """The variants a gene-plus-context description denotes. Returns (list, error).
+
+    The model names them; it does not place them. Every one comes back as a protein change
+    that protein_edit then verifies against this transcript's own coding sequence, so a
+    residue the model misremembers is dropped here rather than drawn on the track."""
+    if not requests:
+        return None, "python 'requests' library unavailable"
+    if not ANTHROPIC_API_KEY:
+        return None, "ANTHROPIC_API_KEY is not set on the server"
+    system = (
+        "You are given a gene, its protein sequence, and a description that names a disease, "
+        "trait or biological context rather than one specific variant. List the coding "
+        "variants OF THAT GENE that are established as linked to THAT context. Reply with "
+        "ONLY a JSON object, no prose:\n"
+        "{\n"
+        '  "variants": [{"ref": "G", "pos": 12, "alt": "C", "label": "G12C", '
+        '"why": "most common KRAS variant in lung adenocarcinoma"}],\n'
+        '  "note": ""\n'
+        "}\n"
+        "Rules:\n"
+        "- One-letter amino acids. Write a stop as \"*\", never \"X\".\n"
+        "- pos is HGVS (initiator methionine = 1) AND MUST AGREE WITH THE PROTEIN SEQUENCE "
+        "GIVEN BELOW. Check that your ref residue really is at that position in that sequence "
+        "before you answer, and leave out anything you cannot place in it -- the protein given "
+        "is the transcript that is loaded, and a position from a different isoform is wrong "
+        "here even if it is the number the literature uses.\n"
+        "- LINKED MEANS ANY WELL-DOCUMENTED LINK, not only cancer hotspots: recurrent somatic "
+        "mutations, pathogenic or risk germline variants, and common coding polymorphisms with "
+        "a documented association with the trait all count. A gene whose association runs "
+        "through common variants is answered with those common variants.\n"
+        "- Single-residue substitutions only; skip copy-number, repeat-length, whole-exon and "
+        "splice changes, which cannot be placed as one coding change. If the gene's link to "
+        "the context is mainly through such a mechanism, say so in the note AND still list any "
+        "coding variants that are documented.\n"
+        "- Order by how strongly each is linked, strongest first. At most %d.\n"
+        "- Give the reason in \"why\", naming the rsID where there is one.\n"
+        '- If nothing about this gene is linked to that context, return {"variants": [], '
+        '"note": "why not"}.' % MAX_COHORT
+    )
+    user = (
+        "Gene / transcript: %s / %s (%s)\nChromosome: %s\n"
+        "Protein (HGVS numbering, Met = 1; %d residues):\n%s\n\n"
+        "Description from the user: %s"
+        % (ctx.get("gene") or "?", ctx.get("transcript") or "?", ctx.get("description") or "",
+           ctx.get("chr"), len(protein), protein, text)
+    )
+    if extra:
+        user += ("\n\nAdditional instructions from the user:\n%s" % extra)
+    try:
+        try:
+            import claude_usage as _cu
+            _cu.bump("variant-from-prompt-cohort")
+        except Exception:
+            pass
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": ANTHROPIC_MODEL, "max_tokens": 2000, "system": system,
+                  "messages": [{"role": "user", "content": user}]},
+            timeout=120,
+        )
+        if r.status_code != 200:
+            return None, "anthropic %s: %s" % (r.status_code, r.text[:300])
+        data = r.json()
+        if data.get("stop_reason") == "refusal":
+            return None, "the model declined this request"
+        txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
+        parsed = parse_json_blob(txt)
+        if parsed is None:
+            return None, "could not parse model output: %s" % (txt[:200] or "empty")
+        return parsed, None
+    except Exception as e:
+        return None, str(e)
+
+
 def ask(text, ctx, protein, extra=""):
     """One Anthropic call: normalise the description. Returns (dict, error)."""
     if not requests:
@@ -203,7 +290,7 @@ def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
     try:
         pos = int(spec.get("pos"))
     except Exception:
-        return None, "no protein position in the description"
+        return None, VAGUE + "no protein position in the description"
     if ref and not alt:
         # A residue and a position, but nothing to change them to. Say that, rather than
         # reporting an internal parse failure: the user is one character from a valid answer.
@@ -224,6 +311,9 @@ def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
         seats = [i + 1 for i, a in enumerate(protein) if a == ref]
         if len(seats) > 1:
             shown = ", ".join("%s%d" % (ref, q) for q in seats[:8]) + ("…" if len(seats) > 8 else "")
+            # NOT vague in the sense that invites enumeration: this description DID name a
+            # change, it just did not say where. Enumerating hotspots would answer a question
+            # nobody asked, so this stays a refusal with the positions listed.
             return None, ("the description gives no position, and %s occurs %d times in this "
                           "protein (%s). Say which one, e.g. %s%d%s."
                           % (ref, len(seats), shown, ref, seats[0], alt))
@@ -260,7 +350,10 @@ def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
         "ref": codon[lo:hi + 1],
         "alt": new_codon[lo:hi + 1],
         "type": "snp",
-        "label": "%s%d%s" % (ref, chosen, alt),
+        # The short name uses the numbering the field writes: on a histone that is the mature
+        # protein, so the change at HGVS 28 is the one everyone calls K27M. hgvs_p below keeps
+        # the formal name, so both are on the object and neither is guessed at.
+        "label": "%s%d%s" % (ref, chosen - histone_offset, alt),
     }
     hgvs_p = "p.%s%d%s" % (AA3.get(ref, ref), chosen, AA3.get(alt, alt))
     hgvs_c = ("c.%d%s>%s" % (edit["cds_offset"] + 1, edit["ref"], edit["alt"]) if n == 1
@@ -319,10 +412,21 @@ try:
 except Exception:
     ctx = {}
 extra = str(works.param(3) or "").strip()
+mode = str(works.param(4) or "").strip().lower()
+# mode "verify": the variants were named elsewhere (a disease context resolved by
+# py/bio/disease-variants.py) and only have to be checked against THIS transcript.
+# Nothing is asked of anything; the whole step is the coding sequence and arithmetic.
+given = []
+if mode == "verify":
+    try:
+        given = json.loads(str(works.param(5) or "[]")) or []
+    except Exception:
+        given = []
 cds = re.sub(r"[^ACGTN]", "", str(ctx.get("cds") or "").upper())
 out = {"ok": False, "level": None, "edits": [], "hgvs_p": None, "hgvs_c": None,
        "protein_len": 0, "note": "", "explanation": "", "model": ANTHROPIC_MODEL,
-       "instructions": extra, "error": None}
+       "instructions": extra, "error": None, "vague": False, "cohort": False,
+       "rejected": []}
 
 if not text:
     out["error"] = "no description given"
@@ -331,7 +435,64 @@ elif len(cds) < 3:
 else:
     protein = translate(cds)
     out["protein_len"] = len(protein.rstrip("*"))
-    works.msg("Asking %s to read the description…" % ANTHROPIC_MODEL)
+
+if mode in ("cohort", "verify") and not out["error"]:
+    # The other question: not "which change is this" but "which changes does this context
+    # mean". Each one still has to survive protein_edit against this transcript.
+    out["cohort"] = True
+    out["level"] = "protein"
+    if mode == "verify":
+        got, err = {"variants": given}, (None if given else "no variants were given to check")
+    else:
+        works.msg("Finding the variants that %s means…" % text)
+        got, err = ask_cohort(text, ctx, protein, extra)
+    if err:
+        out["error"] = err
+    else:
+        wanted = (got.get("variants") or [])[:MAX_COHORT]
+        out["explanation"] = str(got.get("note") or "")
+        hist = is_histone(ctx, protein) and not wrote_explicit_hgvs(text)
+        if hist:
+            out["numbering"] = "histone (mature protein, Met1 not counted)"
+        works.msg("Checking %d variant(s) against this transcript…" % len(wanted))
+        edits, rejected = [], []
+        for v in wanted:
+            label = str(v.get("label") or "")
+            # A LABEL THAT CONTRADICTS ITS OWN COORDINATES IS TWO ANSWERS, NOT ONE. "S622P"
+            # carrying ref=T pos=1864 is a number taken from one numbering and a name from
+            # another, and there is no way to tell which half was meant. Drop it rather than
+            # verify one half and display the other.
+            m = re.match(r"^([A-Z])(\d+)([A-Z*])$", label.strip().upper())
+            if m and (m.group(1) != one_letter(v.get("ref")) or m.group(3) != one_letter(v.get("alt"))):
+                rejected.append({"label": label,
+                                 "why": "the name and the change given for it disagree"})
+                continue
+            # user_text carries a digit so the no-position guard does not fire: the position
+            # here came from the enumeration, which is the thing being verified below.
+            res, verr = protein_edit(v, cds, protein, 1 if hist else 0, label or "pos given")
+            if verr or not res:
+                rejected.append({"label": label or "?", "why": str(verr or "no edit")})
+                continue
+            e = dict(res["edits"][0])
+            e["hgvs_p"] = res.get("hgvs_p")
+            e["hgvs_c"] = res.get("hgvs_c")
+            e["why"] = str(v.get("why") or "")
+            edits.append(e)
+        out["edits"] = edits
+        out["rejected"] = rejected
+        if edits:
+            out["ok"] = True
+            out["note"] = ("%d variant%s named for this context%s"
+                           % (len(edits), "" if len(edits) == 1 else "s",
+                              ("; %d dropped as not matching this transcript" % len(rejected))
+                              if rejected else ""))
+        else:
+            out["error"] = ("no variant could be placed for \"%s\"%s"
+                            % (text, ("; " + "; ".join("%s: %s" % (r["label"], r["why"])
+                                                       for r in rejected[:3])) if rejected else ""))
+elif not out["error"]:
+    protein = translate(cds)
+    works.msg("Reading the description…")
     spec, err = ask(text, ctx, protein, extra)
     if err:
         out["error"] = err
@@ -355,8 +516,15 @@ else:
             out["rsid"] = spec.get("rsid")
             out["ok"] = True
         else:
-            res, err = None, (out["explanation"] or "the description could not be resolved for this gene")
+            # Nothing this transcript can be asked for: no residue, no codon, no coordinate.
+            # That is the shape of "KRAS lung cancer", so mark it as the other question.
+            res, err = None, VAGUE + (out["explanation"] or "the description could not be resolved for this gene")
         if err:
+            # VAGUE means "no single change was named" -- a different question, not a bad
+            # answer. Strip the marker from what the user reads and raise the flag instead.
+            if err.startswith(VAGUE):
+                err = err[len(VAGUE):]
+                out["vague"] = True
             out["error"] = err
         elif res:
             out.update({k: v for k, v in res.items() if v is not None})

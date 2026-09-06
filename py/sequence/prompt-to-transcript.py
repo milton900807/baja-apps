@@ -223,14 +223,39 @@ def ensembl_symbol_lookup(symbol, species="human"):
             # symbol -> gene id -> transcripts rather than giving up and asking the model.
             x = requests.get("https://rest.ensembl.org/xrefs/symbol/%s/%s" % (sp, symbol),
                              headers=hdr, timeout=25)
-            gid = ""
+            gids = []
             if x.status_code == 200:
                 for row in (x.json() or []):
                     if str(row.get("type")) == "gene" and str(row.get("id", "")).startswith("ENS"):
-                        gid = row["id"]
-                        break
-            if not gid:
+                        gids.append(row["id"])
+            if not gids:
                 return []
+            # MORE THAN ONE GENE CAN ANSWER TO A LEGACY SYMBOL, AND THE FIRST IS NOT THE ONE.
+            # H3F3B returns ENSG00000163041 (H3-3A) BEFORE ENSG00000132475 (H3-3B), because
+            # the xref search matches the family as well as the gene -- so taking the first
+            # loaded H3-3A whenever H3F3B was asked for, and every H3F3B mutation landed on
+            # the wrong histone. The renamed symbol is not recoverable by string surgery
+            # either: H3F3B is H3-3B, which no punctuation rule turns into the other. It IS
+            # recorded, as an HGNC synonym, so ask for that and match on it.
+            want = str(symbol).strip().upper()
+            chosen, first = "", gids[0]
+            for gid in gids[:6]:
+                try:
+                    xr = requests.get(
+                        "https://rest.ensembl.org/xrefs/id/%s?external_db=HGNC" % gid,
+                        headers=hdr, timeout=25)
+                    names = set()
+                    if xr.status_code == 200:
+                        for row in (xr.json() or []):
+                            names.add(str(row.get("display_id") or "").upper())
+                            for syn in (row.get("synonyms") or []):
+                                names.add(str(syn).upper())
+                    if want in names:
+                        chosen = gid
+                        break
+                except Exception:
+                    continue
+            gid = chosen or first
             r = requests.get("https://rest.ensembl.org/lookup/id/%s?expand=1" % gid,
                              headers=hdr, timeout=25)
             if r.status_code != 200:

@@ -51,7 +51,7 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             {
                 // A described change (K27M, c.83A>T) placed on this track by the AI-backed
                 // resolver -- see baja/data/variant-from-prompt.js.
-                label: 'Describe a variant (AI)…', move: () => { log(''); },
+                label: 'Describe a variant…', move: () => { log(''); },
                 click: () => { graph.showSideMenu(null); exec('baja/data/variant-from-prompt.js', server, graph, genegraph_panel_layout, st || null); }
             }
         ]);

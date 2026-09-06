@@ -367,6 +367,9 @@ function (path, config) {
             mouseMode = 'structures'
             exec('flexigraph/gene.js', progressBar).then(async (graph) => {
                 cacheOn()
+
+                const server = (window['env'] && window['env']['apiUrl']) || '';
+
                 let io;
                 let tracks;
                 let genegraph_panel_layout;
@@ -2248,6 +2251,19 @@ function (path, config) {
                                                                     exec('baja/data/prompt-load-transcript.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
                                                                 }
                                                             },
+
+
+                                                            {
+                                                                // Two steps: find the transcripts for a described gene (canonical unless
+                                                                // asked otherwise), then tick the ones to load and say which variants
+                                                                // belong on them. baja/data/load-variant-track.js.
+                                                                label: 'Load variant track', move: () => { log(''); },
+
+                                                                click: () => { graph.showSideMenu(null); exec('baja/data/load-variant-track.js', server, graph, genegraph_panel_layout); }
+                                                            },
+
+
+
                                                             {
                                                                 // The other way to start a track: pick a clinical compound and
                                                                 // get its sequence as the track, with the compound already on
