@@ -136,7 +136,6 @@ function (path) {
             let user = getUser();
             if (user) {
                 var result = await verifyUserPath('/share', 'Chemistry of RNA Therapeutics');
-                debugger;
                 if (result && result.allowed) {
                     let host_ = window['env']['apiUrl']
 

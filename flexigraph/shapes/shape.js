@@ -5042,7 +5042,6 @@ function () {
                         rotationDeg: json.rotationDeg ?? 0,
 
                         draw(grid, ctx) {
-                            debugger;
                             const g = this.gfx || gfx || Shape.getGfx?.() || Shape.DefaultGfx;
                             if (g && typeof g.drawPath === 'function') return g.drawPath(this, grid, ctx);
 

@@ -1,14 +1,12 @@
 function (path) {
 
 
-    debugger;
 
     if (!path) {
         path = '/'
     }
 
 
-    debugger;
 
 
     if (window['env']['auth'] === 'b2c') {

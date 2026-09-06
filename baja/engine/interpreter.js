@@ -626,7 +626,6 @@ function (pt) {
                     } const command = args.shift();
                     if (isAFunctionForAPlate(command)) {
                         const table = pt.getTableByName(this.ref.name);
-                        debugger;
                         let [sp0, sp1] = splitAtTopLevelColon(command);
 
                         if (sp1.startsWith('=')) {

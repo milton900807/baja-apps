@@ -15,7 +15,6 @@ function () {
                 const maxWait = 5 * 60 * 1000; // 5 minutes
                 loginCheckInterval = setInterval(async () => {
                     try {
-                        debugger
                         const loggedIn = await MSGraph.isLoggedIn();
 
                         if (loggedIn) {

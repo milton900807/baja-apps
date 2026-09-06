@@ -288,7 +288,6 @@ function (datapath, server, graph, genegraph_panel_layout) {
                         let added = new Set();
                         let t_offset = 0.001;
 
-                        debugger;
 
                         for (let v of values) {
                             let hitStart = v.start;

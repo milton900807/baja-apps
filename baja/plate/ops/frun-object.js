@@ -7,8 +7,6 @@ function (expression, pt) {
 
 
 
-        if (expression.indexOf('average') >= 0)
-            debugger;
 
 
         function stripOuterParentheses(expr) {

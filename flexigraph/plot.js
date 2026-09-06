@@ -3113,7 +3113,6 @@ function (MGrid) {
 
             updateEquations() {
 
-                debugger;
 
                 for (let l of this.lineEquations) {
 
@@ -8796,7 +8795,6 @@ function (MGrid) {
             }
 
             getOptionsMenuList(pt) {
-                debugger;
                 let menuList = []
                 menuList.push(
                     {

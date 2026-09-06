@@ -11,7 +11,6 @@ function (pt, plate) {
         let cursorPos = 0;
         let WellColorPallette = await exec('baja/plate/well-color-palette.js')
         let mouseX;
-        console.debugger;
 
         let m = [
 

@@ -112,8 +112,6 @@ function (pm) {
                                     }), disableAfterClick: false
                                 }, {
                                     'label': 'Create plot', ionfunction: createIonFunction(async () => {
-                                        debuggerl
-
                                         let allScatterData = {
                                             points: []
                                         };

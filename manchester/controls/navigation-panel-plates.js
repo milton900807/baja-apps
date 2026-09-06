@@ -919,7 +919,6 @@ function (plate_graph) {
                     }
 
 
-                    debugger;
 
                     let l = (graph.getymax() - graph.getymin()) / 8;
                     graph.setymax(graph.getymax() + l);

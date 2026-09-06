@@ -110,7 +110,6 @@ function (graph) {
                                                 } else {
 
 
-                                                    debugger;
 
 
                                                     let l = ct.trim();

@@ -2814,7 +2814,6 @@ function (progress) {
                                 }
 
                             }
-                            debugger;
                             delete plate.wellannotations[range];
                             delete plate.formula[range];
 
@@ -5826,7 +5825,6 @@ function (progress) {
                                 }
                             } else {
 
-                                debugger;
 
 
                                 const v = await exec('baja/plate/ops/frun-object.js', calculation, this);
@@ -6702,7 +6700,6 @@ function (progress) {
                     this.glyphs = [];
                 }
 
-                debugger;
                 const glyph = this.appendNucleotideToGlyph(selectedGlyph, createNucleotideFn);
                 if (!glyph) return null;
                 this.glyphs.push(glyph);
@@ -18768,7 +18765,6 @@ function (progress) {
                                     // solve for x from y
                                     X(yValue) {
                                         yValue = extractSingleNumericValue(yValue);
-                                        debugger;
                                         const results = [];
 
                                         this.lineEquations.forEach(line => {
@@ -19098,7 +19094,6 @@ function (progress) {
                 if (!table.length) return;
 
 
-                debugger;
 
                 // Remove header row like: Well RFU1 RFU2
                 const hasHeader = table[0].some(cell =>

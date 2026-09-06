@@ -2270,7 +2270,6 @@ function (progress, options) {
             // by its name.
             ensureUniqueTrackName(newTrack) {
                 try {
-                    debugger
                     if (!newTrack) return newTrack;
                     const named = (newTrack.name != null && ('' + newTrack.name).trim().length);
                     const base = named ? ('' + newTrack.name) : 'track';
@@ -7516,7 +7515,6 @@ pattern, GGGG | Required`
                         Math.min(itemCount, maxPerColumn);
 
 
-                    debugger;
 
 
                     const menuHeight =
@@ -11198,7 +11196,6 @@ pattern, GGGG | Required`
                                 label: (t.name || 'track') + ' ' + a + '–' + b + ' (' + Math.max(0, b - a) + ' nt) ▸',
                                 click: () => {
                                     closeHandoff();
-                                    debugger;
                                     try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, t, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                                 },
                                 move: () => { }
