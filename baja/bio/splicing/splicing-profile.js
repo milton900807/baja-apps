@@ -16,8 +16,6 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
             try { exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout); } catch (e) { }
         };
 
-        debugger;
-
         const runOnTrack = async (track, mode, range) => {
             try {
                 // A range scopes the model to the SELECTED sequence: send that sub-sequence and
