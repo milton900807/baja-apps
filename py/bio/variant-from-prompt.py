@@ -197,15 +197,36 @@ def smallest_codon_change(codon, alt_aa):
     return best
 
 
-def protein_edit(spec, cds, protein, histone_offset=0):
+def protein_edit(spec, cds, protein, histone_offset=0, user_text=""):
     ref = one_letter(spec.get("ref"))
     alt = one_letter(spec.get("alt"))
     try:
         pos = int(spec.get("pos"))
     except Exception:
         return None, "no protein position in the description"
+    if ref and not alt:
+        # A residue and a position, but nothing to change them to. Say that, rather than
+        # reporting an internal parse failure: the user is one character from a valid answer.
+        try:
+            at = "%s%d" % (ref, int(spec.get("pos")))
+        except Exception:
+            at = ref
+        return None, ("%s names a residue but not what it becomes. Add the new residue -- "
+                      "%sM for methionine, %sR for arginine." % (at, at, at))
     if not ref or not alt:
-        return None, "could not read the reference or alternate residue"
+        return None, "could not read which residue changes, or what it changes to"
+
+    # A POSITION THE USER DID NOT GIVE IS A POSITION THE MODEL CHOSE. "change lysine to
+    # methionine" has no number in it, so whatever position comes back was inferred -- and on a
+    # protein with many lysines that is a guess presented as an answer. Accept it only when the
+    # residue is unique; otherwise say how many there are and ask which.
+    if not re.search(r"\d", str(user_text or "")):
+        seats = [i + 1 for i, a in enumerate(protein) if a == ref]
+        if len(seats) > 1:
+            shown = ", ".join("%s%d" % (ref, q) for q in seats[:8]) + ("…" if len(seats) > 8 else "")
+            return None, ("the description gives no position, and %s occurs %d times in this "
+                          "protein (%s). Say which one, e.g. %s%d%s."
+                          % (ref, len(seats), shown, ref, seats[0], alt))
     # The convention decides which position is tried FIRST. On a histone gene, a bare "G34V"
     # is mature-protein numbering, so HGVS 35 is tried before 34 -- and with a glycine at both,
     # trying 34 first would silently take the wrong one. The other positions remain as
@@ -325,7 +346,7 @@ else:
             hist = is_histone(ctx, protein) and not wrote_explicit_hgvs(text)
             if hist:
                 out["numbering"] = "histone (mature protein, Met1 not counted)"
-            res, err = protein_edit(spec.get("protein") or {}, cds, protein, 1 if hist else 0)
+            res, err = protein_edit(spec.get("protein") or {}, cds, protein, 1 if hist else 0, text)
         elif level == "cdna":
             res, err = cdna_edit(spec.get("cdna") or {}, cds)
         elif level in ("genomic", "rsid"):
