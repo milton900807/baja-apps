@@ -145,8 +145,22 @@ else:
             rid = ("rs" + info["RS"]) if info.get("RS") else (f[2] if (f[2] and f[2] != ".") else db)
             consequence = info["MC"].split("|")[-1] if info.get("MC") else None
             disease = None
+            conditions = []
             if info.get("CLNDN"):
                 disease = info["CLNDN"].replace("_", " ").replace("|", "; ").strip()
+                # The diseases as a LIST, not as one joined string. A condition filter has to
+                # test them one at a time, and "Hereditary cancer-predisposing syndrome;
+                # Li-Fraumeni syndrome" joined together is not something it can match against.
+                conditions = [
+                    c.strip().rstrip(",")
+                    for c in info["CLNDN"].replace("_", " ").split("|")
+                    if c.strip() and c.strip().lower() not in ("not provided", "not specified")
+                ]
+            # EVERY ANNOTATION ON THE RECORD, in the shape SnpIndel.setAnnotation() expects:
+            # the INFO column split on ';'. The track's detail box, the ClinDN column and a
+            # saved file all read from it, so anything dropped here is gone from the interface
+            # too. Raw values, underscores and all, because that is what the parser expects.
+            annotations = [kv for kv in str(f[7] or "").split(";") if kv]
             for alt in str(f[4] or "").split(","):
                 if len(alt) > MAX_ALLELE:
                     continue   # structural alt allele
@@ -165,6 +179,8 @@ else:
                     "af": None,
                     "gene": gene,
                     "disease": disease,
+                    "conditions": conditions,
+                    "annotations": annotations,
                 })
                 if len(variants) >= MAX_ROWS:
                     break

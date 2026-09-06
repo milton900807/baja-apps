@@ -241,6 +241,14 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     (v.id || label), null, colorFor(clinsig));
                 try {
                     snp.name = v.id || label;
+                    // EVERY ANNOTATION THE RECORD CARRIES, through the class's own parser, so
+                    // the detail box, the ClinDN column and a saved-and-reopened file all see
+                    // the same thing they would see for a variant loaded any other way.
+                    // First, because setAnnotation() derives clinsig and clindn from the raw
+                    // fields and the normalised values below are the ones to keep.
+                    if (Array.isArray(v.annotations) && v.annotations.length) {
+                        try { snp.setAnnotation(v.annotations); } catch (e) { }
+                    }
                     if (clinsig.length) snp.clinsig = clinsig.join(', ');
                     if (v.af != null) { snp.quality = 'AF=' + v.af; snp.af = +v.af; }
                     if (v.consequence) snp.structure = v.consequence;

@@ -770,20 +770,19 @@ function () {
             setAnnotation(annotation_array) {
                 if (annotation_array && annotation_array.length > 0) {
                     for (let a of annotation_array) {
-                        if (a.startsWith('CLNSIG')) {
-                            let i = a.indexOf('=');
-                            if (i > 0) {
-                                let t = a.substring(i + 1);
-                                this.clinsig = t;
-                            }
-                        }
-                        if (a.startsWith('CLNDN')) {
-                            let i = a.indexOf('=');
-                            if (i > 0) {
-                                let t = a.substring(i + 1);
-                                this.clindn = t;
-                            }
-                        }
+                        // MATCH THE KEY, NOT A PREFIX OF IT. A ClinVar INFO field carries
+                        // CLNSIG alongside CLNSIGSCV, CLNSIGCONF and CLNSIGINCL, and CLNDN
+                        // alongside CLNDNINCL -- all of which start with the key being looked
+                        // for. Testing the start of the string meant the last of them won, so
+                        // a variant whose record held CLNSIG=Uncertain_significance followed
+                        // by CLNSIGSCV=SCV004022412 ended up reporting the submission
+                        // accession as its clinical significance.
+                        let i = a.indexOf('=');
+                        if (i <= 0) continue;
+                        let key = a.substring(0, i);
+                        let t = a.substring(i + 1);
+                        if (key === 'CLNSIG') this.clinsig = t;
+                        else if (key === 'CLNDN') this.clindn = t;
                     }
                     this.annotations = annotation_array;
                 }
