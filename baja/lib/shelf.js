@@ -41,11 +41,14 @@ function (opts) {
             const src = (typeof b.books === 'function') ? await b.books() : b.books;
             return Array.isArray(src) ? src : [];
         };
-        // The yellow that marks Back, and the ring built from it. Same value the canvas uses
-        // for a selection wash, so the app has one yellow rather than two that nearly match.
-        const BACK_YELLOW = '#ffd60a';
-        const BACK_RING = 'drop-shadow(1.5px 0 0 ' + BACK_YELLOW + ') drop-shadow(-1.5px 0 0 ' + BACK_YELLOW + ')'
-            + ' drop-shadow(0 1.5px 0 ' + BACK_YELLOW + ') drop-shadow(0 -1.5px 0 ' + BACK_YELLOW + ')';
+        // The yellow that marks Back. LIGHT rather than saturated, and the control it marks is
+        // small: Back is the one thing on a shelf that does not act on anything, so it should
+        // read as a quiet way out rather than compete with the cards. A pale fill carries the
+        // colour better at this size than an outline ring would -- a 1px ring around a 10px
+        // control is more edge than fill.
+        const BACK_YELLOW = '#ffe98a';
+        const BACK_RING = 'drop-shadow(1px 0 0 ' + BACK_YELLOW + ') drop-shadow(-1px 0 0 ' + BACK_YELLOW + ')'
+            + ' drop-shadow(0 1px 0 ' + BACK_YELLOW + ') drop-shadow(0 -1px 0 ' + BACK_YELLOW + ')';
         const id = o.id || 'baja-shelf';
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -74,10 +77,9 @@ function (opts) {
             // element's alpha, so it traces the clipped silhouette exactly, point included.
             // Four offsets make a ring; the text sits on opaque fill, so nothing haloes it.
             + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;'
-            + 'clip-path:polygon(0% 50%, 13px 0%, 100% 0%, 100% 100%, 13px 100%);'
-            + 'border-radius:0 8px 8px 0;padding:9px 16px 9px 22px;font:700 13px Arial;border:0;'
-            + 'filter:' + BACK_RING + ';'
-            + 'background:rgba(255,255,255,0.16);color:#fff;">\u2039 Back</button>'
+            + 'clip-path:polygon(0% 50%, 8px 0%, 100% 0%, 100% 100%, 8px 100%);'
+            + 'border-radius:0 5px 5px 0;padding:4px 9px 4px 14px;font:700 10.5px Arial;border:0;'
+            + 'background:' + BACK_YELLOW + ';color:#3a2d00;">\u2039 Back</button>'
             + '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">'
             + '<div id="shelf-title" style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
             + '<div id="shelf-sub" style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
@@ -141,8 +143,20 @@ function (opts) {
             try { header.querySelector('#shelf-up').style.display = (!detailBack && stack.length > 1 ? '' : 'none'); } catch (e) { }
             const needle = ('' + (q.value || '')).trim().toLowerCase();
             shelf.innerHTML = '';
-            const shown = (lv.books || []).filter((b) => !needle
+            let shown = (lv.books || []).filter((b) => !needle
                 || ((b.title || '') + ' ' + (b.blurb || '') + ' ' + (b.badge || '')).toLowerCase().indexOf(needle) >= 0);
+            // BACK LIVES IN THE HEADER, not among the books. A card that navigates sits in the
+            // same grid as the cards that DO something, and reads as one of them; the header
+            // button is the one control that is always in the same place whatever shelf you
+            // are on. So wherever that button is available -- any level with a parent on the
+            // shelf's own stack -- a back card is dropped from the grid.
+            //
+            // Not dropped when there is no parent to pop: the selection library rebuilds a
+            // fresh shelf for each level, so its stack is always one deep and its own back
+            // card is the only way back. Filtering that would strand it.
+            if (stack.length > 1) {
+                shown = shown.filter((b) => !(b && b.back));
+            }
             if (!shown.length) {
                 const empty = document.createElement('div');
                 empty.style.cssText = 'grid-column:1/-1;color:#9fb3c8;font:13px Arial;padding:24px;';

@@ -125,7 +125,10 @@ function (graph, selectedTrack, genegraph_panel_layout) {
         // The design menu already REQUIRES a selection and designs against
         // getSequenceRange(markstart, markend), so it is correct as-is for this menu.
         const items = [
-            { label: '  ' + start + '–' + end + '  (' + len + ' nt)', move: () => { }, click: () => { } },
+            // The headline entry ACTS: it zooms to the selection, the same as Navigate ▸ Zoom to
+            // selection. It used to be a label with an empty click, which read as a button that
+            // did nothing.
+            go(' Zoom to: ' + start + '–' + end + '  (' + len + ' nt)', async () => zoomToSpan(start, end, 0.25)),
             sub('Navigate ▸', navItems),
             go('Deselect sequence', async () => deselect()),
             // Layers ▸ Data | Models, matching the selected-TRACK menu: anything that puts a
@@ -141,14 +144,14 @@ function (graph, selectedTrack, genegraph_panel_layout) {
                 // your own uploads -- so a submenu naming three of its shelves was a second,
                 // narrower index of the same thing. Labelled '...' not '▸': it opens a panel,
                 // it is not a submenu.
-                go('Data...', async () => exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout)),
+                go('Data ▸', async () => exec('baja/data/data-resources-library.js', graph, genegraph_panel_layout)),
                 // Models opens the ML Models Library, the same way Data opens the Data Resources
                 // Library. The library is the catalogue -- what each model predicts, what it was
                 // measured against and what it cannot tell you -- and running it from there is
                 // one click further but starts from the documentation rather than a bare name.
                 // The runners resolve the track from the SELECTION when they are not handed one,
                 // so a model launched from the library still lands on this track.
-                go('Models...', async () => exec('baja/ml/models-library.js', graph, genegraph_panel_layout)),
+                go('Models ▸', async () => exec('baja/ml/models-library.js', graph, genegraph_panel_layout)),
                 go('Remove layers over this range', async () => {
                     // Only layers that fall INSIDE the selection: a layer spanning the whole
                     // track is not "a layer over this range" and dropping it here would delete

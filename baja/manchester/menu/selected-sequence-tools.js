@@ -47,7 +47,13 @@ function (graph, genegraph_panel_layout, selectedTrack) {
             { label: 'ClinVar', move: () => { log(''); }, click: () => loadFrom('clinvar', 'ClinVar') },
             { label: 'gnomAD', move: () => { log(''); }, click: () => loadFrom('gnomad', 'gnomAD') },
             { label: 'dbSNP', move: () => { log(''); }, click: () => loadFrom('dbsnp', 'dbSNP') },
-            { label: 'COSMIC', move: () => { log(''); }, click: () => loadFrom('cosmic', 'COSMIC') }
+            { label: 'COSMIC', move: () => { log(''); }, click: () => loadFrom('cosmic', 'COSMIC') },
+            {
+                // A described change (K27M, c.83A>T) placed on this track by the AI-backed
+                // resolver -- see baja/data/variant-from-prompt.js.
+                label: 'Describe a variant (AI)…', move: () => { log(''); },
+                click: () => { graph.showSideMenu(null); exec('baja/data/variant-from-prompt.js', server, graph, genegraph_panel_layout, st || null); }
+            }
         ]);
     };
 

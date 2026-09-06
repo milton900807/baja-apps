@@ -68,6 +68,20 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             const species = ('' + (track.species || 'human')).toLowerCase();
             const chr = ('' + track.chr).replace(/^chr/, '');
 
+            // An alt-contig transcript (SMN2-231 on HSCHR5_1_CTG1_1, an SMN1 copy on a haplotype
+            // contig) carries coordinates on that contig, but track.chr was reduced to the
+            // chromosome number, so the query went to chr5 at the contig's numbers and found an
+            // empty stretch. The variant databases are on the primary assembly and Ensembl has
+            // no mapping for these contigs, so there is nothing to place: say that, and name
+            // the way out, instead of "No ClinVar variants found for chr5:274951-302936".
+            if (track.altContig || (track.contig && !/^(chr)?([0-9]{1,2}|X|Y|MT?|W|Z)$/i.test('' + track.contig))) {
+                graph.setMessage(' ' + (track.name || 'This track') + ' is on the alternate contig '
+                    + (track.contig || track.chr) + ', not on chr' + chr + '. ' + label + ' coordinates are on the '
+                    + 'primary assembly and this contig cannot be mapped to it, so no variants can be placed. '
+                    + 'Load the primary-assembly transcript of the gene instead. ');
+                restoreHover(); return;
+            }
+
             // Region: the selected sequence range (unless forced whole) else the whole track.
             // Child (cDNA / mRNA) tracks render in LOCAL coordinates (0..len), so their tgraph
             // bounds are not genomic — query the track's genomic span (gxi/gxf), and the

@@ -3705,7 +3705,7 @@ function (graph, genegraph_panel_layout) {
                                     if (cancelled) return;
                                     const nm = (s.name || s.id || ('Variant ' + (i + 1)));
                                     try {
-                                        graph.showSideMenu([
+                                        (graph.showTourMenu || graph.showSideMenu).call(graph, [
                                             { label: 'Tour  ' + (i + 1) + ' / ' + tsnps.length + ':  ' + nm, move: () => { }, click: () => { clearT(); go(); } },
                                             { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
                                             { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
@@ -3742,6 +3742,13 @@ function (graph, genegraph_panel_layout) {
                                         { label: 'dbSNP', move: () => { }, click: () => { loadFrom('dbsnp', 'dbSNP'); } },
                                         { label: 'gnomAD', move: () => { }, click: () => { loadFrom('gnomad', 'gnomAD'); } },
                                         { label: 'COSMIC', move: () => { }, click: () => { loadFrom('cosmic', 'COSMIC'); } },
+                                        {
+                                            // A described change (K27M, c.83A>T) placed on THIS track: the model
+                                            // reads the description, the track's own coding sequence decides the
+                                            // base. baja/data/variant-from-prompt.js.
+                                            label: 'Describe a variant (AI)…', move: () => { },
+                                            click: () => { graph.showSideMenu(null); exec('baja/data/variant-from-prompt.js', server, graph, genegraph_panel_layout, tr); }
+                                        },
                                         { label: 'Filter', move: () => { }, click: () => { graph.showSideMenu(null); exec('baja/manchester/menu/edit-snps-filter-menu.js', graph, genegraph_panel_layout, tr, selRange()); } },
                                         {
                                             label: 'Remove all', move: () => { }, click: () => {
@@ -4610,7 +4617,15 @@ function (graph, genegraph_panel_layout) {
                                                         await exec('baja/data/load-variants.js', host, graph,
                                                             genegraph_panel_layout, v.db, v.label, true, __only());
                                                     })
-                                                })).concat([{ label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } }]),
+                                                })).concat([
+                                                    {
+                                                        label: 'Describe a variant (AI)…', move: () => { },
+                                                        click: () => __runData(async () => {
+                                                            await exec('baja/data/variant-from-prompt.js', host, graph, genegraph_panel_layout, __only());
+                                                        })
+                                                    },
+                                                    { label: '‹ Back', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } }
+                                                ]),
                                                     null, 'Variant sources ▸');
                                             }
                                         });

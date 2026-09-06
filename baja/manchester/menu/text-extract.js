@@ -605,7 +605,7 @@ function (graph, genegraph_panel_layout, presetText, presetEntities) {
                         { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },
                         { label: '✓ Done', move: () => { }, click: () => { finish(); } },
                     ];
-                    try { graph.showSideMenu(menu); } catch (e) { }
+                    try { (graph.showTourMenu ? graph.showTourMenu(menu) : graph.showSideMenu(menu)); } catch (e) { }
                     timer = setTimeout(() => { i++; go(); }, 10000);   // auto-advance after 10s
                 };
                 go();

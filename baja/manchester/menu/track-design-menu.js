@@ -1445,7 +1445,23 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 blurb: a.blurb || ('Design ' + t.label + ' over ' + scopeNote() + '.'),
                 open: () => t.click()
             };
-        });
+        }).concat([{
+            // Not a fourth modality: a different question. The three above design against the
+            // transcript; this one designs against ONE ALLELE of it, and the modality (siRNA or
+            // gapmer) is chosen inside. baja/manchester/menu/allele-selective-design.js.
+            title: 'Allele selective', badge: 'Around a mutation',
+            blurb: 'Oligos that hit the mutant allele and spare the wild-type one — siRNA or '
+                + 'gapmer, chosen next. Designed against a variant already on the track, and '
+                + 'ranked by WHERE the wild-type mismatch falls: the central/seed positions of '
+                + 'an siRNA guide, or inside a gapmer\'s DNA gap, because that placement is '
+                + 'what discrimination is.',
+            // A LEAF, not a shelf. It used to open a two-card level naming the modalities, and
+            // the design then asked for the modality again in its own menu -- the same question
+            // twice, with the shelf's answer thrown away. The card opens the design directly,
+            // and the modality is asked once, where the chemistry and the mutation are also
+            // chosen: Therapeutics -> Allele selective -> modality -> chemistry.
+            open: () => exec('baja/manchester/menu/allele-selective-design.js', window['env']['apiUrl'], graph, genegraph_panel_layout, selectedTrack)
+        }]);
 
         const primerBooks = () => [
             {
@@ -1472,8 +1488,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             {
                 title: 'Therapeutics', badge: 'Oligo design',
                 subtitle: 'Pick a modality',
-                blurb: 'siRNA, gapmer and steric-blocking ASO designers. Each opens its own '
-                    + 'Default / Advanced dialog before it runs.',
+                blurb: 'siRNA, gapmer and steric-blocking ASO designers, plus allele-selective '
+                    + 'design around a mutation. Each opens its own dialog before it runs.',
                 books: therapeuticBooks
             },
             {

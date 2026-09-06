@@ -434,7 +434,7 @@ function (graph, genegraph_panel_layout) {
                             if (cancelled) return;
                             const nm = (s.name || s.id || ('Variant ' + (i + 1)));
                             try {
-                                graph.showSideMenu([
+                                (graph.showTourMenu || graph.showSideMenu).call(graph, [
                                     { label: 'Tour  ' + (i + 1) + ' / ' + tsnps.length + ':  ' + nm, move: () => { }, click: () => { clearT(); go(); } },
                                     { label: '‹ Previous', move: () => { }, click: () => { clearT(); i = Math.max(0, i - 1); go(); } },
                                     { label: 'Next ›', move: () => { }, click: () => { clearT(); i++; go(); } },

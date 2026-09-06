@@ -122,7 +122,16 @@ function (graph, genegraph_panel_layout, tracks) {
             blurb: src.blurb,
             subtitle: 'Pick the class of ' + src.label + ' variant to load',
             books: () => variantClasses(src)
-        }));
+        })).concat([{
+            // Not a database: a described change placed on the loaded track. The model only
+            // reads the description; the base is derived from and checked against the track's
+            // own coding sequence (baja/data/variant-from-prompt.js).
+            title: 'Describe a variant', badge: 'AI',
+            blurb: 'Type a change in words — K27M, p.Arg175His, c.83A>T — and it is placed on the '
+                + 'loaded track as a mutation, at the position the track\'s own coding sequence '
+                + 'says it belongs. Nothing new is loaded.',
+            open: () => exec('baja/data/variant-from-prompt.js', host(), graph, genegraph_panel_layout, tracks)
+        }]);
 
         // ---- microRNA: the two evidence sets, as their own shelf -------------------------
         const mirnaBooks = async () => {

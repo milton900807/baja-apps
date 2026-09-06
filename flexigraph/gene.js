@@ -2933,6 +2933,7 @@ function (progress, options) {
                     t.transcriptID = transcriptId;
                     t.species = js['species'];
                     t.chr = js['seq_region_name'];
+                    this.noteContig(t, js['seq_region_name']);
                     t.description = (js['display_name'] || '').toString();
                     t.geneID = js['Parent'];
 
@@ -2978,6 +2979,21 @@ function (progress, options) {
 
                     return t;
                 }
+            }
+
+            // The full seq_region_name and whether it is a primary chromosome. t.chr is reduced
+            // to a number for display and for the many lookups keyed by chromosome, which loses
+            // the fact that an alt-contig transcript (SMN2-231 on HSCHR5_1_CTG1_1, say) is NOT on
+            // chr5: its coordinates are on the contig, and a ClinVar or gnomAD query on chr5 at
+            // those numbers lands in the wrong place and finds nothing. Recorded so the variant
+            // loaders can tell the user rather than report an empty region.
+            noteContig(t, seqRegionName) {
+                try {
+                    const name = String(seqRegionName == null ? '' : seqRegionName).trim();
+                    if (!name) return;
+                    t.contig = name;
+                    t.altContig = !/^(chr)?([0-9]{1,2}|X|Y|MT?|W|Z)$/i.test(name);
+                } catch (e) { }
             }
 
             createTrackFromLocal(js) {
@@ -3334,6 +3350,7 @@ function (progress, options) {
                                     t.species = _sp || '';
                                 })();
                                 t.chr = chr;
+                                this.noteContig(t, chr);
 
                                 const regex = /\d+/;
                                 const match = String(t.chr).match(regex);
@@ -3528,6 +3545,7 @@ function (progress, options) {
                 t.transcriptID = ensembleId;
                 t.species = species;
                 t.chr = chromosome;
+                this.noteContig(t, chromosome);
                 t.description = desc;
                 t.geneID = geneID;
                 // Prefer a canonical gene symbol as the track name; fall back to the id.
@@ -7295,9 +7313,19 @@ pattern, GGGG | Required`
                 } catch (e) { return list; }
             }
 
+            // A side menu that stays a side menu even in library mode -- for a tour's step
+            // control. See the note inside showSideMenu.
+            showTourMenu(list, anchor, label) {
+                try { if (Array.isArray(list)) list.__plainSide = true; } catch (e) { }
+                return this.showSideMenu(list, anchor, label);
+            }
+
             showSideMenu(list, anchor, label) {
+                // The filters below build NEW arrays, which would drop the tour mark; carry it.
+                const __plainSide = !!(list && list.__plainSide);
                 try { list = this.__viewerFilterMenu(list); } catch (e) { }
                 try { list = this.__orderMenu(list); } catch (e) { }
+                try { if (__plainSide && Array.isArray(list)) list.__plainSide = true; } catch (e) { }
                 if (this.wake) this.wake();
 
                 // LIBRARY MODE. Opened from the menubar's Selection button, every level of the
@@ -7323,8 +7351,15 @@ pattern, GGGG | Required`
                 //
                 // Opened from the selection window ON THE CANVAS the flag is false, and this
                 // whole block is skipped: that route keeps its side menus.
+                //
+                // A TOUR is the exception. Its step menu (Tour n / N, Previous, Next, Done) is a
+                // small control that has to sit beside the canvas while the canvas zooms from stop
+                // to stop; drawn as a library page it covers the very thing being toured. Tours
+                // mark their lists (showTourMenu below) and are always drawn as a plain side menu,
+                // whatever mode the session is in. The session itself is left alone, so the next
+                // ordinary menu after the tour is a library again.
                 try {
-                    if (list && this.__menuLibrary) {
+                    if (list && this.__menuLibrary && !list.__plainSide) {
                         this.__showSelectionShelf(list, label);
                         return;
                     }
@@ -11163,6 +11198,7 @@ pattern, GGGG | Required`
                                 label: (t.name || 'track') + ' ' + a + '–' + b + ' (' + Math.max(0, b - a) + ' nt) ▸',
                                 click: () => {
                                     closeHandoff();
+                                    debugger;
                                     try { Promise.resolve(exec('baja/manchester/menu/selected-sequence-menu.js', this, t, this.genegraph_panel_layout)).catch(() => { }); } catch (e) { }
                                 },
                                 move: () => { }
