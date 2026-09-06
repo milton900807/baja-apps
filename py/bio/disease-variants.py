@@ -110,8 +110,14 @@ CLASSIFY_SYSTEM = (
     "{\n"
     '  "kind": "context" | "variant" | "gene" | "other",\n'
     '  "disease": "full name of the disease or biological context, if kind is context",\n'
+    '  "terms": ["Coronary artery disease", "Myocardial infarction", "Hypercholesterolemia"],\n'
     '  "why": "one short sentence"\n'
     "}\n"
+    "terms (only when kind is context): the disease names a variant database such as ClinVar "
+    "would file variants under for this context -- the condition itself under the wording "
+    "such a database uses, plus its main subtypes and the closely equivalent names. Between 3 "
+    "and 8. These are used to select variants by the condition they were submitted against, "
+    "so give the names as they are written in clinical records, not descriptions.\n"
     'Use "variant" when the text names a specific change, however informally -- K27M, '
     'p.Arg175His, c.83A>T, "TP53 R175H", rs113488022, a genomic coordinate. Use "gene" when it '
     'names only a gene or transcript and no change and no disease. Use "context" ONLY when it '
@@ -165,7 +171,7 @@ except Exception:
 want = max(1, min(want, HARD_MAX))
 
 out = {"is_context": False, "disease": "", "genes": [], "variants": [], "kind": "",
-       "sample": False, "note": "", "model": ANTHROPIC_MODEL, "error": None}
+       "terms": [], "sample": False, "note": "", "model": ANTHROPIC_MODEL, "error": None}
 
 if not text:
     out["error"] = "nothing to look up"
@@ -178,6 +184,14 @@ else:
         kind = str(kind_res.get("kind") or "other").lower()
         out["kind"] = kind
         out["disease"] = str(kind_res.get("disease") or "").strip()
+        terms = [str(t).strip() for t in (kind_res.get("terms") or []) if str(t).strip()]
+        # The condition as the user wrote it belongs in the list too: their wording may be the
+        # one the database uses, and nothing is lost by trying it.
+        if out["disease"] and out["disease"] not in terms:
+            terms.insert(0, out["disease"])
+        if text not in terms:
+            terms.insert(0, text)
+        out["terms"] = terms[:10]
         out["note"] = str(kind_res.get("why") or "")
         if kind != "context":
             # Not our question. The caller falls back to its ordinary path, which is the

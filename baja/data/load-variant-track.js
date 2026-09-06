@@ -260,32 +260,62 @@ function (server, graph, genegraph_panel_layout) {
             // ---- and the variants on them --------------------------------------------------
             const wish = readVariantWish(pick.variants);
             if (wish.context) {
-                // A CONDITION, not a database. The changes of these transcripts that are linked
-                // to it, each one checked against the transcript's own coding sequence before
-                // it is drawn. The constraint is inherent here: only the tracks loaded above
-                // are passed, so nothing else on the board is touched whatever the box says.
+                // A CONDITION FILTERS THE DATABASE. "coronary heart disease" does not mean
+                // "load ClinVar", it means "load the ClinVar variants filed against that
+                // condition" -- so ask what names the condition is recorded under, and pass
+                // those to the loader as the filter. An unfiltered load is never the answer
+                // to a condition: it puts every variant in the window on the track and buries
+                // the ones that were asked for.
+                let terms = [wish.context];
+                try {
+                    const dv = await exec(server + '/py/bio/disease-variants.py',
+                        new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } }),
+                        wish.context, '12');
+                    let t = [];
+                    try { t = JSON.parse((dv && dv.terms) || '[]'); } catch (e) { t = []; }
+                    if (t.length) terms = t;
+                } catch (e) { }
+                say('Loading ' + wish.dbLabel + ' variants filed against ' + wish.context
+                    + ' (' + terms.length + ' name' + (terms.length === 1 ? '' : 's') + ') onto '
+                    + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's') + '…');
+                // How many landed. A composite track keeps no list of its own and delegates to
+                // the tracks inside it, so ask those instead of reading zero and concluding
+                // that nothing loaded.
+                const snpCount = (t) => {
+                    if (!t) return 0;
+                    if (Array.isArray(t.snpindels)) return t.snpindels.length;
+                    if (Array.isArray(t.tracks)) return t.tracks.reduce((n, x) => n + snpCount(x), 0);
+                    return 0;
+                };
+                const countSnps = () => loaded.reduce((n, t) => n + snpCount(t), 0);
+                const before = countSnps();
+                let after = 0;
+                try {
+                    await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
+                        wish.db, wish.dbLabel, false, loaded,
+                        { label: wish.context, conditions: terms });
+                } catch (e) {
+                    say('The ' + wish.dbLabel + ' load for "' + wish.context + '" failed: '
+                        + (e && e.message ? e.message : e));
+                    restoreHover(); return false;
+                }
+                after = countSnps();
+                if (after > before) { restoreHover(); return true; }
+                // NOTHING IN THE DATABASE IS FILED AGAINST IT over these transcripts. Rather
+                // than fall back to loading everything -- which answers a question that was
+                // not asked -- place the changes of these genes that are known to be linked
+                // to the condition, each checked against the transcript's coding sequence.
+                say('No ' + wish.dbLabel + ' variant on ' + (loaded.length === 1 ? 'this transcript' : 'these transcripts')
+                    + ' is filed against ' + wish.context + '. Looking for known changes linked to it instead…');
                 let ok = false;
                 try {
                     ok = await exec('baja/data/variant-from-prompt.js', server, graph,
                         genegraph_panel_layout, loaded, wish.context);
                 } catch (e) { ok = false; }
-                if (ok) { restoreHover(); return true; }
-                // NOTHING VERIFIED. That is a real answer -- the changes linked to this
-                // condition are not changes this transcript can carry, which happens when the
-                // numbering in the literature belongs to a longer isoform, or when the link
-                // runs through repeats or non-coding variants. Rather than leave the user with
-                // loaded transcripts and nothing on them, fall back to the variant database
-                // over those same transcripts, and say plainly that this is what happened.
-                say('No coding change linked to "' + wish.context + '" could be verified against '
-                    + (loaded.length === 1 ? 'this transcript' : 'these transcripts')
-                    + '. Loading ClinVar over ' + (loaded.length === 1 ? 'it' : 'them') + ' instead…');
-                try {
-                    await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
-                        'clinvar', 'ClinVar', false, loaded, null);
-                } catch (e) {
-                    say('No coding change linked to "' + wish.context + '" could be verified, and '
-                        + 'the ClinVar fallback also failed: ' + (e && e.message ? e.message : e));
-                    restoreHover(); return false;
+                if (!ok) {
+                    say('Nothing linked to "' + wish.context + '" could be placed on '
+                        + (loaded.length === 1 ? 'this transcript' : 'these transcripts')
+                        + '. The transcripts are loaded; nothing was invented to put on them.');
                 }
                 restoreHover();
                 return true;

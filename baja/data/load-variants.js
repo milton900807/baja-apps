@@ -18,8 +18,32 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
     const label = dbLabel || db;
     const FILTER = filter || null;
     const filterNote = (FILTER && FILTER.label) ? ' [' + FILTER.label + ']' : '';
-    const passesFilter = (type, clinsig) => {
+    // A CONDITION FILTER MATCHES AGAINST CLINVAR'S OWN DISEASE NAMES (CLNDN), which is the
+    // only way "the variants relevant to coronary heart disease" can mean anything more than
+    // "every variant in this window". The typed words rarely equal ClinVar's wording --
+    // "coronary heart disease" against "Coronary artery disease" -- so match on content
+    // words rather than on the whole phrase, with the words that carry no meaning of their
+    // own removed. A term of one content word is a wide net and that is intended: the
+    // alternative is a filter that silently matches nothing.
+    const STOPWORDS = ('a an and or of the for with to in on related associated risk variant '
+        + 'variants mutation mutations gene genes disease diseases disorder disorders '
+        + 'condition conditions syndrome type form familial hereditary').split(' ');
+    const contentWords = (phrase) => ('' + phrase).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ')
+        .split(/\s+/).filter((w) => w.length > 3 && STOPWORDS.indexOf(w) < 0);
+    // The terms the user asked for, each reduced to its content words. A variant matches when
+    // ANY term has ALL of its content words present in ANY of that variant's condition names.
+    const CONDITION_TERMS = (FILTER && Array.isArray(FILTER.conditions))
+        ? FILTER.conditions.map(contentWords).filter((w) => w.length) : [];
+    const passesConditions = (conditions) => {
+        if (!CONDITION_TERMS.length) return true;
+        const names = (conditions || []).map((c) => ('' + c).toLowerCase());
+        if (!names.length) return false;   // no disease recorded cannot match a disease asked for
+        return CONDITION_TERMS.some((words) => names.some((n) => words.every((w) => n.indexOf(w) >= 0)));
+    };
+
+    const passesFilter = (type, clinsig, conditions) => {
         if (!FILTER) return true;
+        if (!passesConditions(conditions)) return false;
         if (Array.isArray(FILTER.types) && FILTER.types.length && FILTER.types.indexOf(type) < 0) return false;
         const cs = FILTER.clinsig;
         if (cs) {
@@ -207,7 +231,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 else if (ref.length > alt.length) type = 'del';
 
                 const clinsig = v.clinsig || [];
-                if (!passesFilter(type, clinsig)) { skippedFilter++; continue; }
+                if (!passesFilter(type, clinsig, v.conditions)) { skippedFilter++; continue; }
 
                 // Deletions are anchored one base before the deleted run on the + strand.
                 let placeXi = wx;
@@ -220,6 +244,12 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     if (clinsig.length) snp.clinsig = clinsig.join(', ');
                     if (v.af != null) { snp.quality = 'AF=' + v.af; snp.af = +v.af; }
                     if (v.consequence) snp.structure = v.consequence;
+                    // What this variant was filed against. It is the reason it is on the
+                    // track when a condition was asked for, so it has to be readable.
+                    if (v.conditions && v.conditions.length) {
+                        snp.conditions = v.conditions.join('; ');
+                        snp.comment = ((snp.comment ? snp.comment + ' — ' : '') + snp.conditions);
+                    }
                     snp.source = v.source || label;   // filterable: dbSNP / ClinVar / gnomAD / COSMIC
                 } catch (e) { }
                 track.addsnpindel(snp);
