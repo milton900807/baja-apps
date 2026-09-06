@@ -1104,16 +1104,16 @@ function (path, config) {
                     })
 
                 },
-            ),
-            {
-                'label': 'Layers', 'ionfunction': createIonFunction(async () => {
-                    graph.setMessage(" Select a track to edit layers.")
-                    let hl = await exec('baja/manchester/menu/select-track-action-layers.js', graph, genegraph_panel_layout);
+            );
+                // {
+                //     'label': 'Layers', 'ionfunction': createIonFunction(async () => {
+                //         graph.setMessage(" Select a track to edit layers.")
+                //         let hl = await exec('baja/manchester/menu/select-track-action-layers.js', graph, genegraph_panel_layout);
 
-                })
-            }
+                //     })
+                // }
 
-            let ops_items = []
+                let ops_items = []
 
             if (user != null && user.length > 0) {
                 ops_items.push({

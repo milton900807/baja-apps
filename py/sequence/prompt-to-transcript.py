@@ -132,7 +132,12 @@ def ask(system, user, max_tokens=1200, tag="prompt-to-transcript"):
         txt = "".join(b.get("text", "") for b in parts if b.get("type") == "text")
         parsed = parse_json_blob(txt)
         if not parsed:
-            return None, "could not parse model output: %s" % (txt[:200] or "empty")
+            # No JSON at all almost always means the model answered in prose -- usually a
+            # question. Hand back what it said, trimmed, rather than "could not parse":
+            # the sentence is the actual answer to why nothing loaded.
+            said = " ".join(str(txt or "").split())
+            return None, (("the model replied in prose instead of an answer: " + said[:240])
+                          if said else "the model returned nothing")
         return parsed, None
     except Exception as e:
         return None, str(e)
@@ -152,7 +157,16 @@ def ask_species_and_genes(text, hint):
         "nomenclature: human symbols uppercase (KRAS), mouse and rat title case (Kras). "
         "If no species is stated, use human. If the request names a transcript ID rather "
         "than a gene, give the gene that ID belongs to if you know it, otherwise return "
-        "an empty gene list."
+        "an empty gene list.\n"
+        "NEVER ask the user a question and never reply in prose -- the caller parses JSON "
+        "and a question comes back as a failure with your text buried in it. A request may "
+        "name something that is not a gene symbol: a disease, a tumour type, a syndrome, a "
+        "pathway, a drug target, a phenotype (DIPG, cystic fibrosis, SMA, MYC pathway, "
+        "statin target). Resolve it yourself to the genes it implicates and return those -- "
+        "for DIPG, the K27M oncohistones H3F3A and HIST1H3B; for cystic fibrosis, CFTR. "
+        "Prefer the few genes the term is actually defined by over a long list. Only when "
+        "you genuinely cannot name any gene, return {\"targets\": []} and put the reason in "
+        "a \"note\" field."
     )
     user = str(text or "")
     if hint:
@@ -323,7 +337,12 @@ def ask_ids_directly(text, species_hint):
         "main transcript, return the MANE Select (or Ensembl canonical) and set "
         "canonical=true; for 'all transcripts/isoforms' list the principal ones. If you "
         "are not confident of an exact ID, omit that one rather than guessing. Do not "
-        "include version suffixes (no trailing .1)."
+        "include version suffixes (no trailing .1).\n"
+        "NEVER ask the user a question and never reply in prose. If the request names a "
+        "disease, tumour type, syndrome or pathway rather than a gene (DIPG, cystic "
+        "fibrosis, SMA), resolve it to the genes it implicates and return their "
+        "transcripts. If you can name no transcript at all, return "
+        "{\"transcripts\": []} with a \"note\" field saying why."
     )
     user = str(text or "")
     if species_hint:
