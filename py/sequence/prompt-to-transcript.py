@@ -175,6 +175,19 @@ def ask_species_and_genes(text, hint):
 
 
 # --- candidate catalogues ----------------------------------------------------
+# The GENCODE gene index -- the only source here that holds REAL transcript ids. Everything
+# else in this file is the model's opinion; this is a lookup. It was reachable only through
+# OFFTARGET_INDEX_DIR, which the server does not set, so the catalogue on disk was never
+# opened and every request fell through to asking the model to recite ids from memory. That
+# is why the ids came back wrong, and why two runs of the same query returned different ones.
+GENES_DB_CANDIDATES = (
+    "reference_data/bajasplice/data/processed/genes.sqlite",
+    "/opt/baja-server/reference_data/bajasplice/data/processed/genes.sqlite",
+    os.path.expanduser("~/baja-server/reference_data/bajasplice/data/processed/genes.sqlite"),
+    os.path.expanduser("~/ml/splicing/data/processed/genes.sqlite"),
+)
+
+
 def genes_db_path():
     p = (os.environ.get("BAJASPLICE_GENES_DB") or "").strip()
     if p and os.path.exists(p):
@@ -185,7 +198,81 @@ def genes_db_path():
         p = os.path.join(ref, "bajasplice", "data", "processed", "genes.sqlite")
         if os.path.exists(p):
             return p
+    for p in GENES_DB_CANDIDATES:
+        if os.path.exists(p):
+            return p
     return ""
+
+
+def ensembl_symbol_lookup(symbol, species="human"):
+    """A gene symbol -> its real canonical transcript, from Ensembl. Used when the local
+    catalogue does not know the symbol -- which happens for legacy names the index has
+    renamed (H3F3A is H3-3A there) and for species it does not cover."""
+    if not requests or not symbol:
+        return []
+    sp = {"human": "homo_sapiens", "mouse": "mus_musculus", "rat": "rattus_norvegicus",
+          "dog": "canis_lupus_familiaris"}.get(str(species).lower(), "homo_sapiens")
+    hdr = {"Accept": "application/json"}
+    try:
+        r = requests.get("https://rest.ensembl.org/lookup/symbol/%s/%s?expand=1" % (sp, symbol),
+                         headers=hdr, timeout=25)
+        j = r.json() if r.status_code == 200 else None
+        if not j:
+            # A LEGACY SYMBOL is the common miss: H3F3A was renamed H3-3A, and lookup/symbol
+            # only answers to the current name. xrefs/symbol still knows the old one, so go
+            # symbol -> gene id -> transcripts rather than giving up and asking the model.
+            x = requests.get("https://rest.ensembl.org/xrefs/symbol/%s/%s" % (sp, symbol),
+                             headers=hdr, timeout=25)
+            gid = ""
+            if x.status_code == 200:
+                for row in (x.json() or []):
+                    if str(row.get("type")) == "gene" and str(row.get("id", "")).startswith("ENS"):
+                        gid = row["id"]
+                        break
+            if not gid:
+                return []
+            r = requests.get("https://rest.ensembl.org/lookup/id/%s?expand=1" % gid,
+                             headers=hdr, timeout=25)
+            if r.status_code != 200:
+                return []
+            j = r.json()
+        canon = strip_version(j.get("canonical_transcript") or "")
+        out = []
+        for t in (j.get("Transcript") or []):
+            tid = strip_version(t.get("id"))
+            if TRANSCRIPT_RE.match(tid):
+                out.append({"id": tid, "canonical": bool(t.get("is_canonical")) or tid == canon})
+        out.sort(key=lambda x: (not x["canonical"], x["id"]))
+        return out[:MAX_CANDIDATES_PER_GENE]
+    except Exception:
+        return []
+
+
+def transcript_exists(tid):
+    """Is this a real Ensembl transcript? Checked against the catalogue first, then Ensembl.
+    An id the model invented fails here and is dropped rather than handed to the client."""
+    tid = strip_version(tid)
+    if not TRANSCRIPT_RE.match(tid):
+        return False
+    db = genes_db_path()
+    if db:
+        try:
+            con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+            row = con.execute("select 1 from exons where transcript_id like ? limit 1",
+                              (tid + "%",)).fetchone()
+            con.close()
+            if row:
+                return True
+        except Exception:
+            pass
+    if not requests:
+        return False
+    try:
+        r = requests.get("https://rest.ensembl.org/lookup/id/%s" % tid,
+                         headers={"Accept": "application/json"}, timeout=20)
+        return r.status_code == 200 and str((r.json() or {}).get("object_type", "")).lower() == "transcript"
+    except Exception:
+        return False
 
 
 def human_candidates(symbols):
@@ -407,17 +494,36 @@ for tgt in targets[:6]:
     # Genes the catalogue does not hold (rat Kras carries no symbol in the index,
     # for one) still get the old unconstrained answer rather than vanishing.
     missing = [g for g in genes if g.upper() not in cand]
+    # Before asking the model to recite ids, ask a source that HAS them. The catalogue is
+    # keyed on current HGNC symbols, so a legacy name misses -- H3F3A is H3-3A there -- and
+    # that miss used to go straight to the model.
+    if missing:
+        still = []
+        for g in missing:
+            got = ensembl_symbol_lookup(g, sp)
+            if got:
+                cand[g.upper()] = got
+            else:
+                still.append(g)
+        missing = still
     if missing:
         q = "%s\n\nOnly these genes, in %s: %s" % (prompt_text, sp, ", ".join(missing))
         parsed, e = ask_ids_directly(q, sp)
         if e:
             errs.append("%s (%s): %s" % (sp, ", ".join(missing), e))
-        got = [r for r in collect_direct(parsed, sp)]
+        got = []
+        for r in collect_direct(parsed, sp):
+            # A model-supplied id is a claim, not a lookup. Check it exists before it reaches
+            # the client, which would otherwise load a track for a transcript that is not real.
+            if transcript_exists(r.get("id")):
+                got.append(r)
+            else:
+                errs.append("%s: dropped %s -- no such Ensembl transcript" % (sp, r.get("id")))
         if got:
             mode = "anthropic-2pass+direct"
             results.extend(got)
         else:
-            errs.append("%s: no transcript found for %s" % (sp, ", ".join(missing)))
+            errs.append("%s: no verifiable transcript found for %s" % (sp, ", ".join(missing)))
 
     if not cand:
         continue
@@ -455,7 +561,12 @@ if not results and prompt_text:
     parsed, e = ask_ids_directly(prompt_text, species_override)
     if e:
         errs.append(e)
-    results = collect_direct(parsed, override or species_override)
+    results = []
+    for r in collect_direct(parsed, override or species_override):
+        if transcript_exists(r.get("id")):
+            results.append(r)
+        else:
+            errs.append("dropped %s -- no such Ensembl transcript" % r.get("id"))
     if results:
         mode = "anthropic-direct"
 
