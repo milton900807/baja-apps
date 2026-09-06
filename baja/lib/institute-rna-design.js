@@ -187,11 +187,8 @@ function (graph, genegraph_panel_layout) {
                 + (TARGETING.length + MEDICINE.length + STRATEGIES.length) + ' entries · every one in preparation · '
                 + (TARGETING.filter((r) => r[3]).length + MEDICINE.filter((r) => r[3]).length + STRATEGIES.filter((r) => r[1]).length)
                 + ' with a clinical case study</div></div>';
-            const x = document.createElement('button');
-            x.textContent = '✕ Close';
-            x.style.cssText = 'margin-left:auto;flex:0 0 auto;cursor:pointer;border-radius:6px;padding:8px 15px;'
-                + 'font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.5);background:transparent;color:#fff;';
-            head.appendChild(x);
+            // No close button in the header: it sat over the Load Data control. Escape and a
+            // click outside the pane close the institute, as they always did.
 
             const scroll = document.createElement('div');
             scroll.style.cssText = 'flex:1 1 auto;overflow:auto;padding:22px 26px 32px;';
@@ -224,7 +221,6 @@ function (graph, genegraph_panel_layout) {
                 restoreHover();
             };
             onKey = (e) => { try { if (e.key === 'Escape') close(); } catch (er) { } };
-            x.onclick = close;
             overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
             document.addEventListener('keydown', onKey, true);
 

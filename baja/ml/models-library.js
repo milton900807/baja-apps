@@ -53,7 +53,9 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Splicing — site strength', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Donor / acceptor splice-site strength at every position.',
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
+                // The mode is this entry's identity, so pass it: the profile then arms the run
+                // directly instead of asking again in its own centre menu.
+                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets(), null, 'sites'),
                 docs: {
                     summary: 'A dilated residual CNN over 2,000 nt of context predicts donor, acceptor '
                         + 'or neither at EVERY position of a pre-mRNA — so it scores sites de novo '
@@ -85,7 +87,7 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Splicing — PSI', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Percent-spliced-in for cassette exons, across 54 tissues.',
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets()),
+                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets(), null, 'psi'),
                 docs: {
                     summary: 'Given the four splice-site windows of a cassette event and its geometry, '
                         + 'predicts inclusion in each of 54 tissues — how often the exon is kept rather '

@@ -650,11 +650,58 @@ return new Promise(async (resolve, reject) => {
             ctx.fill();
         }
 
-        _sashimiBar(ctx, x, baselineY, prob, color, maxBarPx) {
-            let h = maxBarPx * Math.max(0, Math.min(1, prob || 0));
-            if (h < 1) return;
+        // An open chevron with its apex at (x, y), pointing along (ux, uy). Drawn as dark ink
+        // over a white halo so it reads on any part of the donor->acceptor gradient. This is
+        // the direction marker ON the arc: the gradient alone does not say which way a
+        // junction runs, and on a minus-strand track the acceptor is to the LEFT of the donor,
+        // so a reader cannot assume left-to-right.
+        _sashimiChevron(ctx, x, y, ux, uy, size, color) {
+            let px = -uy, py = ux;
+            let ax = x - ux * size + px * size * 0.7, ay = y - uy * size + py * size * 0.7;
+            let bx = x - ux * size - px * size * 0.7, by = y - uy * size - py * size * 0.7;
+            ctx.save();
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(x, y); ctx.lineTo(bx, by);
+            ctx.lineWidth = 4.5; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.stroke();
+            ctx.lineWidth = 2; ctx.strokeStyle = color; ctx.stroke();
+            ctx.restore();
+        }
+
+        // A site-strength GAUGE: a faint full-height outline (the 0..1 scale) with the filled
+        // part in the site colour, and the probability printed at the top on the outer side,
+        // away from the arc, so donor and acceptor labels on a short intron do not collide.
+        // The outline is what makes it read as a bar with a scale rather than a stray tick.
+        _sashimiBar(ctx, x, baselineY, prob, color, maxBarPx, opts) {
+            opts = opts || {};
+            let v = Math.max(0, Math.min(1, prob || 0));
+            let h = maxBarPx * v;
+            let bw = opts.width || 3;
+            ctx.save();
+            ctx.globalAlpha = 0.18;
             ctx.fillStyle = color;
-            ctx.fillRect(x - 1.5, baselineY - h, 3, h);
+            ctx.fillRect(x - bw / 2, baselineY - maxBarPx, bw, maxBarPx);
+            ctx.restore();
+            if (h >= 1) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x - bw / 2, baselineY - h, bw, h);
+            }
+            if (opts.label && typeof prob === 'number') {
+                ctx.save();
+                ctx.font = 'bold 9px Arial';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = opts.align || 'left';
+                let lx = x + (ctx.textAlign === 'right' ? -(bw / 2 + 2) : (bw / 2 + 2));
+                let ly = baselineY - maxBarPx - 6;
+                let txt = v.toFixed(2);
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                ctx.lineJoin = 'round';
+                ctx.strokeText(txt, lx, ly);
+                ctx.fillStyle = color;
+                ctx.fillText(txt, lx, ly);
+                ctx.restore();
+            }
         }
 
         drawSashimi(tgraph, graph, track) {
@@ -671,12 +718,31 @@ return new Promise(async (resolve, reject) => {
             // arc weight / crest are normalized by this while the label shows the
             // real magnitude.
             let magMax = this.magMax || 1;
+            // Dominance: a junction's normalized magnitude (0..1) sets both the arc's opacity
+            // and its thickness, interpolated between these [weak, strong] pairs. Plain fields
+            // on the layer so a saved layer keeps its look and a caller can tune them, e.g.
+            // layer.arcAlpha = [0.2, 1]; layer.arcWidth = [0.5, 6].
+            let arcAlpha = (Array.isArray(this.arcAlpha) && this.arcAlpha.length === 2) ? this.arcAlpha : [0.30, 0.95];
+            let arcWidth = (Array.isArray(this.arcWidth) && this.arcWidth.length === 2) ? this.arcWidth : [0.75, 4.5];
+            let barLabels = (this.barLabels !== false);
+            let barWidth = this.barWidth || 3;
 
             let baselineY = graph.Y(tgraph.Y(0));
             let w = graph.width;
 
-            for (let j of this.junctions) {
-                if (!j) continue;
+            const __mag = (j) => {
+                let dp = (typeof j.dp === 'number') ? j.dp : (j.s || 0);
+                let ap = (typeof j.ap === 'number') ? j.ap : (j.s || 0);
+                return (typeof j.mag === 'number') ? j.mag : (typeof j.s === 'number') ? j.s : Math.min(dp, ap);
+            };
+            // Weak arcs first, dominant ones last, so the strongest junction is always the one
+            // on top where arcs overlap (competing acceptors, skip arcs over inclusion arcs).
+            const __ordered = this.junctions.filter(Boolean).slice().sort((p, q) => __mag(p) - __mag(q));
+            // Each site is drawn once per frame even when several junctions share it; the
+            // gauge and its value would otherwise be painted on top of themselves.
+            const __drawnBars = new Set();
+
+            for (let j of __ordered) {
                 let x1 = graph.X(tgraph.X(j.d));   // donor
                 let x2 = graph.X(tgraph.X(j.a));   // acceptor
                 if (Math.max(x1, x2) < 0 || Math.min(x1, x2) > w) continue;
@@ -698,26 +764,61 @@ return new Promise(async (resolve, reject) => {
                 let centerY = baselineY + offset;
                 let a1 = Math.atan2(baselineY - centerY, x1 - centerX);
                 let a2 = Math.atan2(baselineY - centerY, x2 - centerX);
+                // On a minus-strand track the donor sits to the RIGHT of its acceptor, so
+                // sweeping from a1 to a2 would take the long way round under the baseline.
+                // Always sweep left to right; a1/a2 are still used for the arrow placement.
+                let aL = (x1 <= x2) ? a1 : a2;
+                let aR = (x1 <= x2) ? a2 : a1;
 
                 let grad = ctx.createLinearGradient(x1, baselineY, x2, baselineY);
                 grad.addColorStop(0, donorColor);
                 grad.addColorStop(1, acceptorColor);
+                ctx.save();
                 ctx.beginPath();
                 ctx.strokeStyle = grad;
-                ctx.lineWidth = 0.75 + 3.75 * sn;
+                ctx.globalAlpha = arcAlpha[0] + (arcAlpha[1] - arcAlpha[0]) * sn;
+                ctx.lineWidth = arcWidth[0] + (arcWidth[1] - arcWidth[0]) * sn;
                 if (isSkip) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
-                ctx.arc(centerX, centerY, radius, a1, a2, false);
+                ctx.arc(centerX, centerY, radius, aL, aR, false);
                 ctx.stroke();
                 ctx.setLineDash([]);
+                ctx.restore();
 
-                this._sashimiBar(ctx, x1, baselineY, dp, donorColor, maxBarPx);
-                this._sashimiBar(ctx, x2, baselineY, ap, acceptorColor, maxBarPx);
+                // Value labels sit on the OUTER side of each bar: left of a donor that is left
+                // of its acceptor, right of one that is right of it (minus strand), and the
+                // mirror for the acceptor. Labelled only when the arc is wide enough to keep the
+                // two numbers apart.
+                let __label = barLabels && chord > 40;
+                let __kd = 'd' + Math.round(x1), __ka = 'a' + Math.round(x2);
+                if (!__drawnBars.has(__kd)) {
+                    __drawnBars.add(__kd);
+                    this._sashimiBar(ctx, x1, baselineY, dp, donorColor, maxBarPx,
+                        { width: barWidth, label: __label, align: (x1 <= x2) ? 'right' : 'left' });
+                }
+                if (!__drawnBars.has(__ka)) {
+                    __drawnBars.add(__ka);
+                    this._sashimiBar(ctx, x2, baselineY, ap, acceptorColor, maxBarPx,
+                        { width: barWidth, label: __label, align: (x1 <= x2) ? 'left' : 'right' });
+                }
 
                 let near = a2 + (a1 - a2) * 0.10;
                 let nx = centerX + radius * Math.cos(near);
                 let ny = centerY + radius * Math.sin(near);
-                this._sashimiArrowHead(ctx, x2, baselineY, x2 - nx, baselineY - ny, 7, acceptorColor);
-                this._sashimiArrowHead(ctx, x1, baselineY - maxBarPx * Math.min(1, dp), 0, -1, 4, donorColor);
+                this._sashimiArrowHead(ctx, x2, baselineY, x2 - nx, baselineY - ny, 8, acceptorColor);
+                // Chevrons riding the arc, pointing the way the junction runs (donor -> acceptor).
+                // Both ends sit on the upper half of the circle, so the short arc from a1 to a2 is
+                // the plain interpolation between the two angles and the direction of travel is
+                // sign(a2 - a1). The tangent at angle t is (-sin t, cos t) times that sign. One
+                // at the crest whenever the arc is wide enough to carry it, two more at the
+                // quarter points on a wide arc, none on a dashed skip arc's short version.
+                let __dir = Math.sign(a2 - a1) || 1;
+                let __fracs = chord > 160 ? [0.25, 0.5, 0.75] : (chord > 28 ? [0.5] : []);
+                let __csize = 4 + 3 * sn;
+                for (let f of __fracs) {
+                    let t = a1 + (a2 - a1) * f;
+                    let cx = centerX + radius * Math.cos(t), cy = centerY + radius * Math.sin(t);
+                    this._sashimiChevron(ctx, cx, cy, -Math.sin(t) * __dir, Math.cos(t) * __dir, __csize, labelColor);
+                }
 
                 // Arc weight label at the crest — shown whenever the arc is wide
                 // enough to fit the number (independent of base-level zoom). Drawn on its

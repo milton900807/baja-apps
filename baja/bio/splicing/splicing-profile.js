@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout, presetTrack, presetRange) {
+function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
     // Splicing profile — pick a magnitude mode, then click a track to send its
     // sequence to the local bajasplice-lib models (py/bio/splice/splicing-profile.py,
     // run via exec rather than the old POSTJSON TF-serving call) and draw the
@@ -16,6 +16,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             try { exec('baja/ml/predictive-models-toolbar.js', graph, genegraph_panel_layout); } catch (e) { }
         };
 
+        debugger;
+
         const runOnTrack = async (track, mode, range) => {
             try {
                 // A range scopes the model to the SELECTED sequence: send that sub-sequence and
@@ -24,6 +26,31 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 // which a cut-out range no longer describes (see exonsArg below).
                 let seq = track && track.sequence;
                 let xi = (track && track.xi != null) ? track.xi : 0;
+
+                // A spliced sequence in a genomic frame cannot be profiled. The models
+                // score the first and last INTRONIC base of every intron, with 1,000 nt of
+                // context on each side; a cDNA has had those bases removed at every
+                // exon-exon boundary, so it comes back with nothing over threshold and an
+                // empty plot that looks like a model failure. The signature is a sequence
+                // shorter than the span it claims to occupy: a pre-mRNA track holds one
+                // base per coordinate, a cDNA holds only the exonic ones (SMN2-231 on the
+                // alt contig HSCHR5_1_CTG1_1 arrives this way, because the server's
+                // pre-mRNA path only knows primary-assembly transcripts and falls back to
+                // the Ensembl cDNA). Refuse it with the reason rather than run and say
+                // "no junctions".
+                if (seq && seq.length && Number.isFinite(+track.xi) && Number.isFinite(+track.xf)) {
+                    const span = Math.abs(Math.floor(+track.xf) - Math.floor(+track.xi)) + 1;
+                    // Off-by-one loaders exist (a track one base short is still genomic);
+                    // a cDNA is shorter by whole introns, so a 1% tolerance separates them.
+                    if (seq.length < span * 0.99) {
+                        graph.setMessage(' ' + (track.name || 'This track') + ' holds a spliced sequence ('
+                            + ('' + seq.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt) in a '
+                            + ('' + span).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' nt genomic frame — '
+                            + 'no introns to score. Load the transcript as pre-mRNA (a primary-assembly '
+                            + 'Ensembl id) and run again. ');
+                        restoreHover(); return false;
+                    }
+                }
                 if (range && mode !== 'psi' && Number.isFinite(+range.start) && Number.isFinite(+range.end) && +range.end > +range.start) {
                     try {
                         // Cut the selection WITH flanking context. SpliceNet scores a position
@@ -54,6 +81,31 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 }
                 const strand = '' + (track.strand != null ? track.strand : 1);
 
+                // Which strand does a MINUS-strand track's string hold? Two loaders disagree:
+                // the server's pre-mRNA payload is the plus-strand genomic slice stored as is
+                // ('plus'), while the older Ensembl path stored the transcript sequence reversed,
+                // i.e. the coding strand by ascending x ('coding'). The model needs the transcript,
+                // so the script has to know which reverse to apply. Decide from the annotated
+                // exon boundaries: at each intron the plus-strand text reads AC before the exon
+                // (the donor, read backwards) and CT after it (the acceptor), the coding-strand
+                // text reads their complements TG and GA. Majority wins; no exons -> 'plus',
+                // which is what the current loader produces.
+                let orientation = 'plus';
+                if (+strand < 0 && track.getExons && typeof seq === 'string' && Number.isFinite(+track.xi)) {
+                    try {
+                        let plusHits = 0, codingHits = 0;
+                        const at = (x) => { const i = Math.floor(x) - Math.floor(+track.xi); return (i >= 0 && i < seq.length) ? seq[i].toUpperCase() : ''; };
+                        for (const e of (track.getExons() || [])) {
+                            const lo = Math.min(+e.xi, +e.xf), hi = Math.max(+e.xi, +e.xf);
+                            const donor = at(lo - 2) + at(lo - 1);       // intron side of the exon's 3' end
+                            const acceptor = at(hi + 1) + at(hi + 2);    // intron side of the exon's 5' end
+                            if (donor === 'AC') plusHits++; else if (donor === 'TG') codingHits++;
+                            if (acceptor === 'CT') plusHits++; else if (acceptor === 'GA') codingHits++;
+                        }
+                        if (codingHits > plusHits) orientation = 'coding';
+                    } catch (e) { }
+                }
+
                 // PSI mode needs real exon structure — send the track's annotated
                 // exons (track-local [xi, xf], transcript order) if it has them.
                 let exonsArg = '';
@@ -82,7 +134,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 // Surface backend progress / messages (model load, scoring…). They double as
                 // the status line, so the badge follows the phase the run is actually in.
                 let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); __say('' + m); } catch (e) { } });
-                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg);
+                const data = await exec(server + '/py/bio/splice/splicing-profile.py', em, '' + seq, '' + xi, strand, '' + mode, exonsArg, orientation);
 
                 if (data && data.error) {
                     graph.setMessage(' Splicing error: ' + data.error + ' ');
@@ -327,7 +379,16 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             });
         };
 
-        // Ask which magnitude to visualize, then arm the track click.
+        // The magnitude mode is normally decided by whoever launched this: the models library
+        // has one entry per model ('sites' for site strength, 'psi' for inclusion) and passes
+        // it as presetMode, so the user is not asked a second time in a centre menu for a
+        // choice they have just made. The menu remains only for a caller that passes nothing.
+        const __mode = (typeof presetMode === 'string') ? presetMode.trim().toLowerCase() : '';
+        if (__mode === 'sites' || __mode === 'psi') {
+            armTrackClick(__mode);
+            resolve(true);
+            return;
+        }
         graph.showMenu([
             {
                 label: 'Baja:SiteStrength:v1.0', move: () => { },
