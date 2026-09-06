@@ -20,10 +20,30 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         const showEditorCanvas = () => {
             showInMainPanel((graph && graph.genegraph_panel_layout) || genegraph_panel_layout);
         };
+        // Did we come from the New-track form? Only then is there a form to go back TO -- a
+        // preset query (from a menu, or from the variant designer) has no form behind it, and
+        // its caller reports the failure itself.
+        let formShown = false;
+        // NOTHING FOUND IS NOT THE END OF THE INTERACTION. A query that resolves to no
+        // transcript is usually a query worth editing -- a gene the model did not recognise, a
+        // typo, a disease term it could not map -- and dropping the user back on the canvas
+        // with a toast makes them reopen the window and retype it. Put the form back with what
+        // they wrote still in it, so the next attempt is an edit rather than a fresh start.
+        const backToPrompt = (msg) => {
+            try { graph.setMessage(msg); } catch (e) { }
+            if (!formShown) return;
+            try {
+                showInMainPanel(describe_transcript);
+                setTimeout(() => { try { if (v && v.setContent) v.setContent(lastQuery || ''); } catch (e) { } }, 80);
+            } catch (e) { }
+        };
+        let lastQuery = '';
+
         // Resolve a natural-language query (or a pasted id) into transcript(s)
         // and load them onto the graph.
         const resolveAndLoad = async (rawQuery, source) => {
             const query = ('' + (rawQuery || '')).trim();
+            lastQuery = query;
             if (!query) { resolve(null); return; }
             const loadOne = async (item) => {
                 if (!item || !item.id) return false;
@@ -86,8 +106,8 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             try {
                 res = await exec(PY, em, query);
             } catch (e) {
-                graph.setMessage(" Transcript resolver failed: "
-                    + (e && e.message ? e.message : e));
+                backToPrompt(" Transcript resolver failed: "
+                    + (e && e.message ? e.message : e) + " — try again. ");
                 resolve(null);
                 return;
             }
@@ -99,8 +119,12 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             }
 
             if (!list.length) {
-                graph.setMessage(" No transcripts found for: " + query
-                    + (res && res.error ? " (" + res.error + ")" : ""));
+                // Say what the resolver said, not just that nothing came back: "no valid
+                // transcript ids returned by the model" and "the model replied in prose" are
+                // different problems and lead to different edits.
+                backToPrompt(" No transcripts found for \"" + query + "\""
+                    + (res && res.error ? " — " + res.error : "")
+                    + ". Edit the description and try again. ");
                 resolve(null);
                 return;
             }
@@ -316,6 +340,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
 
         // Show the New-track form in the mainPanel instead of a modal.
         describe_transcript.componentRef = 'mainPanel';
+        formShown = true;
         showInMainPanel(describe_transcript);
         // Typewriter: type the random example into the editor (cleared on first focus).
         setTimeout(() => {

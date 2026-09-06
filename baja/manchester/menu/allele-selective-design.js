@@ -44,7 +44,15 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // Substitutions only for now, and said plainly: an indel changes the coordinate frame
         // of everything downstream of it, and a design built on a guessed frame is worse than
         // no design.
-        const subs = all.filter((s) => (s.type === 'snp') || (('' + (s.reference0 || s.reference || '')).length === 1 && ('' + (s.alternate0 || s.alternate || '')).length === 1));
+        // Substitutions of any length -- a single base, or a multi-base change across one codon
+        // (H3F3A G34W is GGG>TGG when it lands wrong). What is excluded is an INDEL, which
+        // shifts the coordinate frame of everything downstream. Testing `type === 'snp'` alone
+        // let a three-base allele through and then only its first base was applied.
+        const alleleOf = (s, which) => ('' + ((s[which + '0'] != null ? s[which + '0'] : s[which]) || '')).toUpperCase();
+        const subs = all.filter((s) => {
+            const r = alleleOf(s, 'reference'), a = alleleOf(s, 'alternate');
+            return r.length >= 1 && r.length === a.length && /^[ACGT]+$/.test(r) && /^[ACGT]+$/.test(a);
+        });
         if (!subs.length) {
             say('The ' + all.length + ' variant' + (all.length === 1 ? '' : 's') + ' on this track ' + (all.length === 1 ? 'is an' : 'are') + ' insertion/deletion. Allele-selective design here covers substitutions; indel support is not in yet.');
             restoreHover(); return false;
@@ -141,26 +149,11 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             say('Could not read a clean sequence window around the variant on this track.');
             restoreHover(); return false;
         }
-        // reference0 / alternate0 are the CODING-strand alleles (SnpIndel complements them for a
-        // minus-strand track), which for a single base is transcript orientation too.
-        const refTx = ('' + (snp.reference0 || snp.reference || '')).toUpperCase().slice(0, 1);
-        const altTx = ('' + (snp.alternate0 || snp.alternate || '')).toUpperCase().slice(0, 1);
-        if (!/^[ACGT]$/.test(altTx)) { say('That variant has no usable alternate base.'); restoreHover(); return false; }
-        if (refTx && wt[vi] !== refTx) {
-            say('The track reads ' + wt[vi] + ' at the variant where the variant says ' + refTx + '; designing against the track.');
-        }
-        const mut = wt.slice(0, vi) + altTx + wt.slice(vi + 1);
-
-        // THE MUTATED TARGET, IN THE TRACK'S OWN FRAME. The window above is in transcript
-        // orientation, which is what the scoring needs (guide positions, seed, gap) but NOT
-        // what a compound is built from: Biopolymer reads bioObj.targetSequence as the sequence
-        // running left to right along the track, and derives the strand it synthesises from
-        // that plus the track's strand. Handing it the transcript-orientation site made the
-        // minus-strand compounds the reverse complement of what they should be.
-        //
-        // So build the mutant a second time, ascending x, off the track's own stored sequence
-        // with the alternate allele written in at the variant -- go to the snpindel, take the
-        // alternate allele, mutate the target, and design from that.
+        // THE MUTATED TARGET. Built ONCE, in the track's own frame -- ascending x, off the
+        // track's own stored sequence with the alternate allele written in at the variant.
+        // That is the frame Biopolymer reads (it derives the synthesised strand from it and
+        // the track's strand), and the transcript-orientation copy the scoring needs is then
+        // derived from it rather than mutated a second time, so the two cannot disagree.
         const storedAt = (x) => {
             const i = Math.floor(x) - Math.floor(track.xi);
             const b = (track.sequence || '')[i];
@@ -168,13 +161,41 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         };
         // Which allele reads in the track's own frame: reference0/alternate0 are the CODING
         // strand's, which is what a 'coding'-orientation minus track stores; a track holding
-        // the plus-strand slice wants the plus-strand allele instead.
-        const storedAlt = ((minus && orient === 'plus')
-            ? ('' + (snp.alternate || snp.alternate0 || ''))
-            : ('' + (snp.alternate0 || snp.alternate || ''))).toUpperCase().slice(0, 1);
+        // the plus-strand slice wants the plus-strand allele instead. Either way base i of the
+        // allele sits at track x = xi + i, because SnpIndel complements without reversing --
+        // which is what lets a multi-base substitution be written straight across the span.
+        const pick = (which) => ('' + ((minus && orient === 'plus')
+            ? (snp[which] || snp[which + '0'] || '')
+            : (snp[which + '0'] || snp[which] || ''))).toUpperCase();
+        const storedAlt = pick('alternate'), storedRef = pick('reference');
+        if (!/^[ACGT]+$/.test(storedAlt)) { say('That variant has no usable alternate allele.'); restoreHover(); return false; }
         const vX = Math.round(snp.xi);
+        const vEnd = vX + storedAlt.length - 1;      // last track x the allele covers
+        if (storedRef && storedRef.length === storedAlt.length) {
+            let have = ''; for (let x = vX; x <= vEnd; x++) have += storedAt(x);
+            if (have !== storedRef) {
+                say('The track reads ' + have + ' where the variant says ' + storedRef + '; designing against the track.');
+            }
+        }
         let mutTrack = '';
-        for (let x = lo; x <= hi; x++) mutTrack += (x === vX ? storedAlt : storedAt(x));
+        for (let x = lo; x <= hi; x++) {
+            mutTrack += (x >= vX && x <= vEnd) ? storedAlt[x - vX] : storedAt(x);
+        }
+        // The same mutant, read in TRANSCRIPT orientation, for the scoring.
+        const COMPL = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
+        const mut = xs.map((x) => {
+            const b = mutTrack[x - lo] || 'N';
+            return (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
+        }).join('');
+
+        // The change as it reads in transcript orientation, for the labels and the scoring: the
+        // span the allele covers in the transcript window, which on a minus-strand track is the
+        // reverse complement of the track-frame allele.
+        const viEnd = Math.max(xs.indexOf(vX), xs.indexOf(vEnd));
+        const viStart = Math.min(xs.indexOf(vX), xs.indexOf(vEnd));
+        const refTx = wt.slice(viStart, viEnd + 1);
+        const altTx = mut.slice(viStart, viEnd + 1);
+
         // Every variant on the track that falls inside the window, so an oligo can mark all of
         // them and not only the one it was designed against.
         const variantXs = all.map((v) => Math.round(v.xi)).filter((x) => x >= lo && x <= hi);
@@ -186,7 +207,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         try {
             r = await exec(server + '/py/sequence/allele-selective-design.py', em, JSON.stringify({
                 target_wt: wt, target_mut: mut,
-                variant: { start: vi, end: vi + 1, wt_start: vi, wt_end: vi + 1, type: 'snp', ref: wt[vi], alt: altTx, label: snp.name || '' },
+                variant: { start: viStart, end: viEnd + 1, wt_start: viStart, wt_end: viEnd + 1, type: 'snp', ref: refTx, alt: altTx, label: snp.name || '' },
                 modality: mode.modality, lengths: mode.lengths, top_n: 20, gapmer: mode.gapmer || {},
                 chemistry: chem
             }));
@@ -263,7 +284,11 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // the oligo instead of being one letter among twenty. Indices are measured from
                 // xi in ascending x, the same frame the drawing code uses.
                 try {
-                    cmp.mismatch = variantXs.filter((x) => x >= xi && x <= xf).map((x) => x - xi);
+                    // Every base this variant changes, plus any other variant in range.
+                    const own = [];
+                    for (let x = vX; x <= vEnd; x++) if (x >= xi && x <= xf) own.push(x - xi);
+                    const others = variantXs.filter((x) => x >= xi && x <= xf && !(x >= vX && x <= vEnd)).map((x) => x - xi);
+                    cmp.mismatch = own.concat(others);
                     cmp.variantIndex = vX - xi;
                 } catch (e) { }
                 if (mode.modality === 'sirna') {
@@ -300,7 +325,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // What makes it allele-selective, kept on the compound so the report and the
                 // hover text can say it rather than just showing a score.
                 cmp.alleleSelective = {
-                    variant: snp.name || '', ref: wt[vi], alt: altTx,
+                    variant: snp.name || '', ref: refTx, alt: altTx,
                     position_in_antisense: c.variant_position,
                     discrimination: c.discrimination,
                     selectivity: c.selectivity,
@@ -308,7 +333,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 };
                 cmp.notes = (c.notes || []).concat(['Allele-selective: wild-type mismatch at ' + c.discrimination]);
                 cmp.comment = 'Allele-selective ' + mode.label + ' vs ' + (snp.name || 'variant')
-                    + ' (' + wt[vi] + '>' + altTx + '); wild-type mismatch at ' + c.discrimination
+                    + ' (' + refTx + '>' + altTx + '); wild-type mismatch at ' + c.discrimination
                     + '; chemistry ' + (c.chemistry_label || chem.label) + '.';
                 cmp.color = c.score >= 85 ? '#22c55e' : (c.score >= 70 ? '#e0a400' : '#d1342f');
                 // Same final step every other designer takes: adjustOligo walks the compounds
@@ -329,7 +354,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         } catch (e) { }
         const best = cands[0];
         const msg = ' Placed ' + placed + ' allele-selective ' + mode.label + ' candidate' + (placed === 1 ? '' : 's')
-            + ' against ' + (snp.name || 'the variant') + ' (' + wt[vi] + '>' + altTx + '), '
+            + ' against ' + (snp.name || 'the variant') + ' (' + refTx + '>' + altTx + '), '
             + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '. ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();

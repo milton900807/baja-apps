@@ -72,6 +72,38 @@ def parse_json_blob(txt):
         return None
 
 
+# Histone genes number their residues on the MATURE protein, without the initiator
+# methionine, so the famous alleles are one behind HGVS: K27M is Lys28, G34R is Gly35. That
+# convention has to be decided HERE rather than left to the model, because the model applies
+# it inconsistently -- and the case where it matters most is exactly the case where a
+# reference-residue check cannot catch the mistake: H3's tandem glycines at HGVS 34 and 35
+# mean "G34" matches at both positions, so whichever is tried first wins.
+HISTONE_GENE = re.compile(r"^(H3-3[AB]|H3F3[AB]|H3C\d+|HIST1H3[A-Z]|H3[.-]?[13]|H2A|H2B|H4)\b", re.I)
+# The H3 N-terminal tail, read after the initiator Met: ARTKQTARKSTGG...
+H3_SIGNATURE = "ARTKQTARKSTGG"
+AA3_NAMES = "Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val|Ter"
+
+
+def is_histone(ctx, protein):
+    g = str((ctx or {}).get("gene") or "").strip()
+    if g and HISTONE_GENE.match(g):
+        return True
+    return protein[1:1 + len(H3_SIGNATURE)].upper().startswith(H3_SIGNATURE)
+
+
+def wrote_explicit_hgvs(text):
+    """Did the user ask in HGVS terms? 'p.Gly34Val' and 'p.G34V' are literal positions;
+    a bare 'G34V' on a histone is the histone convention."""
+    t = str(text or "")
+    if re.search(r"\bp\.", t):
+        return True
+    if re.search(r"(%s)\s*\d+" % AA3_NAMES, t, re.I):
+        return True
+    if re.search(r"\bhgvs\b", t, re.I):
+        return True
+    return False
+
+
 def one_letter(a):
     a = str(a or "").strip()
     if not a:
@@ -165,7 +197,7 @@ def smallest_codon_change(codon, alt_aa):
     return best
 
 
-def protein_edit(spec, cds, protein):
+def protein_edit(spec, cds, protein, histone_offset=0):
     ref = one_letter(spec.get("ref"))
     alt = one_letter(spec.get("alt"))
     try:
@@ -174,12 +206,19 @@ def protein_edit(spec, cds, protein):
         return None, "no protein position in the description"
     if not ref or not alt:
         return None, "could not read the reference or alternate residue"
-    # HGVS position first; then the off-by-one conventions (histone numbering omits Met1).
+    # The convention decides which position is tried FIRST. On a histone gene, a bare "G34V"
+    # is mature-protein numbering, so HGVS 35 is tried before 34 -- and with a glycine at both,
+    # trying 34 first would silently take the wrong one. The other positions remain as
+    # fallbacks for when the leading candidate does not carry the reference residue.
+    order = [(pos, ""),
+             (pos + 1, "numbering omits Met1: %s%d is %s%d in HGVS" % (ref, pos, ref, pos + 1)),
+             (pos - 1, "position given one past HGVS: %s%d is %s%d" % (ref, pos, ref, pos - 1))]
+    if histone_offset == 1:
+        order = [order[1], order[0], order[2]]
     tried = []
     chosen = None
     note = ""
-    for p, why in ((pos, ""), (pos + 1, "numbering omits Met1: %s%d is %s%d in HGVS" % (ref, pos, ref, pos + 1)),
-                   (pos - 1, "position given one past HGVS: %s%d is %s%d" % (ref, pos, ref, pos - 1))):
+    for p, why in order:
         if 1 <= p <= len(protein):
             tried.append("%d=%s" % (p, protein[p - 1]))
             if protein[p - 1] == ref:
@@ -283,7 +322,10 @@ else:
         out["hgvs_c"] = spec.get("hgvs_c")
         works.msg("Checking the change against this transcript…")
         if level == "protein":
-            res, err = protein_edit(spec.get("protein") or {}, cds, protein)
+            hist = is_histone(ctx, protein) and not wrote_explicit_hgvs(text)
+            if hist:
+                out["numbering"] = "histone (mature protein, Met1 not counted)"
+            res, err = protein_edit(spec.get("protein") or {}, cds, protein, 1 if hist else 0)
         elif level == "cdna":
             res, err = cdna_edit(spec.get("cdna") or {}, cds)
         elif level in ("genomic", "rsid"):
