@@ -142,9 +142,18 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     try {
                         let em = new EngineMonitor(function (m) { try { log(m); } catch (e) { } });
                         let r = await exec(server + '/py/bio/read-vcf-variants.py', em, 'clinvar', '' + chr, '' + gStart, '' + gEnd, 'clinvar');
-                        let vs = [];
-                        try { vs = JSON.parse(r.variants); } catch (e) { vs = []; }
-                        if (vs.length || (r && !r.error)) resp = { variants: vs, source: 'local-exec', total: (r && r.count) || vs.length, truncated: false };
+                        // Accept the exec result only when it actually carries a variants field.
+                        // A malformed or truncated resolution came back as a bare object with no
+                        // fields, which the old test read as "ran fine, found nothing" and
+                        // reported "No ClinVar variants" instead of asking the HTTP route, which
+                        // serves the same local VCF.
+                        let vs = null;
+                        if (r && typeof r.variants === 'string') {
+                            try { vs = JSON.parse(r.variants); } catch (e) { vs = null; }
+                        }
+                        if (Array.isArray(vs) && (vs.length || !r.error)) {
+                            resp = { variants: vs, source: 'local-exec', total: r.count || vs.length, truncated: false };
+                        }
                     } catch (e) { resp = null; }
                 }
                 if (!resp) resp = await GETJSON(url);   // fallback / non-local dbs

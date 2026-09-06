@@ -2259,6 +2259,24 @@ function (path, config) {
                                                                     graph.showSideMenu(null);
                                                                     exec('manchester/clinical-library.js', graph, genegraph_panel_layout);
                                                                 }
+                                                            },
+                                                            {
+                                                                // The whole graph to the copy buffer (clipboard + a local
+                                                                // fallback), to be pasted into another editor -- there, or
+                                                                // with Ctrl+V on its canvas. baja/manchester/graph-clipboard.js.
+                                                                label: 'Copy graph', move: () => { },
+                                                                click: () => {
+                                                                    graph.hideMenu();
+                                                                    exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'copy');
+                                                                }
+                                                            },
+                                                            {
+                                                                // Merge a copied graph's tracks into this one.
+                                                                label: 'Paste graph', move: () => { },
+                                                                click: () => {
+                                                                    graph.hideMenu();
+                                                                    exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'paste');
+                                                                }
                                                             }
                                                         ]);
                                                     })
