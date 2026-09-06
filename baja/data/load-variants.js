@@ -244,11 +244,13 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     if (clinsig.length) snp.clinsig = clinsig.join(', ');
                     if (v.af != null) { snp.quality = 'AF=' + v.af; snp.af = +v.af; }
                     if (v.consequence) snp.structure = v.consequence;
-                    // What this variant was filed against. It is the reason it is on the
-                    // track when a condition was asked for, so it has to be readable.
+                    // What this variant was filed against. The class already has a field for
+                    // it -- clindn, which setAnnotation() fills from a VCF CLNDN entry -- and
+                    // the ClinDN column, the hover line and the variant finder all read that
+                    // one. Writing it anywhere else would put the disease on the track and
+                    // leave every surface that shows diseases blank.
                     if (v.conditions && v.conditions.length) {
-                        snp.conditions = v.conditions.join('; ');
-                        snp.comment = ((snp.comment ? snp.comment + ' — ' : '') + snp.conditions);
+                        snp.clindn = v.conditions.join('; ');
                     }
                     snp.source = v.source || label;   // filterable: dbSNP / ClinVar / gnomAD / COSMIC
                 } catch (e) { }
