@@ -156,10 +156,17 @@ def ask_cohort(text, ctx, protein, extra=""):
         "mutations, pathogenic or risk germline variants, and common coding polymorphisms with "
         "a documented association with the trait all count. A gene whose association runs "
         "through common variants is answered with those common variants.\n"
-        "- Single-residue substitutions only; skip copy-number, repeat-length, whole-exon and "
-        "splice changes, which cannot be placed as one coding change. If the gene's link to "
-        "the context is mainly through such a mechanism, say so in the note AND still list any "
-        "coding variants that are documented.\n"
+        "- A variant may be given EITHER as a residue change (ref/pos/alt above) OR, when it "
+        "is not a residue change at all, in cDNA coordinates: "
+        '{"cpos": 840, "cref": "C", "calt": "T", "label": "c.840C>T", "why": "..."}. '
+        "Use the cDNA form for SILENT changes and for anything the literature names in c. "
+        "notation -- the SMN2 c.840C>T that causes exon 7 skipping changes no amino acid and "
+        "cannot be written as a residue substitution. cpos counts the A of ATG as 1.\n"
+        "- Otherwise single-residue substitutions. Skip copy-number, repeat-length and "
+        "whole-exon or whole-gene deletions, which cannot be placed as one coding change. If "
+        "the gene's link to the context is mainly through such a mechanism -- the homozygous "
+        "SMN1 exon 7 deletion in spinal muscular atrophy -- SAY SO in the note AND still list "
+        "the coding variants that are documented, however rare.\n"
         "- Order by how strongly each is linked, strongest first. At most %d.\n"
         "- Give the reason in \"why\", naming the rsID where there is one.\n"
         '- If nothing about this gene is linked to that context, return {"variants": [], '
@@ -268,6 +275,111 @@ def ask(text, ctx, protein, extra=""):
         if not parsed:
             return None, "could not parse model output: %s" % (txt[:200] or "empty")
         return parsed, None
+    except Exception as e:
+        return None, str(e)
+
+
+def verify_one(v, cds, protein, hist):
+    """A named variant checked against THIS transcript. Returns (edit, error).
+
+    Two shapes are accepted, because not every named change is a residue change. A cDNA entry
+    (cpos/cref/calt) is checked base by base; anything else is a residue substitution and goes
+    through protein_edit, which also resolves the numbering convention."""
+    label = str(v.get("label") or "")
+    cpos = v.get("cpos", v.get("c_pos"))
+    if cpos not in (None, "", []):
+        spec = {"pos": cpos, "type": str(v.get("ctype") or "sub"),
+                "ref": v.get("cref"), "alt": v.get("calt"),
+                "end": v.get("cend"), "seq": v.get("cseq")}
+        res, err = cdna_edit(spec, cds)
+        if err or not res:
+            return None, (err or "no edit")
+        e = dict(res["edits"][0])
+        e["hgvs_c"] = res.get("hgvs_c")
+        e["hgvs_p"] = None
+        if label:
+            e["label"] = label
+        return e, None
+    # A LABEL THAT CONTRADICTS ITS OWN COORDINATES IS TWO ANSWERS, NOT ONE. "S622P" carrying
+    # ref=T pos=1864 is a number from one numbering and a name from another, and there is no
+    # way to tell which half was meant.
+    m = re.match(r"^([A-Z])(\d+)([A-Z*])$", label.strip().upper())
+    if m and (m.group(1) != one_letter(v.get("ref")) or m.group(3) != one_letter(v.get("alt"))):
+        return None, "the name and the change given for it disagree"
+    # user_text carries a digit so the no-position guard does not fire: the position came from
+    # the enumeration, which is the thing being verified here.
+    res, verr = protein_edit(v, cds, protein, 1 if hist else 0, label or "pos given")
+    if verr or not res:
+        return None, str(verr or "no edit")
+    e = dict(res["edits"][0])
+    e["hgvs_p"] = res.get("hgvs_p")
+    e["hgvs_c"] = res.get("hgvs_c")
+    return e, None
+
+
+def ask_repair(text, ctx, protein, misses):
+    """A second pass over the ones that did not check out, told what the protein really says.
+
+    A rejection usually means the model had the right variant and the wrong reference residue:
+    SMN1's known missense is Y272C, and W272C names the same position with the wrong letter.
+    Rather than throw that away, hand back what this transcript actually has at each position
+    it named and let it correct or withdraw. Nothing is trusted -- every correction is verified
+    exactly like the first attempt."""
+    if not requests or not ANTHROPIC_API_KEY or not misses:
+        return None, "no repair possible"
+    lines = []
+    for m in misses:
+        pos = m.get("pos")
+        seen = ""
+        try:
+            p = int(pos)
+            around = []
+            for q in (p - 1, p, p + 1):
+                if 1 <= q <= len(protein):
+                    around.append("%d=%s" % (q, protein[q - 1]))
+            seen = ", ".join(around)
+        except Exception:
+            seen = "position out of range"
+        lines.append("- %s : this transcript has %s" % (m.get("label") or "?", seen or "nothing there"))
+    system = (
+        "You proposed variants for a gene and some did not match the transcript that is "
+        "loaded. You are now told what that transcript actually has at those positions. "
+        "Correct each one to the variant you meant, or leave it out. Reply with ONLY a JSON "
+        'object: {"variants": [{"ref": "Y", "pos": 272, "alt": "C", "label": "Y272C", '
+        '"why": "..."}]}\n'
+        "Rules: keep the position you meant and fix the reference residue to what the "
+        "transcript actually has, IF that is the variant you meant -- W272C against a "
+        "transcript with Y at 272 is Y272C. If the real variant is at a different position, "
+        "give that position. If you cannot name a real documented variant here, leave it out; "
+        "an empty list is a fine answer. A cDNA change may be given as "
+        '{"cpos": 840, "cref": "C", "calt": "T", "label": "c.840C>T"}.'
+    )
+    user = ("Gene / transcript: %s / %s\nContext: %s\n\nProtein (HGVS numbering, Met = 1; "
+            "%d residues):\n%s\n\nThese did not check out:\n%s"
+            % (ctx.get("gene") or "?", ctx.get("transcript") or "?", text,
+               len(protein), protein, "\n".join(lines)))
+    try:
+        try:
+            import claude_usage as _cu
+            _cu.bump("variant-from-prompt-repair")
+        except Exception:
+            pass
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": ANTHROPIC_MODEL, "max_tokens": 2000, "system": system,
+                  "messages": [{"role": "user", "content": user}]},
+            timeout=120,
+        )
+        if r.status_code != 200:
+            return None, "anthropic %s" % r.status_code
+        data = r.json()
+        txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
+        parsed = parse_json_blob(txt)
+        if not parsed:
+            return None, "could not read the correction"
+        return (parsed.get("variants") or []), None
     except Exception as e:
         return None, str(e)
 
@@ -455,29 +567,49 @@ if mode in ("cohort", "verify") and not out["error"]:
         if hist:
             out["numbering"] = "histone (mature protein, Met1 not counted)"
         works.msg("Checking %d variant(s) against this transcript…" % len(wanted))
-        edits, rejected = [], []
-        for v in wanted:
-            label = str(v.get("label") or "")
-            # A LABEL THAT CONTRADICTS ITS OWN COORDINATES IS TWO ANSWERS, NOT ONE. "S622P"
-            # carrying ref=T pos=1864 is a number taken from one numbering and a name from
-            # another, and there is no way to tell which half was meant. Drop it rather than
-            # verify one half and display the other.
-            m = re.match(r"^([A-Z])(\d+)([A-Z*])$", label.strip().upper())
-            if m and (m.group(1) != one_letter(v.get("ref")) or m.group(3) != one_letter(v.get("alt"))):
-                rejected.append({"label": label,
-                                 "why": "the name and the change given for it disagree"})
-                continue
-            # user_text carries a digit so the no-position guard does not fire: the position
-            # here came from the enumeration, which is the thing being verified below.
-            res, verr = protein_edit(v, cds, protein, 1 if hist else 0, label or "pos given")
-            if verr or not res:
-                rejected.append({"label": label or "?", "why": str(verr or "no edit")})
-                continue
-            e = dict(res["edits"][0])
-            e["hgvs_p"] = res.get("hgvs_p")
-            e["hgvs_c"] = res.get("hgvs_c")
+        edits, rejected, misses = [], [], []
+        seen_edits = set()
+
+        def _take(v):
+            """Verify one and keep it, or record why it was dropped. True if it was kept."""
+            e, verr = verify_one(v, cds, protein, hist)
+            if verr or not e:
+                lbl = str(v.get("label") or "?")
+                rejected.append({"label": lbl, "why": str(verr or "no edit")})
+                misses.append({"label": lbl, "pos": v.get("pos")})
+                return False
+            key = (e.get("cds_offset"), e.get("ref"), e.get("alt"))
+            if key in seen_edits:
+                return False
+            seen_edits.add(key)
             e["why"] = str(v.get("why") or "")
             edits.append(e)
+            return True
+
+        for v in wanted:
+            _take(v)
+
+        # A REJECTION IS USUALLY A NEAR MISS, NOT A WRONG ANSWER. SMN1's documented missense is
+        # Y272C, and "W272C" is that variant with the wrong reference letter -- the position is
+        # right and the transcript knows what sits there. Hand back what it actually has and
+        # let the enumeration correct itself once. Corrections are verified exactly like the
+        # first attempt, so this can recover a real variant but cannot admit an unreal one.
+        if misses and mode == "cohort":
+            works.msg("Rechecking %d that did not match…" % len(misses))
+            fixes, ferr = ask_repair(text, ctx, protein, misses)
+            if fixes:
+                recovered = 0
+                for v in fixes[:MAX_COHORT]:
+                    before = len(rejected)
+                    if _take(v):
+                        recovered += 1
+                    else:
+                        # a correction that fails too is not news; keep the original reason
+                        del rejected[before:]
+                        del misses[len(misses) - 1:]
+                if recovered:
+                    rejected = [r for r in rejected
+                                if r["label"] not in {str(f.get("label") or "") for f in fixes[:MAX_COHORT]}]
         out["edits"] = edits
         out["rejected"] = rejected
         if edits:

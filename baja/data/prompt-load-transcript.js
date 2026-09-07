@@ -102,9 +102,22 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                 return;
             }
 
-            // Otherwise let Anthropic resolve the description -> transcript ids.
+            // Otherwise let the resolver turn the description into transcript ids.
             let em = new EngineMonitor((m) => { log(m); });
             graph.setMessage(" Resolving transcript from prompt... ");
+
+            // A QUERY CAN NAME A DISEASE AND STILL RESOLVE TO A TRANSCRIPT. "SMA spinal
+            // muscular atrophy" finds SMN1 perfectly well, and because it found something the
+            // disease branch never ran: the transcript loaded and not one of the mutations
+            // that cause the disease was placed. Whether the search succeeds says nothing
+            // about whether the query named a condition, so ask that question separately --
+            // alongside the search rather than after it, so it costs no extra wait.
+            //
+            // A bare symbol or id is skipped: "TP53" cannot be a disease and the call would
+            // be spent on every ordinary track load.
+            const bareName = /^[A-Za-z0-9._-]{1,15}$/.test(query);
+            const dvPromise = bareName ? Promise.resolve(null)
+                : exec('/py/bio/disease-variants.py', em, query, '12').catch(() => null);
 
             let res = null;
             try {
@@ -122,53 +135,43 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                 console.warn('prompt-to-transcript note:', res.error);
             }
 
-            if (!list.length) {
-                // A DISEASE IS NOT A GENE, AND ASKING FOR ITS TRANSCRIPTS DIRECTLY ASKS THE
-                // WRONG QUESTION. "heart disease" names no gene, so a transcript search has
-                // nothing to match -- but the mutations associated with it do have genes, and
-                // those genes have transcripts. Ask for the mutations, take the genes out of
-                // the answer, and resolve each of those the ordinary way.
-                let genes = [];
-                try {
-                    const dv = await exec('/py/bio/disease-variants.py', em, query, '12');
-                    if (dv && (dv.is_context === true || dv.is_context === 'true') && !dv.error) {
-                        diseaseContext = dv.disease || query;
-                        diseaseIsSample = (dv.sample === true || dv.sample === 'true');
-                    }
-                    if (diseaseContext) {
-                        try { genes = JSON.parse(dv.genes || '[]'); } catch (e) { genes = []; }
-                        if (genes.length) {
-                            const sample = (dv.sample === true || dv.sample === 'true');
-                            graph.setMessage(' ' + (dv.disease || query) + ' — '
-                                + (sample ? 'a SAMPLE of ' : '') + genes.length + ' gene'
-                                + (genes.length === 1 ? '' : 's') + ': ' + genes.join(', ')
-                                + (sample ? ', drawn across its major subtypes rather than the full set' : '')
-                                + '. Finding their transcripts… ');
-                        }
-                    }
-                } catch (e) { genes = []; }
-                const found = [];
-                for (const g of genes) {
+            const dv = await dvPromise;
+            if (dv && (dv.is_context === true || dv.is_context === 'true') && !dv.error) {
+                diseaseContext = dv.disease || query;
+                diseaseIsSample = (dv.sample === true || dv.sample === 'true');
+                let dGenes = [];
+                try { dGenes = JSON.parse(dv.genes || '[]'); } catch (e) { dGenes = []; }
+                // The genes the condition names, resolved the ordinary way, merged with
+                // whatever the plain search already found. Both are wanted: the search may
+                // have found the gene the user typed, and the condition names the rest.
+                const have = new Set(list.map((x) => ('' + (x && x.id || '')).toUpperCase()));
+                for (const g of dGenes) {
                     let r2 = null;
                     try { r2 = await exec(PY, em, 'canonical ' + g + ' in human'); } catch (e) { r2 = null; }
                     let l2 = [];
                     try { l2 = JSON.parse((r2 && r2.transcripts) || '[]'); } catch (e) { l2 = []; }
-                    // One per gene: the canonical, which is what a gene name on its own means.
                     const pick = l2.find((x) => x && x.canonical) || l2[0];
-                    if (pick) found.push(Object.assign({ gene: g }, pick));
+                    if (pick && !have.has(('' + pick.id).toUpperCase())) {
+                        have.add(('' + pick.id).toUpperCase());
+                        list.push(Object.assign({ gene: g }, pick));
+                    }
                 }
-                if (found.length) {
-                    list = found;
-                } else {
-                    // Say what the resolver said, not just that nothing came back: "no valid
-                    // transcript ids returned" and "the reply was prose" are different problems
-                    // and lead to different edits.
-                    backToPrompt(" No transcripts found for \"" + query + "\""
-                        + (res && res.error ? " — " + res.error : "")
-                        + ". Edit the description and try again. ");
-                    resolve(null);
-                    return;
-                }
+                graph.setMessage(' ' + diseaseContext + ' — ' + (diseaseIsSample ? 'a SAMPLE of ' : '')
+                    + list.length + ' transcript' + (list.length === 1 ? '' : 's')
+                    + (diseaseIsSample ? ', drawn across its major subtypes rather than the full set' : '')
+                    + '. Loading… ');
+            }
+
+            if (!list.length) {
+                // Say what the resolver said, not just that nothing came back: "no valid
+                // transcript ids returned" and "the reply was prose" are different problems
+                // and lead to different edits. A disease that named genes has already added
+                // them to the list above, so reaching here means neither found anything.
+                backToPrompt(" No transcripts found for \"" + query + "\""
+                    + (res && res.error ? " — " + res.error : "")
+                    + ". Edit the description and try again. ");
+                resolve(null);
+                return;
             }
 
             // A DISEASE ASKED FOR ITS MUTATIONS, NOT FOR A CHOICE OF GENE. Presenting ten
