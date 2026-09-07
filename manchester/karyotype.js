@@ -33,7 +33,7 @@ function (path, config) {
         // is not a diagnosis, and these lines are what turned both of those into one-step
         // fixes.
         const step = (m) => { try { console.log('[karyotype] ' + m); } catch (e) { } };
-        step('start');
+        step('start; path=' + JSON.stringify(path));
 
         const server = (window['env'] && window['env']['apiUrl']) || '';
         const MB = 1e6;                 // one world unit per megabase
@@ -95,7 +95,22 @@ function (path, config) {
             try { focusUnlessMobile(q('#ky-q')); } catch (e) { }
         });
 
-        const wanted = (typeof path === 'string' && path.trim()) ? path.trim() : await ask();
+        // A PATH IS NOT A SPECIES. On a browser reload the engine binds `path` to the URL
+        // argument map, which arrives as junk for an app that takes no file --
+        // ["/<folder>/<file>.baja", "undefined"], or the literal string "undefined". Treating
+        // that as the species skipped the dialog and asked the server about a filename, which
+        // fails silently behind a modal. Only something that could actually BE a species name
+        // -- a few letters and spaces -- is taken as one.
+        const asSpecies = (v) => {
+            const t = ('' + (v == null ? '' : v)).trim();
+            if (!t || t.length > 40) return '';
+            if (/^undefined$/i.test(t) || t.indexOf('/') >= 0 || t.indexOf('.') >= 0) return '';
+            return /^[A-Za-z][A-Za-z .'-]*$/.test(t) ? t : '';
+        };
+        const preset = asSpecies(path);
+        step(preset ? ('species from the path: ' + preset) : 'asking for a species');
+        const wanted = preset || await ask();
+        step('species: ' + JSON.stringify(wanted));
         if (!wanted) return false;
 
         // ---- the table -----------------------------------------------------------------------
@@ -103,10 +118,12 @@ function (path, config) {
         try {
             const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
             r = await exec(server + '/py/bio/karyotype.py', em, wanted);
-        } catch (e) { r = null; }
+        } catch (e) { r = null; step('the karyotype call threw: ' + (e && e.message ? e.message : e)); }
+        step('table: ' + (r ? ((r.error ? ('error ' + r.error) : (r.assembly || 'no assembly'))) : 'no result'));
         let chroms = [];
         try { chroms = JSON.parse((r && r.chromosomes) || '[]'); } catch (e) { chroms = []; }
         if (!r || r.error || !chroms.length) {
+            step('stopping: ' + ((r && r.error) || 'no chromosomes came back'));
             try { showModal({ wid: 'html', data: '<div style="padding:18px;font:14px Arial;">' + esc((r && r.error) || 'No chromosomes could be loaded.') + '</div>' }); } catch (e) { }
             return false;
         }
