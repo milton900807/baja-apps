@@ -600,7 +600,7 @@ function (__path) {
                                     // "start a new one", so it asks which species rather than
                                     // restoring a file. A saved .karyotype opens by being
                                     // clicked in the browser, which routes it here with its path.
-                                    'label': 'Karyotype Editor', 'ionfunction': createIonFunction(async () => {
+                                    'label': 'Karyotype', 'ionfunction': createIonFunction(async () => {
                                         clear();
                                         await exec('manchester/karyotype');
                                     })
