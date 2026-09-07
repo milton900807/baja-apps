@@ -822,6 +822,42 @@ function (path, config) {
                                             }
                                             else {
 
+                                                // A PAGE OF TEXT IS NOT A FAILED SEQUENCE PASTE.
+                                                //
+                                                // Everything below looks for runs of ACGT. An abstract, a
+                                                // clinical letter, a paragraph from a paper has none, so it
+                                                // fell through every branch and nothing happened at all --
+                                                // yet that text usually names the very things this
+                                                // application loads: a transcript id, a gene, a condition, a
+                                                // specific change. So it is read instead of dropped.
+                                                //
+                                                // Only for text that is genuinely prose and genuinely long.
+                                                // The letters are counted rather than pattern-matched: a
+                                                // sequence is almost all ACGTUN whatever whitespace, digits
+                                                // or FASTA header sit around it, and anything below that
+                                                // proportion is not one. Short pastes are left alone -- a
+                                                // stray word or a copied cell should not open a dialog.
+                                                const looksLikeSequence = (t) => {
+                                                    // A FASTA header is not part of the sequence it labels.
+                                                    const body = ('' + t).replace(/^>[^\n]*\n?/gm, '');
+                                                    const compact = body.replace(/\s+/g, '');
+                                                    // A PEPTIDE IS A SEQUENCE TOO. runCL declares an
+                                                    // isPeptide() at the top and never calls it, so a pasted
+                                                    // protein would otherwise land here and be read as prose.
+                                                    // Uppercase amino-acid letters and nothing else -- prose
+                                                    // has spaces, punctuation, digits and lower case.
+                                                    if (/^[ARNDCQEGHILKMFPSTWYV*]{20,}$/.test(compact)) return true;
+                                                    const letters = compact.toUpperCase().replace(/[^A-Z]/g, '');
+                                                    if (letters.length < 20) return false;
+                                                    const bases = (letters.match(/[ACGTUN]/g) || []).length;
+                                                    return bases / letters.length > 0.9;
+                                                };
+                                                if (s.length > 200 && !looksLikeSequence(s)) {
+                                                    await exec('baja/data/paste-to-tracks.js',
+                                                        window['env']['apiUrl'], graph, genegraph_panel_layout, s);
+                                                    return;
+                                                }
+
                                                 const dnaPattern = /[ATCG]{10,150}/g;
                                                 const dnaSequences = [];
                                                 let match;
