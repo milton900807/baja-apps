@@ -860,13 +860,35 @@ function (path, config) {
                                                 // -- the ##fileformat line, or the #CHROM header --
                                                 // and failing both, by two or more lines that are
                                                 // literally chrom/pos/id/ref/alt.
-                                                const looksLikeVcf = (t) => {
+                                                oksLikeVcf = (t) => {
                                                     if (/^\s*##fileformat=VCF/im.test(t)) return true;
                                                     if (/^#CHROM\s+POS\s+ID\s+REF\s+ALT/im.test(t)) return true;
-                                                    let n = 0;
+                                                    // ONE ROW IS ENOUGH WHEN IT IS UNMISTAKABLY ONE.
+                                                    //
+                                                    // A pasted VCF usually arrives without its header -- a line copied out of a
+                                                    // caller's output, or one row of interest out of a file. Requiring two of them
+                                                    // meant a single row did nothing at all, silently, which is the worst way for a
+                                                    // paste to fail.
+                                                    //
+                                                    // So: two rows of the five-column shape (chrom, pos, id, ACGT ref, alt) still
+                                                    // count, and ONE row counts when it carries the rest of the VCF columns too --
+                                                    // QUAL and FILTER, six fields or more. That is a shape a BED line does not have,
+                                                    // and a BED line's fourth column is a name rather than a run of bases, so it
+                                                    // fails the ref test first anyway.
+                                                    let rows = 0;
                                                     for (const line of ('' + t).split(/\r?\n/)) {
-                                                        if (!line || line.charAt(0) === '#') continue;
-                                                        if (/^(chr)?[0-9XYMT]{1,5}\s+\d+\s+\S+\s+[ACGTNacgtn]+\s+\S+/.test(line) && ++n >= 2) return true;
+                                                        const s = line.trim();
+                                                        if (!s || s.charAt(0) === '#') continue;
+                                                        const f = s.split(/\t|\s{1,}/);
+                                                        if (!/^(chr)?[0-9XYMT]{1,5}$/i.test(f[0] || '')) continue;
+                                                        if (!/^\d+$/.test(f[1] || '')) continue;
+                                                        if (!/^[ACGTNacgtn]+$/.test(f[3] || '')) continue;
+                                                        if (!f[4]) continue;
+                                                        // QUAL is a number or '.', FILTER is a word: the columns a bare
+                                                        // chrom/pos/ref/alt table does not carry.
+                                                        const full = f.length >= 6 && (/^(\d+(\.\d+)?|\.)$/.test(f[5] || ''));
+                                                        if (full) return true;
+                                                        if (++rows >= 2) return true;
                                                     }
                                                     return false;
                                                 };
