@@ -9,6 +9,15 @@ function () {
         })
     }]
     myfiles_button.push({
+        label: 'Chromosomes',
+        ionfunction: createIonFunction(async () => {
+            // The whole genome at one scale, smallest chromosome first. Drag down one to
+            // pick a region; it zooms in the same world coordinates the editor uses.
+            await exec('manchester/karyotype')
+        })
+
+    })
+    myfiles_button.push({
         label: 'Simple Designer',
         ionfunction: createIonFunction(async () => {
             await exec('manchester/assay-design')
