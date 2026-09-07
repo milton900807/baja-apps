@@ -447,10 +447,12 @@ function (graph, genegraph_panel_layout, __path) {
                                         showSearch: true,
                                         drive: 'user',
                                         user: getUser(),
-                                        // Comma-separated: the filter splits on commas and
-                                        // matches the last dot-segment of a name, so '.baja'
-                                        // and '.karyotype' both list here.
-                                        filetype: '.baja,.karyotype',
+                                        // Comma-separated; each entry is matched against the
+                                        // END of the name, so a multi-part extension works.
+                                        // '.karyotype.json' is listed separately because it does
+                                        // NOT end in '.karyotype' -- it is what these were saved
+                                        // as before the extension was shortened, same format.
+                                        filetype: '.baja,.karyotype,.karyotype.json',
                                         root: init_path,
                                         "ionfunction.cmd": createIonFunction((element) => {
                                         }),
