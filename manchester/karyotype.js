@@ -196,7 +196,25 @@ function (path, config) {
                                     {
                                         label: 'Save', icon: 'save',
                                         tooltip: 'Save this karyotype to My Files as JSON',
-                                        ionFunction: createIonFunction(() => { saveJson(); })
+                                        // NOT a bare call. The toolbar invokes these inside its own
+                                        // try/catch and discards what it catches, so a throw in
+                                        // saveJson -- including "cannot access saveJson before
+                                        // initialization" if init never reached its definition --
+                                        // looks exactly like a button wired to nothing. Three rounds
+                                        // of "it still does not appear" is what a silently dead
+                                        // button costs, so this one reports instead.
+                                        ionFunction: createIonFunction(() => {
+                                            try {
+                                                saveJson();
+                                            } catch (e) {
+                                                const why = (e && e.message) ? e.message : ('' + e);
+                                                step('SAVE THREW: ' + why + (e && e.stack
+                                                    ? ' | ' + e.stack.split('\n').slice(0, 3).join(' | ') : ''));
+                                                try {
+                                                    graph.setMessage(' Save could not open: ' + why + ' ');
+                                                } catch (e2) { }
+                                            }
+                                        })
                                     },
                                     {
                                         label: 'Select sequence', icon: 'highlight_alt',
@@ -1682,6 +1700,69 @@ function (path, config) {
             // no field and no buttons on it.
             const nameEl = panel.querySelector('#ks-name');
             try { nameEl.value = suggested; } catch (e) { }
+
+            // WHAT ACTUALLY LANDED. "No filename box and no buttons" has at least
+            // three causes that look identical on screen -- the panel never
+            // appended, it appended empty, or it appended and something re-rendered
+            // over it -- and they take opposite fixes. Measure, do not guess.
+            // Returns {ok, line}. The verdict is computed from the measurements
+            // themselves, never by pattern-matching the formatted line -- a probe
+            // that cries wolf about a working dialog is worse than no probe.
+            const probe = (when) => {
+                const live = document.getElementById('baja-karyo-save');
+                if (!live) return { ok: false, line: when + ': PANEL GONE from the document' };
+                const cs = window.getComputedStyle(live);
+                const rp = live.getBoundingClientRect();
+                const seen = (el) => {
+                    if (!el) return { ok: false, txt: 'MISSING' };
+                    const r = el.getBoundingClientRect();
+                    return {
+                        ok: r.width >= 1 && r.height >= 1,
+                        txt: Math.round(r.width) + 'x' + Math.round(r.height) + '@y' + Math.round(r.top)
+                    };
+                };
+                const name = seen(live.querySelector('#ks-name'));
+                const cancel = seen(live.querySelector('#ks-cancel'));
+                const save = seen(live.querySelector('#ks-go'));
+                const ok = !!live.parentNode
+                    && live.children.length > 0
+                    && live.innerHTML.length > 0
+                    && rp.width >= 1 && rp.height >= 1
+                    && cs.display !== 'none' && cs.visibility !== 'hidden'
+                    && parseFloat(cs.opacity || '1') > 0.01
+                    && name.ok && cancel.ok && save.ok;
+                return {
+                    ok: ok,
+                    line: when + ': ' + Math.round(rp.width) + 'x' + Math.round(rp.height)
+                        + ' display=' + cs.display + ' vis=' + cs.visibility
+                        + ' opacity=' + cs.opacity + ' z=' + cs.zIndex
+                        + ' children=' + live.children.length + ' html=' + live.innerHTML.length
+                        + ' parent=' + (live.parentNode ? live.parentNode.nodeName : 'NONE')
+                        + ' name=' + name.txt + ' cancel=' + cancel.txt + ' save=' + save.txt
+                };
+            };
+            try {
+                const first = probe('on append');
+                step(first.line);
+                if (!first.ok) {
+                    try { graph.setMessage(' Save dialog did not render. ' + first.line + ' '); } catch (e) { }
+                }
+                // Again after a frame or two: if the panel is appended and then wiped,
+                // the first probe is clean and this one is not -- which is the whole
+                // difference between a markup bug and the layout re-rendering over it.
+                setTimeout(() => {
+                    try {
+                        const later = probe('after 400ms');
+                        step(later.line);
+                        if (!later.ok && first.ok) {
+                            try {
+                                graph.setMessage(' The save dialog rendered and was then removed or '
+                                    + 'emptied by something else. ' + later.line + ' ');
+                            } catch (e) { }
+                        }
+                    } catch (e) { step('save panel re-probe threw: ' + e); }
+                }, 400);
+            } catch (e) { step('save panel probe threw: ' + e); }
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
                 panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
             }
