@@ -262,10 +262,28 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         snp.clindn = v.conditions.join('; ');
                     }
                     snp.source = v.source || label;   // filterable: dbSNP / ClinVar / gnomAD / COSMIC
-                    // SHOW IT. The callout is the point of loading a variant with a condition
-                    // and a consequence attached; leaving it switched off means the reader has
-                    // to click each marker to find out what any of them do.
-                    snp.showAnnotation = true;
+                    // SHOWN FOR PATHOGENIC AND LIKELY PATHOGENIC ONLY.
+                    //
+                    // Every variant gets its callout TEXT composed -- the detail box and the
+                    // hover line read it, and a variant the reader clicks should have
+                    // something to say whatever its classification. What is switched on by
+                    // default is the subset worth reading without being asked for: a region of
+                    // USH2A holds four hundred variants of uncertain significance and eleven
+                    // that are pathogenic, and drawing four hundred callouts to surface eleven
+                    // is not annotation, it is a wall.
+                    //
+                    // MATCH THE WHOLE TERM, NOT A SUBSTRING OF IT.
+                    // "Conflicting_classifications_of_pathogenicity" contains the word
+                    // pathogenic, and a substring test files every conflicting call under
+                    // pathogenic -- the one mistake this must not make. The reader has already
+                    // split CLNSIG on its separators, so each element is one whole term and an
+                    // exact comparison is both simpler and safe. "Pathogenic/Likely_pathogenic"
+                    // arrives as two elements and matches; "Pathogenic,_low_penetrance" keeps
+                    // its Pathogenic element and matches too.
+                    snp.showAnnotation = clinsig.some((c) => {
+                        const t = ('' + c).trim().toLowerCase();
+                        return t === 'pathogenic' || t === 'likely pathogenic';
+                    });
                 } catch (e) { }
                 track.addsnpindel(snp);
                 track.showSnpIndels = true;
@@ -285,8 +303,12 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             // Failsafe on purpose. The variants are on the track before this runs and stay
             // there if it fails; all that is lost is the mechanism clause.
             try {
+                // Only the genes with a callout on show. A gene whose every record here is
+                // uncertain has nothing to put a mechanism sentence on, and asking about it
+                // is a question paid for and thrown away.
                 const __genes = [];
                 for (const s of __placed) {
+                    if (!s.showAnnotation) continue;
                     let g = '';
                     try { g = s.geneSymbol ? s.geneSymbol() : ''; } catch (e) { g = ''; }
                     if (g && __genes.indexOf(g) < 0) __genes.push(g);
