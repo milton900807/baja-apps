@@ -204,6 +204,33 @@ function (path, config) {
         try { CurrentLayout.stash('graph', graph); } catch (e) { }
         step('canvas mounted');
 
+        // Coordinates appear when a chromosome is drawn at a fifth of the canvas or wider.
+        const COORD_FRACTION = 0.20;
+        // The nucleus is drawn while the whole genome still reads as one object -- when the
+        // widest chromosome is a small fraction of the canvas. Zoomed into one chromosome it
+        // would be a meaningless arc through the picture.
+        const NUCLEUS_MAX_BAR = 0.09;
+
+        // A TICK INTERVAL SOMEONE CAN READ. 1, 2 or 5 times a power of ten -- the intervals
+        // people already read axes in. A step of 3,170,494 is arithmetically fine and nobody
+        // has ever wanted it.
+        const niceStep = (raw) => {
+            if (!(raw > 0)) return 0;
+            const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+            const n = raw / mag;
+            return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+        };
+        // Labelled in the unit the STEP is in, not the position: ticks 1 kb apart read as
+        // 117,559.6 kb rather than as 0.1175596 Mb, and the decimals follow the step too, so
+        // consecutive labels never print the same number twice.
+        const fmtBp = (bp, step) => {
+            if (step >= 1e6) return (bp / 1e6).toFixed(step >= 1e7 ? 0 : 1) + ' Mb';
+            if (step >= 1e3) return (bp / 1e3).toFixed(step >= 1e4 ? 0 : 1) + ' kb';
+            return Math.round(bp).toLocaleString() + ' bp';
+        };
+        const fmtSpan = (n) => (n >= 1e6 ? (n / 1e6).toFixed(2) + ' Mb'
+            : n >= 1e3 ? (n / 1e3).toFixed(1) + ' kb' : Math.round(n) + ' bp');
+
         // Base position -> world y. One place, because getting it wrong in one of the five
         // places that need it would put bands on a chromosome they do not belong to.
         const wy = (bp) => -bp / MB;
@@ -249,6 +276,72 @@ function (path, config) {
                 ctx.textBaseline = 'top';
                 ctx.textAlign = 'center';
                 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+
+                // ---- the nucleus -------------------------------------------------------------
+                //
+                // FIRST, so everything else sits inside it, and only while the whole genome still
+                // reads as one object. Zoomed into a single chromosome an envelope arcing through
+                // the picture is not context, it is a line across the middle of the thing being
+                // looked at -- so it is tied to how wide a chromosome has become, and fades over
+                // that range rather than snapping off, because a hard edge on a decorative
+                // element reads as a rendering fault.
+                //
+                // Its extent comes from the CHROMOSOMES, not from the canvas: the envelope has to
+                // enclose the karyotype at whatever zoom, and a fixed ellipse would drift off it
+                // the moment anything moved.
+                const barPx = g.X(barRight(0)) - g.X(barLeft(0));
+                const nucAlpha = Math.max(0, Math.min(1,
+                    (NUCLEUS_MAX_BAR * ctx.canvas.width - barPx) / (0.045 * ctx.canvas.width)));
+                if (nucAlpha > 0.01 && drawn.length) {
+                    const lx = g.X(barLeft(0)), rx = g.X(barRight(drawn.length - 1));
+                    let ty = g.Y(wy(0)), by = -Infinity;
+                    for (let k = 0; k < drawn.length; k++) by = Math.max(by, g.Y(wy(drawn[k].length)));
+                    const padX = (rx - lx) * 0.11, padY = (by - ty) * 0.13;
+                    const cx = (lx + rx) / 2, cy = (ty + by) / 2;
+                    const erx = (rx - lx) / 2 + padX, ery = (by - ty) / 2 + padY;
+                    if (isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
+                        ctx.save();
+                        ctx.globalAlpha = nucAlpha;
+                        // Nucleoplasm: enough to lift the chromosomes off the page without
+                        // competing with the Giemsa greys they are drawn in.
+                        const grad = ctx.createRadialGradient(cx, cy - ery * 0.25, ery * 0.15, cx, cy, Math.max(erx, ery));
+                        grad.addColorStop(0, 'rgba(226,236,250,0.85)');
+                        grad.addColorStop(1, 'rgba(198,214,238,0.45)');
+                        ctx.beginPath();
+                        ctx.ellipse(cx, cy, erx, ery, 0, 0, Math.PI * 2);
+                        ctx.fillStyle = grad;
+                        ctx.fill();
+                        // Two membranes with a perinuclear space between them, which is what makes
+                        // it read as a nuclear envelope rather than as an oval.
+                        ctx.strokeStyle = 'rgba(71,85,105,0.55)';
+                        ctx.lineWidth = 1.25;
+                        ctx.stroke();
+                        const inset = Math.max(3, ery * 0.018);
+                        ctx.beginPath();
+                        ctx.ellipse(cx, cy, erx - inset, ery - inset, 0, 0, Math.PI * 2);
+                        ctx.strokeStyle = 'rgba(71,85,105,0.30)';
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                        // Pores, spaced evenly FROM THE GEOMETRY. Scattering them randomly would
+                        // move every one of them on every frame.
+                        ctx.fillStyle = 'rgba(71,85,105,0.45)';
+                        const pores = 34;
+                        for (let k = 0; k < pores; k++) {
+                            const a = (k / pores) * Math.PI * 2;
+                            ctx.beginPath();
+                            ctx.arc(cx + Math.cos(a) * (erx - inset / 2), cy + Math.sin(a) * (ery - inset / 2), 1.6, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                        // A nucleolus, off centre and behind everything: the one organelle inside a
+                        // nucleus that shows in a light micrograph, so leaving it out is what would
+                        // look wrong.
+                        ctx.beginPath();
+                        ctx.ellipse(cx + erx * 0.30, cy + ery * 0.26, erx * 0.10, ery * 0.13, 0, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(148,163,184,0.34)';
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                }
 
                 for (let i = 0; i < drawn.length; i++) {
                     const c = drawn[i];
@@ -327,6 +420,48 @@ function (path, config) {
                     ctx.lineWidth = 1;
                     ctx.stroke();
 
+                    // GENOMIC COORDINATES, once this chromosome is wide enough to carry them.
+                    // A chromosome drawn at a fifth of the screen is being looked at rather
+                    // than scanned past, and at that width a position is something to read off
+                    // instead of infer. Below it the same labels are a picket fence beside a
+                    // 48 px bar, so the threshold is the feature and not a guard on it.
+                    if (w >= COORD_FRACTION * ctx.canvas.width) {
+                        // The visible span of THIS chromosome in bases: the viewport's top and
+                        // bottom back through the same mapping, clipped to the chromosome so
+                        // no tick is drawn past an end that does not exist.
+                        const vTop = Math.max(0, Math.min(c.length, -g.Ywc(0) * MB));
+                        const vBot = Math.max(0, Math.min(c.length, -g.Ywc(ctx.canvas.height) * MB));
+                        const lo = Math.min(vTop, vBot), hi = Math.max(vTop, vBot);
+                        const stepBp = niceStep((hi - lo) / 9);
+                        if (stepBp > 0 && hi > lo) {
+                            // On the right, unless the bar sits close enough to the edge that
+                            // the labels would run off the canvas.
+                            const right = (x1 + 96 < ctx.canvas.width);
+                            const ax = right ? x1 : x0;
+                            const dir = right ? 1 : -1;
+                            ctx.save();
+                            ctx.textAlign = right ? 'left' : 'right';
+                            ctx.textBaseline = 'middle';
+                            ctx.strokeStyle = 'rgba(71,85,105,0.55)';
+                            ctx.fillStyle = '#475569';
+                            ctx.lineWidth = 1;
+                            ctx.font = '10.5px ' + FONT;
+                            ctx.beginPath();
+                            ctx.moveTo(ax + dir * 4, g.Y(wy(lo)));
+                            ctx.lineTo(ax + dir * 4, g.Y(wy(hi)));
+                            ctx.stroke();
+                            for (let bp = Math.ceil(lo / stepBp) * stepBp; bp <= hi + 1; bp += stepBp) {
+                                const ty = g.Y(wy(bp));
+                                ctx.beginPath();
+                                ctx.moveTo(ax + dir * 4, ty);
+                                ctx.lineTo(ax + dir * 11, ty);
+                                ctx.stroke();
+                                ctx.fillText(fmtBp(bp, stepBp), ax + dir * 15, ty);
+                            }
+                            ctx.restore();
+                        }
+                    }
+
                     // The name under the long arm, and its length beside it once there is
                     // room for both.
                     if (w > 8) {
@@ -339,6 +474,35 @@ function (path, config) {
                             ctx.font = '10px ' + FONT;
                             ctx.fillText(Math.round(c.length / MB) + ' Mb', cx, yBot + 22);
                         }
+                    }
+                }
+
+                // The drag, while it is happening.
+                if (dragging && dragging.i >= 0 && dragging.i < drawn.length) {
+                    const c = drawn[dragging.i];
+                    const sx0 = g.X(barLeft(dragging.i)), sx1 = g.X(barRight(dragging.i));
+                    const ya = g.Y(Math.max(dragging.y0, dragging.y1));
+                    const yb = g.Y(Math.min(dragging.y0, dragging.y1));
+                    if (Math.abs(yb - ya) > 1) {
+                        ctx.save();
+                        ctx.fillStyle = 'rgba(37,99,235,0.18)';
+                        ctx.fillRect(sx0 - 3, ya, (sx1 - sx0) + 6, yb - ya);
+                        ctx.strokeStyle = 'rgba(37,99,235,0.85)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(sx0 - 3, ya); ctx.lineTo(sx1 + 3, ya);
+                        ctx.moveTo(sx0 - 3, yb); ctx.lineTo(sx1 + 3, yb);
+                        ctx.stroke();
+                        const lo = Math.max(0, Math.min(c.length, -Math.max(dragging.y0, dragging.y1) * MB));
+                        const hi = Math.max(0, Math.min(c.length, -Math.min(dragging.y0, dragging.y1) * MB));
+                        ctx.fillStyle = '#1e3a8a';
+                        ctx.font = '600 11px ' + FONT;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(c.name + ':' + Math.round(lo).toLocaleString()
+                            + '-' + Math.round(hi).toLocaleString()
+                            + '  (' + fmtSpan(hi - lo) + ')', (sx0 + sx1) / 2, ya - 4);
+                        ctx.restore();
                     }
                 }
                 ctx.restore();
@@ -356,6 +520,10 @@ function (path, config) {
         };
         const human = (n) => (+n).toLocaleString();
 
+        // What the drag covers right now, so a selection is something you SEE while making it
+        // rather than a rectangle you find out about afterwards. Read by paint().
+        let dragging = null;   // { i, y0, y1 } in world y
+
         // ---- drag a region off a chromosome --------------------------------------------------
         // The selection is in WORLD coordinates, so the same drag means the same thing at
         // every zoom level, and the rectangle handed to zoomRect is the rectangle drawn.
@@ -369,10 +537,21 @@ function (path, config) {
             // assignment.
             try { graph.graph.mode = 'msg: Drag down a chromosome to choose a region.'; } catch (e) { }
             let from = null;
-            graph.addMouseDownListener((x, y) => { from = { x: graph.Xwc(x), y: graph.Ywc(y) }; });
+            graph.addMouseDownListener((x, y) => {
+                from = { x: graph.Xwc(x), y: graph.Ywc(y) };
+                dragging = null;
+            });
+            graph.addMouseMoveListener((x, y) => {
+                if (!from) return;
+                const h = at(from.x, from.y) || at(graph.Xwc(x), graph.Ywc(y));
+                if (!h) return;
+                dragging = { i: h.i, y0: from.y, y1: graph.Ywc(y) };
+                if (graph.wake) graph.wake();
+            });
             graph.addMouseUpListener(async (x, y) => {
                 const to = { x: graph.Xwc(x), y: graph.Ywc(y) };
                 const f = from; from = null;
+                dragging = null;
                 if (!f) return;
                 const a = at(f.x, f.y), b = at(to.x, to.y);
                 const hit = a || b;
