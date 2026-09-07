@@ -11135,6 +11135,58 @@ pattern, GGGG | Required`
                         { label: 'Download as XLSX', click: () => { close(); this.exportSelection('xlsx', k); }, move: () => { } },
                         { label: 'Remove ' + kl.toLowerCase(), click: () => { close(); this.removeSelectedByKind(k); }, move: () => { } },
                     ];
+                    // Two things a selection of variants wants that a file download is not:
+                    // to be LOOKED AT, and to be READ ABOUT. Both go above the downloads,
+                    // because both are what someone came to this menu to do; exporting is
+                    // what they do afterwards.
+                    if (k === 'snp') {
+                        const picks = sel.filter((x) => x.kind === 'snp' && x.ref);
+                        sub.unshift(
+                            {
+                                label: 'Zoom into',
+                                move: () => { },
+                                click: () => {
+                                    close();
+                                    // One variant is a place; several are a span. A single
+                                    // marker gets the tour's own framing -- selected, centred,
+                                    // at a readable zoom -- rather than a rectangle of one base
+                                    // that shows nothing around it.
+                                    try {
+                                        if (picks.length === 1) {
+                                            Promise.resolve(exec('baja/manchester/menu/focus-mutation.js',
+                                                this, picks[0].ref, 10000)).catch(() => { });
+                                            return;
+                                        }
+                                        let lo = Infinity, hi = -Infinity;
+                                        for (const x of picks) {
+                                            lo = Math.min(lo, +x.xi, +x.xf);
+                                            hi = Math.max(hi, +x.xi, +x.xf);
+                                        }
+                                        if (!isFinite(lo) || !isFinite(hi)) { this.setMessage(' Nothing to zoom to. '); return; }
+                                        // A margin proportional to the span, with a floor: a
+                                        // cluster inside twenty bases would otherwise be framed
+                                        // so tightly that its own markers touch the edges.
+                                        const pad = Math.max(25, (hi - lo) * 0.15);
+                                        if (this.zoom) this.zoom(lo - pad, hi + pad);
+                                        if (this.wake) this.wake();
+                                        this.setMessage(' Zoomed to ' + picks.length + ' variants across '
+                                            + Math.round(hi - lo) + ' bases. ');
+                                    } catch (e) { this.setMessage(' Could not zoom: ' + e); }
+                                }
+                            },
+                            {
+                                label: 'More information…',
+                                move: () => { },
+                                click: () => {
+                                    close();
+                                    try {
+                                        Promise.resolve(exec('baja/manchester/menu/snp-more-info.js',
+                                            this, this.genegraph_panel_layout, picks)).catch(() => { });
+                                    } catch (e) { this.setMessage(' Could not open variant information: ' + e); }
+                                }
+                            },
+                        );
+                    }
                     sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
                     show(sub, menuLabel(k));
                 };
