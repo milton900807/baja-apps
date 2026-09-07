@@ -118,9 +118,11 @@ function (server, graph, genegraph_panel_layout) {
                 + '<label style="' + LBL + 'margin-top:22px;">Which variants to load <span style="font-weight:400;">(optional)</span></label>'
                 + '<textarea id="vt-v" rows="3" placeholder="e.g. coronary heart disease &middot; ClinVar pathogenic &middot; gnomAD SNVs" style="' + INP + 'resize:vertical;"></textarea>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
-                + 'Name a <b>database and class</b> (ClinVar pathogenic, gnomAD SNVs, indels) to load from that database.<br/>'
-                + 'Name a <b>condition</b> (coronary heart disease) to load only the changes of these transcripts linked to it.<br/>'
-                + 'Left empty, ClinVar is loaded whole.</div>'
+                + 'Name a <b>condition</b> (coronary heart disease) for the mutations known to cause it, '
+                + 'checked against these transcripts. A short, specific set.<br/>'
+                + 'Name a <b>database</b> (ClinVar pathogenic, gnomAD SNVs) to load from that database instead. '
+                + 'Add a condition to narrow it further.<br/>'
+                + 'Left empty, the search above is used. Only a search naming no condition loads a database whole.</div>'
                 + '<label style="' + LBL + 'margin-top:22px;">Constraint</label>'
                 + '<label style="display:flex;align-items:flex-start;gap:9px;font:13px Arial;cursor:pointer;">'
                 + '<input type="checkbox" id="vt-only" checked style="margin-top:2px;"/>'
@@ -184,9 +186,16 @@ function (server, graph, genegraph_panel_layout) {
         // condition means the changes of the loaded gene linked to it -- "coronary heart
         // disease" on an LPA transcript is not a filter over ClinVar, it is a different set.
         const named = /\b(clinvar|gnomad|cosmic|db\s?snp)\b/.test(s);
+        // Everything that is not the database's name or a class of change. Whatever is left
+        // is a condition, and it narrows the load whether or not a class was also given --
+        // "clinvar hypertrophic cardiomyopathy" names no class and is still not a request
+        // for the whole of ClinVar.
+        const leftover = s.replace(/\b(clinvar|gnomad|cosmic|db\s?snp|snp|snv|snvs|point|missense|substitution|nonsense|indels?|insertions?|deletions?|pathogenic|benign|uncertain|vus|conflicting|only|variants?|and|or|in|for|the|of)\b/g, ' ')
+            .replace(/\s+/g, ' ').trim();
+        const narrow = leftover.length > 3 ? leftover : '';
         if (!types.length && !clinsig) {
-            if (s && !named) return { db: db, dbLabel: dbLabel, filter: null, context: text };
-            return { db: db, dbLabel: dbLabel, filter: null, context: null };
+            if (s && !named) return { db: db, dbLabel: dbLabel, filter: null, context: text, narrow: '' };
+            return { db: db, dbLabel: dbLabel, filter: null, context: null, narrow: narrow };
         }
         // The label is read back to the user in the status line and on the track, so name the
         // classes the way they were asked for, not the way the filter spells them.
@@ -201,7 +210,9 @@ function (server, graph, genegraph_panel_layout) {
         const filter = { label: parts.join(' ') };
         if (types.length) filter.types = types;
         if (clinsig) filter.clinsig = clinsig;
-        return { db: db, dbLabel: dbLabel, filter: filter, context: null };
+        // "ClinVar pathogenic missense in coronary heart disease" says three things: the
+        // database, the class, and a condition. All three narrow the load.
+        return { db: db, dbLabel: dbLabel, filter: filter, context: null, narrow: narrow };
     };
 
     // ---- run --------------------------------------------------------------------------------
@@ -258,74 +269,67 @@ function (server, graph, genegraph_panel_layout) {
             }
 
             // ---- and the variants on them --------------------------------------------------
-            const wish = readVariantWish(pick.variants);
+            // AN EMPTY SECOND BOX DOES NOT MEAN "EVERYTHING". The first box already said what
+            // this is about, and a search for "mutations relevant to heart disease" that ends
+            // by dropping every ClinVar record in ten genes onto the board has answered a
+            // question nobody asked. With nothing typed here, the first prompt is the
+            // constraint; it is only when that prompt names no condition -- a bare gene or a
+            // transcript id -- that there is nothing to narrow by and the database loads whole.
+            let wish = readVariantWish(pick.variants);
+            if (!pick.variants && !wish.context) {
+                wish = Object.assign({}, wish, { context: query, inherited: true });
+            }
             if (wish.context) {
-                // A CONDITION FILTERS THE DATABASE. "coronary heart disease" does not mean
-                // "load ClinVar", it means "load the ClinVar variants filed against that
-                // condition" -- so ask what names the condition is recorded under, and pass
-                // those to the loader as the filter. An unfiltered load is never the answer
-                // to a condition: it puts every variant in the window on the track and buries
-                // the ones that were asked for.
-                let terms = [wish.context];
-                try {
-                    const dv = await exec(server + '/py/bio/disease-variants.py',
-                        new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } }),
-                        wish.context, '12');
-                    let t = [];
-                    try { t = JSON.parse((dv && dv.terms) || '[]'); } catch (e) { t = []; }
-                    if (t.length) terms = t;
-                } catch (e) { }
-                say('Loading ' + wish.dbLabel + ' variants filed against ' + wish.context
-                    + ' (' + terms.length + ' name' + (terms.length === 1 ? '' : 's') + ') onto '
+                // A CONDITION MEANS THE MUTATIONS THAT ARE KNOWN FOR IT, NOT A DATABASE
+                // NARROWED DOWN. Filtering ClinVar by "heart disease" still leaves 5577
+                // records across four cardiac genes, because a cardiac gene's ClinVar is
+                // almost all cardiac -- the filter is doing its job and the answer is still
+                // a wall of variants. What was asked for is the changes that are actually
+                // known for the condition, so that is what is placed: named per gene, and
+                // every one checked against that transcript's own coding sequence first.
+                //
+                // The database is still reachable, by naming it -- "ClinVar pathogenic" -- and
+                // that path filters by condition as well as by class.
+                say('Finding the mutations known for ' + wish.context + ' on '
                     + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's') + '…');
-                // How many landed. A composite track keeps no list of its own and delegates to
-                // the tracks inside it, so ask those instead of reading zero and concluding
-                // that nothing loaded.
-                const snpCount = (t) => {
-                    if (!t) return 0;
-                    if (Array.isArray(t.snpindels)) return t.snpindels.length;
-                    if (Array.isArray(t.tracks)) return t.tracks.reduce((n, x) => n + snpCount(x), 0);
-                    return 0;
-                };
-                const countSnps = () => loaded.reduce((n, t) => n + snpCount(t), 0);
-                const before = countSnps();
-                let after = 0;
-                try {
-                    await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
-                        wish.db, wish.dbLabel, false, loaded,
-                        { label: wish.context, conditions: terms });
-                } catch (e) {
-                    say('The ' + wish.dbLabel + ' load for "' + wish.context + '" failed: '
-                        + (e && e.message ? e.message : e));
-                    restoreHover(); return false;
-                }
-                after = countSnps();
-                if (after > before) { restoreHover(); return true; }
-                // NOTHING IN THE DATABASE IS FILED AGAINST IT over these transcripts. Rather
-                // than fall back to loading everything -- which answers a question that was
-                // not asked -- place the changes of these genes that are known to be linked
-                // to the condition, each checked against the transcript's coding sequence.
-                say('No ' + wish.dbLabel + ' variant on ' + (loaded.length === 1 ? 'this transcript' : 'these transcripts')
-                    + ' is filed against ' + wish.context + '. Looking for known changes linked to it instead…');
                 let ok = false;
                 try {
                     ok = await exec('baja/data/variant-from-prompt.js', server, graph,
                         genegraph_panel_layout, loaded, wish.context);
                 } catch (e) { ok = false; }
                 if (!ok) {
-                    say('Nothing linked to "' + wish.context + '" could be placed on '
+                    say('No mutation known for "' + wish.context + '" could be verified against '
                         + (loaded.length === 1 ? 'this transcript' : 'these transcripts')
-                        + '. The transcripts are loaded; nothing was invented to put on them.');
+                        + '. The transcripts are loaded and nothing was invented to put on them. '
+                        + 'Name a database in the second box to load from one instead.');
                 }
                 restoreHover();
                 return true;
             }
             const targets = pick.only ? loaded : null;
-            say('Loading ' + wish.dbLabel + (wish.filter ? ' [' + wish.filter.label + ']' : '')
+            let dbFilter = wish.filter;
+            if (wish.narrow) {
+                // A database AND a condition: narrow by the disease names the records are
+                // filed under, on top of the class filter.
+                let terms = [wish.narrow];
+                try {
+                    const dv = await exec(server + '/py/bio/disease-variants.py',
+                        new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } }),
+                        wish.narrow, '12');
+                    if (dv && (dv.is_context === true || dv.is_context === 'true')) {
+                        let t = [];
+                        try { t = JSON.parse(dv.terms || '[]'); } catch (e) { t = []; }
+                        if (t.length) terms = t;
+                    }
+                } catch (e) { }
+                dbFilter = Object.assign({ label: wish.narrow }, dbFilter || {}, { conditions: terms });
+                dbFilter.label = ((wish.filter && wish.filter.label) ? wish.filter.label + ' · ' : '') + wish.narrow;
+            }
+            say('Loading ' + wish.dbLabel + (dbFilter ? ' [' + dbFilter.label + ']' : '')
                 + ' onto ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's') + '…');
             try {
                 await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
-                    wish.db, wish.dbLabel, !targets, targets, wish.filter);
+                    wish.db, wish.dbLabel, !targets, targets, dbFilter);
             } catch (e) {
                 say('Loaded ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's')
                     + ', but the ' + wish.dbLabel + ' load failed: ' + (e && e.message ? e.message : e));
