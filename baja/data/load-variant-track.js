@@ -61,13 +61,24 @@ function (server, graph, genegraph_panel_layout) {
     const askGene = (pre) => new Promise((resolve) => {
         const p = pre || {};
         const panel = shell({
-            title: 'Load a variant track', subtitle: 'Step 1 of 2 · which gene or transcript',
+            title: 'Load a variant track', subtitle: 'Step 1 of 2 · what you are looking for',
             notice: p.notice,
-            body: '<label style="' + LBL + '">The gene or transcript</label>'
-                + '<textarea id="vt-q" rows="3" placeholder="SMN1" style="' + INP + 'resize:vertical;"></textarea>'
+            // The label asks for a DISEASE first, because that is what this box already does
+            // with what it is given. It calls it "the gene or transcript", but whatever is
+            // typed here is used twice: once to resolve transcripts, and again as the
+            // constraint on which variants get loaded when step 2 is left empty (see the note
+            // by readVariantWish in the run loop). Someone who reads the old label types a
+            // gene symbol, gets the whole of ClinVar for it, and never learns that naming the
+            // condition here was the way to be given the changes known for it.
+            body: '<label style="' + LBL + '">Enter a disease, or describe the variant condition of interest</label>'
+                + '<textarea id="vt-q" rows="3" placeholder="cystic fibrosis" style="' + INP + 'resize:vertical;"></textarea>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
-                + 'e.g. <b>SMN1</b> &middot; <b>TP53</b> &middot; <b>all PTEN isoforms in mouse</b> &middot; <b>ENST00000380707</b><br/>'
-                + 'The canonical transcript is used unless the description asks for something else.</div>'
+                + 'A condition &mdash; <b>cystic fibrosis</b> &middot; <b>spinal muscular atrophy</b> &middot; '
+                + '<b>hypertrophic cardiomyopathy</b><br/>'
+                + 'or a gene or transcript &mdash; <b>SMN1</b> &middot; <b>TP53</b> &middot; '
+                + '<b>all PTEN isoforms in mouse</b> &middot; <b>ENST00000380707</b><br/>'
+                + 'Name a condition and the variants known for it are placed on the transcripts. '
+                + 'Name only a gene and the database loads whole.</div>'
         });
         const q = (s) => panel.querySelector(s);
         const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
