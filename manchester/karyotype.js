@@ -27,6 +27,14 @@ function (path, config) {
             if ((await __sub.enforce(true)) === false) return;
         }
 
+        // EVERY STAGE SAYS SO. This view has now failed twice in ways that look identical
+        // from the outside -- an empty screen with no exception -- once for a canvas that was
+        // never mounted and once for a hook that threw only on mouse events. A blank screen
+        // is not a diagnosis, and these lines are what turned both of those into one-step
+        // fixes.
+        const step = (m) => { try { console.log('[karyotype] ' + m); } catch (e) { } };
+        step('start');
+
         const server = (window['env'] && window['env']['apiUrl']) || '';
         const MB = 1e6;                 // one world unit per megabase
         const BAR_W = 0.62;             // chromosome bar width, in world units (of the 1.0 slot)
@@ -79,7 +87,12 @@ function (path, config) {
             });
             q('#ky-cancel').onclick = () => { close(); resolve(null); };
             q('#ky-go').onclick = () => { const v = ('' + q('#ky-q').value).trim(); if (!v) return; close(); resolve(v); };
-            try { const c = exec('lib/core.js'); Promise.resolve(c).then((k) => { try { k.focusUnlessMobile(q('#ky-q'), 80); } catch (e) { } }); } catch (e) { }
+            // focusUnlessMobile is a GLOBAL -- lib/core.js is the standard library and is
+            // already in scope. exec('lib/core.js') fetches and compiles it a second time
+            // into the same scope, which fails on its very first line:
+            // "Identifier 'host' has already been declared". Every other caller in the
+            // repository just calls it.
+            try { focusUnlessMobile(q('#ky-q')); } catch (e) { }
         });
 
         const wanted = (typeof path === 'string' && path.trim()) ? path.trim() : await ask();
@@ -113,14 +126,20 @@ function (path, config) {
         // skipped that and drew a whole karyotype onto a canvas that was never in the
         // document -- the status line reported 25 chromosomes and the screen stayed empty,
         // which is exactly what a correct program with no canvas looks like.
+        step('building the graph');
         const graph = await exec('flexigraph/gene.js');
+        step('graph ready: ' + (graph ? typeof graph.createComponent : 'NO GRAPH'));
 
         const geneGraph = await graph.createComponent();
+        step('canvas component: ' + (geneGraph && geneGraph.wid));
         geneGraph.height = '100%';
-        const main_layout = {
+        // The SAME nesting editor.js uses: a geneGraphPanel card holding the toolbar row and
+        // the canvas row, wrapped in a mainPanel card. Flattening the two into one card is
+        // the obvious simplification and it is not what the renderer is fed anywhere else, so
+        // it is not the thing to be original about while the screen is blank.
+        const genegraph_panel_layout = {
             wid: 'card',
-            height: '100%',
-            componentRef: 'mainPanel',
+            componentRef: 'geneGraphPanel',
             data: {
                 cards: [[
                     {
@@ -151,10 +170,22 @@ function (path, config) {
                 ]]
             }
         };
+        const main_layout = {
+            wid: 'card',
+            height: '100%',
+            componentRef: 'mainPanel',
+            data: {
+                cards: [[
+                    { 'width': '100%', 'height': '100%', 'component': genegraph_panel_layout }
+                ]]
+            }
+        };
+        graph.genegraph_panel_layout = genegraph_panel_layout;
         try { clear(); } catch (e) { }
         showWidget(main_layout);
         try { CurrentLayout.stash('mainPanel', main_layout); } catch (e) { }
         try { CurrentLayout.stash('graph', graph); } catch (e) { }
+        step('canvas mounted');
 
         // Base position -> world y. One place, because getting it wrong in one of the five
         // places that need it would put bands on a chromosome they do not belong to.
@@ -370,11 +401,14 @@ function (path, config) {
             if (graph.wake) graph.wake();
         };
         graph.highlightmethod = paint;
+        step('painting ' + drawn.length + ' chromosomes; waiting for the canvas to size');
         whenSized(async () => {
+            step('canvas sized ' + canvasSize().w + 'x' + canvasSize().h);
             try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
             try { if (graph.rescale) graph.rescale(); } catch (e) { }
             await fit();
             arm();
+            step('framed and armed');
         });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
             + '— ' + drawn.length + ' chromosomes, smallest first, all at one scale. '
