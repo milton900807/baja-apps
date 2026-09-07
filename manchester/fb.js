@@ -18,6 +18,11 @@ function (__path) {
         let view = 'myfiles';
 
         let path_j = '.'
+        // A karyotype opens in the karyotype view, not the track editor. Accepts the
+        // .karyotype.json these were saved as before the extension was shortened --
+        // same format, still in people's folders.
+        const isKaryotype = (el) => /\.karyotype(\.json)?$/i.test(
+            ('' + ((el && (el.name || el.path)) || '')).trim());
         let userFiles_panel;
         let userFilesRef = createIonFunction((panel) => {
             userFiles_panel = panel;
@@ -44,6 +49,13 @@ function (__path) {
                 }),
                 "ionfunction.fileClick": createIonFunction(async (element) => {
                     path_j = element.path;
+                    // Guarded on mode so Delete still targets the file rather than
+                    // opening it.
+                    if (mode !== 'delete' && isKaryotype(element)) {
+                        clear();
+                        exec('manchester/karyotype', element.path);
+                        return;
+                    }
                     if (mode === 'delete') {
                         let zoom_to = {
                             wid: 'card',
@@ -438,6 +450,11 @@ function (__path) {
                             // right back here -- no clear(), this isn't navigating anywhere.
                             await applyGzFileToCurrentGraph(element);
                             try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                            return;
+                        }
+                        if (isKaryotype(element)) {
+                            clear();
+                            exec('manchester/karyotype', element.path);
                             return;
                         }
 
