@@ -263,6 +263,20 @@ function (path, config) {
         // The cell body appears further out still: absent at the default fit, where the bars
         // are about 1.6% of the canvas.
         const NEURON_MAX_BAR = 0.012;
+        // THE SEQUENCE ITSELF, once a base is tall enough to carry a letter.
+        //
+        // y is the genomic axis here, so bases stack DOWNWARD and consecutive letters
+        // collide unless a base is at least a line-height tall. That is the whole rule --
+        // the threshold IS "close enough to show the characters without overrunning" -- and
+        // it is a property of the font, not a taste. Below it nothing is drawn; there is no
+        // halfway rendering of a sequence.
+        const SEQ_MIN_PX = 9;        // px per base before any letter is drawn
+        const SEQ_FONT_MAX = 13;     // past this a taller base does not need a bigger letter
+        const SEQ_CHUNK = 2048;      // bases per request
+        const SEQ_MAX_CHUNKS = 8;    // at ~9 px a base, a screen is one or two of these
+        // The four bases in the colours sequence viewers have used for decades. Someone
+        // arriving from IGV or a chromatogram should not have to learn a second key.
+        const BASE_COLOR = { A: '#15803d', C: '#1d4ed8', G: '#b45309', T: '#be123c', N: '#94a3b8' };
 
         // A TICK INTERVAL SOMEONE CAN READ. 1, 2 or 5 times a power of ten -- the intervals
         // people already read axes in. A step of 3,170,494 is arithmetically fine and nobody
@@ -307,6 +321,63 @@ function (path, config) {
         const slotOf = (i) => (i + 0.5) * SLOT;
         const barLeft = (i) => slotOf(i) - (BAR_W * SLOT) / 2;
         const barRight = (i) => slotOf(i) + (BAR_W * SLOT) / 2;
+
+        // THE BASES ARE FETCHED ON A FIXED CHUNK GRID, not per viewport. Panning by one
+        // pixel changes the visible window by a base or two, and a viewport-keyed cache
+        // would miss on every frame and ask the server again for almost exactly what it
+        // already had. Aligned chunks mean a pan reuses everything except the chunk it
+        // moved onto.
+        const seqCache = new Map();            // 'chr|chunk' -> string | PENDING | MISS
+        const SEQ_PENDING = '\u0000pending';   // sentinels, not sequence: no base is ever a
+        const SEQ_MISS = '\u0000miss';         // NUL, so neither can be mistaken for data
+        // A species this server holds no genome for must be asked ONCE. paint() runs every
+        // frame, so a failure that clears its own cache entry turns into a request per frame
+        // for as long as the view is held -- the whole reason a miss is remembered.
+        let seqOff = false;
+        const seqKey = (chrom, k) => chrom + '|' + k;
+        const seqAsk = async (chrom, k) => {
+            const key = seqKey(chrom, k);
+            if (seqOff || seqCache.has(key)) return;
+            seqCache.set(key, SEQ_PENDING);
+            const lo = k * SEQ_CHUNK + 1;
+            try {
+                const em2 = new EngineMonitor(() => { });
+                const rs = await exec(server + '/py/bio/genome-sequence.py', em2,
+                    chrom, String(lo), String(lo + SEQ_CHUNK - 1), (r.species || 'human'));
+                if (rs && rs.ok && rs.sequence) {
+                    seqCache.set(key, String(rs.sequence));
+                } else {
+                    seqCache.set(key, SEQ_MISS);
+                    // No genome for this species at all: stop asking for every chunk of
+                    // every chromosome one at a time.
+                    const msg = ('' + ((rs && rs.error) || '')).toLowerCase();
+                    if (msg.indexOf('no genome') >= 0 || msg.indexOf('not on this server') >= 0) {
+                        seqOff = true;
+                        step('sequence unavailable: ' + (rs && rs.error));
+                    }
+                }
+            } catch (e) { seqCache.set(key, SEQ_MISS); }
+            // Bounded: panning along a chromosome at base resolution would otherwise keep
+            // every window it has ever crossed.
+            if (seqCache.size > SEQ_MAX_CHUNKS * 3) {
+                const drop = seqCache.size - SEQ_MAX_CHUNKS;
+                let n = 0;
+                for (const kk of Array.from(seqCache.keys())) {
+                    if (n++ >= drop) break;
+                    if (seqCache.get(kk) !== SEQ_PENDING) seqCache.delete(kk);
+                }
+            }
+            if (graph.wake) graph.wake();
+        };
+        // The base at a position, or '' when its chunk has not arrived. Never blocks and
+        // never asks -- asking is the caller's decision, so paint() stays synchronous.
+        const seqBaseAt = (chrom, bp) => {
+            const k = Math.floor((bp - 1) / SEQ_CHUNK);
+            const str = seqCache.get(seqKey(chrom, k));
+            if (!str || str === SEQ_PENDING || str === SEQ_MISS) return '';
+            const off = (bp - 1) - k * SEQ_CHUNK;
+            return (off >= 0 && off < str.length) ? str.charAt(off) : '';
+        };
 
         // The ideogram, drawn in WORLD coordinates through g.X / g.Y so it pans and zooms
         // with everything else rather than being an overlay that has to be told what the
@@ -741,6 +812,64 @@ function (path, config) {
                                 ctx.lineTo(ax + dir * 11, ty);
                                 ctx.stroke();
                                 ctx.fillText(fmtBp(bp, stepBp), ax + dir * 15, ty);
+                            }
+                            ctx.restore();
+                        }
+                    }
+
+                    // THE SEQUENCE, once a base is tall enough to letter.
+                    //
+                    // At this zoom the banding is meaningless -- the whole visible strip is
+                    // one band -- so the bar is backed in white and the bases are drawn over
+                    // it. That backing is also the signal that the view has changed register:
+                    // an ideogram above, a sequence here.
+                    const pxPerBase = Math.abs(g.Y(wy(1)) - g.Y(wy(0)));
+                    if (pxPerBase >= SEQ_MIN_PX && w >= 12) {
+                        const sTop = Math.max(1, Math.min(c.length, -g.Ywc(0) * MB));
+                        const sBot = Math.max(1, Math.min(c.length, -g.Ywc(ctx.canvas.height) * MB));
+                        const bLo = Math.max(1, Math.floor(Math.min(sTop, sBot)));
+                        const bHi = Math.min(c.length, Math.ceil(Math.max(sTop, sBot)));
+                        if (bHi >= bLo) {
+                            // Ask for the chunks this window needs. Whatever has not arrived
+                            // simply is not drawn -- no placeholder, so nothing shifts when
+                            // it lands.
+                            const kLo = Math.floor((bLo - 1) / SEQ_CHUNK);
+                            const kHi = Math.floor((bHi - 1) / SEQ_CHUNK);
+                            for (let k = kLo; k <= kHi && (k - kLo) < SEQ_MAX_CHUNKS; k++) {
+                                if (!seqCache.has(seqKey(c.name, k))) seqAsk(c.name, k);
+                            }
+                            // The bar is far wider than the screen at this zoom, so the
+                            // letters follow the VISIBLE middle of it rather than the middle
+                            // of the bar, which would be off-canvas.
+                            const vx0 = Math.max(x0, 0), vx1 = Math.min(x1, ctx.canvas.width);
+                            const cxm = (vx0 + vx1) / 2;
+                            const fpx = Math.min(SEQ_FONT_MAX, pxPerBase * 0.82);
+                            ctx.save();
+                            ctx.fillStyle = 'rgba(255,255,255,0.93)';
+                            ctx.fillRect(vx0, Math.max(0, g.Y(wy(bLo - 1))),
+                                Math.max(0, vx1 - vx0),
+                                Math.min(ctx.canvas.height, g.Y(wy(bHi))) - Math.max(0, g.Y(wy(bLo - 1))));
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.font = '600 ' + fpx.toFixed(1) + 'px ui-monospace, SFMono-Regular, '
+                                + 'Menlo, Consolas, monospace';
+                            let drew = 0;
+                            for (let bp = bLo; bp <= bHi; bp++) {
+                                const ch = seqBaseAt(c.name, bp);
+                                if (!ch) continue;
+                                // Centred on the base's OWN span. A base occupies [bp-1, bp)
+                                // in this mapping, so lettering its edge would put every
+                                // character half a base out of register with the ruler.
+                                const ty = g.Y(wy(bp - 0.5));
+                                if (ty < -fpx || ty > ctx.canvas.height + fpx) continue;
+                                ctx.fillStyle = BASE_COLOR[ch] || '#475569';
+                                ctx.fillText(ch, cxm, ty);
+                                drew++;
+                            }
+                            if (!drew && !seqOff) {
+                                ctx.fillStyle = '#94a3b8';
+                                ctx.font = '11px ' + FONT;
+                                ctx.fillText('reading the sequence…', cxm, ctx.canvas.height / 2);
                             }
                             ctx.restore();
                         }
