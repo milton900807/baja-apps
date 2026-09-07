@@ -1614,7 +1614,19 @@ function (path, config) {
         // chromosomes: those come from the karyotype table on the server and are the same for
         // everyone. A file that carried its own copy of hg38's bands would be forty times
         // larger and would go stale the day the table is rebuilt.
-        const SAVE_CAP = 250000;      // variants written to a file
+        // VARIANTS WRITTEN TO A FILE. Raised from 250,000 so a whole VCF is saved
+        // rather than its first quarter-million.
+        //
+        // The ceiling is still a ceiling, not decoration. A saved variant costs about
+        // 40 bytes of JSON -- measured, not guessed: a 250,000-variant file on this
+        // server is 10,083,143 bytes -- so ten million is roughly a 400 MB document,
+        // and the browser holds the object array AND the stringified copy at once
+        // while it saves. Above that a tab is likelier to run out of memory than to
+        // finish, and a save that hangs is worse than one that says it truncated.
+        //
+        // The chain below is known to take it: express accepts an 8gb body, nginx
+        // client_max_body_size is 512m, and /save-user-data writes straight to disk.
+        const SAVE_CAP = 10000000;    // variants written to a file
         // JSON inside, but the extension names what the file IS, not how it is
         // encoded -- the same reason a .baja file does not announce itself as .json.
         // Nothing filters My Files by extension, so the browser lists and opens it
@@ -1707,11 +1719,20 @@ function (path, config) {
 
             const suggested = (('' + (r.species || 'karyotype')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-'))
                 + (vtotal ? '-' + vtotal + 'variants' : '') + SAVE_EXT;
+            // Roughly 40 bytes of JSON per variant, measured from a saved file.
+            const sizeHint = (n) => {
+                const mb = (n * 40) / (1024 * 1024);
+                return mb >= 1 ? (' (about ' + (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB)') : '';
+            };
             const note = (vtotal > SAVE_CAP)
                 ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
                     + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
                     + 'Upload VCF, all of it is already in My Files.')
-                : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' will be written.');
+                : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
+                    + ' will be written' + sizeHint(vtotal) + '.'
+                    + (vtotal > 1000000
+                        ? ' A file this size takes a while to write and to read back.'
+                        : ''));
 
             // THE BROWSER LISTS NOTHING UNTIL refresh() IS CALLED ON IT. save-obj.js does
             // this through refCallback and a short delay; without it the chrome renders --
