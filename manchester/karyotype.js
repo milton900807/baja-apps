@@ -1617,12 +1617,13 @@ function (path, config) {
         // VARIANTS WRITTEN TO A FILE. Raised from 250,000 so a whole VCF is saved
         // rather than its first quarter-million.
         //
-        // The ceiling is still a ceiling, not decoration. A saved variant costs about
-        // 40 bytes of JSON -- measured, not guessed: a 250,000-variant file on this
-        // server is 10,083,143 bytes -- so ten million is roughly a 400 MB document,
-        // and the browser holds the object array AND the stringified copy at once
-        // while it saves. Above that a tab is likelier to run out of memory than to
-        // finish, and a save that hangs is worse than one that says it truncated.
+        // The ceiling is still a ceiling, not decoration. A version 2 variant costs
+        // about 18 bytes of JSON -- measured, not guessed: re-encoding a real
+        // 250,000-variant file took it from 10,083,143 to 4,583,143 bytes, 40.3 to
+        // 18.3 bytes each -- so ten million is roughly a 180 MB document. The browser
+        // still holds the variant array AND the stringified copy at once while it
+        // saves. Above this a tab is likelier to run out of memory than to finish,
+        // and a save that hangs is worse than one that says it truncated.
         //
         // The chain below is known to take it: express accepts an 8gb body, nginx
         // client_max_body_size is 512m, and /save-user-data writes straight to disk.
@@ -1635,7 +1636,7 @@ function (path, config) {
 
         const stateDoc = () => {
             const out = {
-                type: 'baja-karyotype', version: 1,
+                type: 'baja-karyotype', version: 2,
                 species: r.species || wanted, assembly: r.assembly || '',
                 saved: new Date().toISOString(),
                 view: null, variants: [], truncated: false, total: vtotal,
@@ -1644,8 +1645,17 @@ function (path, config) {
                 const gr = graph.graph && graph.graph.grid;
                 if (gr) out.view = { x0: gr.xmin, x1: gr.xmax, y0: gr.ymin, y1: gr.ymax };
             } catch (e) { }
-            // Short keys: at a quarter of a million variants the difference between "position"
-            // and "p" is several megabytes of the same information.
+            // VERSION 2: one string per variant, "chrom:pos:ref:alt[:class[:name]]".
+            //
+            // Version 1 wrote {"c":"21","p":12345,"r":"A","a":"G"} -- the four key names
+            // repeated once per variant, which at five and a half million of them is most
+            // of the file. The string form is about a third of the size, and it costs one
+            // string rather than one object per variant while the document is being built,
+            // which is what decides whether a whole VCF can be saved at all.
+            //
+            // Name goes LAST and may itself contain ':' -- the reader takes the first four
+            // fields by position and rejoins the remainder, so a VCF ID with a colon in it
+            // survives the round trip.
             let n = 0;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
@@ -1653,10 +1663,12 @@ function (path, config) {
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
                     const ab = allelesAt(ci, k);
-                    const e = { c: bare, p: d.pos[k], r: ab[0], a: ab[1] };
-                    if (d.cls[k]) e.s = d.cls[k];
-                    const nm = d.names[k];
-                    if (nm) e.n = nm;
+                    let e = bare + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1];
+                    const cls = d.cls[k] || 0;
+                    const nm = d.names[k] || '';
+                    // Trailing fields only when they carry something.
+                    if (nm) e += ':' + cls + ':' + nm;
+                    else if (cls) e += ':' + cls;
                     out.variants.push(e);
                     n++;
                 }
@@ -1677,9 +1689,25 @@ function (path, config) {
                     + r.species + '. Positions may not mean what they did. ');
             }
             if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            // Version 1 wrote an object per variant, version 2 a string. Both are read:
+            // the v1 files are still in people's folders and are the same data.
+            const asVariant = (raw) => {
+                if (raw && typeof raw === 'object') return raw;      // version 1
+                if (typeof raw !== 'string') return null;
+                const f = raw.split(':');
+                if (f.length < 4) return null;
+                const o = { c: f[0], p: +f[1], r: f[2], a: f[3] };
+                if (f.length > 4 && f[4]) o.s = +f[4] || 0;
+                // Anything after the class is the name, rejoined so a ':' inside it
+                // is not a field separator.
+                if (f.length > 5) { const nm = f.slice(5).join(':'); if (nm) o.n = nm; }
+                return o;
+            };
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
-            for (const v of (doc.variants || [])) {
+            for (const raw of (doc.variants || [])) {
+                const v = asVariant(raw);
+                if (!v) { count.skipped++; continue; }
                 let ci = chromIndex[v.c];
                 if (ci == null) ci = chromIndex['chr' + v.c];
                 if (ci == null) { count.offGenome++; continue; }
@@ -1719,9 +1747,10 @@ function (path, config) {
 
             const suggested = (('' + (r.species || 'karyotype')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-'))
                 + (vtotal ? '-' + vtotal + 'variants' : '') + SAVE_EXT;
-            // Roughly 40 bytes of JSON per variant, measured from a saved file.
+            // Roughly 18 bytes of JSON per variant in version 2, measured by re-encoding
+            // a real saved file (40.3 bytes each as version 1, 18.3 as version 2).
             const sizeHint = (n) => {
-                const mb = (n * 40) / (1024 * 1024);
+                const mb = (n * 18) / (1024 * 1024);
                 return mb >= 1 ? (' (about ' + (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + ' MB)') : '';
             };
             const note = (vtotal > SAVE_CAP)
