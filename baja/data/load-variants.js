@@ -213,6 +213,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
 
             const MAX_ALLELE = 50;   // skip structural variants (giant ref/alt)
             let added = 0, skippedSv = 0, skippedFilter = 0;
+            const __placed = [];   // the SnpIndels made here, for the gene-mechanism pass below
             for (const v of list) {
                 if (!v || v.start == null) continue;
                 if (v.chr && ('' + v.chr).replace(/^chr/, '') !== chr) continue;
@@ -261,13 +262,51 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         snp.clindn = v.conditions.join('; ');
                     }
                     snp.source = v.source || label;   // filterable: dbSNP / ClinVar / gnomAD / COSMIC
+                    // SHOW IT. The callout is the point of loading a variant with a condition
+                    // and a consequence attached; leaving it switched off means the reader has
+                    // to click each marker to find out what any of them do.
+                    snp.showAnnotation = true;
                 } catch (e) { }
                 track.addsnpindel(snp);
                 track.showSnpIndels = true;
+                __placed.push(snp);
                 added++;
             }
 
             if (graph.wake) graph.wake();
+            // ---- what these variants DO -------------------------------------------------
+            // ClinVar says what a variant IS and how it was classified. It does not say what
+            // it does, and "loss of function", "truncating", "splicing" is the thing a reader
+            // is actually after. Half of it is on the record already -- the molecular
+            // consequence, which snpindel.js turns into a phrase without asking anyone. The
+            // other half is a property of the GENE, so it is asked ONCE PER GENE: three
+            // thousand variants across four genes is four questions, not three thousand.
+            //
+            // Failsafe on purpose. The variants are on the track before this runs and stay
+            // there if it fails; all that is lost is the mechanism clause.
+            try {
+                const __genes = [];
+                for (const s of __placed) {
+                    let g = '';
+                    try { g = s.geneSymbol ? s.geneSymbol() : ''; } catch (e) { g = ''; }
+                    if (g && __genes.indexOf(g) < 0) __genes.push(g);
+                }
+                if (__genes.length) {
+                    const __em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                    const __r = await exec(server + '/py/bio/gene-mechanism.py', __em, JSON.stringify(__genes.slice(0, 40)));
+                    let __mech = {};
+                    try { __mech = JSON.parse((__r && __r.genes) || '{}') || {}; } catch (e) { __mech = {}; }
+                    if (Object.keys(__mech).length) {
+                        for (const s of __placed) {
+                            try {
+                                const g = s.geneSymbol ? s.geneSymbol() : '';
+                                if (g && __mech[g] && s.applyGeneMechanism) s.applyGeneMechanism(__mech[g]);
+                            } catch (e) { }
+                        }
+                        if (graph.wake) graph.wake();
+                    }
+                }
+            } catch (e) { }
             if (!added) {
                 // Two different nothings, and they need different answers: the class filter
                 // matched none of them (widen the class), or the region genuinely holds none.

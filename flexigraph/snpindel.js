@@ -789,48 +789,129 @@ function () {
                 }
             }
 
-            // THE CALLOUT TEXT, from what the record already says.
+            // THE CALLOUT TEXT: WHAT THIS VARIANT DOES.
             //
-            // _drawAnnotationLeader draws `this.annotation`, and until now the only things that
-            // ever set it were the per-variant "what is this variant" lookup and the
-            // points-of-interest flow. A variant loaded from ClinVar never got one -- so the
-            // track menu's "Show annotations" turned on a flag for text that did not exist and
-            // appeared to do nothing at all. The material was right there on the record the
-            // whole time: what it is called, what it was classified as, and what it does to the
-            // protein.
+            // _drawAnnotationLeader draws `this.annotation`, and until recently the only things
+            // that ever set it were the per-variant "what is this variant" lookup and the
+            // points-of-interest flow. A variant loaded from ClinVar never got one, so the
+            // track menu's "Show annotations" set a flag on text that did not exist.
             //
-            // showAnnotation is set to false alongside it, deliberately. The draw gate reads
-            // `showAnnotation !== false`, so undefined PASSES -- filling in the text without
-            // this would put a callout on every one of three thousand ClinVar variants the
-            // moment they load, which is not showing annotations, it is burying the track.
-            // Off by default, and the menu that offers to show them now has something to show.
-            // Anything that set the text itself keeps whatever it chose.
-            _deriveAnnotationText() {
-                if (this.annotation) return;
-                const of = (key) => {
-                    for (const a of (this.annotations || [])) {
-                        const i = ('' + a).indexOf('=');
-                        if (i > 0 && ('' + a).slice(0, i) === key) return ('' + a).slice(i + 1);
-                    }
-                    return '';
+            // The condition and the classification are on the record. What is NOT on the
+            // record is the thing someone reading a track actually wants: what the change does
+            // to the protein. That comes from two places, and they are kept apart on purpose
+            // because one is a fact and the other is background:
+            //
+            //   the VARIANT   deterministic, from ClinVar's own molecular consequence. A
+            //                 nonsense allele truncates the protein. This is not a judgement.
+            //   the GENE      how disease happens in this gene at all -- haploinsufficiency,
+            //                 constitutive activation -- fetched once per gene by the loader
+            //                 (py/bio/gene-mechanism.py) and attached afterwards.
+            //
+            // A truncating allele in a gene whose disease mechanism is loss of function is
+            // called loss of function, because that inference is sound. A MISSENSE allele in
+            // the same gene is not: it may be loss of function, dominant negative or benign,
+            // and only the gene-level sentence is shown for it. Saying more would be inventing
+            // a functional call for a variant nobody has assayed.
+            static get _CONSEQUENCE() {
+                return {
+                    'nonsense': ['truncates the protein', 1],
+                    'frameshift_variant': ['frameshift, truncates the protein', 1],
+                    'splice_donor_variant': ['breaks the splice donor', 1],
+                    'splice_acceptor_variant': ['breaks the splice acceptor', 1],
+                    'initiator_codon_variant': ['removes the start codon', 1],
+                    'stop_lost': ['removes the stop codon, read-through', 0],
+                    'missense_variant': ['changes one residue', 0],
+                    'synonymous_variant': ['no change to the protein sequence', 0],
+                    'inframe_deletion': ['in-frame deletion, removes residues', 0],
+                    'inframe_insertion': ['in-frame insertion, adds residues', 0],
+                    'inframe_indel': ['in-frame indel', 0],
+                    'intron_variant': ['intronic', 0],
+                    '5_prime_UTR_variant': ['5\u2032 untranslated region', 0],
+                    '3_prime_UTR_variant': ['3\u2032 untranslated region', 0],
+                    'non-coding_transcript_variant': ['non-coding transcript', 0],
+                    'genic_upstream_transcript_variant': ['upstream of the transcript', 0],
+                    'genic_downstream_transcript_variant': ['downstream of the transcript', 0],
                 };
+            }
+
+            _annotationField(key) {
+                for (const a of (this.annotations || [])) {
+                    const i = ('' + a).indexOf('=');
+                    if (i > 0 && ('' + a).slice(0, i) === key) return ('' + a).slice(i + 1);
+                }
+                return '';
+            }
+
+            // ClinVar's MC is "SO:0001583|missense_variant", sometimes several comma-separated.
+            // The most consequential one wins: a record that is both a splice donor and an
+            // intron variant is a splice donor.
+            _consequence() {
+                const raw = this._annotationField('MC') || ('' + (this.structure || ''));
+                if (!raw) return null;
+                const table = SnpIndel._CONSEQUENCE;
+                const order = Object.keys(table);
+                let best = null;
+                for (const piece of raw.split(',')) {
+                    const term = piece.split('|').pop().trim();
+                    if (!table[term]) continue;
+                    if (best === null || order.indexOf(term) < order.indexOf(best)) best = term;
+                }
+                return best ? { term: best, phrase: table[best][0], truncating: !!table[best][1] } : null;
+            }
+
+            geneSymbol() {
+                const g = this._annotationField('GENEINFO');
+                return g ? ('' + g).split(':')[0].split('|')[0] : '';
+            }
+
+            // The gene's disease mechanism, from the loader. Recomposes the callout and turns
+            // it on: a variant whose function is spelled out is worth reading without having
+            // to ask for it variant by variant.
+            applyGeneMechanism(m) {
+                if (!m) return;
+                this._geneMech = m;
+                this._composeAnnotation();
+            }
+
+            _composeAnnotation() {
+                // Never overwrite an annotation something else wrote by hand -- the per-variant
+                // lookup writes a paragraph a model produced about that exact variant, which is
+                // better than anything composed here. Recomposing our OWN text is fine, and is
+                // how the gene mechanism gets folded in after it arrives.
+                if (this.annotation && !this._derivedAnnotation) return;
                 const tidy = (v) => ('' + v).replace(/_/g, ' ').replace(/\|/g, '; ').trim();
                 const parts = [];
-                const dn = tidy(this.clindn || of('CLNDN'));
+                const dn = tidy(this.clindn || this._annotationField('CLNDN'));
                 // "not provided" and "not specified" are ClinVar saying it has no condition for
                 // this record. Printing them back is worse than printing nothing.
                 if (dn && !/^(not provided|not specified)$/i.test(dn)) parts.push(dn);
-                const sig = tidy(this.clinsig || of('CLNSIG'));
+                const sig = tidy(this.clinsig || this._annotationField('CLNSIG'));
                 if (sig) parts.push(sig);
-                const mc = of('MC');
-                if (mc) {
-                    // SO:0001583|missense_variant -> missense variant
-                    const words = mc.split(',').map((x) => tidy(x.split('|').pop())).filter(Boolean);
-                    if (words.length) parts.push(words.join(', '));
+                const con = this._consequence();
+                if (con) parts.push(con.phrase);
+                const m = this._geneMech;
+                if (m) {
+                    const gene = this.geneSymbol();
+                    const note = ('' + (m.note || '')).trim();
+                    const trunc = ('' + (m.truncating || '')).toLowerCase();
+                    if (con && con.truncating && trunc === 'loss of function') {
+                        parts.push('loss of function' + (note ? ' \u2014 ' + note : ''));
+                    } else if (con && con.truncating && trunc.indexOf('not a known') === 0) {
+                        parts.push('truncation is not a known disease mechanism in '
+                            + (gene || 'this gene'));
+                    } else if (m.mechanism && m.mechanism !== 'unclear') {
+                        parts.push((gene ? gene + ' disease is ' : 'disease here is ') + m.mechanism
+                            + (note ? ' \u2014 ' + note : ''));
+                    }
                 }
                 if (!parts.length) return;
-                this.annotation = parts.join(' — ');
-                if (this.showAnnotation === undefined) this.showAnnotation = false;
+                this.annotation = parts.join(' \u00b7 ');
+                this._derivedAnnotation = true;
+            }
+
+            // Kept as the old name so nothing that called it has to change.
+            _deriveAnnotationText() {
+                this._composeAnnotation(false);
             }
 
             select() {
