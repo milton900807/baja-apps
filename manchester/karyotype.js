@@ -361,10 +361,13 @@ function (path, config) {
         // every zoom level, and the rectangle handed to zoomRect is the rectangle drawn.
         const arm = () => {
             graph.clearMouseListeners();
-            // AFTER the clear, which nulls it (gene.js clearMouseListeners). Re-installing it
-            // here rather than once at startup is why the chromosomes survive every re-arm.
-            graph.highlightmethod = paint;
-            graph.setMouseMode('msg: Drag down a chromosome to choose a region.');
+            // NOT setMouseMode. It calls
+            //     clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js')
+            // which nulls highlightmethod AND execs the hover tool over this view -- so the
+            // karyotype drew once, and vanished the moment arm() ran a second later. The mode
+            // string is the only part of setMouseMode this view wants, and it is one
+            // assignment.
+            try { graph.graph.mode = 'msg: Drag down a chromosome to choose a region.'; } catch (e) { }
             let from = null;
             graph.addMouseDownListener((x, y) => { from = { x: graph.Xwc(x), y: graph.Ywc(y) }; });
             graph.addMouseUpListener(async (x, y) => {
@@ -436,7 +439,25 @@ function (path, config) {
                 maxMb * 0.06, -maxMb * 1.12, 30);
             if (graph.wake) graph.wake();
         };
-        graph.highlightmethod = paint;
+        // THE OVERLAY IS NOT SOMETHING THIS VIEW CAN AFFORD TO LOSE.
+        //
+        // highlightmethod is the per-frame hook, and half a dozen things in gene.js null it:
+        // clearMouseListeners does, and so does every setMouseMode, since that calls
+        // clearMouseListeners. For a tool that draws an overlay ON TOP of tracks that is
+        // correct -- the overlay belongs to a mode and the mode ended. Here the overlay IS the
+        // view, and there is nothing else on the canvas, so losing it means a blank screen.
+        //
+        // So it is defined rather than assigned: the getter always returns paint and the
+        // setter ignores whatever is written, which makes every one of those nulls a no-op
+        // for the life of this app. Anything that genuinely wants the hook back can delete
+        // the property.
+        try {
+            Object.defineProperty(graph, 'highlightmethod', {
+                configurable: true,
+                get: () => paint,
+                set: () => { },
+            });
+        } catch (e) { graph.highlightmethod = paint; }
         step('painting ' + drawn.length + ' chromosomes; waiting for the canvas to size');
         whenSized(async () => {
             step('canvas sized ' + canvasSize().w + 'x' + canvasSize().h
