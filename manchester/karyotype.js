@@ -204,8 +204,20 @@ function (path, config) {
         try { CurrentLayout.stash('graph', graph); } catch (e) { }
         step('canvas mounted');
 
-        // Coordinates appear when a chromosome is drawn at a fifth of the canvas or wider.
-        const COORD_FRACTION = 0.20;
+        // TWO THRESHOLDS, because there are two useful answers to "where is this".
+        //
+        // Every chromosome is drawn at the SAME scale from the same top line -- that is the
+        // whole design -- so one axis down the side gives the genomic coordinate for all of
+        // them at once. That appears as soon as a chromosome is a hundredth of the canvas,
+        // which is to say almost always.
+        //
+        // Per-chromosome rulers appear only when one chromosome fills a fifth of the screen.
+        // Drawing twenty-four of them at the whole-genome fit is a picket fence: the bars are
+        // 31 px apart and a "150 Mb" label is 40 px wide, so every label would sit on its
+        // neighbour and none would be readable. The shared axis says the same thing and says
+        // it once.
+        const COORD_FRACTION = 0.01;        // the shared axis
+        const COORD_PER_CHROM = 0.20;       // a ruler beside one chromosome
         // The nucleus is drawn while the whole genome still reads as one object -- when the
         // widest chromosome is a small fraction of the canvas. Zoomed into one chromosome it
         // would be a meaningless arc through the picture.
@@ -296,9 +308,23 @@ function (path, config) {
                     const lx = g.X(barLeft(0)), rx = g.X(barRight(drawn.length - 1));
                     let ty = g.Y(wy(0)), by = -Infinity;
                     for (let k = 0; k < drawn.length; k++) by = Math.max(by, g.Y(wy(drawn[k].length)));
-                    const padX = (rx - lx) * 0.11, padY = (by - ty) * 0.13;
-                    const cx = (lx + rx) / 2, cy = (ty + by) / 2;
-                    const erx = (rx - lx) / 2 + padX, ery = (by - ty) / 2 + padY;
+                    // AN ELLIPSE THROUGH THE CORNERS DOES NOT CONTAIN THEM.
+                    //
+                    // A box of half-extent (w, h) lies inside an ellipse of semi-axes (a, b)
+                    // only where (w/a)^2 + (h/b)^2 <= 1. Padding each axis by a tenth gives
+                    // 1.59 -- comfortably outside 1 -- so the end chromosomes and their labels
+                    // sat outside the envelope that was supposed to enclose them. Scaling both
+                    // axes by sqrt(2) inscribes the box exactly; the extra 6% is the margin
+                    // that makes it look like a nucleus rather than a shrink-wrap.
+                    //
+                    // The box includes the room the names and lengths are drawn in, below the
+                    // bars -- they are part of the karyotype and an envelope cutting through
+                    // them is the same fault as one cutting through a chromosome.
+                    const LABEL_ROOM = 34;
+                    const bx = by + LABEL_ROOM;
+                    const cx = (lx + rx) / 2, cy = (ty + bx) / 2;
+                    const K = Math.SQRT2 * 1.06;
+                    const erx = ((rx - lx) / 2) * K, ery = ((bx - ty) / 2) * K;
                     if (isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
                         ctx.save();
                         ctx.globalAlpha = nucAlpha;
@@ -425,7 +451,7 @@ function (path, config) {
                     // than scanned past, and at that width a position is something to read off
                     // instead of infer. Below it the same labels are a picket fence beside a
                     // 48 px bar, so the threshold is the feature and not a guard on it.
-                    if (w >= COORD_FRACTION * ctx.canvas.width) {
+                    if (w >= COORD_PER_CHROM * ctx.canvas.width) {
                         // The visible span of THIS chromosome in bases: the viewport's top and
                         // bottom back through the same mapping, clipped to the chromosome so
                         // no tick is drawn past an end that does not exist.
@@ -477,6 +503,93 @@ function (path, config) {
                     }
                 }
 
+                // VARIANTS. On the right edge of the bar, pointing at the position, coloured
+                // by what the record says about it -- so a pasted VCF reads as a distribution
+                // across the karyotype rather than as a list.
+                if (marks.length) {
+                    ctx.save();
+                    for (const m of marks) {
+                        const c = drawn[m.i];
+                        const mx = g.X(barRight(m.i)), my = g.Y(wy(m.pos));
+                        if (mx < -20 || mx > ctx.canvas.width + 20) continue;
+                        if (my < -10 || my > ctx.canvas.height + 10) continue;
+                        const sig = ('' + (m.snp.clinsig || '')).toLowerCase();
+                        const col = !sig ? '#475569'
+                            : sig.indexOf('conflict') >= 0 ? '#94a3b8'
+                                : sig.indexOf('pathogenic') >= 0 ? '#c0392b'
+                                    : sig.indexOf('benign') >= 0 ? '#15803d' : '#b45309';
+                        const bw = g.X(barRight(m.i)) - g.X(barLeft(m.i));
+                        const r = Math.max(2.6, Math.min(5.5, bw * 0.13));
+                        ctx.fillStyle = col;
+                        ctx.beginPath();
+                        ctx.moveTo(mx + 1, my);
+                        ctx.lineTo(mx + 1 + r * 1.5, my - r);
+                        ctx.lineTo(mx + 1 + r * 1.5, my + r);
+                        ctx.closePath();
+                        ctx.fill();
+                        // A line across the bar as well, once there is room for it to mean
+                        // something: on a 30 px chromosome it would be the chromosome.
+                        if (bw > 60) {
+                            ctx.strokeStyle = col;
+                            ctx.globalAlpha = 0.55;
+                            ctx.lineWidth = 1;
+                            ctx.beginPath();
+                            ctx.moveTo(g.X(barLeft(m.i)), my);
+                            ctx.lineTo(mx, my);
+                            ctx.stroke();
+                            ctx.globalAlpha = 1;
+                        }
+                        if (bw >= COORD_PER_CHROM * ctx.canvas.width) {
+                            ctx.fillStyle = col;
+                            ctx.font = '600 10px ' + FONT;
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(m.snp.name || '', mx + r * 1.5 + 5, my);
+                        }
+                    }
+                    ctx.restore();
+                }
+
+                // THE SHARED AXIS. One scale for the whole karyotype, because there is one
+                // scale: position 0 is the same line on every chromosome and a megabase is the
+                // same distance on all of them. Pinned to the left edge of the canvas rather
+                // than to the drawing, so it stays readable while the view is panned.
+                if (drawn.length && (g.X(barRight(0)) - g.X(barLeft(0))) >= COORD_FRACTION * ctx.canvas.width) {
+                    const vTop = -g.Ywc(0) * MB;
+                    const vBot = -g.Ywc(ctx.canvas.height) * MB;
+                    const lo = Math.max(0, Math.min(vTop, vBot));
+                    const hi = Math.min(maxMb * MB, Math.max(vTop, vBot));
+                    const stepBp = niceStep((hi - lo) / 9);
+                    if (stepBp > 0 && hi > lo) {
+                        ctx.save();
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'middle';
+                        ctx.font = '10.5px ' + FONT;
+                        ctx.strokeStyle = 'rgba(71,85,105,0.45)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(9, g.Y(wy(lo)));
+                        ctx.lineTo(9, g.Y(wy(hi)));
+                        ctx.stroke();
+                        for (let bp = Math.ceil(lo / stepBp) * stepBp; bp <= hi + 1; bp += stepBp) {
+                            const ty2 = g.Y(wy(bp));
+                            ctx.beginPath();
+                            ctx.moveTo(9, ty2);
+                            ctx.lineTo(15, ty2);
+                            ctx.stroke();
+                            // A backdrop, because this sits over the nucleus and over whatever
+                            // the first chromosome has at that height.
+                            const label = fmtBp(bp, stepBp);
+                            const tw2 = ctx.measureText(label).width;
+                            ctx.fillStyle = 'rgba(255,255,255,0.72)';
+                            ctx.fillRect(17, ty2 - 7, tw2 + 4, 14);
+                            ctx.fillStyle = '#475569';
+                            ctx.fillText(label, 19, ty2);
+                        }
+                        ctx.restore();
+                    }
+                }
+
                 // The drag, while it is happening.
                 if (dragging && dragging.i >= 0 && dragging.i < drawn.length) {
                     const c = drawn[dragging.i];
@@ -523,6 +636,98 @@ function (path, config) {
         // What the drag covers right now, so a selection is something you SEE while making it
         // rather than a rectangle you find out about afterwards. Read by paint().
         let dragging = null;   // { i, y0, y1 } in world y
+
+        // ---- variants, from a pasted VCF -----------------------------------------------
+        //
+        // Real SnpIndels, the same class the tracks use, so a variant here carries the same
+        // annotations, the same clinical significance and the same name it would anywhere
+        // else -- and can be handed to anything that already understands one.
+        //
+        // Parsed HERE rather than through py/bio/vcf-paste.py, which is the loader for the
+        // editor and answers a different question. That one resolves each variant to a gene
+        // so a transcript can be loaded for it, and drops what falls between genes. On a
+        // karyotype an intergenic variant is not a failure, it is a position -- and position
+        // is the only thing this view needs. A VCF states it exactly, so nothing is asked of
+        // a server or a model.
+        let SnpIndel = null;
+        const marks = [];                    // { i, pos, snp }
+        const chromIndex = {};
+        drawn.forEach((c, i) => {
+            chromIndex[c.name] = i;
+            chromIndex[c.name.replace(/^chr/, '')] = i;
+        });
+
+        const looksLikeVcf = (t) => {
+            if (/^\s*##fileformat=VCF/im.test(t)) return true;
+            if (/^#CHROM\s+POS\s+ID\s+REF\s+ALT/im.test(t)) return true;
+            let n = 0;
+            for (const line of ('' + t).split(/\r?\n/)) {
+                if (!line || line.charAt(0) === '#') continue;
+                if (/^(chr)?[0-9XYMT]{1,5}\s+\d+\s+\S+\s+[ACGTNacgtn]+\s+\S+/.test(line) && ++n >= 2) return true;
+            }
+            return false;
+        };
+
+        const addVcf = async (text) => {
+            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            if (!SnpIndel) { graph.setMessage(' Variant support unavailable. '); return; }
+            let added = 0, offGenome = 0, skipped = 0;
+            for (const line of ('' + text).split(/\r?\n/)) {
+                const t = line.trim();
+                if (!t || t.charAt(0) === '#') continue;
+                let f = t.split('\t');
+                if (f.length < 5) f = t.split(/\s+/);      // a VCF that lost its tabs in the clipboard
+                if (f.length < 5) continue;
+                const pos = parseInt(f[1], 10);
+                const ref = ('' + f[3]).toUpperCase();
+                if (!isFinite(pos) || !/^[ACGTN]+$/.test(ref)) { skipped++; continue; }
+                const key = ('' + f[0]).trim();
+                const i = (chromIndex[key] != null) ? chromIndex[key] : chromIndex['chr' + key];
+                if (i == null) { offGenome++; continue; }
+                const c = drawn[i];
+                if (pos < 1 || pos > c.length) { offGenome++; continue; }
+                const info = (f.length > 7 ? f[7] : '') || '';
+                for (const altRaw of ('' + (f[4] || '')).split(',')) {
+                    const alt = altRaw.toUpperCase().trim();
+                    if (!/^[ACGTN]+$/.test(alt)) { skipped++; continue; }
+                    let type = 'snp';
+                    if (alt.length > ref.length) type = 'ins';
+                    else if (ref.length > alt.length) type = 'del';
+                    const name = (f[2] && f[2] !== '.') ? f[2] : (c.name + ':' + pos);
+                    try {
+                        const snp = new SnpIndel(type, pos, ref, alt, 0, 1, name, null, null);
+                        snp.name = name;
+                        snp.source = 'VCF';
+                        const annots = ('' + info).split(';').filter(Boolean);
+                        if (annots.length) { try { snp.setAnnotation(annots); } catch (e) { } }
+                        marks.push({ i: i, pos: pos, snp: snp });
+                        added++;
+                    } catch (e) { skipped++; }
+                }
+            }
+            if (graph.wake) graph.wake();
+            graph.setMessage(' ' + added + ' variant' + (added === 1 ? '' : 's') + ' placed on '
+                + (new Set(marks.map((m) => m.i))).size + ' chromosome'
+                + ((new Set(marks.map((m) => m.i))).size === 1 ? '' : 's')
+                + (offGenome ? ' (' + offGenome + ' on contigs this genome does not draw)' : '')
+                + (skipped ? ' (' + skipped + ' symbolic or malformed)' : '') + '. ');
+            step('vcf: ' + added + ' placed, ' + offGenome + ' off-genome, ' + skipped + ' skipped');
+        };
+
+        // The canvas has no text field of its own, so a paste is for the view. Anything that
+        // is not a VCF is left to whatever else is listening.
+        try {
+            window.addEventListener('paste', (e) => {
+                try {
+                    if (e.target && ('' + e.target.localName).indexOf('text') >= 0) return;
+                    const t = (e.clipboardData || window.clipboardData).getData('text');
+                    if (!t || !looksLikeVcf(t)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addVcf(t);
+                } catch (e2) { }
+            }, true);
+        } catch (e) { }
 
         // ---- drag a region off a chromosome --------------------------------------------------
         // The selection is in WORLD coordinates, so the same drag means the same thing at
@@ -613,9 +818,19 @@ function (path, config) {
         const fit = async () => {
             // Top of the frame a little above base 0, bottom a little below the longest
             // chromosome's tail -- the labels are drawn under the bars and need the room.
+            // FRAME THE NUCLEUS, not just the chromosomes. The envelope has to be about
+            // 1.5 times the content to contain it (sqrt(2) to inscribe the box, plus a
+            // margin), so a frame drawn around the chromosomes alone cuts the top and bottom
+            // off the very thing that is supposed to enclose them. Both axes are scaled by
+            // the same factor, so the 10.5:1 aspect that keeps animateTo's hands off the
+            // frame is unchanged.
             // incr 30, not 0: a step count of zero is not a shortcut for "immediately".
-            await graph.zoomRect(-0.4 * SLOT, (drawn.length + 0.4) * SLOT,
-                maxMb * 0.06, -maxMb * 1.12, 30);
+            const fx0 = -0.4 * SLOT, fx1 = (drawn.length + 0.4) * SLOT;
+            const fy0 = maxMb * 0.06, fy1 = -maxMb * 1.12;
+            const fk = Math.SQRT2 * 1.06 * 1.04;
+            const fcx = (fx0 + fx1) / 2, fcy = (fy0 + fy1) / 2;
+            const fhx = ((fx1 - fx0) / 2) * fk, fhy = ((fy0 - fy1) / 2) * fk;
+            await graph.zoomRect(fcx - fhx, fcx + fhx, fcy + fhy, fcy - fhy, 30);
             if (graph.wake) graph.wake();
         };
         // THE OVERLAY IS NOT SOMETHING THIS VIEW CAN AFFORD TO LOSE.
