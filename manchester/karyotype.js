@@ -207,9 +207,26 @@ function (path, config) {
         // Base position -> world y. One place, because getting it wrong in one of the five
         // places that need it would put bands on a chromosome they do not belong to.
         const wy = (bp) => -bp / MB;
-        const slotOf = (i) => i + 0.5;
-        const barLeft = (i) => slotOf(i) - BAR_W / 2;
-        const barRight = (i) => slotOf(i) + BAR_W / 2;
+
+        // THE WORLD MUST BE AT LEAST TEN TIMES WIDER THAN IT IS TALL.
+        //
+        // animateTo() enforces a minimum aspect ratio of 10:1 on any frame it is given: below
+        // that it widens x to yw * 10 and re-centres. That is right for the tracks this graph
+        // was built for, which are long and shallow. A karyotype is the opposite shape, and
+        // one chromosome per world unit put 24 units of content beside 294 units of height --
+        // an aspect of 0.08, which the rule expanded 118-fold. The chromosomes were still
+        // drawn, 0.41 px wide, and the sub-pixel cull in paint() dropped every one of them.
+        // A canvas that reports 1920x823 and shows nothing looks like a broken renderer and
+        // is a frame the graph quietly refused.
+        //
+        // So the world x unit is DERIVED from the y extent rather than chosen: one slot is
+        // whatever makes the whole picture 10.5 times wider than tall, and the rule never
+        // fires. 10.5 rather than 10 so floating point cannot land just under the threshold.
+        const frameH = maxMb * 1.18;                       // world height of the fitted view
+        const SLOT = (frameH * 10.5) / (drawn.length + 0.8);
+        const slotOf = (i) => (i + 0.5) * SLOT;
+        const barLeft = (i) => slotOf(i) - (BAR_W * SLOT) / 2;
+        const barRight = (i) => slotOf(i) + (BAR_W * SLOT) / 2;
 
         // The ideogram, drawn in WORLD coordinates through g.X / g.Y so it pans and zooms
         // with everything else rather than being an overlay that has to be told what the
@@ -330,9 +347,9 @@ function (path, config) {
 
         // ---- which chromosome and which base is under a point --------------------------------
         const at = (wx, wyWorld) => {
-            const i = Math.floor(wx);
+            const i = Math.floor(wx / SLOT);
             if (i < 0 || i >= drawn.length) return null;
-            if (wx < barLeft(i) - 0.06 || wx > barRight(i) + 0.06) return null;
+            if (wx < barLeft(i) - 0.06 * SLOT || wx > barRight(i) + 0.06 * SLOT) return null;
             const c = drawn[i];
             const bp = Math.round(Math.max(0, Math.min(c.length, -wyWorld * MB)));
             return { i: i, chrom: c, bp: bp };
@@ -367,7 +384,7 @@ function (path, config) {
                 // tell a deliberate span from a slipped mouse, so it is read as "show me this
                 // chromosome" rather than as a region nobody meant to choose.
                 if (hi - lo < 250000) {
-                    await graph.zoomRect(barLeft(hit.i) - 0.35, barRight(hit.i) + 0.35,
+                    await graph.zoomRect(barLeft(hit.i) - 0.35 * SLOT, barRight(hit.i) + 0.35 * SLOT,
                         2, wy(hit.chrom.length) - 2, 150);
                     graph.setMessage(' ' + hit.chrom.name + ' — ' + human(hit.chrom.length) + ' bp. '
                         + 'Drag down it to choose a region. ');
@@ -375,7 +392,7 @@ function (path, config) {
                     return;
                 }
                 const padMb = Math.max(0.5, (hi - lo) / MB * 0.08);
-                await graph.zoomRect(barLeft(hit.i) - 0.5, barRight(hit.i) + 0.5,
+                await graph.zoomRect(barLeft(hit.i) - 0.5 * SLOT, barRight(hit.i) + 0.5 * SLOT,
                     wy(lo) + padMb, wy(hi) - padMb, 150);
                 graph.setMessage(' ' + hit.chrom.name + ':' + human(lo) + '-' + human(hi)
                     + '  (' + (Math.round((hi - lo) / 1e4) / 100) + ' Mb) ');
@@ -414,13 +431,17 @@ function (path, config) {
         const fit = async () => {
             // Top of the frame a little above base 0, bottom a little below the longest
             // chromosome's tail -- the labels are drawn under the bars and need the room.
-            await graph.zoomRect(-0.4, drawn.length + 0.4, maxMb * 0.06, -maxMb * 1.12, 0);
+            // incr 30, not 0: a step count of zero is not a shortcut for "immediately".
+            await graph.zoomRect(-0.4 * SLOT, (drawn.length + 0.4) * SLOT,
+                maxMb * 0.06, -maxMb * 1.12, 30);
             if (graph.wake) graph.wake();
         };
         graph.highlightmethod = paint;
         step('painting ' + drawn.length + ' chromosomes; waiting for the canvas to size');
         whenSized(async () => {
-            step('canvas sized ' + canvasSize().w + 'x' + canvasSize().h);
+            step('canvas sized ' + canvasSize().w + 'x' + canvasSize().h
+                + '; slot=' + SLOT.toFixed(1) + ' world units, aspect='
+                + (((drawn.length + 0.8) * SLOT) / frameH).toFixed(2));
             try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
             try { if (graph.rescale) graph.rescale(); } catch (e) { }
             await fit();
