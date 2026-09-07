@@ -462,6 +462,33 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             results.push(Object.assign({ name: (t && t.name) || 'track' }, out || { ok: false, why: 'no result' }));
         }
         const good = results.filter((x) => x.ok);
+
+        // A TRANSCRIPT LOADED FOR A CHANGE THAT DID NOT LAND IS CLUTTER, SO IT GOES.
+        //
+        // These tracks were loaded BY this flow and for one reason: to carry the changes named
+        // for their gene. A transcript that took none of them is not a result, it is an empty
+        // gene on the board that the reader now has to work out the meaning of -- and the
+        // honest meaning is "nothing to show here", which is better said in the summary than
+        // left as a track.
+        //
+        // Only tracks this run loaded. A track that was already open -- the pinned case, where
+        // the caller handed them in -- was not put there by this flow and is not this flow's
+        // to remove.
+        const dropped = [];
+        for (let i = 0; i < plan.length; i++) {
+            const step = plan[i], r = results[i];   // results are pushed in plan order
+            if (!step || !step.track || before.has(step.track)) continue;
+            if (r && r.ok) continue;
+            // By INDEX, not by object: removeTrack matches on t.id when given a track, and a
+            // track with no id would be silently left in place.
+            try {
+                const at = (graph.track || []).indexOf(step.track);
+                if (at >= 0 && graph.removeTrack) {
+                    graph.removeTrack(at);
+                    dropped.push(step.track.name || step.gene || 'a transcript');
+                }
+            } catch (e) { }
+        }
         try { if (graph.wake) graph.wake(); } catch (e) { }
 
         if (!good.length) {
@@ -526,6 +553,8 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                     + (why ? ' (' + why + ')' : '');
             })())
             + (failed.length ? ' (' + failed.length + ' track' + (failed.length === 1 ? '' : 's') + ' skipped: ' + failed.map((x) => x.why).filter(Boolean).join('; ') + ')' : '')
+            + (dropped.length ? '. ' + dropped.join(', ') + ' ' + (dropped.length === 1 ? 'was' : 'were')
+                + ' removed: nothing was placed on ' + (dropped.length === 1 ? 'it' : 'them') : '')
             + '. ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
