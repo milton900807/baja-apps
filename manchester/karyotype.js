@@ -503,48 +503,118 @@ function (path, config) {
                     }
                 }
 
-                // VARIANTS. On the right edge of the bar, pointing at the position, coloured
-                // by what the record says about it -- so a pasted VCF reads as a distribution
-                // across the karyotype rather than as a list.
-                if (marks.length) {
+                // VARIANTS.
+                //
+                // COST DOES NOT GROW WITH THE FILE. Two modes, chosen per chromosome from how
+                // many variants are actually in view:
+                //
+                //   few    drawn one at a time, with the glow, the edge and the name -- the
+                //          twenty someone pasted, or a zoomed-in window of a big file.
+                //   many   drawn from the histogram built at load: one strip per bin, so a
+                //          chromosome carrying two hundred thousand variants costs the same
+                //          2048 bins as one carrying ten. Nothing iterates the variants.
+                //
+                // The threshold is a count, not a zoom level, because that is the thing that
+                // actually decides whether individual marks are readable or a smear.
+                if (vtotal) {
                     ctx.save();
-                    for (const m of marks) {
-                        const c = drawn[m.i];
-                        const mx = g.X(barRight(m.i)), my = g.Y(wy(m.pos));
-                        if (mx < -20 || mx > ctx.canvas.width + 20) continue;
-                        if (my < -10 || my > ctx.canvas.height + 10) continue;
-                        const sig = ('' + (m.snp.clinsig || '')).toLowerCase();
-                        const col = !sig ? '#475569'
-                            : sig.indexOf('conflict') >= 0 ? '#94a3b8'
-                                : sig.indexOf('pathogenic') >= 0 ? '#c0392b'
-                                    : sig.indexOf('benign') >= 0 ? '#15803d' : '#b45309';
-                        const bw = g.X(barRight(m.i)) - g.X(barLeft(m.i));
-                        const r = Math.max(2.6, Math.min(5.5, bw * 0.13));
-                        ctx.fillStyle = col;
-                        ctx.beginPath();
-                        ctx.moveTo(mx + 1, my);
-                        ctx.lineTo(mx + 1 + r * 1.5, my - r);
-                        ctx.lineTo(mx + 1 + r * 1.5, my + r);
-                        ctx.closePath();
-                        ctx.fill();
-                        // A line across the bar as well, once there is room for it to mean
-                        // something: on a 30 px chromosome it would be the chromosome.
-                        if (bw > 60) {
-                            ctx.strokeStyle = col;
-                            ctx.globalAlpha = 0.55;
-                            ctx.lineWidth = 1;
-                            ctx.beginPath();
-                            ctx.moveTo(g.X(barLeft(m.i)), my);
-                            ctx.lineTo(mx, my);
-                            ctx.stroke();
+                    for (let ci = 0; ci < drawn.length; ci++) {
+                        const d = vdata[ci];
+                        if (!d.n) continue;
+                        const c = drawn[ci];
+                        const bx0 = g.X(barLeft(ci)), bx1 = g.X(barRight(ci));
+                        if (bx1 < -30 || bx0 > ctx.canvas.width + 120) continue;
+                        const bw = bx1 - bx0;
+
+                        // The visible window of THIS chromosome, in bases.
+                        const vA = -g.Ywc(0) * MB, vB = -g.Ywc(ctx.canvas.height) * MB;
+                        const lo = Math.max(0, Math.min(c.length, Math.min(vA, vB)));
+                        const hi = Math.min(c.length, Math.max(0, Math.max(vA, vB)));
+                        if (hi <= lo) continue;
+
+                        // How many are in view, from the histogram -- 2048 additions at worst,
+                        // whatever the file size.
+                        const scale = HIST_BINS / c.length;
+                        let b0 = Math.max(0, Math.floor(lo * scale));
+                        let b1 = Math.min(HIST_BINS - 1, Math.ceil(hi * scale));
+                        let inView = 0;
+                        for (let b = b0; b <= b1; b++) inView += d.hist[b];
+                        if (!inView) continue;
+
+                        if (inView <= EXACT_MAX) {
+                            // Binary search the sorted positions for the window, then draw
+                            // only those.
+                            let a = 0, z = d.n;
+                            while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < lo) a = m + 1; else z = m; }
+                            const r = Math.max(3.4, Math.min(7, bw * 0.16));
+                            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                                const my = g.Y(wy(d.pos[k]));
+                                if (my < -10 || my > ctx.canvas.height + 10) continue;
+                                const col = CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
+                                if (bw > 60) {
+                                    ctx.strokeStyle = col;
+                                    ctx.globalAlpha = 0.9;
+                                    ctx.lineWidth = 1.5;
+                                    ctx.beginPath();
+                                    ctx.moveTo(bx0, my); ctx.lineTo(bx1, my);
+                                    ctx.stroke();
+                                    ctx.globalAlpha = 1;
+                                }
+                                ctx.shadowColor = col;
+                                ctx.shadowBlur = 8;
+                                ctx.fillStyle = col;
+                                ctx.beginPath();
+                                ctx.moveTo(bx1 + 1, my);
+                                ctx.lineTo(bx1 + 1 + r * 1.6, my - r);
+                                ctx.lineTo(bx1 + 1 + r * 1.6, my + r);
+                                ctx.closePath();
+                                ctx.fill();
+                                ctx.fill();                     // twice: the glow compounds
+                                ctx.shadowBlur = 0;
+                                // A DARK EDGE, not a white one. Brighter is lighter, so the
+                                // saturated fills lose contrast against the pale grounds these
+                                // mostly sit on -- amber on nucleoplasm measures 1.67:1, which
+                                // is not an edge. Dark defines the shape on anything pale; on a
+                                // dark band the outline disappears and the fill and its glow
+                                // carry it. Between them every ground is covered.
+                                ctx.strokeStyle = 'rgba(15,23,42,0.8)';
+                                ctx.lineWidth = 1.2;
+                                ctx.stroke();
+                                if (bw >= COORD_PER_CHROM * ctx.canvas.width) {
+                                    const o = snpAt(ci, k);
+                                    const nm = (o && o.name) || (d.names[k] || (c.name + ':' + d.pos[k]));
+                                    ctx.font = '700 10.5px ' + FONT;
+                                    ctx.textAlign = 'left';
+                                    ctx.textBaseline = 'middle';
+                                    const tw3 = ctx.measureText(nm).width;
+                                    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+                                    ctx.fillRect(bx1 + r * 1.6 + 4, my - 7.5, tw3 + 6, 15);
+                                    ctx.fillStyle = col;
+                                    ctx.fillText(nm, bx1 + r * 1.6 + 7, my);
+                                }
+                            }
+                        } else {
+                            // DENSITY. One strip per histogram bin that falls in view, its
+                            // width scaled by count against the busiest bin on screen, so the
+                            // picture reads as where the variants are rather than as a solid
+                            // block. Log, because coverage across a genome spans orders of
+                            // magnitude and a linear scale shows one peak and nothing else.
+                            let peak = 1;
+                            for (let b = b0; b <= b1; b++) if (d.hist[b] > peak) peak = d.hist[b];
+                            const lp = Math.log(peak + 1);
+                            const maxW = Math.max(6, Math.min(26, bw * 0.55));
                             ctx.globalAlpha = 1;
-                        }
-                        if (bw >= COORD_PER_CHROM * ctx.canvas.width) {
-                            ctx.fillStyle = col;
-                            ctx.font = '600 10px ' + FONT;
-                            ctx.textAlign = 'left';
-                            ctx.textBaseline = 'middle';
-                            ctx.fillText(m.snp.name || '', mx + r * 1.5 + 5, my);
+                            for (let b = b0; b <= b1; b++) {
+                                const n = d.hist[b];
+                                if (!n) continue;
+                                const yA = g.Y(wy(b / scale));
+                                const yB = g.Y(wy((b + 1) / scale));
+                                const h2 = Math.max(1, yB - yA);
+                                if (yB < -4 || yA > ctx.canvas.height + 4) continue;
+                                const f = Math.log(n + 1) / lp;
+                                ctx.fillStyle = 'rgba(255,45,120,' + (0.45 + 0.55 * f).toFixed(3) + ')';
+                                ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
+                            }
                         }
                     }
                     ctx.restore();
@@ -639,18 +709,49 @@ function (path, config) {
 
         // ---- variants, from a pasted VCF -----------------------------------------------
         //
-        // Real SnpIndels, the same class the tracks use, so a variant here carries the same
-        // annotations, the same clinical significance and the same name it would anywhere
-        // else -- and can be handed to anything that already understands one.
+        // BUILT TO TAKE A WHOLE GENOME. A germline VCF is four to five million rows, and the
+        // obvious shape -- an object per variant, drawn in a loop every frame -- is fine for
+        // the twenty someone pastes by hand and unusable at that size. Three things keep it
+        // flat instead:
         //
-        // Parsed HERE rather than through py/bio/vcf-paste.py, which is the loader for the
-        // editor and answers a different question. That one resolves each variant to a gene
-        // so a transcript can be loaded for it, and drops what falls between genes. On a
-        // karyotype an intergenic variant is not a failure, it is a position -- and position
-        // is the only thing this view needs. A VCF states it exactly, so nothing is asked of
-        // a server or a model.
+        //   positions live in typed arrays, one per chromosome, not in objects;
+        //   every chromosome carries a fixed histogram, so a frame costs the same whether it
+        //     is showing twenty variants or five million;
+        //   SnpIndel objects are made for the ones that can actually be looked at, and made
+        //     on demand for the rest.
+        //
+        // The SnpIndels are the real class the tracks use, so a variant here carries its
+        // annotations, its clinical significance and its name -- but five million of them is
+        // three gigabytes of object headers to draw a heat strip nobody can click.
+        const HIST_BINS = 2048;      // per chromosome: chr1 is ~122 kb a bin
+        const EXACT_MAX = 400;       // visible variants drawn one at a time; above this, density
+        const OBJECT_CAP = 20000;    // SnpIndels built eagerly; beyond this, on demand
+
         let SnpIndel = null;
-        const marks = [];                    // { i, pos, snp }
+        // Per chromosome: sorted positions, a significance class per position, the histogram,
+        // and the SnpIndels for as far as the cap reached.
+        const vdata = drawn.map((c) => ({
+            n: 0,
+            pos: null,               // Float64Array, sorted
+            cls: null,               // Uint8Array: 0 none 1 pathogenic 2 benign 3 uncertain 4 conflicting
+            hist: null,              // Uint32Array(HIST_BINS)
+            snps: [],                // SnpIndel or null, parallel to pos while under the cap
+            names: [],               // parallel; only kept while under the cap
+        }));
+        let vtotal = 0, vobjects = 0;
+
+        const CLS_COLOR = ['#ff2d78', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
+        const clsOf = (info) => {
+            const m = ('' + (info || '')).match(/(?:^|;)CLNSIG=([^;]*)/);
+            if (!m) return 0;
+            const t = m[1].toLowerCase();
+            if (t.indexOf('conflict') >= 0) return 4;
+            if (t.indexOf('pathogenic') >= 0) return 1;
+            if (t.indexOf('benign') >= 0) return 2;
+            if (t.indexOf('uncertain') >= 0 || t.indexOf('vus') >= 0) return 3;
+            return 0;
+        };
+
         const chromIndex = {};
         drawn.forEach((c, i) => {
             chromIndex[c.name] = i;
@@ -660,84 +761,155 @@ function (path, config) {
         const looksLikeVcf = (t) => {
             if (/^\s*##fileformat=VCF/im.test(t)) return true;
             if (/^#CHROM\s+POS\s+ID\s+REF\s+ALT/im.test(t)) return true;
-            // ONE ROW IS ENOUGH WHEN IT IS UNMISTAKABLY ONE.
-            //
-            // A pasted VCF usually arrives without its header -- a line copied out of a
-            // caller's output, or one row of interest out of a file. Requiring two of them
-            // meant a single row did nothing at all, silently, which is the worst way for a
-            // paste to fail.
-            //
-            // So: two rows of the five-column shape (chrom, pos, id, ACGT ref, alt) still
-            // count, and ONE row counts when it carries the rest of the VCF columns too --
-            // QUAL and FILTER, six fields or more. That is a shape a BED line does not have,
-            // and a BED line's fourth column is a name rather than a run of bases, so it
-            // fails the ref test first anyway.
+            // ONE ROW IS ENOUGH WHEN IT IS UNMISTAKABLY ONE. A pasted VCF usually arrives
+            // without its header -- a line out of a caller's output, or the one row of
+            // interest. Two rows of the five-column shape count; one row counts when it
+            // carries QUAL and FILTER as well, which a BED line does not (and a BED line's
+            // fourth column is a name, so it fails the reference test first regardless).
             let rows = 0;
             for (const line of ('' + t).split(/\r?\n/)) {
-                const s = line.trim();
-                if (!s || s.charAt(0) === '#') continue;
-                const f = s.split(/\t|\s{1,}/);
+                const str = line.trim();
+                if (!str || str.charAt(0) === '#') continue;
+                const f = str.split(/\t|\s+/);
                 if (!/^(chr)?[0-9XYMT]{1,5}$/i.test(f[0] || '')) continue;
                 if (!/^\d+$/.test(f[1] || '')) continue;
                 if (!/^[ACGTNacgtn]+$/.test(f[3] || '')) continue;
                 if (!f[4]) continue;
-                // QUAL is a number or '.', FILTER is a word: the columns a bare
-                // chrom/pos/ref/alt table does not carry.
-                const full = f.length >= 6 && (/^(\d+(\.\d+)?|\.)$/.test(f[5] || ''));
-                if (full) return true;
+                if (f.length >= 6 && /^(\d+(\.\d+)?|\.)$/.test(f[5] || '')) return true;
                 if (++rows >= 2) return true;
             }
             return false;
         };
 
+        // A variant's SnpIndel, built the moment something needs one.
+        const snpAt = (ci, k) => {
+            const d = vdata[ci];
+            if (d.snps[k]) return d.snps[k];
+            if (!SnpIndel) return null;
+            const c = drawn[ci];
+            const nm = d.names[k] || (c.name + ':' + d.pos[k]);
+            try {
+                const o = new SnpIndel('snp', d.pos[k], 'N', 'N', 0, 1, nm, null, null);
+                o.name = nm;
+                o.source = 'VCF';
+                d.snps[k] = o;
+                return o;
+            } catch (e) { return null; }
+        };
+
+        // Parsed in slices with a yield between them, so a five-million-line paste does not
+        // hold the main thread for a minute with a frozen canvas and no way to tell whether
+        // it is working. The status line counts up as it goes.
         const addVcf = async (text) => {
             if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
-            if (!SnpIndel) { graph.setMessage(' Variant support unavailable. '); return; }
+            const lines = ('' + text).split(/\r?\n/);
+            // Growable typed arrays, doubled rather than pushed: this is the whole reason a
+            // genome-sized paste stays inside the memory of the tab.
+            const bufs = drawn.map(() => ({ pos: new Float64Array(1024), cls: new Uint8Array(1024), n: 0 }));
+            const push = (ci, p, cl) => {
+                const b = bufs[ci];
+                if (b.n === b.pos.length) {
+                    const np = new Float64Array(b.n * 2); np.set(b.pos); b.pos = np;
+                    const nc = new Uint8Array(b.n * 2); nc.set(b.cls); b.cls = nc;
+                }
+                b.pos[b.n] = p; b.cls[b.n] = cl; b.n++;
+            };
+            const namesOf = drawn.map(() => []);
             let added = 0, offGenome = 0, skipped = 0;
-            for (const line of ('' + text).split(/\r?\n/)) {
-                const t = line.trim();
-                if (!t || t.charAt(0) === '#') continue;
-                let f = t.split('\t');
-                if (f.length < 5) f = t.split(/\s+/);      // a VCF that lost its tabs in the clipboard
-                if (f.length < 5) continue;
-                const pos = parseInt(f[1], 10);
-                const ref = ('' + f[3]).toUpperCase();
-                if (!isFinite(pos) || !/^[ACGTN]+$/.test(ref)) { skipped++; continue; }
-                const key = ('' + f[0]).trim();
-                const i = (chromIndex[key] != null) ? chromIndex[key] : chromIndex['chr' + key];
-                if (i == null) { offGenome++; continue; }
-                const c = drawn[i];
-                if (pos < 1 || pos > c.length) { offGenome++; continue; }
-                const info = (f.length > 7 ? f[7] : '') || '';
-                for (const altRaw of ('' + (f[4] || '')).split(',')) {
-                    const alt = altRaw.toUpperCase().trim();
-                    if (!/^[ACGTN]+$/.test(alt)) { skipped++; continue; }
-                    let type = 'snp';
-                    if (alt.length > ref.length) type = 'ins';
-                    else if (ref.length > alt.length) type = 'del';
-                    const name = (f[2] && f[2] !== '.') ? f[2] : (c.name + ':' + pos);
-                    try {
-                        const snp = new SnpIndel(type, pos, ref, alt, 0, 1, name, null, null);
-                        snp.name = name;
-                        snp.source = 'VCF';
-                        const annots = ('' + info).split(';').filter(Boolean);
-                        if (annots.length) { try { snp.setAnnotation(annots); } catch (e) { } }
-                        marks.push({ i: i, pos: pos, snp: snp });
-                        added++;
-                    } catch (e) { skipped++; }
+            const SLICE = 20000;
+            for (let start = 0; start < lines.length; start += SLICE) {
+                const end = Math.min(lines.length, start + SLICE);
+                for (let li = start; li < end; li++) {
+                    const t = lines[li];
+                    if (!t) continue;
+                    const s0 = t.charCodeAt(0);
+                    if (s0 === 35 /* # */) continue;
+                    let f = t.split('\t');
+                    if (f.length < 5) f = t.trim().split(/\s+/);
+                    if (f.length < 5) continue;
+                    const pos = +f[1];
+                    if (!(pos > 0)) continue;
+                    const ref = f[3];
+                    if (!/^[ACGTNacgtn]+$/.test(ref)) { skipped++; continue; }
+                    const key = f[0];
+                    let ci = chromIndex[key];
+                    if (ci == null) ci = chromIndex['chr' + key];
+                    if (ci == null) { offGenome++; continue; }
+                    if (pos > drawn[ci].length) { offGenome++; continue; }
+                    const info = (f.length > 7 ? f[7] : '') || '';
+                    const cl = clsOf(info);
+                    const alts = f[4];
+                    if (alts.indexOf(',') < 0) {
+                        if (!/^[ACGTNacgtn]+$/.test(alts)) { skipped++; continue; }
+                        if (vtotal + added < OBJECT_CAP) namesOf[ci].push((f[2] && f[2] !== '.') ? f[2] : '');
+                        push(ci, pos, cl); added++;
+                    } else {
+                        for (const a of alts.split(',')) {
+                            if (!/^[ACGTNacgtn]+$/.test(a)) { skipped++; continue; }
+                            if (vtotal + added < OBJECT_CAP) namesOf[ci].push((f[2] && f[2] !== '.') ? f[2] : '');
+                            push(ci, pos, cl); added++;
+                        }
+                    }
+                }
+                if (end < lines.length) {
+                    graph.setMessage(' Reading ' + added.toLocaleString() + ' variants… ');
+                    await new Promise((r) => setTimeout(r, 0));
                 }
             }
+
+            // Merge into what is already there, sort once per chromosome, rebuild the
+            // histogram. Sorting matters: every draw does a binary search on it.
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const b = bufs[ci];
+                if (!b.n) continue;
+                const d = vdata[ci];
+                const total = d.n + b.n;
+                const pos = new Float64Array(total);
+                const cls = new Uint8Array(total);
+                if (d.n) { pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n)); }
+                pos.set(b.pos.subarray(0, b.n), d.n);
+                cls.set(b.cls.subarray(0, b.n), d.n);
+                // Sort position and class together, by sorting an index once.
+                const order = new Uint32Array(total);
+                for (let k = 0; k < total; k++) order[k] = k;
+                Array.prototype.sort.call(order, (x, y) => pos[x] - pos[y]);
+                const sp = new Float64Array(total), sc = new Uint8Array(total);
+                const oldNames = d.names, newNames = namesOf[ci];
+                const sn = [];
+                for (let k = 0; k < total; k++) {
+                    const o = order[k];
+                    sp[k] = pos[o]; sc[k] = cls[o];
+                    if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
+                }
+                d.pos = sp; d.cls = sc; d.n = total; d.snps = []; d.names = sn;
+                const c = drawn[ci];
+                const hist = new Uint32Array(HIST_BINS);
+                const scale = HIST_BINS / c.length;
+                for (let k = 0; k < total; k++) {
+                    let bin = (sp[k] * scale) | 0;
+                    if (bin >= HIST_BINS) bin = HIST_BINS - 1;
+                    hist[bin]++;
+                }
+                d.hist = hist;
+            }
+            vtotal += added;
+            vobjects = Math.min(vtotal, OBJECT_CAP);
             if (graph.wake) graph.wake();
-            graph.setMessage(' ' + added + ' variant' + (added === 1 ? '' : 's') + ' placed on '
-                + (new Set(marks.map((m) => m.i))).size + ' chromosome'
-                + ((new Set(marks.map((m) => m.i))).size === 1 ? '' : 's')
-                + (offGenome ? ' (' + offGenome + ' on contigs this genome does not draw)' : '')
-                + (skipped ? ' (' + skipped + ' symbolic or malformed)' : '') + '. ');
-            step('vcf: ' + added + ' placed, ' + offGenome + ' off-genome, ' + skipped + ' skipped');
+            const onChroms = vdata.filter((d) => d.n).length;
+            graph.setMessage(' ' + added.toLocaleString() + ' variant' + (added === 1 ? '' : 's')
+                + ' placed on ' + onChroms + ' chromosome' + (onChroms === 1 ? '' : 's')
+                + (vtotal !== added ? ' (' + vtotal.toLocaleString() + ' in total)' : '')
+                + (offGenome ? ' · ' + offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
+                + (skipped ? ' · ' + skipped.toLocaleString() + ' symbolic or malformed' : '')
+                + '. ');
+            step('vcf: ' + added + ' placed, ' + offGenome + ' off-genome, ' + skipped + ' skipped, '
+                + vtotal + ' total');
         };
 
         // The canvas has no text field of its own, so a paste is for the view. Anything that
-        // is not a VCF is left to whatever else is listening.
+        // is not a VCF is left to whatever else is listening -- but it says so, because a
+        // paste meant as variants that produces neither variants nor a reason is the worst
+        // way for this to fail.
         try {
             window.addEventListener('paste', (e) => {
                 try {
@@ -745,8 +917,6 @@ function (path, config) {
                     const t = (e.clipboardData || window.clipboardData).getData('text');
                     if (!t) return;
                     if (!looksLikeVcf(t)) {
-                        // Not silent. A paste that was meant as variants and was not read as
-                        // any is the case that needs a sentence, not a shrug.
                         step('paste ignored: not read as VCF (' + t.trim().split(/\r?\n/).length + ' line(s))');
                         return;
                     }
