@@ -336,6 +336,32 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                     snp.source = 'Described';
                     snp.structure = [hp, hc].filter(Boolean).join('  ');
                     snp.comment = ('' + text + (ed.why ? ' — ' + ed.why : (r.note ? ' — ' + r.note : ''))).trim();
+                    // AN ANNOTATION RECORD, the same shape a loaded variant carries, so this
+                    // one is not a second-class citizen on the track: the detail box, the
+                    // ClinDN column, the variant finder and a saved-and-reopened file all read
+                    // from it and would otherwise show nothing for a described change.
+                    //
+                    // Only what is actually known goes in. The disease is the context this
+                    // change was named for, which is a real fact about why it is here. There is
+                    // deliberately no CLNSIG: nobody has classified this variant's pathogenicity
+                    // in this flow, and writing one would be inventing a clinical call.
+                    const dn = ('' + (contextName || pinned || '')).trim();
+                    const annots = [];
+                    if (gene) annots.push('GENEINFO=' + gene);
+                    if (dn) annots.push('CLNDN=' + dn);
+                    if (hp) annots.push('HGVSP=' + hp);
+                    if (hc) annots.push('HGVSC=' + hc);
+                    if (ed.label) annots.push('LABEL=' + ed.label);
+                    annots.push('CDSPOS=' + (off + 1));
+                    if (track.transcriptID) annots.push('TRANSCRIPT=' + track.transcriptID);
+                    if (ed.why) annots.push('WHY=' + ed.why);
+                    // r.note is a per-run summary in a cohort ("2 variants named for this
+                    // context"), which says nothing about THIS variant and reads as though it
+                    // did. Keep it only where it is about the change itself.
+                    if (r.note && !r.cohort) annots.push('NOTE=' + r.note);
+                    if (r.numbering) annots.push('NUMBERING=' + r.numbering);
+                    annots.push('SOURCE=Described from "' + text + '"');
+                    snp.setAnnotation(annots);
                 } catch (e) { }
                 track.addsnpindel(snp);
                 track.showSnpIndels = true;
