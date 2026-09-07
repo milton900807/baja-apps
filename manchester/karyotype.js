@@ -189,6 +189,14 @@ function (path, config) {
                                         })
                                     },
                                     {
+                                        label: 'Select region', icon: 'highlight_alt',
+                                        tooltip: 'Drag down a chromosome to choose a range',
+                                        ionFunction: createIonFunction(() => {
+                                            arm();
+                                            graph.setMessage(' Drag down a chromosome to choose a region. ');
+                                        })
+                                    },
+                                    {
                                         label: 'Upload VCF', icon: 'upload_file',
                                         tooltip: 'Read a VCF onto the karyotype and keep it in My Files',
                                         ionFunction: createIonFunction(() => { pickVcf(); })
@@ -196,7 +204,7 @@ function (path, config) {
                                     {
                                         label: 'Fit', icon: 'fit_screen',
                                         tooltip: 'Frame the whole genome again',
-                                        ionFunction: createIonFunction(async () => { await fit(); arm(); })
+                                        ionFunction: createIonFunction(async () => { await fit(); pan(); })
                                     },
                                 ]
                             }
@@ -1203,8 +1211,25 @@ function (path, config) {
         // ---- drag a region off a chromosome --------------------------------------------------
         // The selection is in WORLD coordinates, so the same drag means the same thing at
         // every zoom level, and the rectangle handed to zoomRect is the rectangle drawn.
+        // PANNING IS THE DEFAULT STATE. A karyotype is a thing to move around and look at
+        // before it is a thing to select from, and a canvas that only drags out regions makes
+        // the ordinary gesture -- push the picture sideways -- do something else.
+        //
+        // With no listeners installed the graph pans and zooms on its own. The one thing to
+        // stop is its habit of filling that vacuum: a click on a bare canvas re-arms
+        // mouse-over-highlight, which is the hover tool for TRACKS and has nothing to hover
+        // here. __hoverRearm is the graph's own override for exactly that, so it is pointed
+        // at a function that does nothing rather than left to exec a tool into this view.
+        const pan = () => {
+            graph.clearMouseListeners();
+            try { graph.__hoverRearm = () => { }; } catch (e) { }
+            try { graph.graph.mode = 'navigate'; } catch (e) { }
+            dragging = null;
+        };
+
         const arm = () => {
             graph.clearMouseListeners();
+            try { graph.__hoverRearm = () => { }; } catch (e) { }
             // NOT setMouseMode. It calls
             //     clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js')
             // which nulls highlightmethod AND execs the hover tool over this view -- so the
@@ -1231,7 +1256,7 @@ function (path, config) {
                 if (!f) return;
                 const a = at(f.x, f.y), b = at(to.x, to.y);
                 const hit = a || b;
-                if (!hit) { graph.setMessage(' Nothing there — drag on a chromosome. '); return; }
+                if (!hit) { graph.setMessage(' Nothing there — drag on a chromosome. '); pan(); return; }
                 // World y runs negative down the chromosome, so the HIGHER world y is the
                 // LOWER base. Clamped to the chromosome: a drag that runs off the end means
                 // "to the end", not a coordinate past it.
@@ -1239,7 +1264,7 @@ function (path, config) {
                     graph.setMessage(' ' + hit.chrom.name + ' — the mitochondrial genome, '
                         + human(hit.chrom.length) + ' bp, circular. Drawn as a ring and not to '
                         + 'the scale of the others. ');
-                    arm();
+                    pan();
                     return;
                 }
                 const clamp = (bp) => Math.max(0, Math.min(hit.chrom.length, Math.round(bp)));
@@ -1252,8 +1277,8 @@ function (path, config) {
                     await graph.zoomRect(barLeft(hit.i) - 0.35 * SLOT, barRight(hit.i) + 0.35 * SLOT,
                         2, wy(hit.chrom.length) - 2, 150);
                     graph.setMessage(' ' + hit.chrom.name + ' — ' + human(hit.chrom.length) + ' bp. '
-                        + 'Drag down it to choose a region. ');
-                    arm();
+                        + 'Drag to move; Select region to choose a range. ');
+                    pan();
                     return;
                 }
                 const padMb = Math.max(0.5, (hi - lo) / MB * 0.08);
@@ -1264,7 +1289,9 @@ function (path, config) {
                 try {
                     graph.__karyotypeRegion = { chr: hit.chrom.name.replace(/^chr/, ''), start: lo, end: hi };
                 } catch (e) { }
-                arm();
+                // One region per arming: the next drag is a pan again, which is the gesture
+                // someone reaches for straight after choosing a place to look at.
+                pan();
             });
         };
 
@@ -1338,12 +1365,12 @@ function (path, config) {
             try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
             try { if (graph.rescale) graph.rescale(); } catch (e) { }
             await fit();
-            arm();
-            step('framed and armed');
+            pan();
+            step('framed; panning');
         });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
             + '— ' + drawn.length + ' chromosomes, smallest first, all at one scale. '
-            + 'Drag down a chromosome to choose a region. ');
+            + 'Drag to move, scroll to zoom; Select region to choose a range. ');
         return { graph: graph, chromosomes: drawn, species: r.species, assembly: r.assembly, fit: fit };
     })();
 }
