@@ -189,6 +189,16 @@ function (path, config) {
                                         })
                                     },
                                     {
+                                        label: 'Open', icon: 'folder_open',
+                                        tooltip: 'Open a saved karyotype from My Files',
+                                        ionFunction: createIonFunction(() => { openJson(); })
+                                    },
+                                    {
+                                        label: 'Save', icon: 'save',
+                                        tooltip: 'Save this karyotype to My Files as JSON',
+                                        ionFunction: createIonFunction(() => { saveJson(); })
+                                    },
+                                    {
                                         label: 'Select sequence', icon: 'highlight_alt',
                                         tooltip: 'Drag down a chromosome to choose a range',
                                         ionFunction: createIonFunction(() => {
@@ -1338,6 +1348,189 @@ function (path, config) {
                 // someone reaches for straight after choosing a place to look at.
                 pan();
             });
+        };
+
+        // ---- save and open, as JSON ------------------------------------------------------
+        //
+        // The same shape the editor uses -- a JSON document in the user's own drive, written
+        // through /save-user-data and read back through /load-file -- so a karyotype sits
+        // beside the .baja screens in the same file browser rather than in a store of its own.
+        //
+        // WHAT IS WORTH SAVING is the variants and where you were looking, not the
+        // chromosomes: those come from the karyotype table on the server and are the same for
+        // everyone. A file that carried its own copy of hg38's bands would be forty times
+        // larger and would go stale the day the table is rebuilt.
+        const SAVE_CAP = 250000;      // variants written to a file
+        const SAVE_EXT = '.karyotype.json';
+
+        const stateDoc = () => {
+            const out = {
+                type: 'baja-karyotype', version: 1,
+                species: r.species || wanted, assembly: r.assembly || '',
+                saved: new Date().toISOString(),
+                view: null, variants: [], truncated: false, total: vtotal,
+            };
+            try {
+                const gr = graph.graph && graph.graph.grid;
+                if (gr) out.view = { x0: gr.xmin, x1: gr.xmax, y0: gr.ymin, y1: gr.ymax };
+            } catch (e) { }
+            // Short keys: at a quarter of a million variants the difference between "position"
+            // and "p" is several megabytes of the same information.
+            let n = 0;
+            for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
+                const d = vdata[ci];
+                if (!d.n) continue;
+                const bare = drawn[ci].name.replace(/^chr/, '');
+                for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    const ab = allelesAt(ci, k);
+                    const e = { c: bare, p: d.pos[k], r: ab[0], a: ab[1] };
+                    if (d.cls[k]) e.s = d.cls[k];
+                    const nm = d.names[k];
+                    if (nm) e.n = nm;
+                    out.variants.push(e);
+                    n++;
+                }
+            }
+            out.truncated = vtotal > n;
+            return out;
+        };
+
+        const applyDoc = async (doc) => {
+            if (!doc || doc.type !== 'baja-karyotype') {
+                graph.setMessage(' That file is not a saved karyotype. ');
+                return false;
+            }
+            if (doc.species && r.species && ('' + doc.species).toLowerCase() !== ('' + r.species).toLowerCase()) {
+                // Not refused -- positions are positions -- but said, because a mouse file on
+                // a human karyotype puts variants at coordinates that mean nothing.
+                graph.setMessage(' That file was saved for ' + doc.species + ' and this is '
+                    + r.species + '. Positions may not mean what they did. ');
+            }
+            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            const bufs = newBufs(), namesOf = drawn.map(() => []);
+            const count = { added: 0, offGenome: 0, skipped: 0 };
+            for (const v of (doc.variants || [])) {
+                let ci = chromIndex[v.c];
+                if (ci == null) ci = chromIndex['chr' + v.c];
+                if (ci == null) { count.offGenome++; continue; }
+                if (!(v.p > 0) || v.p > drawn[ci].length) { count.offGenome++; continue; }
+                if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(v.n || '');
+                pushInto(bufs, ci, +v.p, +(v.s || 0), ('' + (v.r || 'N')).toUpperCase(),
+                    ('' + (v.a || 'N')).toUpperCase());
+                count.added++;
+            }
+            finalise(bufs, namesOf, count, doc.name || 'the saved file');
+            if (doc.view && isFinite(doc.view.x0)) {
+                try { await graph.zoomRect(doc.view.x0, doc.view.x1, doc.view.y1, doc.view.y0, 30); } catch (e) { }
+            }
+            pan();
+            return true;
+        };
+
+        const saveJson = () => {
+            const panel = document.createElement('div');
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(7,26,48,0.92);'
+                + 'color:#fff;font-family:Arial,Helvetica,sans-serif;display:flex;align-items:center;justify-content:center;';
+            const suggested = (('' + (r.species || 'karyotype')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-'))
+                + (vtotal ? '-' + vtotal + 'variants' : '');
+            panel.innerHTML = '<div style="width:min(520px,92vw);background:#0b2545;border-radius:12px;'
+                + 'border:1px solid rgba(255,255,255,0.14);box-shadow:0 18px 50px rgba(0,0,0,0.5);padding:20px 22px;">'
+                + '<div style="font:700 18px Arial;">Save karyotype</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:4px;">'
+                + 'Into My Files, as JSON. The variants and the view are saved; the chromosomes '
+                + 'come from the server.</div>'
+                + '<label style="display:block;font:600 12px Arial;color:#9fb3c8;margin:16px 0 6px;">File name</label>'
+                + '<input id="ks-name" value="' + suggested + '" style="width:100%;box-sizing:border-box;'
+                + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;'
+                + 'padding:9px 11px;font:13px Arial;"/>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
+                + (vtotal > SAVE_CAP
+                    ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
+                        + SAVE_CAP.toLocaleString() + ' are written. The whole file is in My Files if it was uploaded.')
+                    : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' will be written.'))
+                + '</div>'
+                + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
+                + '<button id="ks-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                + '<button id="ks-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
+                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Save</button>'
+                + '</div></div>';
+            document.body.appendChild(panel);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
+                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            }
+            const close3 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close3(); });
+            panel.querySelector('#ks-cancel').onclick = close3;
+            try { focusUnlessMobile(panel.querySelector('#ks-name')); } catch (e) { }
+            panel.querySelector('#ks-go').onclick = async () => {
+                let name = ('' + panel.querySelector('#ks-name').value).trim();
+                if (!name) return;
+                if (!/\.json$/i.test(name)) name += SAVE_EXT;
+                close3();
+                graph.setMessage(' Saving ' + name + '… ');
+                try {
+                    const doc = stateDoc();
+                    doc.name = name;
+                    const rs = await POSTJSON({
+                        name: name, key: 'user', user: getUser(), spath: '',
+                        value: JSON.stringify(doc),
+                    }, window['env']['apiUrl'] + '/save-user-data');
+                    if (rs && (rs.status === 'saved' || rs.path)) {
+                        graph.setMessage(' Saved ' + name + ' to My Files — '
+                            + doc.variants.length.toLocaleString() + ' variant'
+                            + (doc.variants.length === 1 ? '' : 's')
+                            + (doc.truncated ? ' (of ' + vtotal.toLocaleString() + ')' : '') + '. ');
+                        step('saved ' + name);
+                    } else {
+                        graph.setMessage(' ' + name + ' was not saved. ');
+                        step('save failed: ' + JSON.stringify(rs).slice(0, 120));
+                    }
+                } catch (e) {
+                    graph.setMessage(' ' + name + ' was not saved: ' + (e && e.message ? e.message : e) + ' ');
+                }
+            };
+        };
+
+        // Open uses the SAME file browser the editor's Open does -- simple-file-browser rooted
+        // at the user's drive -- so there is one way to find a file in this application rather
+        // than a second one that only this view knows about.
+        const openJson = async () => {
+            const host_ = window['env']['apiUrl'];
+            const browser = {
+                wid: 'simple-file-browser',
+                width: '100%',
+                height: '100%',
+                data: {
+                    showSearch: true, width: '100%', drive: 'user', user: getUser(),
+                    root: getUser(), columns: 3,
+                    'ionfunction.cmd': createIonFunction(() => { }),
+                    'ionfunction.path': createIonFunction(() => { }),
+                    'ionfunction.openfile': createIonFunction(() => { }),
+                    'ionfunction.fileClick': createIonFunction(async (element) => {
+                        try { hideAllModal(); } catch (e) { }
+                        graph.setMessage(' Opening ' + (element && element.name) + '… ');
+                        try {
+                            // element.path as-is: the browser roots at the user's folder id and
+                            // /load-file grants access on that id, not on the raw email.
+                            const doc = await GETJSON(host_ + '/load-file?path=' + element.path
+                                + '&key=user&user=' + getUser());
+                            const parsed = (typeof doc === 'string') ? JSON.parse(doc) : doc;
+                            await applyDoc(parsed);
+                        } catch (e) {
+                            graph.setMessage(' ' + (element && element.name) + ' could not be opened: '
+                                + (e && e.message ? e.message : e) + ' ');
+                            step('open failed: ' + e);
+                        }
+                    }),
+                }
+            };
+            try {
+                showModal({
+                    wid: 'card', height: '100%',
+                    data: { cards: [[{ width: '100%', height: '100%', component: browser }]] }
+                });
+            } catch (e) { graph.setMessage(' The file browser could not be opened: ' + e + ' '); }
         };
 
         // ---- what is in the range that was just dragged out -------------------------------
