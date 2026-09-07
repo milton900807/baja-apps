@@ -845,6 +845,55 @@ function () {
             // ClinVar's MC is "SO:0001583|missense_variant", sometimes several comma-separated.
             // The most consequential one wins: a record that is both a splice donor and an
             // intron variant is a splice donor.
+            // THE PHENOTYPE, PAIRED TO ITS OMIM NUMBER.
+            //
+            // CLNDN and CLNDISDB are positionally aligned -- element i of one names element i
+            // of the other:
+            //
+            //   CLNDN=Brown-Vialetto-van_Laere_syndrome_1|Progressive_bulbar_palsy_of_childhood
+            //   CLNDISDB=...,OMIM:211530,...|...,OMIM:211500
+            //
+            // so a record's conditions can be read back WITH the identifier each one was filed
+            // under, rather than as a run of names joined by semicolons. That matters here
+            // because a record often lists several: a CFTR variant filed under cystic fibrosis,
+            // CFTR-related disorder and "not specified" should say cystic fibrosis when cystic
+            // fibrosis is what was loaded, not all three.
+            _phenotypes() {
+                const names = (this._annotationField('CLNDN') || '').split('|');
+                const dbs = (this._annotationField('CLNDISDB') || '').split('|');
+                const out = [];
+                for (let i = 0; i < names.length; i++) {
+                    const name = ('' + names[i]).replace(/_/g, ' ').trim();
+                    if (!name || /^(not provided|not specified)$/i.test(name)) continue;
+                    const mims = [];
+                    const part = dbs[i] || '';
+                    const re = /OMIM:(PS)?(\d+)/g;
+                    let m;
+                    while ((m = re.exec(part))) mims.push((m[1] ? 'PS' : '') + m[2]);
+                    out.push({ name: name, mims: mims });
+                }
+                return out;
+            }
+
+            // Which of them to show. When the track was loaded FOR a phenotype, that is the one
+            // this record is here for and the others are incidental; otherwise the first named
+            // condition stands, as before.
+            _phenotypeLine() {
+                const phs = this._phenotypes();
+                if (!phs.length) return '';
+                let pick = null;
+                const focus = this.focusMims;
+                if (focus && focus.length) {
+                    const want = new Set(focus.map((x) => ('' + x).toUpperCase()));
+                    pick = phs.find((ph) => ph.mims.some((x) => want.has(('' + x).toUpperCase()))) || null;
+                }
+                if (!pick) pick = phs[0];
+                // The plain numeric id, not the phenotypic series: PS268000 names a family of
+                // ninety numbered forms and is not what this record is.
+                const id = pick.mims.find((x) => !/^PS/i.test(x)) || pick.mims[0] || '';
+                return pick.name + (id ? ' (OMIM:' + id + ')' : '');
+            }
+
             _consequence() {
                 const raw = this._annotationField('MC') || ('' + (this.structure || ''));
                 if (!raw) return null;
@@ -881,10 +930,17 @@ function () {
                 if (this.annotation && !this._derivedAnnotation) return;
                 const tidy = (v) => ('' + v).replace(/_/g, ' ').replace(/\|/g, '; ').trim();
                 const parts = [];
-                const dn = tidy(this.clindn || this._annotationField('CLNDN'));
+                // The phenotype with its OMIM number, when the record carries one. Falls back
+                // to the plain condition text for a variant that came from somewhere with no
+                // CLNDISDB to pair against -- a described change, or another database.
                 // "not provided" and "not specified" are ClinVar saying it has no condition for
                 // this record. Printing them back is worse than printing nothing.
-                if (dn && !/^(not provided|not specified)$/i.test(dn)) parts.push(dn);
+                const ph = this._phenotypeLine();
+                if (ph) parts.push(ph);
+                else {
+                    const dn = tidy(this.clindn || this._annotationField('CLNDN'));
+                    if (dn && !/^(not provided|not specified)$/i.test(dn)) parts.push(dn);
+                }
                 const sig = tidy(this.clinsig || this._annotationField('CLNSIG'));
                 if (sig) parts.push(sig);
                 const con = this._consequence();

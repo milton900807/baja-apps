@@ -279,6 +279,13 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         snp.clindn = v.conditions.join('; ');
                     }
                     snp.source = v.source || label;   // filterable: dbSNP / ClinVar / gnomAD / COSMIC
+                    // WHICH PHENOTYPE THIS RECORD IS HERE FOR. A record filed under several
+                    // conditions should name the one the track was loaded for -- a CFTR
+                    // variant filed under cystic fibrosis, CFTR-related disorder and "not
+                    // specified" says cystic fibrosis when cystic fibrosis is what was asked
+                    // for. Without a phenotype filter there is nothing to prefer and the
+                    // record's first named condition stands.
+                    if (MIM_SET) snp.focusMims = FILTER.mims;
                     // SHOWN FOR PATHOGENIC AND LIKELY PATHOGENIC ONLY.
                     //
                     // Every variant gets its callout TEXT composed -- the detail box and the
