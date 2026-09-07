@@ -38,6 +38,10 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             } catch (e) { }
         };
         let lastQuery = '';
+        // Set when the query turned out to name a disease rather than a gene. The
+        // transcripts then are not the answer, they are where the answer goes.
+        let diseaseContext = '';
+        let diseaseIsSample = false;
 
         // Resolve a natural-language query (or a pasted id) into transcript(s)
         // and load them onto the graph.
@@ -128,6 +132,10 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                 try {
                     const dv = await exec('/py/bio/disease-variants.py', em, query, '12');
                     if (dv && (dv.is_context === true || dv.is_context === 'true') && !dv.error) {
+                        diseaseContext = dv.disease || query;
+                        diseaseIsSample = (dv.sample === true || dv.sample === 'true');
+                    }
+                    if (diseaseContext) {
                         try { genes = JSON.parse(dv.genes || '[]'); } catch (e) { genes = []; }
                         if (genes.length) {
                             const sample = (dv.sample === true || dv.sample === 'true');
@@ -161,6 +169,50 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                     resolve(null);
                     return;
                 }
+            }
+
+            // A DISEASE ASKED FOR ITS MUTATIONS, NOT FOR A CHOICE OF GENE. Presenting ten
+            // canonical transcripts and asking which one was meant answers a question nobody
+            // asked: the whole point of naming a condition is that all of them are wanted.
+            // Load them all, then put the changes linked to that condition on each -- every
+            // one checked against the transcript's own coding sequence before it is drawn.
+            if (diseaseContext && list.length) {
+                const before = new Set((graph.track || []));
+                let okCount = 0, failed = [];
+                for (const it of list) {
+                    graph.setMessage(' Loading ' + (it.gene ? it.gene + ' ' : '') + it.id
+                        + ' — ' + (okCount + failed.length + 1) + ' of ' + list.length + '… ');
+                    if (await loadOne(it)) okCount++; else failed.push(it.id);
+                }
+                const loaded = (graph.track || []).filter((t) => t && !before.has(t));
+                graph.setMouseMode('navigate');
+                if (!loaded.length) {
+                    backToPrompt(' No transcript could be loaded for ' + diseaseContext + '. ');
+                    resolve(null);
+                    return;
+                }
+                graph.setMessage(' Loaded ' + loaded.length + ' transcript'
+                    + (loaded.length === 1 ? '' : 's') + ' for ' + diseaseContext
+                    + '. Placing the mutations linked to it… ');
+                // The placement path, pinned to these tracks: for each one it asks what
+                // changes THIS gene carries in THIS context and verifies every answer against
+                // that transcript's coding sequence. Pinned, so it does not go looking for
+                // more genes -- the genes are the ones just loaded.
+                try {
+                    await exec('baja/data/variant-from-prompt.js', host_, graph,
+                        genegraph_panel_layout, loaded, diseaseContext);
+                } catch (e) {
+                    graph.setMessage(' Loaded ' + loaded.length + ' transcript'
+                        + (loaded.length === 1 ? '' : 's') + ', but the mutations for '
+                        + diseaseContext + ' could not be placed: ' + (e && e.message ? e.message : e));
+                }
+                if (failed.length) {
+                    graph.setMessage(' ' + diseaseContext + ': loaded ' + loaded.length + ' of '
+                        + list.length + ' transcripts (failed: ' + failed.join(', ') + ')'
+                        + (diseaseIsSample ? '. This is a SAMPLE across its major subtypes, not the full set' : '') + '. ');
+                }
+                resolve(list);
+                return;
             }
 
             if (list.length === 1) {
