@@ -594,30 +594,53 @@ if mode in ("cohort", "verify") and not out["error"]:
         # right and the transcript knows what sits there. Hand back what it actually has and
         # let the enumeration correct itself once. Corrections are verified exactly like the
         # first attempt, so this can recover a real variant but cannot admit an unreal one.
-        if misses and mode == "cohort":
+        # This runs in BOTH modes. It used to be cohort-only, which skipped it in exactly the
+        # case that needs it most: in verify mode the transcript on the board was loaded
+        # BECAUSE of these variants, so a variant that does not check out here has nowhere
+        # else to go and is simply lost. A near miss on the reference letter -- the usual
+        # failure -- should be recovered before anything is called dropped.
+        if misses:
             works.msg("Rechecking %d that did not match…" % len(misses))
             fixes, ferr = ask_repair(text, ctx, protein, misses)
             if fixes:
-                recovered = 0
+                # What the repair recovered, under BOTH names. A repair usually RENAMES the
+                # variant -- W272C against a transcript reading Y comes back as Y272C -- so
+                # clearing the rejection list by the returned label alone leaves the original
+                # rejection standing, and a variant that is now on the track gets reported as
+                # dropped. The position it was rejected at clears it too.
+                healed_labels, healed_pos = set(), set()
                 for v in fixes[:MAX_COHORT]:
-                    before = len(rejected)
+                    r_before, m_before = len(rejected), len(misses)
                     if _take(v):
-                        recovered += 1
+                        healed_labels.add(str(v.get("label") or ""))
+                        try:
+                            healed_pos.add(int(v.get("pos")))
+                        except Exception:
+                            pass
                     else:
-                        # a correction that fails too is not news; keep the original reason
-                        del rejected[before:]
-                        del misses[len(misses) - 1:]
-                if recovered:
-                    rejected = [r for r in rejected
-                                if r["label"] not in {str(f.get("label") or "") for f in fixes[:MAX_COHORT]}]
+                        # A correction that fails too is not news; keep the original reason.
+                        # Trim by the marks taken above -- _take also returns False for a
+                        # duplicate edit, which appends nothing, and a blind del of the last
+                        # entry would then throw away someone else's rejection.
+                        del rejected[r_before:]
+                        del misses[m_before:]
+                if healed_labels or healed_pos:
+                    def _still_lost(r):
+                        if str(r.get("label") or "") in healed_labels:
+                            return False
+                        m = re.search(r"(\d+)", str(r.get("label") or ""))
+                        return not (m and int(m.group(1)) in healed_pos)
+                    rejected = [r for r in rejected if _still_lost(r)]
         out["edits"] = edits
         out["rejected"] = rejected
         if edits:
             out["ok"] = True
-            out["note"] = ("%d variant%s named for this context%s"
-                           % (len(edits), "" if len(edits) == 1 else "s",
-                              ("; %d dropped as not matching this transcript" % len(rejected))
-                              if rejected else ""))
+            # The note does NOT carry a rejection count any more. It is written per transcript,
+            # and the caller places the same variant across several transcripts of a gene, so a
+            # count here says "2 dropped" about variants that are sitting on the next track.
+            # The client works out what landed nowhere, across every transcript, and names it.
+            out["note"] = ("%d variant%s named for this context"
+                           % (len(edits), "" if len(edits) == 1 else "s"))
         else:
             out["error"] = ("no variant could be placed for \"%s\"%s"
                             % (text, ("; " + "; ".join("%s: %s" % (r["label"], r["why"])

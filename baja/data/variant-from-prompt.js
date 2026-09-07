@@ -303,16 +303,22 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             const SnpIndel = await exec('flexigraph/snpindel.js');
             const minus = +track.strand < 0;
             try { graph.pushOntoHistory(); } catch (e) { }
+            // The LABELS, not just a count. A variant rejected by this transcript may be
+            // sitting on the next one, and a count cannot tell the difference; the run-level
+            // summary below needs names to work that out.
             let placed = 0, first = null;
+            const placedLabels = [], refusedLabels = [];
+            const labelOf = (e) => ('' + ((e && (e.label || e.hgvs_p || e.hgvs_c)) || '')).trim();
             for (const ed of edits) {
                 const off = +ed.cds_offset;
                 const ref = ('' + ed.ref).toUpperCase(), alt = ('' + ed.alt).toUpperCase();
-                if (!(off >= 0 && off + ref.length <= entries.length)) { say('Edit falls outside the coding sequence.'); continue; }
+                if (!(off >= 0 && off + ref.length <= entries.length)) { say('Edit falls outside the coding sequence.'); refusedLabels.push({ label: labelOf(ed), why: 'falls outside the coding sequence' }); continue; }
                 // Re-check on the track itself: the coding bases at those CDS positions must be ref.
                 const have = entries.slice(off, off + ref.length).map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
-                if (have !== ref) { say('The track reads ' + have + ' where ' + ref + ' was expected; not placed.'); continue; }
+                if (have !== ref) { say('The track reads ' + have + ' where ' + ref + ' was expected; not placed.'); refusedLabels.push({ label: labelOf(ed), why: 'this transcript reads ' + have + ' where ' + ref + ' was expected' }); continue; }
                 if ((ed.type === 'del' || ed.type === 'ins') && minus) {
                     say('Insertions and deletions are placed on plus-strand tracks only for now; ' + ed.label + ' was not placed.');
+                    refusedLabels.push({ label: labelOf(ed), why: 'indels are placed on plus-strand tracks only for now' });
                     continue;
                 }
                 // SnpIndel takes PLUS-strand alleles and complements them itself for a minus-strand
@@ -365,9 +371,25 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                 } catch (e) { }
                 track.addsnpindel(snp);
                 track.showSnpIndels = true;
-                placed++; if (!first) first = snp;
+                placed++; placedLabels.push(labelOf(ed)); if (!first) first = snp;
             }
-            if (!placed) return { ok: false, why: 'nothing could be placed on ' + (track.name || 'that track') };
+            // What this transcript would not take: the ones the python could not verify against
+            // its protein, plus the ones the track itself refused above. Worked out BEFORE the
+            // bail-out below, because a transcript that took nothing is the one whose refusals
+            // matter most -- and returning them only on the success path threw away the names
+            // of every variant on a gene whose transcript rejected the lot.
+            let refused = refusedLabels.slice();
+            try {
+                for (const rj of (JSON.parse(r.rejected || '[]') || [])) {
+                    refused.push({ label: ('' + (rj.label || '')).trim(), why: ('' + (rj.why || '')).trim() });
+                }
+            } catch (e) { }
+            if (!placed) {
+                return {
+                    ok: false, why: 'nothing could be placed on ' + (track.name || 'that track'),
+                    placedLabels: [], refused: refused,
+                };
+            }
             try { if (graph.wake) graph.wake(); } catch (e) { }
             // Show it: select the mutation and zoom to it, as the tours do.
             try { await exec('baja/manchester/menu/focus-mutation.js', graph, first, 10000); } catch (e) { }
@@ -376,10 +398,9 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
                 const cy = (tg.yi + (tg.yi + (tg.height || 0))) / 2, span = Math.abs(tg.height || 0) || 0.1;
                 if (graph.zoomRect) graph.zoomRect(tg.X(first.xi - w), tg.X(first.xi + w), cy + span * 3.6, cy - span * 2.2, 400);
             } catch (e) { }
-            let dropped = 0;
-            try { dropped = (JSON.parse(r.rejected || '[]') || []).length; } catch (e) { dropped = 0; }
             return {
-                ok: true, track: track.name || 'the track', snp: first, placed: placed, dropped: dropped,
+                ok: true, track: track.name || 'the track', snp: first, placed: placed,
+                dropped: refused.length, placedLabels: placedLabels, refused: refused,
                 cohort: !!r.cohort,
                 label: r.cohort
                     ? (placed + ' variant' + (placed === 1 ? '' : 's') + ' of ' + (gene || track.name))
@@ -428,13 +449,37 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             // as the nine that cause it unless the sentence says otherwise.
             + (isSample ? '. This is a SAMPLE across the major subtypes of ' + contextName
                 + ', not the full set' + (contextNote ? ' — ' + contextNote : '') : '')
-            // Dropped ones are not a footnote: they are changes that were named and then did
-            // not match the transcript they were named for, and the count is how far to trust
-            // the rest.
+            // A VARIANT IS ONLY DROPPED IF IT LANDED NOWHERE.
+            //
+            // This used to sum the per-track rejections, which counts the same variant once per
+            // transcript that refused it -- and the transcripts here were chosen FOR these
+            // variants, several isoforms of one gene. A change that verifies against the
+            // canonical transcript and not against a shorter isoform is not a dropped variant;
+            // it is on the board, on the transcript it belongs to. The old count called it lost
+            // and told the reader to trust the rest less.
+            //
+            // So: everything placed anywhere is subtracted first, and what remains is named
+            // rather than counted. A change that was named for this condition and could not be
+            // put anywhere is a thing the reader has to be able to look up -- a bare number
+            // tells them something is missing without telling them what.
             + ((() => {
-                const d = good.reduce((n, g) => n + (g.dropped || 0), 0);
-                return d ? '. ' + d + ' named change' + (d === 1 ? ' was' : 's were')
-                    + ' dropped: the transcript does not read that residue at that position' : '';
+                const placedAnywhere = new Set();
+                for (const g of results) for (const l of (g.placedLabels || [])) if (l) placedAnywhere.add(l);
+                const lost = new Map();
+                for (const g of results) {
+                    for (const rj of (g.refused || [])) {
+                        const l = ('' + (rj.label || '')).trim();
+                        if (!l || placedAnywhere.has(l)) continue;   // it is on another transcript
+                        if (!lost.has(l)) lost.set(l, ('' + (rj.why || '')).trim());
+                    }
+                }
+                if (!lost.size) return '';
+                const names = Array.from(lost.keys());
+                const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? ', and ' + (names.length - 4) + ' more' : '');
+                const why = lost.get(names[0]);
+                return '. ' + names.length + ' named change' + (names.length === 1 ? ' was' : 's were')
+                    + ' not placed on any transcript loaded: ' + shown
+                    + (why ? ' (' + why + ')' : '');
             })())
             + (failed.length ? ' (' + failed.length + ' track' + (failed.length === 1 ? '' : 's') + ' skipped: ' + failed.map((x) => x.why).filter(Boolean).join('; ') + ')' : '')
             + '. ';
