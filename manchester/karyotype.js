@@ -107,8 +107,40 @@ function (path, config) {
             if (/^undefined$/i.test(t) || t.indexOf('/') >= 0 || t.indexOf('.') >= 0) return '';
             return /^[A-Za-z][A-Za-z .'-]*$/.test(t) ? t : '';
         };
-        const preset = asSpecies(path);
-        step(preset ? ('species from the path: ' + preset) : 'asking for a species');
+        // A SAVED KARYOTYPE, not a species. open-obj.js hands this module the file the
+        // user clicked, and the species is INSIDE the document -- so the file is read
+        // first and its own species drives the chromosome table. Asking "which species?"
+        // about a file that already says is a question with a known answer.
+        const asSavedFile = (v) => {
+            const t = ('' + (v == null ? '' : v)).trim();
+            // Also .karyotype.json: what these were saved as before the extension
+            // changed. Same format, still in people's folders.
+            return /\.karyotype(\.json)?$/i.test(t) ? t : '';
+        };
+        const savedPath = asSavedFile(path);
+        let pendingDoc = null;
+        if (savedPath) {
+            try {
+                const raw = await GETJSON(window['env']['apiUrl'] + '/load-file?path='
+                    + savedPath + '&key=user&user=' + getUser());
+                pendingDoc = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+                step('opening saved karyotype ' + savedPath
+                    + ' (species ' + JSON.stringify(pendingDoc && pendingDoc.species) + ')');
+            } catch (e) {
+                pendingDoc = null;
+                step('could not read ' + savedPath + ': ' + (e && e.message ? e.message : e));
+            }
+        }
+
+        // The document's species wins; the path is only a species when it is not a file.
+        const preset = (pendingDoc && asSpecies(pendingDoc.species)) || asSpecies(path);
+        step(preset ? ('species from the ' + (pendingDoc ? 'saved file' : 'path') + ': ' + preset)
+            : 'asking for a species');
+        if (savedPath && !pendingDoc) {
+            // Say why the file did not open rather than silently showing a species prompt
+            // that looks like the app ignored the click.
+            try { graph.setMessage(' That karyotype file could not be read. '); } catch (e) { }
+        }
         const wanted = preset || await ask();
         step('species: ' + JSON.stringify(wanted));
         if (!wanted) return false;
@@ -2122,6 +2154,20 @@ function (path, config) {
             await fit();
             pan();
             step('framed; panning');
+            // AFTER the frame, not before: applyDoc restores the saved view with
+            // zoomRect, which needs a canvas that already knows its size.
+            if (pendingDoc) {
+                try {
+                    await applyDoc(pendingDoc);
+                    step('restored saved karyotype');
+                } catch (e) {
+                    step('applying the saved karyotype threw: ' + e);
+                    try {
+                        graph.setMessage(' That karyotype opened but its contents could not be '
+                            + 'restored: ' + (e && e.message ? e.message : e) + ' ');
+                    } catch (e2) { }
+                }
+            }
         });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
             + '— ' + drawn.length + ' chromosomes, smallest first, all at one scale. '

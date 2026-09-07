@@ -21,6 +21,16 @@ function (graph, genegraph_panel_layout, __path) {
             return startsWithSlash ? newPath : newPath.substring(1);
         }
 
+        // A .karyotype file is not an editor screen. It holds a genome, its variants and
+        // a view, and manchester/karyotype.js is what reads that -- so it is handed the
+        // path directly. Putting it through the track editor would open a screen with no
+        // tracks in it, which reads as a file that failed to load.
+        // .karyotype, and also the .karyotype.json these were saved as before the
+        // extension changed -- those files are still in people's folders and are the
+        // same format, so they open the same way.
+        const isKaryotype = (el) => /\.karyotype(\.json)?$/i.test(
+            ('' + ((el && (el.name || el.path)) || '')).trim());
+
         let MSGraph = await exec('lib/msgraph.js');
 
         if (MSGraph.isLoggedIn() && __path) {
@@ -47,6 +57,13 @@ function (graph, genegraph_panel_layout, __path) {
 
                     "ionfunction.fileClick": createIonFunction(async (element) => {
                         clear();
+                        if (isKaryotype(element)) {
+                            // Path AS-IS, for the same reason the editor gets it as-is:
+                            // /load-file grants access on the folder id the browser is
+                            // rooted at, not on the raw email.
+                            exec('manchester/karyotype', element.path);
+                            return;
+                        }
                         let config = {
                             silent: true,
                             user: getUser()
@@ -436,6 +453,10 @@ function (graph, genegraph_panel_layout, __path) {
                                         }),
                                         "ionfunction.fileClick": createIonFunction(async (element) => {
                                             clear();
+                                            if (isKaryotype(element)) {
+                                                exec('manchester/karyotype', element.path);
+                                                return;
+                                            }
                                             window.history.replaceState('', 'editor', `/app/manchester/editor?path=${element.path}`);
                                             // Pass element.path AS-IS (folder-id rooted). Rewriting the
                                             // first segment to the email (replaceFirstNode) breaks
