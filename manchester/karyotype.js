@@ -1583,7 +1583,11 @@ function (path, config) {
         // everyone. A file that carried its own copy of hg38's bands would be forty times
         // larger and would go stale the day the table is rebuilt.
         const SAVE_CAP = 250000;      // variants written to a file
-        const SAVE_EXT = '.karyotype.json';
+        // JSON inside, but the extension names what the file IS, not how it is
+        // encoded -- the same reason a .baja file does not announce itself as .json.
+        // Nothing filters My Files by extension, so the browser lists and opens it
+        // exactly as before.
+        const SAVE_EXT = '.karyotype';
 
         const stateDoc = () => {
             const out = {
@@ -1696,7 +1700,12 @@ function (path, config) {
             const doSave = async (raw) => {
                 let name = ('' + (raw || '')).trim().replace(/[\r\n]+/g, ' ');
                 if (!name) { graph.setMessage(' A file name is needed. '); return; }
-                if (!/\.json$/i.test(name)) name += SAVE_EXT;
+                // A trailing .json is dropped rather than kept alongside: it makes
+                // "chr21.json" save as chr21.karyotype instead of chr21.json.karyotype,
+                // and turns an old chr21.karyotype.json name back into chr21.karyotype.
+                name = name.replace(/\.json$/i, '');
+                if (!/\.karyotype$/i.test(name)) name += SAVE_EXT;
+                if (name === SAVE_EXT) { graph.setMessage(' A file name is needed. '); return; }
                 // The folder the browser is standing in is the folder it saves into.
                 let spath = '';
                 try { spath = (comp && comp.currentPath) ? comp.currentPath : ''; } catch (e) { spath = ''; }
@@ -1757,7 +1766,8 @@ function (path, config) {
                                     + '<b>Save karyotype</b><br>'
                                     + '<span style="color:#5b6b7a;">Choose a folder below, name the file, '
                                     + 'then Save. ' + note + ' Saved as <b>' + SAVE_EXT
-                                    + '</b> unless the name already ends in .json.</span></div>'
+                                    + '</b> (JSON inside) unless the name already ends in it.'
+                                    + '</span></div>'
                             }
                         },
                         {
