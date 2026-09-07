@@ -131,9 +131,24 @@ function (path, config) {
         // SMALLEST FIRST. Not chr1..chrY: the size order is the thing being shown, and the
         // numbering is only approximately the size order anyway -- chr21 is smaller than
         // chr22, which is why the numbering has been known to be wrong since 1971.
-        const drawn = chroms.filter((c) => c.name !== 'chrM' && +c.length > 0)
+        // THE MITOCHONDRIAL GENOME IS HERE, AND IT IS NOT A BAR.
+        //
+        // chrM is 16,569 bases: fifteen thousand times shorter than chr1. Drawn to the shared
+        // scale it is a sixtieth of a pixel, which is why it was left out to begin with -- and
+        // leaving out the genome that carries its own diseases because it does not fit a
+        // linear scale is the wrong answer to the wrong problem.
+        //
+        // So it is drawn as what it is: a circle. Mitochondrial DNA is genuinely circular, the
+        // ring is the way it is always shown, and a ring has no length to be crushed by the
+        // scale beside it. It is marked as not-to-scale where it is drawn, because it is the
+        // one thing on this picture that is not.
+        const isCircular = (c) => /^(chrM|chrMT|MT|M)$/i.test('' + c.name);
+        const drawn = chroms.filter((c) => +c.length > 0)
             .slice().sort((a, b) => a.length - b.length);
-        const maxMb = drawn.reduce((m, c) => Math.max(m, c.length / MB), 0);
+        for (const c of drawn) c.circular = isCircular(c);
+        // The linear scale comes from the linear chromosomes: one 16 kb ring must not decide
+        // how tall 249 Mb is drawn.
+        const maxMb = drawn.reduce((m, c) => (c.circular ? m : Math.max(m, c.length / MB)), 0);
 
         // ---- the graph, AND ITS CANVAS ---------------------------------------------------------
         //
@@ -172,6 +187,11 @@ function (path, config) {
                                             const v = await ask();
                                             if (v) exec('manchester/karyotype', v);
                                         })
+                                    },
+                                    {
+                                        label: 'Upload VCF', icon: 'upload_file',
+                                        tooltip: 'Read a VCF onto the karyotype and keep it in My Files',
+                                        ionFunction: createIonFunction(() => { pickVcf(); })
                                     },
                                     {
                                         label: 'Fit', icon: 'fit_screen',
@@ -371,6 +391,59 @@ function (path, config) {
 
                 for (let i = 0; i < drawn.length; i++) {
                     const c = drawn[i];
+                    if (c.circular) {
+                        // A ring, sized to the slot and hung from the same top line the
+                        // linear chromosomes start at, so it sits in the row rather than
+                        // floating beside it.
+                        const cxr = g.X(slotOf(i));
+                        const wSlot = g.X(barRight(i)) - g.X(barLeft(i));
+                        const rad = Math.max(3, wSlot * 0.62);
+                        const cyr = g.Y(wy(0)) + rad + 6;
+                        if (cxr < -60 || cxr > ctx.canvas.width + 60) continue;
+                        if (rad < 1.5) continue;
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(cxr, cyr, rad, 0, Math.PI * 2);
+                        ctx.fillStyle = '#f2f6fb';
+                        ctx.fill();
+                        ctx.lineWidth = Math.max(2, rad * 0.22);
+                        ctx.strokeStyle = '#8aa0b8';
+                        ctx.stroke();
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = 'rgba(15,23,42,0.55)';
+                        ctx.stroke();
+                        // Its variants, as dots around the ring: position maps to angle from
+                        // twelve o'clock, which is how a circular genome is always drawn.
+                        const dm = vdata[i];
+                        if (dm && dm.n) {
+                            for (let k = 0; k < dm.n; k++) {
+                                const a2 = (dm.pos[k] / c.length) * Math.PI * 2 - Math.PI / 2;
+                                const col = CLS_COLOR[dm.cls[k]] || CLS_COLOR[0];
+                                ctx.beginPath();
+                                ctx.arc(cxr + Math.cos(a2) * rad, cyr + Math.sin(a2) * rad,
+                                    Math.max(1.6, rad * 0.09), 0, Math.PI * 2);
+                                ctx.fillStyle = col;
+                                ctx.fill();
+                                ctx.lineWidth = 0.8;
+                                ctx.strokeStyle = 'rgba(15,23,42,0.7)';
+                                ctx.stroke();
+                            }
+                        }
+                        if (wSlot > 8) {
+                            ctx.fillStyle = '#0f172a';
+                            ctx.font = '600 ' + Math.max(9, Math.min(13, wSlot * 0.42)) + 'px ' + FONT;
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'top';
+                            ctx.fillText('MT', cxr, cyr + rad + 6);
+                            if (wSlot > 26) {
+                                ctx.fillStyle = '#64748b';
+                                ctx.font = '10px ' + FONT;
+                                ctx.fillText('16.6 kb · not to scale', cxr, cyr + rad + 22);
+                            }
+                        }
+                        ctx.restore();
+                        continue;
+                    }
                     const x0 = g.X(barLeft(i)), x1 = g.X(barRight(i));
                     const w = x1 - x0;
                     if (w < 0.6) continue;                       // narrower than a hairline
@@ -522,6 +595,7 @@ function (path, config) {
                         const d = vdata[ci];
                         if (!d.n) continue;
                         const c = drawn[ci];
+                        if (c.circular) continue;   // drawn on the ring, with the ring
                         const bx0 = g.X(barLeft(ci)), bx1 = g.X(barRight(ci));
                         if (bx1 < -30 || bx0 > ctx.canvas.width + 120) continue;
                         const bw = bx1 - bx0;
@@ -697,6 +771,9 @@ function (path, config) {
             const i = Math.floor(wx / SLOT);
             if (i < 0 || i >= drawn.length) return null;
             if (wx < barLeft(i) - 0.06 * SLOT || wx > barRight(i) + 0.06 * SLOT) return null;
+            // The ring has no vertical axis to read a position off, so anywhere on its slot
+            // means the whole of it -- which for 16.6 kb is the only useful answer anyway.
+            if (drawn[i].circular) return { i: i, chrom: drawn[i], bp: 0, circular: true };
             const c = drawn[i];
             const bp = Math.round(Math.max(0, Math.min(c.length, -wyWorld * MB)));
             return { i: i, chrom: c, bp: bp };
@@ -797,94 +874,76 @@ function (path, config) {
             } catch (e) { return null; }
         };
 
-        // Parsed in slices with a yield between them, so a five-million-line paste does not
-        // hold the main thread for a minute with a frozen canvas and no way to tell whether
-        // it is working. The status line counts up as it goes.
-        const addVcf = async (text) => {
-            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
-            const lines = ('' + text).split(/\r?\n/);
-            // Growable typed arrays, doubled rather than pushed: this is the whole reason a
-            // genome-sized paste stays inside the memory of the tab.
-            const bufs = drawn.map(() => ({ pos: new Float64Array(1024), cls: new Uint8Array(1024), n: 0 }));
-            const push = (ci, p, cl) => {
-                const b = bufs[ci];
-                if (b.n === b.pos.length) {
-                    const np = new Float64Array(b.n * 2); np.set(b.pos); b.pos = np;
-                    const nc = new Uint8Array(b.n * 2); nc.set(b.cls); b.cls = nc;
-                }
-                b.pos[b.n] = p; b.cls[b.n] = cl; b.n++;
-            };
-            const namesOf = drawn.map(() => []);
-            let added = 0, offGenome = 0, skipped = 0;
-            const SLICE = 20000;
-            for (let start = 0; start < lines.length; start += SLICE) {
-                const end = Math.min(lines.length, start + SLICE);
-                for (let li = start; li < end; li++) {
-                    const t = lines[li];
-                    if (!t) continue;
-                    const s0 = t.charCodeAt(0);
-                    if (s0 === 35 /* # */) continue;
-                    let f = t.split('\t');
-                    if (f.length < 5) f = t.trim().split(/\s+/);
-                    if (f.length < 5) continue;
-                    const pos = +f[1];
-                    if (!(pos > 0)) continue;
-                    const ref = f[3];
-                    if (!/^[ACGTNacgtn]+$/.test(ref)) { skipped++; continue; }
-                    const key = f[0];
-                    let ci = chromIndex[key];
-                    if (ci == null) ci = chromIndex['chr' + key];
-                    if (ci == null) { offGenome++; continue; }
-                    if (pos > drawn[ci].length) { offGenome++; continue; }
-                    const info = (f.length > 7 ? f[7] : '') || '';
-                    const cl = clsOf(info);
-                    const alts = f[4];
-                    if (alts.indexOf(',') < 0) {
-                        if (!/^[ACGTNacgtn]+$/.test(alts)) { skipped++; continue; }
-                        if (vtotal + added < OBJECT_CAP) namesOf[ci].push((f[2] && f[2] !== '.') ? f[2] : '');
-                        push(ci, pos, cl); added++;
-                    } else {
-                        for (const a of alts.split(',')) {
-                            if (!/^[ACGTNacgtn]+$/.test(a)) { skipped++; continue; }
-                            if (vtotal + added < OBJECT_CAP) namesOf[ci].push((f[2] && f[2] !== '.') ? f[2] : '');
-                            push(ci, pos, cl); added++;
-                        }
+        // ---- parsing, shared by a paste and by a file --------------------------------
+        //
+        // Split apart because a pasted string and a two-gigabyte file want the same parser
+        // and different feeding. The expensive half -- merge, sort, histogram -- runs ONCE at
+        // the end either way: doing it per chunk would sort the same array a hundred times.
+        const newBufs = () => drawn.map(() => ({ pos: new Float64Array(1024), cls: new Uint8Array(1024), n: 0 }));
+        const pushInto = (bufs, ci, p2, cl) => {
+            const b = bufs[ci];
+            if (b.n === b.pos.length) {
+                // Doubled rather than pushed: this is the whole reason a genome-sized file
+                // stays inside the memory of the tab.
+                const np = new Float64Array(b.n * 2); np.set(b.pos); b.pos = np;
+                const nc = new Uint8Array(b.n * 2); nc.set(b.cls); b.cls = nc;
+            }
+            b.pos[b.n] = p2; b.cls[b.n] = cl; b.n++;
+        };
+        const parseLines = (lines, bufs, namesOf, count) => {
+            for (let li = 0; li < lines.length; li++) {
+                const t = lines[li];
+                if (!t || t.charCodeAt(0) === 35 /* # */) continue;
+                let f = t.split('\t');
+                if (f.length < 5) f = t.trim().split(/\s+/);
+                if (f.length < 5) continue;
+                const pos = +f[1];
+                if (!(pos > 0)) continue;
+                if (!/^[ACGTNacgtn]+$/.test(f[3])) { count.skipped++; continue; }
+                let ci = chromIndex[f[0]];
+                if (ci == null) ci = chromIndex['chr' + f[0]];
+                if (ci == null) { count.offGenome++; continue; }
+                if (pos > drawn[ci].length) { count.offGenome++; continue; }
+                const cl = clsOf((f.length > 7 ? f[7] : '') || '');
+                const nm = (f[2] && f[2] !== '.') ? f[2] : '';
+                const alts = f[4];
+                if (alts.indexOf(',') < 0) {
+                    if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
+                    if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
+                    pushInto(bufs, ci, pos, cl); count.added++;
+                } else {
+                    for (const a of alts.split(',')) {
+                        if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
+                        if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
+                        pushInto(bufs, ci, pos, cl); count.added++;
                     }
                 }
-                if (end < lines.length) {
-                    graph.setMessage(' Reading ' + added.toLocaleString() + ' variants… ');
-                    await new Promise((r) => setTimeout(r, 0));
-                }
             }
-
-            // Merge into what is already there, sort once per chromosome, rebuild the
-            // histogram. Sorting matters: every draw does a binary search on it.
+        };
+        const finalise = (bufs, namesOf, count, what) => {
             for (let ci = 0; ci < drawn.length; ci++) {
                 const b = bufs[ci];
                 if (!b.n) continue;
                 const d = vdata[ci];
                 const total = d.n + b.n;
-                const pos = new Float64Array(total);
-                const cls = new Uint8Array(total);
+                const pos = new Float64Array(total), cls = new Uint8Array(total);
                 if (d.n) { pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n)); }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
-                // Sort position and class together, by sorting an index once.
+                // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
                 Array.prototype.sort.call(order, (x, y) => pos[x] - pos[y]);
-                const sp = new Float64Array(total), sc = new Uint8Array(total);
+                const sp = new Float64Array(total), sc = new Uint8Array(total), sn = [];
                 const oldNames = d.names, newNames = namesOf[ci];
-                const sn = [];
                 for (let k = 0; k < total; k++) {
                     const o = order[k];
                     sp[k] = pos[o]; sc[k] = cls[o];
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
                 d.pos = sp; d.cls = sc; d.n = total; d.snps = []; d.names = sn;
-                const c = drawn[ci];
                 const hist = new Uint32Array(HIST_BINS);
-                const scale = HIST_BINS / c.length;
+                const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
                     let bin = (sp[k] * scale) | 0;
                     if (bin >= HIST_BINS) bin = HIST_BINS - 1;
@@ -892,18 +951,140 @@ function (path, config) {
                 }
                 d.hist = hist;
             }
-            vtotal += added;
+            vtotal += count.added;
             vobjects = Math.min(vtotal, OBJECT_CAP);
             if (graph.wake) graph.wake();
             const onChroms = vdata.filter((d) => d.n).length;
-            graph.setMessage(' ' + added.toLocaleString() + ' variant' + (added === 1 ? '' : 's')
+            graph.setMessage(' ' + count.added.toLocaleString() + ' variant'
+                + (count.added === 1 ? '' : 's') + (what ? ' from ' + what : '')
                 + ' placed on ' + onChroms + ' chromosome' + (onChroms === 1 ? '' : 's')
-                + (vtotal !== added ? ' (' + vtotal.toLocaleString() + ' in total)' : '')
-                + (offGenome ? ' · ' + offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
-                + (skipped ? ' · ' + skipped.toLocaleString() + ' symbolic or malformed' : '')
+                + (vtotal !== count.added ? ' (' + vtotal.toLocaleString() + ' in total)' : '')
+                + (count.offGenome ? ' · ' + count.offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
+                + (count.skipped ? ' · ' + count.skipped.toLocaleString() + ' symbolic or malformed' : '')
                 + '. ');
-            step('vcf: ' + added + ' placed, ' + offGenome + ' off-genome, ' + skipped + ' skipped, '
-                + vtotal + ' total');
+            step('vcf: ' + count.added + ' placed, ' + count.offGenome + ' off-genome, '
+                + count.skipped + ' skipped, ' + vtotal + ' total');
+        };
+
+        // A pasted string: sliced with a yield between, so a large paste shows progress
+        // instead of a frozen canvas.
+        const addVcf = async (text) => {
+            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            const lines = ('' + text).split(/\r?\n/);
+            const bufs = newBufs(), namesOf = drawn.map(() => []);
+            const count = { added: 0, offGenome: 0, skipped: 0 };
+            const SLICE = 20000;
+            for (let start = 0; start < lines.length; start += SLICE) {
+                parseLines(lines.slice(start, start + SLICE), bufs, namesOf, count);
+                if (start + SLICE < lines.length) {
+                    graph.setMessage(' Reading ' + count.added.toLocaleString() + ' variants… ');
+                    await new Promise((r) => setTimeout(r, 0));
+                }
+            }
+            finalise(bufs, namesOf, count, '');
+        };
+
+        // A FILE, READ IN SLICES RATHER THAN SWALLOWED. A whole-genome VCF is gigabytes;
+        // file.text() on one asks the browser for a single string that large and it either
+        // fails or takes the tab down with it. This reads 8 MB at a time, keeps the partial
+        // last line between slices, and never holds more than one slice plus the typed
+        // arrays.
+        const addVcfFile = async (file) => {
+            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            const bufs = newBufs(), namesOf = drawn.map(() => []);
+            const count = { added: 0, offGenome: 0, skipped: 0 };
+            const CHUNK = 8 * 1024 * 1024;
+            let offset = 0, tail = '';
+            while (offset < file.size) {
+                const slice = file.slice(offset, Math.min(file.size, offset + CHUNK));
+                let txt = '';
+                try { txt = await slice.text(); } catch (e) { break; }
+                offset += CHUNK;
+                const lines = (tail + txt).split(/\r?\n/);
+                // The last line of a slice is almost never a whole line.
+                tail = (offset < file.size) ? lines.pop() : '';
+                parseLines(lines, bufs, namesOf, count);
+                graph.setMessage(' Reading ' + file.name + ' — '
+                    + Math.min(100, Math.round(offset * 100 / file.size)) + '%, '
+                    + count.added.toLocaleString() + ' variants… ');
+                await new Promise((r) => setTimeout(r, 0));
+            }
+            if (tail) parseLines([tail], bufs, namesOf, count);
+            finalise(bufs, namesOf, count, file.name);
+            return count;
+        };
+
+        // ---- keeping the file ----------------------------------------------------------
+        // Straight into the signed-in user's own drive -- no path, which is the root of My
+        // Files -- through the same chunked /upload endpoint
+        // baja/manchester/menu/upload-data.js uses. Chunked because the whole point of this
+        // is files too big to hand over in one request.
+        const uploadToMyFiles = async (file, onPct) => {
+            const host_ = window['env']['apiUrl'];
+            const chunkSize = 5 * 1024 * 1024;
+            const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+            const uploadId = Date.now() + '-' + Math.random().toString(36).slice(2) + '-' + file.name;
+            for (let ci = 0; ci < totalChunks; ci++) {
+                const start = ci * chunkSize;
+                const fd = new FormData();
+                fd.append('user', getUser());
+                fd.append('type', 'data');
+                fd.append('file', file.slice(start, Math.min(start + chunkSize, file.size)), file.name);
+                fd.append('uploadId', uploadId);
+                fd.append('filename', file.name);
+                fd.append('chunkIndex', String(ci));
+                fd.append('totalChunks', String(totalChunks));
+                fd.append('fileSize', String(file.size));
+                let r = null;
+                try {
+                    const res = await fetch(host_ + '/upload', { method: 'POST', body: fd });
+                    r = await res.json();
+                    if (!res.ok || (r && r.failed)) return { error: 'upload failed at chunk ' + ci };
+                } catch (e) { return { error: 'network error during upload' }; }
+                if (onPct) onPct(((ci + 1) / totalChunks) * 100);
+            }
+            return { ok: true };
+        };
+
+        // The picker. Reading and uploading are separate jobs on the same file and both are
+        // worth doing: the points appear from the local read without waiting for the network,
+        // and the file is kept whether or not the drawing found anything in it.
+        const pickVcf = () => {
+            try {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.vcf,.txt,text/plain';
+                input.style.cssText = 'position:fixed;left:-9999px;';
+                document.body.appendChild(input);
+                input.onchange = async () => {
+                    const file = input.files && input.files[0];
+                    try { document.body.removeChild(input); } catch (e) { }
+                    if (!file) return;
+                    if (/\.gz$/i.test(file.name)) {
+                        graph.setMessage(' ' + file.name + ' is compressed. Decompress it first — '
+                            + 'this reads plain VCF text. ');
+                        return;
+                    }
+                    step('file: ' + file.name + ' ' + file.size + ' bytes');
+                    let count = null;
+                    try { count = await addVcfFile(file); }
+                    catch (e) { graph.setMessage(' ' + file.name + ' could not be read: ' + (e && e.message ? e.message : e) + ' '); }
+                    graph.setMessage(' Saving ' + file.name + ' to My Files… ');
+                    const up = await uploadToMyFiles(file, (pct) => {
+                        graph.setMessage(' Saving ' + file.name + ' to My Files — ' + Math.round(pct) + '%… ');
+                    });
+                    if (up && up.error) {
+                        graph.setMessage(' ' + (count ? count.added.toLocaleString() + ' variants drawn, but ' : '')
+                            + file.name + ' was not saved: ' + up.error + '. ');
+                        step('upload failed: ' + up.error);
+                    } else {
+                        graph.setMessage(' ' + (count ? count.added.toLocaleString() + ' variants drawn. ' : '')
+                            + file.name + ' saved to My Files. ');
+                        step('upload ok: ' + file.name);
+                    }
+                };
+                input.click();
+            } catch (e) { graph.setMessage(' The file picker could not be opened: ' + e + ' '); }
         };
 
         // The canvas has no text field of its own, so a paste is for the view. Anything that
@@ -962,6 +1143,13 @@ function (path, config) {
                 // World y runs negative down the chromosome, so the HIGHER world y is the
                 // LOWER base. Clamped to the chromosome: a drag that runs off the end means
                 // "to the end", not a coordinate past it.
+                if (hit.circular) {
+                    graph.setMessage(' ' + hit.chrom.name + ' — the mitochondrial genome, '
+                        + human(hit.chrom.length) + ' bp, circular. Drawn as a ring and not to '
+                        + 'the scale of the others. ');
+                    arm();
+                    return;
+                }
                 const clamp = (bp) => Math.max(0, Math.min(hit.chrom.length, Math.round(bp)));
                 const lo = clamp(-Math.max(f.y, to.y) * MB);
                 const hi = clamp(-Math.min(f.y, to.y) * MB);
