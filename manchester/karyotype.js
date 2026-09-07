@@ -1650,148 +1650,72 @@ function (path, config) {
         };
 
         const saveJson = () => {
-            // THE SAME SHAPE AS THE SPECIES PROMPT, which is the one dialog in this app known
-            // to draw. That one is a full-screen column -- header row, scrolling body -- and
-            // this was a centred card floating inside a translucent sheet. Whatever the card
-            // was doing, the fix is not to debug a second layout when a working one is already
-            // here: full screen, header with the buttons in it, one field below.
-            try { const old3 = document.getElementById('baja-karyo-save'); if (old3 && old3.parentNode) old3.parentNode.removeChild(old3); } catch (e) { }
-            const panel = document.createElement('div');
-            panel.id = 'baja-karyo-save';
-            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
-                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            // THE SAME WIDGET io/save-obj.js USES, which is this application's save.
+            //
+            // What was here before was a panel built with createElement and appended to
+            // document.body -- a second way to do something the app already does, and one
+            // that never rendered in production. The app's own save is a full-screen card
+            // holding the file browser to choose the folder, a Name field, and the buttons;
+            // this is that, with the karyotype's document in place of a graph.
+            let comp = null;                       // the file browser, once it exists
+
+            const restore = () => {
+                try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+                try { CurrentLayout.setComponent('mainPanel', main_layout); } catch (e) { }
+                whenSized(() => {
+                    try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
+                    try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
+                });
+            };
+
             const suggested = (('' + (r.species || 'karyotype')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-'))
-                + (vtotal ? '-' + vtotal + 'variants' : '');
+                + (vtotal ? '-' + vtotal + 'variants' : '') + SAVE_EXT;
             const note = (vtotal > SAVE_CAP)
                 ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
                     + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
                     + 'Upload VCF, all of it is already in My Files.')
                 : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' will be written.');
-            panel.innerHTML = ''
-                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
-                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
-                + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
-                + '<div style="min-width:0;"><div style="font:700 20px Arial;">Save karyotype</div>'
-                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
-                + 'Into My Files, as JSON. The variants and the view are saved; the chromosomes '
-                + 'come from the server.</div></div>'
-                + '<div style="margin-left:auto;display:flex;gap:10px;">'
-                + '<button id="ks-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;'
-                + 'font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;'
-                + 'color:#fff;">Cancel</button>'
-                + '<button id="ks-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
-                + 'font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;'
-                + 'color:#04210f;">Save</button>'
-                + '</div></div>'
-                + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
-                + '<div style="width:100%;max-width:640px;margin:0 auto;">'
-                + '<label style="display:block;font:600 12px Arial;color:#9fb3c8;margin:0 0 6px;">File name</label>'
-                + '<textarea id="ks-name" rows="1" style="width:100%;box-sizing:border-box;background:#0a1e3a;'
-                + 'color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:9px 11px;'
-                + 'font:13px Arial;resize:none;"></textarea>'
-                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">' + note + '</div>'
-                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:10px;">'
-                + 'Saved as <b>' + SAVE_EXT + '</b> unless the name already ends in .json.</div>'
-                + '</div></div>';
-            document.body.appendChild(panel);
-            // The VALUE is set as a property rather than written into the markup: a filename
-            // with a quote in it would otherwise close the attribute and take the rest of the
-            // dialog with it, which is exactly the class of failure that leaves a screen with
-            // no field and no buttons on it.
-            const nameEl = panel.querySelector('#ks-name');
-            try { nameEl.value = suggested; } catch (e) { }
 
-            // WHAT ACTUALLY LANDED. "No filename box and no buttons" has at least
-            // three causes that look identical on screen -- the panel never
-            // appended, it appended empty, or it appended and something re-rendered
-            // over it -- and they take opposite fixes. Measure, do not guess.
-            // Returns {ok, line}. The verdict is computed from the measurements
-            // themselves, never by pattern-matching the formatted line -- a probe
-            // that cries wolf about a working dialog is worse than no probe.
-            const probe = (when) => {
-                const live = document.getElementById('baja-karyo-save');
-                if (!live) return { ok: false, line: when + ': PANEL GONE from the document' };
-                const cs = window.getComputedStyle(live);
-                const rp = live.getBoundingClientRect();
-                const seen = (el) => {
-                    if (!el) return { ok: false, txt: 'MISSING' };
-                    const r = el.getBoundingClientRect();
-                    return {
-                        ok: r.width >= 1 && r.height >= 1,
-                        txt: Math.round(r.width) + 'x' + Math.round(r.height) + '@y' + Math.round(r.top)
-                    };
-                };
-                const name = seen(live.querySelector('#ks-name'));
-                const cancel = seen(live.querySelector('#ks-cancel'));
-                const save = seen(live.querySelector('#ks-go'));
-                const ok = !!live.parentNode
-                    && live.children.length > 0
-                    && live.innerHTML.length > 0
-                    && rp.width >= 1 && rp.height >= 1
-                    && cs.display !== 'none' && cs.visibility !== 'hidden'
-                    && parseFloat(cs.opacity || '1') > 0.01
-                    && name.ok && cancel.ok && save.ok;
-                return {
-                    ok: ok,
-                    line: when + ': ' + Math.round(rp.width) + 'x' + Math.round(rp.height)
-                        + ' display=' + cs.display + ' vis=' + cs.visibility
-                        + ' opacity=' + cs.opacity + ' z=' + cs.zIndex
-                        + ' children=' + live.children.length + ' html=' + live.innerHTML.length
-                        + ' parent=' + (live.parentNode ? live.parentNode.nodeName : 'NONE')
-                        + ' name=' + name.txt + ' cancel=' + cancel.txt + ' save=' + save.txt
-                };
-            };
-            try {
-                const first = probe('on append');
-                step(first.line);
-                if (!first.ok) {
-                    try { graph.setMessage(' Save dialog did not render. ' + first.line + ' '); } catch (e) { }
-                }
-                // Again after a frame or two: if the panel is appended and then wiped,
-                // the first probe is clean and this one is not -- which is the whole
-                // difference between a markup bug and the layout re-rendering over it.
-                setTimeout(() => {
-                    try {
-                        const later = probe('after 400ms');
-                        step(later.line);
-                        if (!later.ok && first.ok) {
-                            try {
-                                graph.setMessage(' The save dialog rendered and was then removed or '
-                                    + 'emptied by something else. ' + later.line + ' ');
-                            } catch (e) { }
-                        }
-                    } catch (e) { step('save panel re-probe threw: ' + e); }
-                }, 400);
-            } catch (e) { step('save panel probe threw: ' + e); }
-            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
-                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
-            }
-            const close3 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-            panel.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') { close3(); }
-                else if (e.key === 'Enter') { e.preventDefault(); panel.querySelector('#ks-go').click(); }
+            // THE BROWSER LISTS NOTHING UNTIL refresh() IS CALLED ON IT. save-obj.js does
+            // this through refCallback and a short delay; without it the chrome renders --
+            // search box and all -- over a pane that never fills, which is exactly what
+            // "the search text shows up but nothing under it" is.
+            const browserRef = createIonFunction(async (innerComponent) => {
+                comp = innerComponent;
+                setTimeout(async () => {
+                    try { await comp.refresh(); } catch (e) { step('browser refresh threw: ' + e); }
+                }, 700);
             });
-            panel.querySelector('#ks-cancel').onclick = () => close3();
-            try { focusUnlessMobile(nameEl); } catch (e) { }
-            panel.querySelector('#ks-go').onclick = async () => {
-                let name = ('' + nameEl.value).trim().replace(/[\r\n]+/g, ' ');
-                if (!name) { try { nameEl.focus(); } catch (e) { } return; }
+
+            // Rooted at '/' + user, not the bare user id: save-obj.js roots it this way and
+            // the browser resolves the drive from that leading slash.
+            let init_path = '/' + getUser();
+            if (init_path.endsWith('/')) init_path = init_path.substring(0, init_path.length - 1);
+
+            const doSave = async (raw) => {
+                let name = ('' + (raw || '')).trim().replace(/[\r\n]+/g, ' ');
+                if (!name) { graph.setMessage(' A file name is needed. '); return; }
                 if (!/\.json$/i.test(name)) name += SAVE_EXT;
-                close3();
+                // The folder the browser is standing in is the folder it saves into.
+                let spath = '';
+                try { spath = (comp && comp.currentPath) ? comp.currentPath : ''; } catch (e) { spath = ''; }
+                if (spath === '/') spath = '';
                 graph.setMessage(' Saving ' + name + '… ');
                 try {
                     const doc = stateDoc();
                     doc.name = name;
                     const rs = await POSTJSON({
-                        name: name, key: 'user', user: getUser(), spath: '',
+                        name: name, key: 'user', user: getUser(), spath: spath,
                         value: JSON.stringify(doc),
                     }, window['env']['apiUrl'] + '/save-user-data');
                     if (rs && (rs.status === 'saved' || rs.path)) {
+                        restore();
                         graph.setMessage(' Saved ' + name + ' to My Files — '
                             + doc.variants.length.toLocaleString() + ' variant'
                             + (doc.variants.length === 1 ? '' : 's')
                             + (doc.truncated ? ' (of ' + vtotal.toLocaleString() + ')' : '') + '. ');
-                        step('saved ' + name);
+                        step('saved ' + name + ' into ' + (spath || '/'));
                     } else {
                         graph.setMessage(' ' + name + ' was not saved. ');
                         step('save failed: ' + JSON.stringify(rs).slice(0, 160));
@@ -1801,7 +1725,87 @@ function (path, config) {
                     step('save threw: ' + e);
                 }
             };
-            step('save dialog open');
+
+            const save_layout = {
+                wid: 'card',
+                height: '100%',
+                componentRef: 'mainPanel',
+                data: {
+                    cards: [[
+                        {
+                            'width': '100%',
+                            'component': {
+                                wid: 'button-menu',
+                                data: {
+                                    buttons: [
+                                        {
+                                            label: 'Cancel', icon: 'close',
+                                            tooltip: 'Back to the chromosomes without saving',
+                                            ionFunction: createIonFunction(() => { restore(); })
+                                        },
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            'title': ' ', 'body': ``,
+                            'width': '100%',
+                            'component': {
+                                wid: 'html',
+                                width: '100%',
+                                data: '<div style="padding:10px 14px;font:14px Arial;">'
+                                    + '<b>Save karyotype</b><br>'
+                                    + '<span style="color:#5b6b7a;">Choose a folder below, name the file, '
+                                    + 'then Save. ' + note + ' Saved as <b>' + SAVE_EXT
+                                    + '</b> unless the name already ends in .json.</span></div>'
+                            }
+                        },
+                        {
+                            'title': ' ', 'body': ``,
+                            'width': '90%',
+                            'component': {
+                                wid: 'input-param-items',
+                                width: '100%',
+                                data: {
+                                    input_labels: ['Name'],
+                                    default_values: { 'Name': suggested },
+                                    // 'function', not ionFunction: this widget hands the button
+                                    // its label and the field values, which is where the name
+                                    // comes from.
+                                    buttons: [{
+                                        'label': 'Save',
+                                        'function': createIonFunction(async (button_label, input_params) => {
+                                            await doSave(input_params && input_params['Name']);
+                                        })
+                                    }]
+                                }
+                            }
+                        },
+                        {
+                            'title': ' ', 'body': ``,
+                            'width': '100%',
+                            'component': {
+                                wid: 'simple-file-browser',
+                                width: '100%',
+                                height: '100%',
+                                refCallback: browserRef,
+                                data: {
+                                    showSearch: true, width: '100%', columns: 3,
+                                    drive: 'user', user: getUser(), root: init_path,
+                                    'ionfunction.cmd': createIonFunction(() => { }),
+                                    'ionfunction.path': createIonFunction(() => { }),
+                                    'ionfunction.openfile': createIonFunction(() => { }),
+                                    'ionfunction.fileClick': createIonFunction(() => { }),
+                                }
+                            }
+                        }
+                    ]]
+                }
+            };
+
+            try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+            CurrentLayout.setComponent('mainPanel', save_layout);
+            step('save view open, rooted at ' + init_path);
         };
 
         // Open uses the SAME file browser the editor's Open does -- simple-file-browser rooted
@@ -1810,13 +1814,26 @@ function (path, config) {
         let openRestore = null;
         const openJson = async () => {
             const host_ = window['env']['apiUrl'];
+            // Same two things save-obj.js does and this did not: refresh the browser once it
+            // exists, and root it at '/' + user. Without the refresh the search box draws over
+            // a pane that never fills; without the leading slash the root does not resolve.
+            let openComp = null;
+            const openBrowserRef = createIonFunction(async (innerComponent) => {
+                openComp = innerComponent;
+                setTimeout(async () => {
+                    try { await openComp.refresh(); } catch (e) { step('browser refresh threw: ' + e); }
+                }, 700);
+            });
+            let open_root = '/' + getUser();
+            if (open_root.endsWith('/')) open_root = open_root.substring(0, open_root.length - 1);
             const browser = {
                 wid: 'simple-file-browser',
                 width: '100%',
                 height: '100%',
+                refCallback: openBrowserRef,
                 data: {
                     showSearch: true, width: '100%', drive: 'user', user: getUser(),
-                    root: getUser(), columns: 3,
+                    root: open_root, columns: 3,
                     'ionfunction.cmd': createIonFunction(() => { }),
                     'ionfunction.path': createIonFunction(() => { }),
                     'ionfunction.openfile': createIonFunction(() => { }),
