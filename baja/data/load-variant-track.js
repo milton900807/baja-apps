@@ -3,8 +3,13 @@ function (server, graph, genegraph_panel_layout) {
     //
     //   1. say which gene, in words or as an id. The resolver returns the transcripts it
     //      thinks are meant -- the canonical one unless the description asks otherwise.
-    //   2. tick the transcripts to load, say (optionally) which variants are wanted, and
-    //      decide whether the load is confined to what was just ticked.
+    //   2. tick the transcripts to load, and decide whether the load is confined to what
+    //      was just ticked.
+    //
+    // Step 2 asked a second question -- "which variants to load (optional)" -- and it is
+    // gone. It was optional in the way that matters least: nearly always left empty, and
+    // when it was not it said something the first box could already say. One box, read for
+    // everything it can say, is one place to be wrong instead of two.
     //
     // The step-2 constraint is the point of the whole flow: variants are placed ONLY on the
     // transcripts chosen here, so a ClinVar load meant for SMN1 cannot scatter itself over
@@ -63,13 +68,13 @@ function (server, graph, genegraph_panel_layout) {
         const panel = shell({
             title: 'Load a variant track', subtitle: 'Step 1 of 2 · what you are looking for',
             notice: p.notice,
-            // The label asks for a DISEASE first, because that is what this box already does
-            // with what it is given. It calls it "the gene or transcript", but whatever is
-            // typed here is used twice: once to resolve transcripts, and again as the
-            // constraint on which variants get loaded when step 2 is left empty (see the note
-            // by readVariantWish in the run loop). Someone who reads the old label types a
-            // gene symbol, gets the whole of ClinVar for it, and never learns that naming the
-            // condition here was the way to be given the changes known for it.
+            // The label asks for a DISEASE first, because that is what this box does with
+            // what it is given. Whatever is typed here is used twice: once to resolve
+            // transcripts, and again as the constraint on which variants get loaded (see the
+            // note by readVariantWish in the run loop). Someone who reads the old "gene or
+            // transcript" label types a gene symbol, gets the whole of ClinVar for it, and
+            // never learns that naming the condition here was the way to be given the
+            // changes known for it.
             body: '<label style="' + LBL + '">Enter a disease, or describe the variant condition of interest</label>'
                 + '<textarea id="vt-q" rows="3" placeholder="cystic fibrosis" style="' + INP + 'resize:vertical;"></textarea>'
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
@@ -126,14 +131,6 @@ function (server, graph, genegraph_panel_layout) {
                 + '<a id="vt-all" href="#" style="color:#8ab4ff;">Select all</a>'
                 + '<a id="vt-none" href="#" style="color:#8ab4ff;">Select none</a></div>'
                 + list.map(row).join('')
-                + '<label style="' + LBL + 'margin-top:22px;">Which variants to load <span style="font-weight:400;">(optional)</span></label>'
-                + '<textarea id="vt-v" rows="3" placeholder="e.g. coronary heart disease &middot; ClinVar pathogenic &middot; gnomAD SNVs" style="' + INP + 'resize:vertical;"></textarea>'
-                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
-                + 'Name a <b>condition</b> (coronary heart disease) for the mutations known to cause it, '
-                + 'checked against these transcripts. A short, specific set.<br/>'
-                + 'Name a <b>database</b> (ClinVar pathogenic, gnomAD SNVs) to load from that database instead. '
-                + 'Add a condition to narrow it further.<br/>'
-                + 'Left empty, the search above is used. Only a search naming no condition loads a database whole.</div>'
                 + '<label style="' + LBL + 'margin-top:22px;">Constraint</label>'
                 + '<label style="display:flex;align-items:flex-start;gap:9px;font:13px Arial;cursor:pointer;">'
                 + '<input type="checkbox" id="vt-only" checked style="margin-top:2px;"/>'
@@ -143,7 +140,6 @@ function (server, graph, genegraph_panel_layout) {
         const q = (s) => panel.querySelector(s);
         const qa = (s) => Array.prototype.slice.call(panel.querySelectorAll(s));
         const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-        try { if (p.variants) q('#vt-v').value = p.variants; } catch (e) { }
         const note = () => {
             q('#vt-note').innerHTML = q('#vt-only').checked
                 ? 'Every variant found lands on the transcripts ticked above. Nothing else on the board is touched.'
@@ -157,15 +153,11 @@ function (server, graph, genegraph_panel_layout) {
             else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) q('#vt-go').click();
         });
         q('#vt-cancel').onclick = () => { close(); resolve(null); };
-        q('#vt-back').onclick = () => { close(); resolve({ back: true, variants: ('' + (q('#vt-v').value || '')).trim() }); };
+        q('#vt-back').onclick = () => { close(); resolve({ back: true }); };
         q('#vt-go').onclick = () => {
             const chosen = qa('.vt-t').filter((c) => c.checked).map((c) => list[+c.getAttribute('data-i')]);
             if (!chosen.length) { say('Tick at least one transcript to load.'); return; }
-            const out = {
-                chosen: chosen,
-                variants: ('' + (q('#vt-v').value || '')).trim(),
-                only: !!q('#vt-only').checked
-            };
+            const out = { chosen: chosen, only: !!q('#vt-only').checked };
             close(); resolve(out);
         };
     });
@@ -259,7 +251,7 @@ function (server, graph, genegraph_panel_layout) {
 
             const pick = await askTranscripts(list, gene, prefill);
             if (!pick) { restoreHover(); return false; }
-            if (pick.back) { prefill = { query: query, variants: pick.variants }; continue; }
+            if (pick.back) { prefill = { query: query }; continue; }
 
             // ---- load the ticked transcripts ---------------------------------------------
             const before = new Set((graph.track || []));
@@ -273,23 +265,22 @@ function (server, graph, genegraph_panel_layout) {
             }
             const loaded = (graph.track || []).filter((t) => t && !before.has(t));
             if (!loaded.length) {
-                prefill = { query: query, variants: pick.variants };
+                prefill = { query: query };
                 prefill.notice = 'None of the chosen transcripts could be loaded'
                     + (failed.length ? ' (' + failed.join(', ') + ')' : '') + '. Try another transcript.';
                 continue;
             }
 
             // ---- and the variants on them --------------------------------------------------
-            // AN EMPTY SECOND BOX DOES NOT MEAN "EVERYTHING". The first box already said what
-            // this is about, and a search for "mutations relevant to heart disease" that ends
-            // by dropping every ClinVar record in ten genes onto the board has answered a
-            // question nobody asked. With nothing typed here, the first prompt is the
-            // constraint; it is only when that prompt names no condition -- a bare gene or a
-            // transcript id -- that there is nothing to narrow by and the database loads whole.
-            let wish = readVariantWish(pick.variants);
-            if (!pick.variants && !wish.context) {
-                wish = Object.assign({}, wish, { context: query, inherited: true });
-            }
+            // ONE BOX SAYS ALL OF IT. Step 2 used to carry a second, optional "which variants
+            // to load" field, and it is gone: what was typed in step 1 is read for everything
+            // it can say. A condition ("coronary heart disease") means the changes known for
+            // it, checked against these transcripts. A database ("ClinVar pathogenic",
+            // "gnomAD SNVs") means that database, filtered. A bare gene or transcript id
+            // names no condition to narrow by, and only then does the database load whole --
+            // a search for "mutations relevant to heart disease" that ends by dropping every
+            // ClinVar record in ten genes onto the board has answered a question nobody asked.
+            const wish = readVariantWish(query);
             if (wish.context) {
                 // A CONDITION MEANS THE MUTATIONS THAT ARE KNOWN FOR IT, NOT A DATABASE
                 // NARROWED DOWN. Filtering ClinVar by "heart disease" still leaves 5577
