@@ -375,79 +375,154 @@ function (path, config) {
                     const erx = ((rx - lx) / 2) * K, ery = ((bx - ty) / 2) * K;
                     // ---- the neuron, drawn FIRST so the nucleus sits inside it ----------
                     //
-                    // Every angle and length here comes from a fixed table, not from
-                    // Math.random: a soma that regrew its dendrites on every frame would
-                    // shimmer, and the one thing background context must not do is move.
+                    // Three things separate a neuron from lines poking out of an oval, and the
+                    // first version had none of them.
+                    //
+                    //   TAPER.    A process is thick where it leaves the soma and vanishingly
+                    //             thin at its tip. Stroking one curve at a constant width is
+                    //             what makes a drawing look like a diagram of a spider.
+                    //   BRANCHING that keeps going. Real arbors divide three or four times,
+                    //             each generation shorter and thinner. Two children once is a
+                    //             fork, not a tree.
+                    //   A SOMA that the processes grow OUT of. An ellipse with lines meeting
+                    //             its edge always reads as stuck-on; a cell body bulges
+                    //             towards each root.
+                    //
+                    // Every angle, length and wobble comes from a hash of the branch's index,
+                    // not from Math.random -- so the cell is elaborate and completely still.
+                    // An arbor that regrew each frame would shimmer, and background context
+                    // must not move.
                     if (cellAlpha > 0.01 && isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
-                        const sx = erx * 1.55, sy = ery * 1.55;   // the soma, around the nucleus
+                        const sx = erx * 1.5, sy = ery * 1.5;      // the soma, around the nucleus
+                        const unit = Math.min(sx, sy);
                         ctx.save();
                         ctx.globalAlpha = cellAlpha;
                         ctx.lineCap = 'round';
                         ctx.lineJoin = 'round';
-                        const body = 'rgba(214,225,240,0.55)';
-                        const edge = 'rgba(100,116,139,0.5)';
+                        const edge = 'rgba(100,116,139,0.55)';
+                        ctx.strokeStyle = edge;
 
-                        // A process: a tapering curve out from the soma, with two children.
-                        const process = (ang, len, wid, depth) => {
-                            const x0 = cx + Math.cos(ang) * sx * 0.86;
-                            const y0 = cy + Math.sin(ang) * sy * 0.86;
-                            const x1 = cx + Math.cos(ang) * (sx + len);
-                            const y1 = cy + Math.sin(ang) * (sy + len);
-                            const bow = (depth % 2 ? 1 : -1) * len * 0.16;
-                            const mx2 = (x0 + x1) / 2 - Math.sin(ang) * bow;
-                            const my2 = (y0 + y1) / 2 + Math.cos(ang) * bow;
-                            ctx.strokeStyle = edge;
-                            ctx.lineWidth = wid;
-                            ctx.beginPath();
-                            ctx.moveTo(x0, y0);
-                            ctx.quadraticCurveTo(mx2, my2, x1, y1);
-                            ctx.stroke();
-                            if (depth > 0 && wid > 0.9) {
-                                for (const d2 of [-0.42, 0.42]) {
-                                    const a3 = ang + d2;
-                                    const x2 = x1 + Math.cos(a3) * len * 0.55;
-                                    const y2 = y1 + Math.sin(a3) * len * 0.55;
-                                    ctx.lineWidth = wid * 0.55;
-                                    ctx.beginPath();
-                                    ctx.moveTo(x1, y1);
-                                    ctx.quadraticCurveTo(
-                                        (x1 + x2) / 2 - Math.sin(a3) * len * 0.08,
-                                        (y1 + y2) / 2 + Math.cos(a3) * len * 0.08, x2, y2);
-                                    ctx.stroke();
-                                }
+                        // Stable pseudo-randomness: the same index always gives the same
+                        // number, so the arbor is identical on every frame and every zoom.
+                        const rnd = (n) => {
+                            const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+                            return x - Math.floor(x);
+                        };
+
+                        // A tapering, curving branch, walked in steps. Each step is stroked at
+                        // its own width, which is what produces the taper -- canvas has no
+                        // variable-width stroke, and a filled outline for something this thin
+                        // costs more than it shows.
+                        const STEPS = 9;
+                        const branch = (x0, y0, ang, len, w0, depth, seed) => {
+                            if (len < 2 || w0 < 0.35) return;
+                            const curve = (rnd(seed) - 0.5) * 0.9;      // how much it bends, and which way
+                            let px = x0, py = y0, a = ang;
+                            for (let st = 0; st < STEPS; st++) {
+                                const t0 = st / STEPS, t1 = (st + 1) / STEPS;
+                                a = ang + curve * t1;
+                                const nx = x0 + Math.cos(a) * len * t1;
+                                const ny = y0 + Math.sin(a) * len * t1;
+                                // Width falls off towards the tip, faster at the end than at
+                                // the start, which is how a process actually thins.
+                                ctx.lineWidth = Math.max(0.35, w0 * (1 - t0 * 0.82));
+                                ctx.beginPath();
+                                ctx.moveTo(px, py);
+                                ctx.lineTo(nx, ny);
+                                ctx.stroke();
+                                px = nx; py = ny;
+                            }
+                            if (depth <= 0) return;
+                            // Two children, at angles that vary by branch so no two forks in
+                            // the tree are the same shape.
+                            const spread = 0.34 + rnd(seed + 11) * 0.30;
+                            for (let c2 = 0; c2 < 2; c2++) {
+                                const sign = c2 ? 1 : -1;
+                                branch(px, py, a + sign * spread,
+                                    len * (0.56 + rnd(seed + c2 * 7 + 3) * 0.16),
+                                    w0 * 0.62, depth - 1, seed * 3 + c2 * 17 + 5);
                             }
                         };
 
-                        // Dendrites: a crown of them, thick and short, away from the axon.
-                        const DEND = [-2.62, -2.10, -1.57, -1.05, -0.52, 0.52, 1.05, 1.57, 2.10];
-                        for (let k = 0; k < DEND.length; k++) {
-                            process(DEND[k], sy * (0.55 + 0.22 * ((k * 7) % 5) / 4), Math.max(1, sy * 0.030), 1);
-                        }
-                        // The axon: one, long, thinner, and unbranched until its end -- which
-                        // is what distinguishes it from every dendrite around it.
-                        const aAng = Math.PI;                       // out to the left
-                        const aLen = sx * 2.6;
-                        const ax0 = cx + Math.cos(aAng) * sx * 0.9, ay0 = cy + Math.sin(aAng) * sy * 0.9;
-                        const ax1 = cx + Math.cos(aAng) * (sx + aLen), ay1 = cy - sy * 0.10;
-                        ctx.strokeStyle = edge;
-                        ctx.lineWidth = Math.max(1.2, sy * 0.035);
-                        ctx.beginPath();
-                        ctx.moveTo(ax0, ay0);
-                        ctx.quadraticCurveTo((ax0 + ax1) / 2, ay0 - sy * 0.22, ax1, ay1);
-                        ctx.stroke();
-                        for (const d2 of [-0.5, 0, 0.5]) {
-                            ctx.lineWidth = Math.max(0.9, sy * 0.02);
-                            ctx.beginPath();
-                            ctx.moveTo(ax1, ay1);
-                            ctx.lineTo(ax1 - Math.cos(d2) * sx * 0.22, ay1 + Math.sin(d2) * sy * 0.28);
-                            ctx.stroke();
+                        // Where the dendrites leave the soma. Spread over the whole circle
+                        // except the sector the axon takes, so the two never grow into each
+                        // other.
+                        const AXON_ANG = Math.PI;
+                        const DEND_N = 7;
+                        const roots = [];
+                        for (let k = 0; k < DEND_N; k++) {
+                            // -0.78..+0.78 of a turn, centred away from the axon.
+                            const frac = (k + 0.5) / DEND_N;
+                            const a0 = (frac * 1.56 - 0.78) * Math.PI + (rnd(k + 91) - 0.5) * 0.14;
+                            roots.push(a0);
                         }
 
-                        // The soma last, over the roots of the processes, so they join it
-                        // rather than sit on top of it.
-                        ctx.beginPath();
-                        ctx.ellipse(cx, cy, sx, sy, 0, 0, Math.PI * 2);
-                        ctx.fillStyle = body;
+                        // The soma: a closed blob that bulges towards every root, so the
+                        // processes leave a cell body instead of touching an ellipse.
+                        const somaR = (a) => {
+                            let bulge = 0;
+                            for (const ra of roots.concat([AXON_ANG])) {
+                                let d2 = Math.abs(((a - ra + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+                                bulge = Math.max(bulge, Math.max(0, 1 - d2 / 0.55));
+                            }
+                            return 1 + bulge * 0.16;
+                        };
+                        const somaPath = () => {
+                            ctx.beginPath();
+                            const N = 96;
+                            for (let k = 0; k <= N; k++) {
+                                const a = (k / N) * Math.PI * 2;
+                                const rr = somaR(a);
+                                const x2 = cx + Math.cos(a) * sx * rr;
+                                const y2 = cy + Math.sin(a) * sy * rr;
+                                if (k === 0) ctx.moveTo(x2, y2); else ctx.lineTo(x2, y2);
+                            }
+                            ctx.closePath();
+                        };
+
+                        // Dendrites first, from just inside the soma so their roots are
+                        // covered by it.
+                        for (let k = 0; k < roots.length; k++) {
+                            const a0 = roots[k];
+                            const rr = somaR(a0) * 0.82;
+                            branch(cx + Math.cos(a0) * sx * rr, cy + Math.sin(a0) * sy * rr,
+                                a0, unit * (0.9 + rnd(k + 41) * 0.7),
+                                Math.max(1.1, unit * 0.055), 3, k * 13 + 1);
+                        }
+
+                        // The axon: one, long, thin, and barely branching until it ends -- the
+                        // thing that tells it apart from the dendrites around it. Drawn with
+                        // the same taper but a much slower one.
+                        {
+                            const rr = somaR(AXON_ANG) * 0.82;
+                            let ax = cx + Math.cos(AXON_ANG) * sx * rr;
+                            let ay = cy + Math.sin(AXON_ANG) * sy * rr;
+                            const alen = unit * 4.2;
+                            const AST = 26;
+                            const w0 = Math.max(1.1, unit * 0.045);
+                            let pxA = ax, pyA = ay;
+                            for (let st = 1; st <= AST; st++) {
+                                const t = st / AST;
+                                // A long, shallow wave: an axon is not a ruled line.
+                                const nx = ax - alen * t;
+                                const ny = ay + Math.sin(t * Math.PI * 1.7) * unit * 0.22;
+                                ctx.lineWidth = Math.max(0.4, w0 * (1 - t * 0.45));
+                                ctx.beginPath();
+                                ctx.moveTo(pxA, pyA);
+                                ctx.lineTo(nx, ny);
+                                ctx.stroke();
+                                pxA = nx; pyA = ny;
+                            }
+                            // A terminal arbor rather than three spokes.
+                            for (let k = 0; k < 4; k++) {
+                                branch(pxA, pyA, Math.PI + (k - 1.5) * 0.34, unit * 0.42,
+                                    Math.max(0.6, w0 * 0.5), 1, 300 + k * 9);
+                            }
+                        }
+
+                        // The soma last, over the roots, so they join it rather than sit on it.
+                        somaPath();
+                        ctx.fillStyle = 'rgba(214,225,240,0.55)';
                         ctx.fill();
                         ctx.strokeStyle = edge;
                         ctx.lineWidth = 1.25;
@@ -1428,44 +1503,69 @@ function (path, config) {
         };
 
         const saveJson = () => {
+            // THE SAME SHAPE AS THE SPECIES PROMPT, which is the one dialog in this app known
+            // to draw. That one is a full-screen column -- header row, scrolling body -- and
+            // this was a centred card floating inside a translucent sheet. Whatever the card
+            // was doing, the fix is not to debug a second layout when a working one is already
+            // here: full screen, header with the buttons in it, one field below.
+            try { const old3 = document.getElementById('baja-karyo-save'); if (old3 && old3.parentNode) old3.parentNode.removeChild(old3); } catch (e) { }
             const panel = document.createElement('div');
-            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(7,26,48,0.92);'
-                + 'color:#fff;font-family:Arial,Helvetica,sans-serif;display:flex;align-items:center;justify-content:center;';
+            panel.id = 'baja-karyo-save';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
             const suggested = (('' + (r.species || 'karyotype')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-'))
                 + (vtotal ? '-' + vtotal + 'variants' : '');
-            panel.innerHTML = '<div style="width:min(520px,92vw);background:#0b2545;border-radius:12px;'
-                + 'border:1px solid rgba(255,255,255,0.14);box-shadow:0 18px 50px rgba(0,0,0,0.5);padding:20px 22px;">'
-                + '<div style="font:700 18px Arial;">Save karyotype</div>'
-                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:4px;">'
+            const note = (vtotal > SAVE_CAP)
+                ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
+                    + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
+                    + 'Upload VCF, all of it is already in My Files.')
+                : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' will be written.');
+            panel.innerHTML = ''
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
+                + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">Save karyotype</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
                 + 'Into My Files, as JSON. The variants and the view are saved; the chromosomes '
-                + 'come from the server.</div>'
-                + '<label style="display:block;font:600 12px Arial;color:#9fb3c8;margin:16px 0 6px;">File name</label>'
-                + '<input id="ks-name" value="' + suggested + '" style="width:100%;box-sizing:border-box;'
-                + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;'
-                + 'padding:9px 11px;font:13px Arial;"/>'
-                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">'
-                + (vtotal > SAVE_CAP
-                    ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
-                        + SAVE_CAP.toLocaleString() + ' are written. The whole file is in My Files if it was uploaded.')
-                    : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' will be written.'))
-                + '</div>'
-                + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">'
-                + '<button id="ks-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
-                + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
-                + '<button id="ks-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
-                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Save</button>'
+                + 'come from the server.</div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                + '<button id="ks-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;'
+                + 'font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;'
+                + 'color:#fff;">Cancel</button>'
+                + '<button id="ks-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;'
+                + 'font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;'
+                + 'color:#04210f;">Save</button>'
+                + '</div></div>'
+                + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
+                + '<div style="width:100%;max-width:640px;margin:0 auto;">'
+                + '<label style="display:block;font:600 12px Arial;color:#9fb3c8;margin:0 0 6px;">File name</label>'
+                + '<textarea id="ks-name" rows="1" style="width:100%;box-sizing:border-box;background:#0a1e3a;'
+                + 'color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:9px 11px;'
+                + 'font:13px Arial;resize:none;"></textarea>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:6px;">' + note + '</div>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:10px;">'
+                + 'Saved as <b>' + SAVE_EXT + '</b> unless the name already ends in .json.</div>'
                 + '</div></div>';
             document.body.appendChild(panel);
+            // The VALUE is set as a property rather than written into the markup: a filename
+            // with a quote in it would otherwise close the attribute and take the rest of the
+            // dialog with it, which is exactly the class of failure that leaves a screen with
+            // no field and no buttons on it.
+            const nameEl = panel.querySelector('#ks-name');
+            try { nameEl.value = suggested; } catch (e) { }
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
                 panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
             }
             const close3 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close3(); });
-            panel.querySelector('#ks-cancel').onclick = close3;
-            try { focusUnlessMobile(panel.querySelector('#ks-name')); } catch (e) { }
+            panel.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { close3(); }
+                else if (e.key === 'Enter') { e.preventDefault(); panel.querySelector('#ks-go').click(); }
+            });
+            panel.querySelector('#ks-cancel').onclick = () => close3();
+            try { focusUnlessMobile(nameEl); } catch (e) { }
             panel.querySelector('#ks-go').onclick = async () => {
-                let name = ('' + panel.querySelector('#ks-name').value).trim();
-                if (!name) return;
+                let name = ('' + nameEl.value).trim().replace(/[\r\n]+/g, ' ');
+                if (!name) { try { nameEl.focus(); } catch (e) { } return; }
                 if (!/\.json$/i.test(name)) name += SAVE_EXT;
                 close3();
                 graph.setMessage(' Saving ' + name + '… ');
@@ -1484,12 +1584,14 @@ function (path, config) {
                         step('saved ' + name);
                     } else {
                         graph.setMessage(' ' + name + ' was not saved. ');
-                        step('save failed: ' + JSON.stringify(rs).slice(0, 120));
+                        step('save failed: ' + JSON.stringify(rs).slice(0, 160));
                     }
                 } catch (e) {
                     graph.setMessage(' ' + name + ' was not saved: ' + (e && e.message ? e.message : e) + ' ');
+                    step('save threw: ' + e);
                 }
             };
+            step('save dialog open');
         };
 
         // Open uses the SAME file browser the editor's Open does -- simple-file-browser rooted
