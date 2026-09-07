@@ -242,6 +242,9 @@ function (path, config) {
         // widest chromosome is a small fraction of the canvas. Zoomed into one chromosome it
         // would be a meaningless arc through the picture.
         const NUCLEUS_MAX_BAR = 0.09;
+        // The cell body appears further out still: absent at the default fit, where the bars
+        // are about 1.6% of the canvas.
+        const NEURON_MAX_BAR = 0.012;
 
         // A TICK INTERVAL SOMEONE CAN READ. 1, 2 or 5 times a power of ten -- the intervals
         // people already read axes in. A step of 3,170,494 is arithmetically fine and nobody
@@ -324,7 +327,14 @@ function (path, config) {
                 const barPx = g.X(barRight(0)) - g.X(barLeft(0));
                 const nucAlpha = Math.max(0, Math.min(1,
                     (NUCLEUS_MAX_BAR * ctx.canvas.width - barPx) / (0.045 * ctx.canvas.width)));
-                if (nucAlpha > 0.01 && drawn.length) {
+                // THE CELL, one step further out than the nucleus. The nucleus arrives as the
+                // genome stops being individual chromosomes; the cell arrives as the nucleus
+                // stops being the whole picture. Absent at the default fit -- where the bars
+                // are 1.6% of the canvas -- and fading in below 1.2%, so it is something you
+                // find by pulling back rather than something you have to dismiss.
+                const cellAlpha = Math.max(0, Math.min(1,
+                    (NEURON_MAX_BAR * ctx.canvas.width - barPx) / (0.006 * ctx.canvas.width)));
+                if ((nucAlpha > 0.01 || cellAlpha > 0.01) && drawn.length) {
                     const lx = g.X(barLeft(0)), rx = g.X(barRight(drawn.length - 1));
                     let ty = g.Y(wy(0)), by = -Infinity;
                     for (let k = 0; k < drawn.length; k++) by = Math.max(by, g.Y(wy(drawn[k].length)));
@@ -345,7 +355,89 @@ function (path, config) {
                     const cx = (lx + rx) / 2, cy = (ty + bx) / 2;
                     const K = Math.SQRT2 * 1.06;
                     const erx = ((rx - lx) / 2) * K, ery = ((bx - ty) / 2) * K;
-                    if (isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
+                    // ---- the neuron, drawn FIRST so the nucleus sits inside it ----------
+                    //
+                    // Every angle and length here comes from a fixed table, not from
+                    // Math.random: a soma that regrew its dendrites on every frame would
+                    // shimmer, and the one thing background context must not do is move.
+                    if (cellAlpha > 0.01 && isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
+                        const sx = erx * 1.55, sy = ery * 1.55;   // the soma, around the nucleus
+                        ctx.save();
+                        ctx.globalAlpha = cellAlpha;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        const body = 'rgba(214,225,240,0.55)';
+                        const edge = 'rgba(100,116,139,0.5)';
+
+                        // A process: a tapering curve out from the soma, with two children.
+                        const process = (ang, len, wid, depth) => {
+                            const x0 = cx + Math.cos(ang) * sx * 0.86;
+                            const y0 = cy + Math.sin(ang) * sy * 0.86;
+                            const x1 = cx + Math.cos(ang) * (sx + len);
+                            const y1 = cy + Math.sin(ang) * (sy + len);
+                            const bow = (depth % 2 ? 1 : -1) * len * 0.16;
+                            const mx2 = (x0 + x1) / 2 - Math.sin(ang) * bow;
+                            const my2 = (y0 + y1) / 2 + Math.cos(ang) * bow;
+                            ctx.strokeStyle = edge;
+                            ctx.lineWidth = wid;
+                            ctx.beginPath();
+                            ctx.moveTo(x0, y0);
+                            ctx.quadraticCurveTo(mx2, my2, x1, y1);
+                            ctx.stroke();
+                            if (depth > 0 && wid > 0.9) {
+                                for (const d2 of [-0.42, 0.42]) {
+                                    const a3 = ang + d2;
+                                    const x2 = x1 + Math.cos(a3) * len * 0.55;
+                                    const y2 = y1 + Math.sin(a3) * len * 0.55;
+                                    ctx.lineWidth = wid * 0.55;
+                                    ctx.beginPath();
+                                    ctx.moveTo(x1, y1);
+                                    ctx.quadraticCurveTo(
+                                        (x1 + x2) / 2 - Math.sin(a3) * len * 0.08,
+                                        (y1 + y2) / 2 + Math.cos(a3) * len * 0.08, x2, y2);
+                                    ctx.stroke();
+                                }
+                            }
+                        };
+
+                        // Dendrites: a crown of them, thick and short, away from the axon.
+                        const DEND = [-2.62, -2.10, -1.57, -1.05, -0.52, 0.52, 1.05, 1.57, 2.10];
+                        for (let k = 0; k < DEND.length; k++) {
+                            process(DEND[k], sy * (0.55 + 0.22 * ((k * 7) % 5) / 4), Math.max(1, sy * 0.030), 1);
+                        }
+                        // The axon: one, long, thinner, and unbranched until its end -- which
+                        // is what distinguishes it from every dendrite around it.
+                        const aAng = Math.PI;                       // out to the left
+                        const aLen = sx * 2.6;
+                        const ax0 = cx + Math.cos(aAng) * sx * 0.9, ay0 = cy + Math.sin(aAng) * sy * 0.9;
+                        const ax1 = cx + Math.cos(aAng) * (sx + aLen), ay1 = cy - sy * 0.10;
+                        ctx.strokeStyle = edge;
+                        ctx.lineWidth = Math.max(1.2, sy * 0.035);
+                        ctx.beginPath();
+                        ctx.moveTo(ax0, ay0);
+                        ctx.quadraticCurveTo((ax0 + ax1) / 2, ay0 - sy * 0.22, ax1, ay1);
+                        ctx.stroke();
+                        for (const d2 of [-0.5, 0, 0.5]) {
+                            ctx.lineWidth = Math.max(0.9, sy * 0.02);
+                            ctx.beginPath();
+                            ctx.moveTo(ax1, ay1);
+                            ctx.lineTo(ax1 - Math.cos(d2) * sx * 0.22, ay1 + Math.sin(d2) * sy * 0.28);
+                            ctx.stroke();
+                        }
+
+                        // The soma last, over the roots of the processes, so they join it
+                        // rather than sit on top of it.
+                        ctx.beginPath();
+                        ctx.ellipse(cx, cy, sx, sy, 0, 0, Math.PI * 2);
+                        ctx.fillStyle = body;
+                        ctx.fill();
+                        ctx.strokeStyle = edge;
+                        ctx.lineWidth = 1.25;
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+
+                    if (nucAlpha > 0.01 && isFinite(cx) && isFinite(cy) && erx > 4 && ery > 4) {
                         ctx.save();
                         ctx.globalAlpha = nucAlpha;
                         // Nucleoplasm: enough to lift the chromosomes off the page without
