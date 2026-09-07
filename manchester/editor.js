@@ -852,6 +852,29 @@ function (path, config) {
                                                     const bases = (letters.match(/[ACGTUN]/g) || []).length;
                                                     return bases / letters.length > 0.9;
                                                 };
+                                                // A VCF IS NOT PROSE AND MUST NOT BE READ AS IT.
+                                                // It is a machine format with exact coordinates, and
+                                                // handing it to a model to be summarised would throw
+                                                // away the one thing that makes it worth pasting. It
+                                                // is recognised the way the format identifies itself
+                                                // -- the ##fileformat line, or the #CHROM header --
+                                                // and failing both, by two or more lines that are
+                                                // literally chrom/pos/id/ref/alt.
+                                                const looksLikeVcf = (t) => {
+                                                    if (/^\s*##fileformat=VCF/im.test(t)) return true;
+                                                    if (/^#CHROM\s+POS\s+ID\s+REF\s+ALT/im.test(t)) return true;
+                                                    let n = 0;
+                                                    for (const line of ('' + t).split(/\r?\n/)) {
+                                                        if (!line || line.charAt(0) === '#') continue;
+                                                        if (/^(chr)?[0-9XYMT]{1,5}\s+\d+\s+\S+\s+[ACGTNacgtn]+\s+\S+/.test(line) && ++n >= 2) return true;
+                                                    }
+                                                    return false;
+                                                };
+                                                if (looksLikeVcf(s)) {
+                                                    await exec('baja/data/vcf-paste.js',
+                                                        window['env']['apiUrl'], graph, genegraph_panel_layout, s);
+                                                    return;
+                                                }
                                                 if (s.length > 200 && !looksLikeSequence(s)) {
                                                     await exec('baja/data/paste-to-tracks.js',
                                                         window['env']['apiUrl'], graph, genegraph_panel_layout, s);
