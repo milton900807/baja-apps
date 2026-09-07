@@ -91,7 +91,8 @@ function (server, graph, genegraph_panel_layout) {
                 + 'or a gene or transcript &mdash; <b>SMN1</b> &middot; <b>TP53</b> &middot; '
                 + '<b>all PTEN isoforms in mouse</b> &middot; <b>ENST00000380707</b><br/>'
                 + 'Name a condition and the variants known for it are placed on the transcripts. '
-                + 'Name only a gene and the database loads whole.</div>'
+                + 'Name only a gene or a transcript and the transcript is loaded on its own, '
+                + 'with no variants.</div>'
         });
         const q = (s) => panel.querySelector(s);
         const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
@@ -248,7 +249,7 @@ function (server, graph, genegraph_panel_layout) {
             // DIPG is a somatic tumour and has no OMIM phenotype with records -- and that is
             // not a failure. The flow below is unchanged for those, and enumerating the
             // condition is the right answer for them.
-            let omim = null;
+            let omim = null, omimKind = '';
             if (!TRANSCRIPT_ID_RE.test(query)) {
                 try {
                     const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
@@ -258,6 +259,7 @@ function (server, graph, genegraph_panel_layout) {
                     try { og = JSON.parse((o && o.genes) || '[]'); } catch (e) { og = []; }
                     try { om = JSON.parse((o && o.mims) || '[]'); } catch (e) { om = []; }
                     try { op = JSON.parse((o && o.phenotypes) || '[]'); } catch (e) { op = []; }
+                    if (o && !o.error) omimKind = ('' + (o.kind || '')).toLowerCase();
                     if (o && !o.error && og.length && om.length) {
                         omim = { disease: o.disease || query, mims: om, genes: og, phenotypes: op,
                                  note: o.note || '' };
@@ -346,6 +348,28 @@ function (server, graph, genegraph_panel_layout) {
                 prefill.notice = 'None of the chosen transcripts could be loaded'
                     + (failed.length ? ' (' + failed.join(', ') + ')' : '') + '. Try another transcript.';
                 continue;
+            }
+
+            // ---- ASKED FOR A TRANSCRIPT? THEN THAT IS WHAT WAS ASKED FOR --------------------
+            //
+            // "SMN1", "all PTEN isoforms in mouse", a bare ENST id: these name a transcript and
+            // nothing else. The flow used to answer them by loading the transcript AND then
+            // dropping a database of mutations on it, on the reasoning that a query naming no
+            // condition has nothing to narrow by so the database loads whole. That is the
+            // wrong conclusion from a correct premise: nothing to narrow by means there was no
+            // request for variants, not a request for all of them. Three thousand markers
+            // arrive on a track someone wanted to look at.
+            //
+            // The classifier already separates these -- "gene" from "context" -- and a bare
+            // transcript id never needed asking. Either way the transcripts load and the
+            // board is left alone. The variants are one menu click away on the track.
+            if (TRANSCRIPT_ID_RE.test(query) || omimKind === 'gene') {
+                say('Loaded ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's')
+                    + (failed.length ? ' (' + failed.join(', ') + ' failed)' : '')
+                    + '. No variants were loaded: name a condition to have its variants placed, '
+                    + 'or use the track menu to load a database.');
+                restoreHover();
+                return true;
             }
 
             // ---- the OMIM route: the records filed against that phenotype -------------------

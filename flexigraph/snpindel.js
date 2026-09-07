@@ -1287,16 +1287,27 @@ function () {
 
                 const showDetail = Boolean(detailLine);
 
+                // THE PHENOTYPE, in the box as well as in the callout. The detail box named the
+                // variant, its base change and its clinical significance -- everything except
+                // the condition any of that is about. The callout carries it, but the callout
+                // is only drawn for the pathogenic ones and only when zoomed in; the box is
+                // what a reader gets for hovering a marker, and it should not be the one
+                // surface that leaves the disease out.
+                let phenoLine = '';
+                try { phenoLine = this._phenotypeLine ? this._phenotypeLine() : ''; } catch (e) { phenoLine = ''; }
+                const showPheno = Boolean(phenoLine);
+
                 const line1 = ` ${title}`;
                 const line2 = changeStr ? `Δ ${changeStr}` : '';
 
                 const w = Math.max(
                     SnpIndel._measure(graph, line1),
                     SnpIndel._measure(graph, line2),
+                    showPheno ? SnpIndel._measure(graph, phenoLine) : 0,
                     showDetail ? SnpIndel._measure(graph, detailLine) : 0
                 ) + 1.0;
 
-                const h = showDetail ? 1.90 : 1.20;
+                const h = 1.20 + (showPheno ? 0.52 : 0) + (showDetail ? 0.70 : 0);
                 const gap = 0.28;
                 const gapY = 0.06;
 
@@ -1373,9 +1384,23 @@ function () {
                     padY: 0.08
                 });
 
-                if (!showDetail) return;
+                // The rows below the change stack in order, so a box with no phenotype keeps
+                // the significance where it has always been.
+                let rowY = chosen.y + 1.60;
+                if (showPheno) {
+                    SnpIndel._drawTextOnBackdrop(graph, phenoLine, textX, rowY, '#3730A3', {
+                        bg: 'rgba(238,242,255,0.92)',
+                        shadow: 'rgba(0,0,0,0.10)',
+                        border: 'rgba(0,0,0,0.08)',
+                        padX: 0.18,
+                        padY: 0.08
+                    });
+                    rowY += 0.52;
+                }
 
-                const y3 = chosen.y + 1.60;
+                if (!showDetail) { if (__ddCtx) __ddCtx.globalAlpha = 1; return; }
+
+                const y3 = rowY;
 
                 if (clinsig) {
                     SnpIndel._drawPill(graph, detailLine, textX, y3, {

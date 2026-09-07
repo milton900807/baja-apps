@@ -68,7 +68,7 @@ except Exception:
     max_genes = DEFAULT_MAX_GENES
 max_genes = max(1, min(HARD_MAX_GENES, max_genes))
 
-out = {"is_context": False, "disease": "", "mims": "[]", "genes": "[]",
+out = {"is_context": False, "kind": "", "disease": "", "mims": "[]", "genes": "[]",
        "phenotypes": "[]", "note": "", "error": None}
 
 
@@ -225,7 +225,15 @@ if INDEX is not None and not out["error"]:
     got, err = call(ASK_SYSTEM, "Text: %s" % text)
     if err:
         out["error"] = err
-    elif str(got.get("kind") or "").lower() != "context":
+    else:
+        # THE CLASSIFICATION IS USEFUL EVEN WHEN THE ANSWER IS NO. "SMN1" is a gene and
+        # "K27M" is a change, and the caller does different things with each -- a request for
+        # a transcript is a request for a transcript, and loading a database of mutations onto
+        # it answers a question nobody asked. So the kind is returned whatever it is.
+        out["kind"] = str(got.get("kind") or "").lower()
+    if err:
+        pass
+    elif out["kind"] != "context":
         # Not a disease. Say so plainly and let the caller take its other path.
         out["is_context"] = False
         out["note"] = str(got.get("why") or "")
