@@ -189,7 +189,7 @@ function (path, config) {
                                         })
                                     },
                                     {
-                                        label: 'Select region', icon: 'highlight_alt',
+                                        label: 'Select sequence', icon: 'highlight_alt',
                                         tooltip: 'Drag down a chromosome to choose a range',
                                         ionFunction: createIonFunction(() => {
                                             arm();
@@ -911,10 +911,21 @@ function (path, config) {
             n: 0,
             pos: null,               // Float64Array, sorted
             cls: null,               // Uint8Array: 0 none 1 pathogenic 2 benign 3 uncertain 4 conflicting
+            // ALLELES AS CODES, not as strings. A variant handed to the editor has to be a
+            // real one -- A>G, not N>N -- and two Uint8Arrays cost 2 bytes a variant where
+            // two string arrays cost a hundred. 0-3 are ACGT, 4 is N, 5 says "look in cplx",
+            // which is where indels and multi-base alleles go. Those are the minority in every
+            // VCF, so the rare case pays for itself and the common one is free.
+            ref: null,               // Uint8Array
+            alt: null,               // Uint8Array
+            cplx: null,              // Map(index -> [refString, altString])
             hist: null,              // Uint32Array(HIST_BINS)
             snps: [],                // SnpIndel or null, parallel to pos while under the cap
             names: [],               // parallel; only kept while under the cap
         }));
+        const BCODE = { A: 0, C: 1, G: 2, T: 3, N: 4 };
+        const BCHAR = ['A', 'C', 'G', 'T', 'N'];
+        const codeOf = (b) => (b.length === 1 && BCODE[b] != null) ? BCODE[b] : 5;
         let vtotal = 0, vobjects = 0;
 
         const CLS_COLOR = ['#ff2d78', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
@@ -958,6 +969,13 @@ function (path, config) {
             return false;
         };
 
+        // The alleles at a stored index, back as strings.
+        const allelesAt = (ci, k) => {
+            const d = vdata[ci];
+            if (d.cplx && d.cplx.has(k)) return d.cplx.get(k);
+            return [BCHAR[d.ref[k]] || 'N', BCHAR[d.alt[k]] || 'N'];
+        };
+
         // A variant's SnpIndel, built the moment something needs one.
         const snpAt = (ci, k) => {
             const d = vdata[ci];
@@ -966,7 +984,9 @@ function (path, config) {
             const c = drawn[ci];
             const nm = d.names[k] || (c.name + ':' + d.pos[k]);
             try {
-                const o = new SnpIndel('snp', d.pos[k], 'N', 'N', 0, 1, nm, null, null);
+                const ab = allelesAt(ci, k);
+                const ty = ab[1].length > ab[0].length ? 'ins' : (ab[0].length > ab[1].length ? 'del' : 'snp');
+                const o = new SnpIndel(ty, d.pos[k], ab[0], ab[1], 0, 1, nm, null, null);
                 o.name = nm;
                 o.source = 'VCF';
                 d.snps[k] = o;
@@ -979,16 +999,25 @@ function (path, config) {
         // Split apart because a pasted string and a two-gigabyte file want the same parser
         // and different feeding. The expensive half -- merge, sort, histogram -- runs ONCE at
         // the end either way: doing it per chunk would sort the same array a hundred times.
-        const newBufs = () => drawn.map(() => ({ pos: new Float64Array(1024), cls: new Uint8Array(1024), n: 0 }));
-        const pushInto = (bufs, ci, p2, cl) => {
+        const newBufs = () => drawn.map(() => ({
+            pos: new Float64Array(1024), cls: new Uint8Array(1024),
+            ref: new Uint8Array(1024), alt: new Uint8Array(1024),
+            cplx: new Map(), n: 0,
+        }));
+        const pushInto = (bufs, ci, p2, cl, rs, as) => {
             const b = bufs[ci];
             if (b.n === b.pos.length) {
                 // Doubled rather than pushed: this is the whole reason a genome-sized file
                 // stays inside the memory of the tab.
                 const np = new Float64Array(b.n * 2); np.set(b.pos); b.pos = np;
                 const nc = new Uint8Array(b.n * 2); nc.set(b.cls); b.cls = nc;
+                const nr = new Uint8Array(b.n * 2); nr.set(b.ref); b.ref = nr;
+                const na = new Uint8Array(b.n * 2); na.set(b.alt); b.alt = na;
             }
-            b.pos[b.n] = p2; b.cls[b.n] = cl; b.n++;
+            const rc = codeOf(rs), ac = codeOf(as);
+            b.pos[b.n] = p2; b.cls[b.n] = cl; b.ref[b.n] = rc; b.alt[b.n] = ac;
+            if (rc === 5 || ac === 5) b.cplx.set(b.n, [rs, as]);
+            b.n++;
         };
         const parseLines = (lines, bufs, namesOf, count) => {
             for (let li = 0; li < lines.length; li++) {
@@ -1007,15 +1036,16 @@ function (path, config) {
                 const cl = clsOf((f.length > 7 ? f[7] : '') || '');
                 const nm = (f[2] && f[2] !== '.') ? f[2] : '';
                 const alts = f[4];
+                const refU = f[3].toUpperCase();
                 if (alts.indexOf(',') < 0) {
                     if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                    pushInto(bufs, ci, pos, cl); count.added++;
+                    pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase()); count.added++;
                 } else {
                     for (const a of alts.split(',')) {
                         if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
                         if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        pushInto(bufs, ci, pos, cl); count.added++;
+                        pushInto(bufs, ci, pos, cl, refU, a.toUpperCase()); count.added++;
                     }
                 }
             }
@@ -1027,21 +1057,35 @@ function (path, config) {
                 const d = vdata[ci];
                 const total = d.n + b.n;
                 const pos = new Float64Array(total), cls = new Uint8Array(total);
-                if (d.n) { pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n)); }
+                const rf = new Uint8Array(total), al = new Uint8Array(total);
+                const cx = new Map();
+                if (d.n) {
+                    pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
+                    rf.set(d.ref.subarray(0, d.n)); al.set(d.alt.subarray(0, d.n));
+                    if (d.cplx) for (const [k, v] of d.cplx) cx.set(k, v);
+                }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
+                rf.set(b.ref.subarray(0, b.n), d.n);
+                al.set(b.alt.subarray(0, b.n), d.n);
+                for (const [k, v] of b.cplx) cx.set(k + d.n, v);
                 // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
                 Array.prototype.sort.call(order, (x, y) => pos[x] - pos[y]);
-                const sp = new Float64Array(total), sc = new Uint8Array(total), sn = [];
+                const sp = new Float64Array(total), sc = new Uint8Array(total);
+                const sr = new Uint8Array(total), sa = new Uint8Array(total);
+                const scx = new Map();
+                const sn = [];
                 const oldNames = d.names, newNames = namesOf[ci];
                 for (let k = 0; k < total; k++) {
                     const o = order[k];
-                    sp[k] = pos[o]; sc[k] = cls[o];
+                    sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o];
+                    if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
-                d.pos = sp; d.cls = sc; d.n = total; d.snps = []; d.names = sn;
+                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx;
+                d.n = total; d.snps = []; d.names = sn;
                 const hist = new Uint32Array(HIST_BINS);
                 const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
@@ -1277,13 +1321,14 @@ function (path, config) {
                     await graph.zoomRect(barLeft(hit.i) - 0.35 * SLOT, barRight(hit.i) + 0.35 * SLOT,
                         2, wy(hit.chrom.length) - 2, 150);
                     graph.setMessage(' ' + hit.chrom.name + ' — ' + human(hit.chrom.length) + ' bp. '
-                        + 'Drag to move; Select region to choose a range. ');
+                        + 'Drag to move; Select sequence to choose a range. ');
                     pan();
                     return;
                 }
                 const padMb = Math.max(0.5, (hi - lo) / MB * 0.08);
                 await graph.zoomRect(barLeft(hit.i) - 0.5 * SLOT, barRight(hit.i) + 0.5 * SLOT,
                     wy(lo) + padMb, wy(hi) - padMb, 150);
+                try { await openRange(hit.i, lo, hi); } catch (e) { step('range failed: ' + e); }
                 graph.setMessage(' ' + hit.chrom.name + ':' + human(lo) + '-' + human(hi)
                     + '  (' + (Math.round((hi - lo) / 1e4) / 100) + ' Mb) ');
                 try {
@@ -1293,6 +1338,141 @@ function (path, config) {
                 // someone reaches for straight after choosing a place to look at.
                 pan();
             });
+        };
+
+        // ---- what is in the range that was just dragged out -------------------------------
+        //
+        // A selection is only worth making if something comes of it. The range goes to the
+        // annotation, comes back as the genes and transcripts inside it, and the list is the
+        // handover: tick what is wanted and it opens in the editor with the variants that fall
+        // inside those transcripts already on them.
+        const openRange = async (ci, lo, hi) => {
+            const c = drawn[ci];
+            const bare = c.name.replace(/^chr/, '');
+            let r2 = null;
+            try {
+                const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                graph.setMessage(' Reading ' + c.name + ':' + human(lo) + '-' + human(hi) + '… ');
+                r2 = await exec(server + '/py/bio/genes-in-range.py', em, bare, '' + lo, '' + hi,
+                    (r.species || 'human'), '200');
+            } catch (e) { r2 = null; }
+            let genes = [];
+            try { genes = JSON.parse((r2 && r2.genes) || '[]'); } catch (e) { genes = []; }
+            if (!r2 || r2.error || !genes.length) {
+                graph.setMessage(' ' + c.name + ':' + human(lo) + '-' + human(hi) + ' — '
+                    + ((r2 && r2.error) || 'no genes annotated in that range') + '. ');
+                return;
+            }
+
+            // The variants of this chromosome inside the range, as real records. Read out of
+            // the typed arrays by binary search, so a whole-genome file costs the window and
+            // not the file.
+            const d = vdata[ci];
+            const inRange = [];
+            if (d.n) {
+                let a2 = 0, z2 = d.n;
+                while (a2 < z2) { const m2 = (a2 + z2) >> 1; if (d.pos[m2] < lo) a2 = m2 + 1; else z2 = m2; }
+                for (let k = a2; k < d.n && d.pos[k] <= hi; k++) {
+                    const ab = allelesAt(ci, k);
+                    inRange.push({
+                        chr: bare, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                        name: (d.names[k] || (c.name + ':' + d.pos[k])),
+                        sig: ['', 'Pathogenic', 'Benign', 'Uncertain significance',
+                            'Conflicting classifications of pathogenicity'][d.cls[k]] || '',
+                        source: 'VCF',
+                    });
+                }
+            }
+
+            const panel = document.createElement('div');
+            try { const old2 = document.getElementById('baja-karyo-range'); if (old2 && old2.parentNode) old2.parentNode.removeChild(old2); } catch (e) { }
+            panel.id = 'baja-karyo-range';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            const esc2 = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const row2 = (gn, i2) =>
+                '<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 12px;margin-bottom:8px;'
+                + 'border-radius:8px;background:#0a1e3a;border:1px solid rgba(255,255,255,0.16);cursor:pointer;">'
+                + '<input type="checkbox" class="kr-g" data-i="' + i2 + '" style="margin-top:3px;"'
+                + (gn.transcript && gn.coding ? ' checked' : '') + (gn.transcript ? '' : ' disabled') + '/>'
+                + '<span style="min-width:0;">'
+                + '<span style="font:700 13.5px Arial;color:#e8f0fb;">' + esc2(gn.gene) + '</span>'
+                + (gn.coding ? '<span style="margin-left:8px;border-radius:20px;padding:2px 8px;font:700 10.5px Arial;'
+                    + 'background:rgba(34,197,94,0.16);border:1px solid rgba(34,197,94,0.5);color:#8ff0b0;">coding</span>' : '')
+                + '<br/><span style="font:12px Arial;color:#9fb3c8;">'
+                + esc2(gn.transcript || 'no transcript in the annotation') + ' · ' + esc2(gn.biotype)
+                + ' · ' + (gn.strand === '-' ? 'minus' : 'plus') + ' · '
+                + human(gn.start) + '-' + human(gn.end) + '</span>'
+                + '</span></label>';
+            panel.innerHTML = ''
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">'
+                + esc2(c.name + ':' + human(lo) + '-' + human(hi)) + '</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
+                + fmtSpan(hi - lo) + ' · ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
+                + (r2.truncated ? ' (the closest 200)' : '')
+                + (inRange.length ? ' · ' + inRange.length.toLocaleString() + ' variant'
+                    + (inRange.length === 1 ? '' : 's') + ' in range' : ' · no variants loaded here')
+                + '</div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                + '<button id="kr-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
+                + '<button id="kr-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
+                + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Open in editor</button>'
+                + '</div></div>'
+                + '<div style="flex:1 1 auto;overflow:auto;padding:24px 22px 32px;">'
+                + '<div style="width:100%;max-width:760px;margin:0 auto;">'
+                + '<div style="display:flex;gap:14px;margin-bottom:10px;font:12px Arial;">'
+                + '<a id="kr-all" href="#" style="color:#8ab4ff;">Select all</a>'
+                + '<a id="kr-none" href="#" style="color:#8ab4ff;">Select none</a>'
+                + '<a id="kr-coding" href="#" style="color:#8ab4ff;">Coding only</a></div>'
+                + genes.map(row2).join('')
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:16px;">'
+                + 'The ticked transcripts open in the editor. Variants inside them come across '
+                + 'and land on the track they belong to.</div>'
+                + '</div></div>';
+            document.body.appendChild(panel);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
+                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            }
+            const q2 = (sel) => panel.querySelector(sel);
+            const qa2 = (sel) => Array.prototype.slice.call(panel.querySelectorAll(sel));
+            const close2 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close2(); });
+            q2('#kr-cancel').onclick = () => close2();
+            q2('#kr-all').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { if (!cb.disabled) cb.checked = true; }); };
+            q2('#kr-none').onclick = (e) => { e.preventDefault(); qa2('.kr-g').forEach((cb) => { cb.checked = false; }); };
+            q2('#kr-coding').onclick = (e) => {
+                e.preventDefault();
+                qa2('.kr-g').forEach((cb) => { cb.checked = !cb.disabled && !!genes[+cb.getAttribute('data-i')].coding; });
+            };
+            q2('#kr-go').onclick = async () => {
+                const ids = qa2('.kr-g').filter((cb) => cb.checked)
+                    .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
+                if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
+                close2();
+                step('opening ' + ids.length + ' transcript(s) with ' + inRange.length + ' variant(s)');
+                graph.setMessage(' Opening the editor… ');
+                // THE HANDOVER. The editor is a different app with a different graph, and it
+                // stashes that graph as it boots -- so the wait is for the stash to CHANGE,
+                // not merely to exist: this graph is already in there under the same key.
+                const mine = graph;
+                try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
+                let g2 = null;
+                for (let t2 = 0; t2 < 100 && !g2; t2++) {
+                    await new Promise((res) => setTimeout(res, 200));
+                    try {
+                        const st = CurrentLayout.getStashed('graph');
+                        if (st && st !== mine) g2 = st;
+                    } catch (e) { }
+                }
+                if (!g2) { step('the editor did not report a graph'); return; }
+                try {
+                    await exec('baja/data/load-transcripts-with-variants.js', server, g2,
+                        g2.genegraph_panel_layout, ids, inRange);
+                } catch (e) { step('load failed: ' + (e && e.message ? e.message : e)); }
+            };
         };
 
         // ---- frame the whole genome ----------------------------------------------------------
@@ -1370,7 +1550,7 @@ function (path, config) {
         });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
             + '— ' + drawn.length + ' chromosomes, smallest first, all at one scale. '
-            + 'Drag to move, scroll to zoom; Select region to choose a range. ');
+            + 'Drag to move, scroll to zoom; Select sequence to choose a range. ');
         return { graph: graph, chromosomes: drawn, species: r.species, assembly: r.assembly, fit: fit };
     })();
 }
