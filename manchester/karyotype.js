@@ -105,9 +105,57 @@ function (path, config) {
             .slice().sort((a, b) => a.length - b.length);
         const maxMb = drawn.reduce((m, c) => Math.max(m, c.length / MB), 0);
 
-        // ---- the graph -----------------------------------------------------------------------
+        // ---- the graph, AND ITS CANVAS ---------------------------------------------------------
+        //
+        // exec('flexigraph/gene.js') builds the graph object. It does not put anything on the
+        // screen: the canvas is a component the graph makes on request, and until it is
+        // mounted into a widget there is nothing to draw on. The first version of this file
+        // skipped that and drew a whole karyotype onto a canvas that was never in the
+        // document -- the status line reported 25 chromosomes and the screen stayed empty,
+        // which is exactly what a correct program with no canvas looks like.
         const graph = await exec('flexigraph/gene.js');
         graph.plots = graph.plots || [];
+
+        const geneGraph = await graph.createComponent();
+        geneGraph.height = '100%';
+        const main_layout = {
+            wid: 'card',
+            height: '100%',
+            componentRef: 'mainPanel',
+            data: {
+                cards: [[
+                    {
+                        'width': '100%',
+                        'component': {
+                            wid: 'button-menu',
+                            data: {
+                                buttons: [
+                                    {
+                                        label: 'Species', icon: 'travel_explore',
+                                        tooltip: 'Draw a different genome',
+                                        ionFunction: createIonFunction(async () => {
+                                            const v = await ask();
+                                            if (v) exec('manchester/karyotype', v);
+                                        })
+                                    },
+                                    {
+                                        label: 'Fit', icon: 'fit_screen',
+                                        tooltip: 'Frame the whole genome again',
+                                        ionFunction: createIonFunction(async () => { await fit(); arm(); })
+                                    },
+                                ]
+                            }
+                        }
+                    }
+                ], [
+                    { 'width': '100%', 'height': '100%', 'component': geneGraph }
+                ]]
+            }
+        };
+        try { clear(); } catch (e) { }
+        showWidget(main_layout);
+        try { CurrentLayout.stash('mainPanel', main_layout); } catch (e) { }
+        try { CurrentLayout.stash('graph', graph); } catch (e) { }
 
         // Base position -> world y. One place, because getting it wrong in one of the five
         // places that need it would put bands on a chromosome they do not belong to.
@@ -280,14 +328,42 @@ function (path, config) {
         };
 
         // ---- frame the whole genome ----------------------------------------------------------
+        // WAIT FOR REAL PIXELS. A component mounts asynchronously, and a zoomRect computed
+        // against a zero-size grid produces a scale of zero -- which draws nothing and looks
+        // identical to a bug in the drawing. editor.js hits the same problem on reload and
+        // solves it the same way: poll until a canvas has a size, then fit.
+        const canvasSize = () => {
+            let w = 0, h = 0;
+            try {
+                for (const c of document.querySelectorAll('canvas')) {
+                    if (c.width * c.height > w * h) { w = c.width; h = c.height; }
+                }
+            } catch (e) { }
+            return { w: w, h: h };
+        };
+        const whenSized = (then) => {
+            let tries = 0;
+            const step = () => {
+                tries++;
+                try { window.dispatchEvent(new Event('resize')); } catch (e) { }
+                const sz = canvasSize();
+                if (sz.w > 2 && sz.h > 2) { then(); return; }
+                if (tries < 30) setTimeout(step, 200);
+            };
+            setTimeout(step, 120);
+        };
         const fit = async () => {
             // Top of the frame a little above base 0, bottom a little below the longest
             // chromosome's tail -- the labels are drawn under the bars and need the room.
             await graph.zoomRect(-0.4, drawn.length + 0.4, maxMb * 0.06, -maxMb * 1.12, 0);
             if (graph.wake) graph.wake();
         };
-        await fit();
-        arm();
+        whenSized(async () => {
+            try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
+            try { if (graph.rescale) graph.rescale(); } catch (e) { }
+            await fit();
+            arm();
+        });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
             + '— ' + drawn.length + ' chromosomes, smallest first, all at one scale. '
             + 'Drag down a chromosome to choose a region. ');
