@@ -447,7 +447,10 @@ function (graph, genegraph_panel_layout, __path) {
                                         showSearch: true,
                                         drive: 'user',
                                         user: getUser(),
-                                        filetype: '.baja',
+                                        // Comma-separated: the filter splits on commas and
+                                        // matches the last dot-segment of a name, so '.baja'
+                                        // and '.karyotype' both list here.
+                                        filetype: '.baja,.karyotype',
                                         root: init_path,
                                         "ionfunction.cmd": createIonFunction((element) => {
                                         }),
