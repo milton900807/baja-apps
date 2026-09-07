@@ -1061,7 +1061,21 @@ function () {
                 const _a0 = ('' + (alternate0 == null ? '' : alternate0)).toUpperCase();
                 const changeStr = (!isPeptide && _r0 && _a0 && _r0 !== _a0) ? `${reference0}>${alternate0}` : '';
                 const title = (phase === 1) ? `${id}: ${name}` : `${name}`;
-                const mainLabel = changeStr ? ` ${changeStr} ` : ` ${name || 'variant'} `;
+                // A CHANGE THAT HAS A NAME IS SHOWN BY ITS NAME. "A>T" is what the marker said
+                // for a variant placed as K27M, which is the one thing about it nobody needed
+                // telling: the bases are on the sequence directly underneath. A named change
+                // carries a LABEL annotation, so when there is one it is the label, and a
+                // database row with no name of its own still shows its base change as before.
+                let annotLabel = '';
+                try {
+                    for (const a of (annotations || [])) {
+                        const i = ('' + a).indexOf('=');
+                        if (i > 0 && ('' + a).slice(0, i) === 'LABEL') { annotLabel = ('' + a).slice(i + 1); break; }
+                    }
+                } catch (e) { annotLabel = ''; }
+                const mainLabel = annotLabel
+                    ? ` ${annotLabel} `
+                    : (changeStr ? ` ${changeStr} ` : ` ${name || 'variant'} `);
 
                 // Opaque-enough white panel so the label text stays readable over the sequence
                 // letters / track features behind it.
