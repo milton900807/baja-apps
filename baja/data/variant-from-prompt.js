@@ -153,10 +153,32 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
         //
         // A text that names a change ("K27M", "TP53 R175H") is not a context and is sent
         // straight down the ordinary path below.
+        //
+        // THE ENUMERATION RUNS EVEN WHEN THE TRACKS ARE ALREADY ON THE GRAPH. It used to be
+        // skipped in that case, and each track then asked separately what the condition
+        // meant -- the same question put N times, which is N chances to answer it
+        // differently. A change named on the first track and not on the second came back
+        // looking like a change the second transcript had refused, when nobody had ever
+        // offered it. Ask once, hold the answer, and put it on the tracks when the tracks
+        // are there.
+        //
+        // As the track says it -- mouse Sod1 is Sod1 in a status line, not SOD1. Matching
+        // against the enumeration uppercases at the point of comparison instead.
+        const geneSymbolOf = (t) => {
+            try {
+                const d = '' + ((t && t.description) || '');
+                return '' + (d.split(';')[0].trim() || (t && t.geneID) || (t && t.name) || '');
+            } catch (e) { return '' + ((t && t.name) || ''); }
+        };
+        //
+        // A text that plainly names ONE change -- "K27M", "TP53 R175H", "p.Arg175His",
+        // "c.83A>T", an rsID -- is not a condition, and asking the enumerator about it
+        // spends a model call to be told so.
+        const ONE_CHANGE = /^(?:[A-Za-z0-9-]{1,20}\s+)?(?:p\.\S+|c\.\S+|g\.\S+|rs\d+|[A-Z]\d+[A-Z*])$/;
         const em0 = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
         let byGene = null, contextName = '', isSample = false, contextNote = '';
         try {
-            if (pinned && onTracks.length) throw new Error('pinned');
+            if (ONE_CHANGE.test(text.trim())) throw new Error('names one change');
             const dv = await exec(server + '/py/bio/disease-variants.py', em0, text, '12');
             const isCtx = dv && (dv.is_context === true || dv.is_context === 'true');
             if (isCtx && !dv.error) {
@@ -183,9 +205,31 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
         let plan = [];
         const before = new Set((graph.track || []).map((t) => t));
         if (pinned && onTracks.length) {
-            plan = onTracks.map((t) => ({ track: t, given: null, gene: '' }));
-            say('Finding the changes of ' + (plan.length === 1 ? 'this transcript' : 'these transcripts')
-                + ' linked to "' + pinned + '"…');
+            // Nothing is loaded here: these tracks are on the graph already, chosen for this
+            // query. Each is handed the changes the enumeration above named for ITS gene, so
+            // the set is fixed before any of it is placed. Where a track's symbol does not
+            // match anything enumerated -- an alias, a track named for its id -- it falls
+            // back to being asked directly, which is what every track used to do.
+            plan = onTracks.map((t) => {
+                const g = geneSymbolOf(t);
+                const given = (byGene && g) ? byGene.get(g.toUpperCase()) : null;
+                return { track: t, given: (given && given.length) ? given : null, gene: g };
+            });
+            // ONE GENE ENUMERATED, AND TRACKS THAT DO NOT SAY SO. H3-3A and H3F3A are the
+            // same gene; a track carrying one name and an enumeration carrying the other
+            // match nothing and lose every change. With a single gene named there is no
+            // ambiguity about which one they are.
+            if (byGene && byGene.size === 1 && plan.every((p) => !p.given)) {
+                const only = Array.from(byGene.values())[0];
+                for (const p of plan) p.given = only;
+            }
+            const named = plan.reduce((n, p) => n + ((p.given && p.given.length) || 0), 0);
+            say(named
+                ? (contextName || pinned) + ' — ' + named + ' change' + (named === 1 ? '' : 's')
+                    + ' named; checking ' + (plan.length === 1 ? 'the transcript' : 'the transcripts')
+                    + ' on the graph…'
+                : 'Finding the changes of ' + (plan.length === 1 ? 'this transcript' : 'these transcripts')
+                    + ' linked to "' + pinned + '"…');
         } else if (byGene) {
             const genes = Array.from(byGene.keys());
             const total = Array.from(byGene.values()).reduce((n, a) => n + a.length, 0);
@@ -260,7 +304,7 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             const entries = cdsi.slice().sort((a, b) => (a.codon_index - b.codon_index) || (a.ci - b.ci));
             const cds = entries.map((e) => Strand.codingBaseAt(track, e.index, orient)).join('');
 
-            const gene = (() => { try { const d = '' + (track.description || ''); return d.split(';')[0].trim() || track.geneID || track.name || ''; } catch (e) { return track.name || ''; } })();
+            const gene = geneSymbolOf(track);
 
             // ---- ask ----------------------------------------------------------------------------
             const ctx = {

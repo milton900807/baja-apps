@@ -3,17 +3,19 @@ function (server, graph, genegraph_panel_layout) {
     //
     //   1. say which gene, in words or as an id. The resolver returns the transcripts it
     //      thinks are meant -- the canonical one unless the description asks otherwise.
-    //   2. tick the transcripts to load, and decide whether the load is confined to what
-    //      was just ticked.
+    //   2. tick the transcripts to load.
     //
-    // Step 2 asked a second question -- "which variants to load (optional)" -- and it is
-    // gone. It was optional in the way that matters least: nearly always left empty, and
-    // when it was not it said something the first box could already say. One box, read for
-    // everything it can say, is one place to be wrong instead of two.
+    // Step 2 asked two more questions and asks neither now. "Which variants to load
+    // (optional)" was optional in the way that matters least -- nearly always left empty,
+    // and when it was not it said something the first box could already say. The
+    // constraint tickbox offered to scatter the load across every track on the board,
+    // which is not a thing anyone wants.
     //
-    // The step-2 constraint is the point of the whole flow: variants are placed ONLY on the
-    // transcripts chosen here, so a ClinVar load meant for SMN1 cannot scatter itself over
-    // every other track that happens to be open.
+    // What is left is the one decision that is really a decision: which transcripts.
+    //
+    // The constraint is the point of the whole flow, and it is now unconditional: variants
+    // are placed ONLY on the transcripts chosen in step 2, so a ClinVar load meant for SMN1
+    // cannot scatter itself over every other track that happens to be open.
     const PY = '/py/sequence/prompt-to-transcript.py';
     const TRANSCRIPT_ID_RE = /^ENS[A-Z]*T\d+$/i;
     const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -131,21 +133,17 @@ function (server, graph, genegraph_panel_layout) {
                 + '<a id="vt-all" href="#" style="color:#8ab4ff;">Select all</a>'
                 + '<a id="vt-none" href="#" style="color:#8ab4ff;">Select none</a></div>'
                 + list.map(row).join('')
-                + '<label style="' + LBL + 'margin-top:22px;">Constraint</label>'
-                + '<label style="display:flex;align-items:flex-start;gap:9px;font:13px Arial;cursor:pointer;">'
-                + '<input type="checkbox" id="vt-only" checked style="margin-top:2px;"/>'
-                + '<span>Load variants onto these transcripts only</span></label>'
-                + '<div id="vt-note" style="font:12px Arial;color:#9fb3c8;margin:8px 0 0 27px;"></div>'
+                // The constraint is not a question any more. It was a ticked box reading
+                // "Load variants onto these transcripts only", and unticking it scattered a
+                // load meant for SMN1 over every other track that happened to be open --
+                // which is not a thing anyone wants, so it is now simply how this works.
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-top:18px;">'
+                + 'Every variant found lands on the transcripts ticked above. '
+                + 'Nothing else on the board is touched.</div>'
         });
         const q = (s) => panel.querySelector(s);
         const qa = (s) => Array.prototype.slice.call(panel.querySelectorAll(s));
         const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-        const note = () => {
-            q('#vt-note').innerHTML = q('#vt-only').checked
-                ? 'Every variant found lands on the transcripts ticked above. Nothing else on the board is touched.'
-                : 'Variants are also placed on the tracks already open, which may not be the gene you asked for.';
-        };
-        q('#vt-only').onchange = note; note();
         q('#vt-all').onclick = (e) => { e.preventDefault(); qa('.vt-t').forEach((c) => { c.checked = true; }); };
         q('#vt-none').onclick = (e) => { e.preventDefault(); qa('.vt-t').forEach((c) => { c.checked = false; }); };
         panel.addEventListener('keydown', (e) => {
@@ -157,7 +155,7 @@ function (server, graph, genegraph_panel_layout) {
         q('#vt-go').onclick = () => {
             const chosen = qa('.vt-t').filter((c) => c.checked).map((c) => list[+c.getAttribute('data-i')]);
             if (!chosen.length) { say('Tick at least one transcript to load.'); return; }
-            const out = { chosen: chosen, only: !!q('#vt-only').checked };
+            const out = { chosen: chosen };
             close(); resolve(out);
         };
     });
@@ -308,7 +306,8 @@ function (server, graph, genegraph_panel_layout) {
                 restoreHover();
                 return true;
             }
-            const targets = pick.only ? loaded : null;
+            // Always the transcripts that were ticked, never the whole board.
+            const targets = loaded;
             let dbFilter = wish.filter;
             if (wish.narrow) {
                 // A database AND a condition: narrow by the disease names the records are
@@ -331,7 +330,7 @@ function (server, graph, genegraph_panel_layout) {
                 + ' onto ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's') + '…');
             try {
                 await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
-                    wish.db, wish.dbLabel, !targets, targets, dbFilter);
+                    wish.db, wish.dbLabel, false, targets, dbFilter);
             } catch (e) {
                 say('Loaded ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's')
                     + ', but the ' + wish.dbLabel + ' load failed: ' + (e && e.message ? e.message : e));
