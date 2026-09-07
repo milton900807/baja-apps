@@ -7418,7 +7418,7 @@ return new Promise(async (resolve, reject) => {
             try {
               const __ta = graph.__topAnnos || [];
               __ta.sort((a, b) => (a.sel === b.sel) ? 0 : (a.sel ? 1 : -1));
-              for (const __a of __ta) SnpIndel._drawAnnotationLeader(graph, __a.hx, __a.hy, __a.text);
+              for (const __a of __ta) SnpIndel._drawAnnotationLeader(graph, __a.hx, __a.hy, __a.text, __a.sig);
               graph.__topAnnos = [];
             } catch (e) { }
           }

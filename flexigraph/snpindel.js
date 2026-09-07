@@ -401,62 +401,228 @@ function () {
                 return rw;
             }
 
-            // Clinical annotation (the SnpIndel's `annotation` text) shown as a LEADER LINE from
-            // the marker head out to a wrapped text description — a callout, not a bubble.
-            // Positioned above the marker and bumped up to avoid overlapping other annotations
-            // placed this frame (graph.__annoBoxes, reset per frame in graph.js drawBackdrop).
-            static _drawAnnotationLeader(graph, hx, hy, text) {
+            // ---- the callout ---------------------------------------------------------------
+            //
+            // The annotation is no longer a sentence; it is a record, composed as
+            //
+            //     Cystic fibrosis (OMIM:219700) · Pathogenic · truncates the protein ·
+            //     loss of function — chloride channel function is lost
+            //
+            // and it was being drawn as one undifferentiated wrapped blob in a square white
+            // box, with the middle dots breaking wherever the wrap happened to fall. The parts
+            // are not equal: the phenotype is what this is, the classification is a verdict
+            // worth colouring, and the mechanism is the detail you read second. So it is set
+            // like a record -- a heading, a chip, and body text -- rather than a paragraph.
+            //
+            // Same drawing vocabulary as _drawTextOnBackdrop, which this had drifted away from:
+            // rounded corners, a hairline border, one soft shadow.
+
+            // Clinical significance decides the colour, everywhere it is shown. "Conflicting
+            // classifications of pathogenicity" contains the word pathogenic and is tested for
+            // FIRST -- ordering is the whole guard here, as it is everywhere else this string
+            // gets read.
+            static _sigStyle(sig) {
+                const t = ('' + (sig || '')).toLowerCase();
+                if (!t) return null;
+                if (t.indexOf('conflict') >= 0) return { fg: '#475569', bg: '#f1f5f9', line: '#cbd5e1' };
+                if (t.indexOf('pathogenic') >= 0) return { fg: '#b91c1c', bg: '#fef2f2', line: '#fecaca' };
+                if (t.indexOf('benign') >= 0) return { fg: '#15803d', bg: '#f0fdf4', line: '#bbf7d0' };
+                if (t.indexOf('uncertain') >= 0 || t.indexOf('vus') >= 0) return { fg: '#b45309', bg: '#fffbeb', line: '#fde68a' };
+                return { fg: '#475569', bg: '#f8fafc', line: '#e2e8f0' };
+            }
+
+            static _roundRectPath(ctx, x, y, w, h, r) {
+                const rr = Math.min(r, w / 2, h / 2);
+                ctx.beginPath();
+                ctx.moveTo(x + rr, y);
+                ctx.arcTo(x + w, y, x + w, y + h, rr);
+                ctx.arcTo(x + w, y + h, x, y + h, rr);
+                ctx.arcTo(x, y + h, x, y, rr);
+                ctx.arcTo(x, y, x + w, y, rr);
+                ctx.closePath();
+            }
+
+            static _drawAnnotationLeader(graph, hx, hy, text, sig) {
                 const ctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
                 if (!ctx || !text) return;
                 const cw = ctx.canvas.width, ch = ctx.canvas.height;
                 if (!(hx > -60 && hx < cw + 60 && hy > -60 && hy < ch + 60)) return;
-                ctx.save();
-                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
-                const FS = 11, lineH = 14, maxW = 220, pad = 5;
-                ctx.font = FS + 'px system-ui, -apple-system, Roboto, Arial, sans-serif';
-                ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-                // word-wrap
-                const words = ('' + text).replace(/\s+/g, ' ').trim().split(' ');
-                const lines = []; let cur = '';
-                for (const w of words) {
-                    const test = cur ? cur + ' ' + w : w;
-                    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
-                    else cur = test;
+
+                const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+                const TITLE_FS = 12.5, BODY_FS = 11, CHIP_FS = 10, MUTED_FS = 10.5;
+                const lineH = 15, maxW = 258, padX = 11, padY = 9, radius = 6;
+
+                // The composed record splits on the middle dot. Anything that was set by hand
+                // -- the per-variant lookup writes a paragraph -- has no dots and becomes the
+                // body, with no heading and no chip, which is what a paragraph should look
+                // like.
+                const parts = ('' + text).split('·').map((p) => p.trim()).filter(Boolean);
+                const composed = parts.length > 1;
+                let title = '', ident = '', chip = '', body = '';
+                if (composed) {
+                    const head = parts[0];
+                    const m = head.match(/^(.*?)\s*\((OMIM:[^)]+)\)\s*$/);
+                    title = m ? m[1] : head;
+                    ident = m ? m[2] : '';
+                    const rest = parts.slice(1);
+                    // The classification is whichever part _sigStyle recognises; it is not
+                    // always second, and a record with none simply has no chip.
+                    let ci = -1;
+                    for (let i = 0; i < rest.length; i++) {
+                        const st = SnpIndel._sigStyle(rest[i]);
+                        if (st && /pathogenic|benign|uncertain|conflict|vus/i.test(rest[i])) { ci = i; break; }
+                    }
+                    if (ci >= 0) { chip = rest[ci]; rest.splice(ci, 1); }
+                    body = rest.join(' · ');
+                } else {
+                    body = parts[0] || ('' + text);
                 }
-                if (cur) lines.push(cur);
-                const maxLines = 7;
-                if (lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, '') + '…'; }
-                let tw = 0; for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
-                const bw = tw + pad * 2, bh = lines.length * lineH + pad * 2;
-                // Block above the marker, offset to a side; bump up to clear earlier annotations.
+
+                const wrap = (str, font, width) => {
+                    ctx.font = font;
+                    const out = [];
+                    let cur = '';
+                    for (const w of ('' + str).replace(/\s+/g, ' ').trim().split(' ')) {
+                        const test = cur ? cur + ' ' + w : w;
+                        if (cur && ctx.measureText(test).width > width) { out.push(cur); cur = w; }
+                        else cur = test;
+                    }
+                    if (cur) out.push(cur);
+                    return out;
+                };
+
+                const titleFont = '600 ' + TITLE_FS + 'px ' + FONT;
+                const bodyFont = BODY_FS + 'px ' + FONT;
+                const chipFont = '600 ' + CHIP_FS + 'px ' + FONT;
+                const mutedFont = MUTED_FS + 'px ' + FONT;
+
+                const titleLines = title ? wrap(title, titleFont, maxW) : [];
+                const bodyLines = body ? wrap(body, bodyFont, maxW) : [];
+                // Six lines of body is a callout; more is a document, and the marker it points
+                // at stops being findable among them.
+                const MAXB = 6;
+                if (bodyLines.length > MAXB) {
+                    bodyLines.length = MAXB;
+                    bodyLines[MAXB - 1] = bodyLines[MAXB - 1].replace(/\s*\S*$/, '') + '…';
+                }
+
+                ctx.font = chipFont;
+                const chipTextW = chip ? ctx.measureText(chip).width : 0;
+                const chipW = chip ? chipTextW + 14 : 0, chipH = 16;
+                ctx.font = mutedFont;
+                const identW = ident ? ctx.measureText(ident).width : 0;
+
+                let tw = 0;
+                ctx.font = titleFont;
+                for (const l of titleLines) tw = Math.max(tw, ctx.measureText(l).width);
+                ctx.font = bodyFont;
+                for (const l of bodyLines) tw = Math.max(tw, ctx.measureText(l).width);
+                tw = Math.max(tw, identW, chipW);
+
+                const bw = Math.ceil(tw) + padX * 2 + 3;   // +3 for the accent rail
+                const bh = padY * 2
+                    + titleLines.length * (TITLE_FS + 4)
+                    + (ident ? MUTED_FS + 4 : 0)
+                    + (chip ? chipH + 5 : 0)
+                    + bodyLines.length * lineH
+                    + ((titleLines.length && (bodyLines.length || chip)) ? 3 : 0);
+
+                // Above the marker, on the side with room, bumped clear of callouts already
+                // placed this frame.
                 const side = (hx < cw * 0.62) ? 1 : -1;
-                let bx = (side >= 0) ? (hx + 16) : (hx - 16 - bw);
-                // Sit well ABOVE the marker so the callout clears the transcript / protein
-                // sequence rows drawn near the track.
-                let by = hy - 64 - bh;
+                let bx = (side >= 0) ? (hx + 18) : (hx - 18 - bw);
+                let by = hy - 60 - bh;
                 const used = (graph.__annoBoxes = graph.__annoBoxes || []);
                 let guard = 0;
-                while (guard++ < 40 && used.some(r => !(bx + bw < r.x - 4 || bx > r.x + r.w + 4 || by + bh < r.y - 4 || by > r.y + r.h + 4))) {
-                    by -= (bh + 6);
+                while (guard++ < 40 && used.some((r) => !(bx + bw < r.x - 5 || bx > r.x + r.w + 5
+                    || by + bh < r.y - 5 || by > r.y + r.h + 5))) {
+                    by -= (bh + 8);
                 }
                 bx = Math.max(6, Math.min(bx, cw - bw - 6));
                 by = Math.max(6, Math.min(by, ch - bh - 6));
                 used.push({ x: bx, y: by, w: bw, h: bh });
-                // Leader line from the marker head to the block edge facing it.
-                const ax = Math.max(bx, Math.min(hx, bx + bw));
-                const ay = (by + bh <= hy) ? (by + bh) : (by >= hy ? by : hy);
-                ctx.strokeStyle = 'rgba(20,45,72,0.55)'; ctx.lineWidth = 1; ctx.lineCap = 'round';
-                ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ax, ay); ctx.stroke();
-                ctx.fillStyle = 'rgba(20,45,72,0.75)'; ctx.beginPath(); ctx.arc(hx, hy, 1.7, 0, Math.PI * 2); ctx.fill();
-                // Solid panel behind the annotation so the text is clearly readable over the
-                // sequence / track features (soft shadow to lift it off the background).
-                ctx.shadowColor = 'rgba(0,0,0,0.28)'; ctx.shadowBlur = 5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 2;
-                ctx.fillStyle = 'rgba(255,255,255,0.97)';
-                ctx.fillRect(bx, by, bw, bh);
+
+                const st = SnpIndel._sigStyle(sig || chip) || { fg: '#475569', bg: '#f8fafc', line: '#e2e8f0' };
+
+                ctx.save();
+                ctx.textBaseline = 'top';
+                ctx.textAlign = 'left';
+
+                // Leader: down the marker, then a short jog to the panel edge. A straight
+                // diagonal across a dense track reads as one more feature; an elbow reads as a
+                // pointer.
+                const anchorX = Math.max(bx + 14, Math.min(hx, bx + bw - 14));
+                const boxBottom = by + bh;
+                const elbowY = Math.min(hy - 6, boxBottom + 10);
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = 'rgba(71,85,105,0.55)';
+                ctx.lineWidth = 1;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(hx, hy);
+                if (elbowY < hy) { ctx.lineTo(hx, elbowY); ctx.lineTo(anchorX, boxBottom); }
+                else { ctx.lineTo(anchorX, boxBottom); }
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(71,85,105,0.85)';
+                ctx.beginPath(); ctx.arc(hx, hy, 2, 0, Math.PI * 2); ctx.fill();
+
+                // Panel: one soft shadow, a hairline border, rounded like everything else.
+                ctx.shadowColor = 'rgba(15,23,42,0.22)';
+                ctx.shadowBlur = 8; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 2;
+                ctx.fillStyle = 'rgba(255,255,255,0.98)';
+                SnpIndel._roundRectPath(ctx, bx, by, bw, bh, radius);
+                ctx.fill();
                 ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-                ctx.fillStyle = 'rgba(20,45,72,0.6)'; ctx.fillRect(bx, by, 2.5, bh);   // slim accent on the leader side
-                ctx.fillStyle = '#12304a';
-                for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + pad, by + pad + i * lineH);
+                ctx.strokeStyle = 'rgba(15,23,42,0.14)';
+                ctx.lineWidth = 1;
+                SnpIndel._roundRectPath(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, radius);
+                ctx.stroke();
+
+                // The accent rail, clipped to the panel so it keeps the corner radius rather
+                // than sticking out square at the top and bottom as the old 2.5px bar did.
+                ctx.save();
+                SnpIndel._roundRectPath(ctx, bx, by, bw, bh, radius);
+                ctx.clip();
+                ctx.fillStyle = st.fg;
+                ctx.globalAlpha = 0.85;
+                ctx.fillRect(bx, by, 3, bh);
+                ctx.globalAlpha = 1;
+                ctx.restore();
+
+                let y = by + padY;
+                const x = bx + 3 + padX;
+
+                ctx.font = titleFont;
+                ctx.fillStyle = '#0f172a';
+                for (const l of titleLines) { ctx.fillText(l, x, y); y += TITLE_FS + 4; }
+
+                if (ident) {
+                    ctx.font = mutedFont;
+                    ctx.fillStyle = '#64748b';
+                    ctx.fillText(ident, x, y);
+                    y += MUTED_FS + 4;
+                }
+
+                if (chip) {
+                    ctx.fillStyle = st.bg;
+                    SnpIndel._roundRectPath(ctx, x, y, chipW, chipH, 8);
+                    ctx.fill();
+                    ctx.strokeStyle = st.line;
+                    ctx.lineWidth = 1;
+                    SnpIndel._roundRectPath(ctx, x + 0.5, y + 0.5, chipW - 1, chipH - 1, 8);
+                    ctx.stroke();
+                    ctx.font = chipFont;
+                    ctx.fillStyle = st.fg;
+                    ctx.fillText(chip, x + 7, y + (chipH - CHIP_FS) / 2 - 0.5);
+                    y += chipH + 5;
+                }
+
+                if (titleLines.length && bodyLines.length) y += 3;
+                ctx.font = bodyFont;
+                ctx.fillStyle = '#475569';
+                for (const l of bodyLines) { ctx.fillText(l, x, y); y += lineH; }
+
                 ctx.restore();
             }
 
@@ -1114,7 +1280,7 @@ function () {
                     const sx1 = Math.round(tgraph.X(this.xi));
                     const sx2 = Math.round(tgraph.X(this.xi + 1));
                     SnpIndel._drawSnpMarker(this, graph, sx1, sx2, y0, yPix, cellPx, highlightColor, neutralStroke, phaseColor);
-                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight }); }
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight, sig: this.clinsig || '' }); }
                     if (__dimCtx) __dimCtx.globalAlpha = 1;
                     return;
                 }
@@ -1125,7 +1291,7 @@ function () {
                     // highlight the WHOLE CODON (xi..xf spans 3 nt) with the same spanning marker.
                     // Type 'AA' keeps it clearly a substitution, not a deletion.
                     SnpIndel._drawIndel3D(this, graph, x1, x2, yPix, y0, phaseColor, isIns);
-                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight }); }
+                    if (this.annotation && this.showAnnotation !== false && !__dimmed && cellPx > 2.5) { (graph.__topAnnos = graph.__topAnnos || []).push({ hx: screenX, hy: this._screenY, text: this.annotation, sel: !!this.highlight, sig: this.clinsig || '' }); }
                 } else {
                     let drew = false;
                     const isCoarse = cellPx > 5;
@@ -1403,10 +1569,15 @@ function () {
                 const y3 = rowY;
 
                 if (clinsig) {
+                    // COLOURED BY WHAT IT SAYS. This pill was mint green whatever the
+                    // classification, so a pathogenic variant and a benign one were shown in
+                    // the reassuring colour and only the words told them apart -- and the
+                    // words are the part a reader skims past.
+                    const _st = SnpIndel._sigStyle(clinsig) || { fg: '#065F46', bg: '#ECFDF5', line: '#A7F3D0' };
                     SnpIndel._drawPill(graph, detailLine, textX, y3, {
-                        bg: '#ECFDF5',
-                        fg: '#065F46',
-                        stroke: '#A7F3D0'
+                        bg: _st.bg,
+                        fg: _st.fg,
+                        stroke: _st.line
                     });
                     if (__ddCtx) __ddCtx.globalAlpha = 1;
                     return;
