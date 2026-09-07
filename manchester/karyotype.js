@@ -114,7 +114,6 @@ function (path, config) {
         // document -- the status line reported 25 chromosomes and the screen stayed empty,
         // which is exactly what a correct program with no canvas looks like.
         const graph = await exec('flexigraph/gene.js');
-        graph.plots = graph.plots || [];
 
         const geneGraph = await graph.createComponent();
         geneGraph.height = '100%';
@@ -164,13 +163,23 @@ function (path, config) {
         const barLeft = (i) => slotOf(i) - BAR_W / 2;
         const barRight = (i) => slotOf(i) + BAR_W / 2;
 
-        // The ideogram. It draws itself in WORLD coordinates through graph.X/graph.Y, so it
-        // pans and zooms with everything else on the canvas rather than being an overlay that
-        // has to be told what the viewport is doing.
-        const plot = {
-            draw: (g) => {
-                const ctx = (g && g.canvas && g.canvas.getCTX) ? g.canvas.getCTX() : null;
-                if (!ctx) return;
+        // The ideogram, drawn in WORLD coordinates through g.X / g.Y so it pans and zooms
+        // with everything else rather than being an overlay that has to be told what the
+        // viewport is doing.
+        //
+        // NOT graph.plots. That list looks like the obvious hook -- the renderer walks it and
+        // calls draw() on each entry -- but it is the MPlot family's list, and the mouse
+        // handlers call .inside(grid, x, y) and read .grid on everything in it. An object
+        // with only a draw() threw "pl.inside is not a function" on every mouse event, which
+        // took the whole interaction down with it.
+        //
+        // highlightmethod(ctx, geneGraph) is the per-frame hook with no other contract --
+        // measure-track.js and variant-tools.js both use it exactly this way. The one thing
+        // to know is that clearMouseListeners() nulls it, so arm() re-installs it after
+        // clearing, every time.
+        const paint = (ctx, g) => {
+            {
+                if (!ctx || !g) return;
                 ctx.save();
                 ctx.textBaseline = 'top';
                 ctx.textAlign = 'center';
@@ -270,7 +279,6 @@ function (path, config) {
                 ctx.restore();
             }
         };
-        graph.plots.push(plot);
 
         // ---- which chromosome and which base is under a point --------------------------------
         const at = (wx, wyWorld) => {
@@ -288,6 +296,9 @@ function (path, config) {
         // every zoom level, and the rectangle handed to zoomRect is the rectangle drawn.
         const arm = () => {
             graph.clearMouseListeners();
+            // AFTER the clear, which nulls it (gene.js clearMouseListeners). Re-installing it
+            // here rather than once at startup is why the chromosomes survive every re-arm.
+            graph.highlightmethod = paint;
             graph.setMouseMode('msg: Drag down a chromosome to choose a region.');
             let from = null;
             graph.addMouseDownListener((x, y) => { from = { x: graph.Xwc(x), y: graph.Ywc(y) }; });
@@ -358,6 +369,7 @@ function (path, config) {
             await graph.zoomRect(-0.4, drawn.length + 0.4, maxMb * 0.06, -maxMb * 1.12, 0);
             if (graph.wake) graph.wake();
         };
+        graph.highlightmethod = paint;
         whenSized(async () => {
             try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
             try { if (graph.rescale) graph.rescale(); } catch (e) { }
