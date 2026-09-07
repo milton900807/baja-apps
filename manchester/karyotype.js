@@ -1495,6 +1495,7 @@ function (path, config) {
         // Open uses the SAME file browser the editor's Open does -- simple-file-browser rooted
         // at the user's drive -- so there is one way to find a file in this application rather
         // than a second one that only this view knows about.
+        let openRestore = null;
         const openJson = async () => {
             const host_ = window['env']['apiUrl'];
             const browser = {
@@ -1508,7 +1509,7 @@ function (path, config) {
                     'ionfunction.path': createIonFunction(() => { }),
                     'ionfunction.openfile': createIonFunction(() => { }),
                     'ionfunction.fileClick': createIonFunction(async (element) => {
-                        try { hideAllModal(); } catch (e) { }
+                        try { if (openRestore) openRestore(); } catch (e) { }
                         graph.setMessage(' Opening ' + (element && element.name) + '… ');
                         try {
                             // element.path as-is: the browser roots at the user's folder id and
@@ -1525,11 +1526,53 @@ function (path, config) {
                     }),
                 }
             };
-            try {
-                showModal({
-                    wid: 'card', height: '100%',
-                    data: { cards: [[{ width: '100%', height: '100%', component: browser }]] }
+            // THE WHOLE PANEL, not a modal. showModal renders into a dialog the host sizes,
+            // and a file browser in a small box is a file browser you scroll instead of read.
+            // Taking over mainPanel -- the way upload-data.js does -- gives it the screen, and
+            // Close puts the karyotype back by setting the layout this app already built.
+            const restore = () => {
+                try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+                try { CurrentLayout.setComponent('mainPanel', main_layout); } catch (e) { }
+                // The canvas comes back into a panel that has just been resized, so it needs
+                // the same nudge the first mount did or it draws against stale dimensions.
+                whenSized(() => {
+                    try { if (graph.graph && graph.graph.grid && graph.graph.grid.rescale) graph.graph.grid.rescale(); } catch (e) { }
+                    try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                    try { if (graph.wake) graph.wake(); } catch (e) { }
                 });
+            };
+            const browser_layout = {
+                wid: 'card',
+                height: '100%',
+                componentRef: 'mainPanel',
+                data: {
+                    cards: [[
+                        {
+                            'width': '100%',
+                            'component': {
+                                wid: 'button-menu',
+                                data: {
+                                    buttons: [
+                                        {
+                                            label: 'Close', icon: 'close',
+                                            tooltip: 'Back to the chromosomes',
+                                            ionFunction: createIonFunction(() => { restore(); })
+                                        },
+                                    ]
+                                }
+                            }
+                        }
+                    ], [
+                        { 'width': '100%', 'height': '100%', 'component': browser }
+                    ]]
+                }
+            };
+            // fileClick restores the panel itself, so the karyotype is back before the file
+            // has finished loading onto it.
+            openRestore = restore;
+            try {
+                CurrentLayout.clearComponent('mainPanel');
+                CurrentLayout.setComponent('mainPanel', browser_layout);
             } catch (e) { graph.setMessage(' The file browser could not be opened: ' + e + ' '); }
         };
 
