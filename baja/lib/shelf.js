@@ -361,7 +361,7 @@ function (opts) {
                 + '<div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">'
                 + (typeof b.open === 'function' ? ('<button id="shelf-load" style="cursor:pointer;border-radius:9px;'
                     + 'padding:11px 18px;font:700 13.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">'
-                    + 'Load this data</button>') : '')
+                    + 'Load</button>') : '')
                 + '<button id="shelf-back" style="cursor:pointer;border-radius:9px;padding:11px 18px;'
                 + 'font:700 13.5px Arial;border:1px solid rgba(255,255,255,0.28);background:transparent;color:#e8f0fb;">'
                 + '\u2039 Back to the library</button>'
