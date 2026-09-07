@@ -785,7 +785,52 @@ function () {
                         else if (key === 'CLNDN') this.clindn = t;
                     }
                     this.annotations = annotation_array;
+                    this._deriveAnnotationText();
                 }
+            }
+
+            // THE CALLOUT TEXT, from what the record already says.
+            //
+            // _drawAnnotationLeader draws `this.annotation`, and until now the only things that
+            // ever set it were the per-variant "what is this variant" lookup and the
+            // points-of-interest flow. A variant loaded from ClinVar never got one -- so the
+            // track menu's "Show annotations" turned on a flag for text that did not exist and
+            // appeared to do nothing at all. The material was right there on the record the
+            // whole time: what it is called, what it was classified as, and what it does to the
+            // protein.
+            //
+            // showAnnotation is set to false alongside it, deliberately. The draw gate reads
+            // `showAnnotation !== false`, so undefined PASSES -- filling in the text without
+            // this would put a callout on every one of three thousand ClinVar variants the
+            // moment they load, which is not showing annotations, it is burying the track.
+            // Off by default, and the menu that offers to show them now has something to show.
+            // Anything that set the text itself keeps whatever it chose.
+            _deriveAnnotationText() {
+                if (this.annotation) return;
+                const of = (key) => {
+                    for (const a of (this.annotations || [])) {
+                        const i = ('' + a).indexOf('=');
+                        if (i > 0 && ('' + a).slice(0, i) === key) return ('' + a).slice(i + 1);
+                    }
+                    return '';
+                };
+                const tidy = (v) => ('' + v).replace(/_/g, ' ').replace(/\|/g, '; ').trim();
+                const parts = [];
+                const dn = tidy(this.clindn || of('CLNDN'));
+                // "not provided" and "not specified" are ClinVar saying it has no condition for
+                // this record. Printing them back is worse than printing nothing.
+                if (dn && !/^(not provided|not specified)$/i.test(dn)) parts.push(dn);
+                const sig = tidy(this.clinsig || of('CLNSIG'));
+                if (sig) parts.push(sig);
+                const mc = of('MC');
+                if (mc) {
+                    // SO:0001583|missense_variant -> missense variant
+                    const words = mc.split(',').map((x) => tidy(x.split('|').pop())).filter(Boolean);
+                    if (words.length) parts.push(words.join(', '));
+                }
+                if (!parts.length) return;
+                this.annotation = parts.join(' — ');
+                if (this.showAnnotation === undefined) this.showAnnotation = false;
             }
 
             select() {
