@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import shutil
@@ -146,6 +147,14 @@ else:
             consequence = info["MC"].split("|")[-1] if info.get("MC") else None
             disease = None
             conditions = []
+            mims = []
+            if info.get("CLNDISDB"):
+                seen = set()
+                for m in re.finditer(r"OMIM:(PS)?(\d+)", info["CLNDISDB"]):
+                    mid = ("PS" if m.group(1) else "") + m.group(2)
+                    if mid not in seen:
+                        seen.add(mid)
+                        mims.append(mid)
             if info.get("CLNDN"):
                 disease = info["CLNDN"].replace("_", " ").replace("|", "; ").strip()
                 # The diseases as a LIST, not as one joined string. A condition filter has to
@@ -180,6 +189,14 @@ else:
                     "gene": gene,
                     "disease": disease,
                     "conditions": conditions,
+                    # THE OMIM PHENOTYPE IDS, from CLNDISDB. A condition filter that matches on
+                    # names is guessing at wording -- "coronary heart disease" against "Coronary
+                    # artery disease" -- and these are the same thing said as an identifier. The
+                    # disease route resolves a prompt to MIM numbers and filters on exactly
+                    # these, so a record either was filed against that phenotype or it was not.
+                    # Series ids (OMIM:PS268000) are kept alongside the plain ones because a
+                    # record carries both and either may be what was asked for.
+                    "mims": mims,
                     "annotations": annotations,
                 })
                 if len(variants) >= MAX_ROWS:

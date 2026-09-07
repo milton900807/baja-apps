@@ -1,8 +1,14 @@
 function (server, graph, genegraph_panel_layout) {
     // Load a variant track, in two steps.
     //
-    //   1. say which gene, in words or as an id. The resolver returns the transcripts it
-    //      thinks are meant -- the canonical one unless the description asks otherwise.
+    //   1. say which disease, or which gene, in words or as an id.
+    //
+    //      A DISEASE GOES THROUGH OMIM. py/bio/omim-variants.py turns the words into OMIM
+    //      phenotype numbers, checked against an index built from ClinVar itself, and the
+    //      genes come out of the records rather than out of a model's memory -- so the
+    //      transcripts offered in step 2 are the ones the variants are actually on. Anything
+    //      that is not a disease with records behind it, and any disease ClinVar's germline
+    //      phenotypes do not cover, falls through to the transcript resolver as before.
     //   2. tick the transcripts to load.
     //
     // Step 2 asked two more questions and asks neither now. "Which variants to load
@@ -226,10 +232,83 @@ function (server, graph, genegraph_panel_layout) {
             if (!query) { restoreHover(); return false; }
             prefill = { query: query };
 
+            // ---- is this a disease with an OMIM phenotype behind it? ---------------------
+            // THE TRANSCRIPTS FOLLOW FROM THE VARIANTS, NOT THE OTHER WAY ROUND.
+            //
+            // Asked for "cystic fibrosis", the old order sent the words to the transcript
+            // resolver and hoped it would think of CFTR. The words are a disease, and a
+            // disease's genes are not something to be recalled: py/bio/omim-variants.py turns
+            // the prompt into OMIM phenotype numbers, checks every one against an index built
+            // from ClinVar itself, and the genes come out of the records. Transcripts are then
+            // loaded FOR those genes, and the variants that land are the real records filed
+            // against that phenotype -- with coordinates, so there is nothing to verify and
+            // nothing to lose.
+            //
+            // It returns nothing for a context ClinVar's germline phenotypes do not cover --
+            // DIPG is a somatic tumour and has no OMIM phenotype with records -- and that is
+            // not a failure. The flow below is unchanged for those, and enumerating the
+            // condition is the right answer for them.
+            let omim = null;
+            if (!TRANSCRIPT_ID_RE.test(query)) {
+                try {
+                    const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                    say('Looking up "' + query + '" in OMIM…');
+                    const o = await exec(server + '/py/bio/omim-variants.py', em, query, '6');
+                    let og = [], om = [], op = [];
+                    try { og = JSON.parse((o && o.genes) || '[]'); } catch (e) { og = []; }
+                    try { om = JSON.parse((o && o.mims) || '[]'); } catch (e) { om = []; }
+                    try { op = JSON.parse((o && o.phenotypes) || '[]'); } catch (e) { op = []; }
+                    if (o && !o.error && og.length && om.length) {
+                        omim = { disease: o.disease || query, mims: om, genes: og, phenotypes: op,
+                                 note: o.note || '' };
+                    }
+                } catch (e) { omim = null; }
+            }
+
             // Resolve. A bare transcript id is not a question for the model.
             let list = [], gene = '';
             if (TRANSCRIPT_ID_RE.test(query)) {
                 list = [{ id: query.toUpperCase(), canonical: true, why: 'the id you gave' }];
+            } else if (omim) {
+                const total = omim.phenotypes.reduce((n, p) => n + (p.variants || 0), 0);
+                say(omim.disease + ' — ' + omim.mims.map((m) => 'OMIM:' + m).join(', ')
+                    + ', ' + total + ' pathogenic record' + (total === 1 ? '' : 's')
+                    + ' in ' + omim.genes.length + ' gene' + (omim.genes.length === 1 ? '' : 's')
+                    + ': ' + omim.genes.join(', ') + '. Finding their transcripts…');
+                // How much of the phenotype each gene actually carries, so the reason shown
+                // beside a transcript is a number off the records rather than an assertion.
+                const carried = {};
+                for (const ph of omim.phenotypes) {
+                    for (const gc of (ph.genes || [])) {
+                        if (Array.isArray(gc) && gc.length === 2) carried[gc[0]] = (carried[gc[0]] || 0) + gc[1];
+                    }
+                }
+                const seenId = {};
+                for (const g of omim.genes) {
+                    let res = null;
+                    const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                    try { res = await exec(PY, em, 'canonical ' + g + ' in human'); } catch (e) { res = null; }
+                    let hits = [];
+                    try { hits = JSON.parse((res && res.transcripts) || '[]'); } catch (e) { hits = []; }
+                    const hit = hits.find((x) => x && x.canonical) || hits[0];
+                    if (!hit || !hit.id) continue;
+                    const id = ('' + hit.id).toUpperCase();
+                    if (seenId[id]) continue;
+                    seenId[id] = 1;
+                    list.push({
+                        id: id, gene: g, canonical: true, biotype: hit.biotype || '',
+                        why: (carried[g] || 0) + ' pathogenic ClinVar record'
+                            + ((carried[g] === 1) ? '' : 's') + ' for ' + omim.disease,
+                    });
+                }
+                gene = omim.disease;
+                if (!list.length) {
+                    // The genes are known and their transcripts are not. Say which, rather than
+                    // falling through to a resolver that will be asked the same failing question.
+                    prefill.notice = 'No transcript could be found for ' + omim.genes.join(', ')
+                        + ', so ' + omim.disease + ' has nowhere to go.';
+                    continue;
+                }
             } else {
                 say('Finding transcripts for "' + query + '"…');
                 let res = null;
@@ -267,6 +346,41 @@ function (server, graph, genegraph_panel_layout) {
                 prefill.notice = 'None of the chosen transcripts could be loaded'
                     + (failed.length ? ' (' + failed.join(', ') + ')' : '') + '. Try another transcript.';
                 continue;
+            }
+
+            // ---- the OMIM route: the records filed against that phenotype -------------------
+            // The phenotype was resolved to numbers before the transcripts were chosen, so
+            // there is nothing left to interpret. ClinVar is read over the loaded transcripts
+            // and filtered on CLNDISDB carrying one of those OMIM ids -- a record either was
+            // filed against this phenotype or it was not, which is a different kind of answer
+            // from matching one wording of a disease against another.
+            //
+            // Pathogenic and likely pathogenic only, because that is what the phenotype counts
+            // shown in step 2 were counted from: promising 1,266 records and then landing
+            // several thousand VUS beside them would make the number a lie.
+            if (omim) {
+                // Deliberately no count in this line. The phenotype's total is ClinVar-wide,
+                // and what actually lands is bounded by the transcripts' extent and the
+                // reader's row cap -- CFTR's region alone hits the cap. load-variants.js
+                // reports the number that really arrived, which is the honest one to show.
+                say('Loading the pathogenic ClinVar records for ' + omim.disease + ' onto '
+                    + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's') + '…');
+                const dbFilter = {
+                    label: omim.disease + ' · pathogenic',
+                    mims: omim.mims,
+                    clinsig: { any: ['pathogenic'], not: ['conflicting'] },
+                };
+                try {
+                    await exec('baja/data/load-variants.js', server, graph, genegraph_panel_layout,
+                        'clinvar', 'ClinVar', false, loaded, dbFilter);
+                } catch (e) {
+                    say('Loaded ' + loaded.length + ' transcript' + (loaded.length === 1 ? '' : 's')
+                        + ', but the ClinVar load for ' + omim.disease + ' failed: '
+                        + (e && e.message ? e.message : e));
+                    restoreHover(); return false;
+                }
+                restoreHover();
+                return true;
             }
 
             // ---- and the variants on them --------------------------------------------------

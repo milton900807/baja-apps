@@ -41,9 +41,26 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
         return CONDITION_TERMS.some((words) => names.some((n) => words.every((w) => n.indexOf(w) >= 0)));
     };
 
-    const passesFilter = (type, clinsig, conditions) => {
+    // AN OMIM PHENOTYPE ID IS THE SAME QUESTION WITHOUT THE GUESSWORK. The condition filter
+    // above matches wording against wording, which is the best that can be done with a phrase
+    // someone typed. When the disease has been resolved to OMIM phenotype numbers, the records
+    // carry those numbers themselves (CLNDISDB), so the test is whether this record was filed
+    // against that phenotype -- not whether two ways of writing a disease name overlap.
+    const MIM_SET = (FILTER && Array.isArray(FILTER.mims) && FILTER.mims.length)
+        ? new Set(FILTER.mims.map((m) => ('' + m).toUpperCase())) : null;
+    const passesMims = (mims) => {
+        if (!MIM_SET) return true;
+        for (const m of (mims || [])) { if (MIM_SET.has(('' + m).toUpperCase())) return true; }
+        return false;
+    };
+
+    const passesFilter = (type, clinsig, conditions, mims) => {
         if (!FILTER) return true;
-        if (!passesConditions(conditions)) return false;
+        // The ids win when there are ids: a phenotype resolved to a number has already said
+        // precisely what it means, and re-testing its NAME against the same record can only
+        // throw away records that the number matched.
+        if (MIM_SET) { if (!passesMims(mims)) return false; }
+        else if (!passesConditions(conditions)) return false;
         if (Array.isArray(FILTER.types) && FILTER.types.length && FILTER.types.indexOf(type) < 0) return false;
         const cs = FILTER.clinsig;
         if (cs) {
@@ -232,7 +249,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 else if (ref.length > alt.length) type = 'del';
 
                 const clinsig = v.clinsig || [];
-                if (!passesFilter(type, clinsig, v.conditions)) { skippedFilter++; continue; }
+                if (!passesFilter(type, clinsig, v.conditions, v.mims)) { skippedFilter++; continue; }
 
                 // Deletions are anchored one base before the deleted run on the + strand.
                 let placeXi = wx;
