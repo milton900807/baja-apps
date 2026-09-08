@@ -1796,6 +1796,20 @@ function (path, config) {
             try { graph.__hoverRearm = () => { }; } catch (e) { }
             try { graph.graph.mode = 'navigate'; } catch (e) { }
             dragging = null;
+            // A CLICK, NOT A DRAG. Navigating is the same gesture until the pointer
+            // moves, so a press that goes nowhere is the one that opens a variant.
+            let downAt = null;
+            graph.addMouseDownListener((x, y) => { downAt = { x: x, y: y }; });
+            graph.addMouseUpListener(async (x, y) => {
+                const d0 = downAt; downAt = null;
+                if (!d0) return;
+                if (Math.abs(x - d0.x) > 3 || Math.abs(y - d0.y) > 3) return;
+                const hit = variantAt(x, y);
+                if (!hit) return;
+                try { await showVariant(hit.ci, hit.k); } catch (e) {
+                    step('variant panel threw: ' + e);
+                }
+            });
         };
 
         const arm = () => {
@@ -2203,6 +2217,104 @@ function (path, config) {
                 + '; the rest are greyed out.'
                 + (failed ? ' ' + failed + ' chromosome(s) could not be read.' : '') + ' ');
             step('filter ' + kind + ': marked ' + marked + ', failed ' + failed);
+        };
+
+        // ---- CLICKING ONE VARIANT ------------------------------------------------
+        //
+        // Only when the view can actually separate them. Zoomed out, a pixel column is
+        // tens of thousands of bases and a click would be a guess dressed up as an
+        // answer; so a variant is clickable when it sits within CLICK_PX of the
+        // pointer AND its nearest neighbour is at least SEPARATE_PX away, which is the
+        // same thing as saying the marks are far enough apart to be aimed at.
+        const CLICK_PX = 6;
+        const SEPARATE_PX = 5;
+        const variantAt = (px, py) => {
+            const wx = graph.Xwc(px), wyy = graph.Ywc(py);
+            const h = at(wx, wyy);
+            if (!h || h.circular) return null;
+            const d = vdata[h.i];
+            if (!d || !d.n) return null;
+            // Bases per pixel, read off the same mapping the drawing uses rather than
+            // assumed from a zoom level.
+            const basesPerPx = Math.abs(graph.Ywc(py + 1) - graph.Ywc(py)) * MB;
+            if (!(basesPerPx > 0)) return null;
+            const p = -wyy * MB;
+            // Nearest position, by bisection, then the better of the two neighbours.
+            let a = 0, z = d.n;
+            while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < p) a = m + 1; else z = m; }
+            let best = -1, bestD = Infinity, second = Infinity;
+            for (const k of [a - 1, a, a + 1]) {
+                if (k < 0 || k >= d.n) continue;
+                const dist = Math.abs(d.pos[k] - p);
+                if (dist < bestD) { second = bestD; bestD = dist; best = k; }
+                else if (dist < second) { second = dist; }
+            }
+            if (best < 0) return null;
+            if (bestD / basesPerPx > CLICK_PX) return null;
+            // Too crowded to aim at: say nothing rather than open the wrong one.
+            if (isFinite(second) && (second - bestD) / basesPerPx < SEPARATE_PX) return null;
+            return { ci: h.i, k: best };
+        };
+
+        const SIG_NAME = ['', 'Pathogenic / likely pathogenic', 'Benign',
+            'Uncertain significance', 'Conflicting classifications'];
+
+        const showVariant = async (ci, k) => {
+            const c = drawn[ci], d = vdata[ci];
+            const ab = allelesAt(ci, k);
+            const pos = d.pos[k];
+            const bare = c.name.replace(/^chr/, '');
+            const nm = (d.names && d.names[k]) || '';
+            const sig = SIG_NAME[d.cls[k]] || '';
+            const mark = (d.hl && d.hl[k]) ? HL_NAME[d.hl[k]] : '';
+            const row = (label, value) => value
+                ? '<tr><td style="padding:3px 14px 3px 0;color:#5b6b7a;white-space:nowrap;">'
+                + esc(label) + '</td><td style="padding:3px 0;color:#0f172a;">'
+                + value + '</td></tr>' : '';
+            const body = (geneHtml) => '<div style="padding:14px 16px;font:13.5px Arial;">'
+                + '<div style="font:700 15px Arial;margin-bottom:8px;">'
+                + esc(c.name + ':' + pos.toLocaleString()) + '</div>'
+                + '<table style="border-collapse:collapse;">'
+                + row('Change', '<b>' + esc(ab[0]) + ' &rarr; ' + esc(ab[1]) + '</b>')
+                + row('Name', esc(nm))
+                + row('ClinVar', esc(sig))
+                + row('Marked', mark ? '<span style="color:' + (HL_COLOR[d.hl[k]] || '#0f172a')
+                    + ';font-weight:700;">' + esc(mark) + '</span>' : '')
+                + row('Gene', geneHtml)
+                + row('Chromosome', esc(c.name + ' — ' + human(c.length) + ' bp'))
+                + '</table></div>';
+            const panel = (geneHtml) => ({
+                wid: 'card',
+                data: {
+                    height: '320px',
+                    cards: [[
+                        { 'title': ' ', 'width': '100%',
+                          'component': { wid: 'html', data: body(geneHtml) } },
+                    ]]
+                }
+            });
+            showModal(panel('<i style="color:#94a3b8;">looking…</i>'));
+            step('variant clicked ' + c.name + ':' + pos);
+            // The gene comes from the same annotation the rest of this view uses. A
+            // window of one base is enough: genes-in-range returns whatever overlaps it.
+            let geneHtml = '<i style="color:#94a3b8;">no gene annotated here</i>';
+            try {
+                const em4 = new EngineMonitor(() => { });
+                const rs = await exec(server + '/py/bio/genes-in-range.py', em4,
+                    bare, '' + pos, '' + pos, (r.species || 'human'), '8');
+                let gs = [];
+                try { gs = JSON.parse((rs && rs.genes) || '[]'); } catch (e) { gs = []; }
+                if (gs.length) {
+                    geneHtml = gs.slice(0, 4).map((gg) => '<b>' + esc(gg.gene || '?') + '</b>'
+                        + (gg.biotype ? ' <span style="color:#5b6b7a;">(' + esc(gg.biotype) + ')</span>' : '')
+                        + (gg.transcript ? ' <span style="color:#94a3b8;">' + esc(gg.transcript) + '</span>' : '')
+                    ).join('<br>');
+                }
+            } catch (e) { step('gene lookup threw: ' + e); }
+            // Re-show with the answer: the modal is cheap and this keeps the first
+            // paint immediate rather than waiting on the server to show anything.
+            try { hideAllModal(); } catch (e) { }
+            showModal(panel(geneHtml));
         };
 
         // ---- the library of things to do with them ------------------------------
