@@ -377,6 +377,16 @@ function (path, config) {
                                         })
                                     },
                                     {
+                                        label: 'Select regions', icon: 'library_add',
+                                        tooltip: 'Drag down chromosomes to collect regions',
+                                        ionFunction: createIonFunction(() => { armRegions(); })
+                                    },
+                                    {
+                                        label: 'Regions', icon: 'checklist',
+                                        tooltip: 'What to do with the selected regions',
+                                        ionFunction: createIonFunction(() => { regionMenu(); })
+                                    },
+                                    {
                                         label: 'Select sequence', icon: 'highlight_alt',
                                         tooltip: 'Drag down a chromosome to choose a range',
                                         ionFunction: createIonFunction(() => {
@@ -854,7 +864,8 @@ function (path, config) {
                         if (dm && dm.n) {
                             for (let k = 0; k < dm.n; k++) {
                                 const a2 = (dm.pos[k] / c.length) * Math.PI * 2 - Math.PI / 2;
-                                const col = CLS_COLOR[dm.cls[k]] || CLS_COLOR[0];
+                                const col = (dm.hl && dm.hl[k] && HL_COLOR[dm.hl[k]])
+                                    || CLS_COLOR[dm.cls[k]] || CLS_COLOR[0];
                                 ctx.beginPath();
                                 ctx.arc(cxr + Math.cos(a2) * rad, cyr + Math.sin(a2) * rad,
                                     Math.max(1.6, rad * 0.09), 0, Math.PI * 2);
@@ -997,6 +1008,36 @@ function (path, config) {
                         }
                     }
 
+                    // THE SELECTED REGIONS on this chromosome, over the banding and under
+                    // the variants: a selection is context for what is drawn on top of it.
+                    for (let q = 0; q < regions.length; q++) {
+                        const rg = regions[q];
+                        if (rg.i !== i) continue;
+                        const ry0 = g.Y(wy(rg.lo)), ry1 = g.Y(wy(rg.hi));
+                        const rt = Math.min(ry0, ry1), rh = Math.max(1.5, Math.abs(ry1 - ry0));
+                        ctx.save();
+                        ctx.fillStyle = 'rgba(37,99,235,0.20)';
+                        ctx.fillRect(x0, rt, Math.max(1, x1 - x0), rh);
+                        ctx.strokeStyle = 'rgba(37,99,235,0.85)';
+                        ctx.lineWidth = 1.25;
+                        ctx.beginPath();
+                        ctx.moveTo(x0 - 1, rt); ctx.lineTo(x1 + 1, rt);
+                        ctx.moveTo(x0 - 1, rt + rh); ctx.lineTo(x1 + 1, rt + rh);
+                        ctx.stroke();
+                        // Numbered, because the menu talks about "3 regions" and there has
+                        // to be a way to see which three.
+                        if (rh > 12 && w > 10) {
+                            ctx.fillStyle = '#1d4ed8';
+                            ctx.font = '600 10px ' + FONT;
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('' + (q + 1), x1 + 4, rt + rh / 2);
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'top';
+                        }
+                        ctx.restore();
+                    }
+
                     // THE SEQUENCE, once a base is tall enough to letter.
                     //
                     // At this zoom the banding is meaningless -- the whole visible strip is
@@ -1118,7 +1159,8 @@ function (path, config) {
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
-                                const col = CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
+                                const col = (d.hl && d.hl[k] && HL_COLOR[d.hl[k]])
+                                    || CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
                                 if (bw > 60) {
                                     ctx.strokeStyle = col;
                                     ctx.globalAlpha = 0.9;
@@ -1334,6 +1376,43 @@ function (path, config) {
             return 0;
         };
 
+        // ---- SELECTED REGIONS ---------------------------------------------------
+        // A selection is a base range on one chromosome, and they accumulate: the
+        // questions this view exists for -- drop these, keep only these, mark what is
+        // coding inside them -- are asked of several places at once, not one.
+        let regions = [];                                  // [{ i, lo, hi }]
+        const HL_COLOR = ['', '#1d4ed8', '#64748b', '#7c3aed', '#0d9488', '#e11d48'];
+        const HL_NAME = ['', 'protein-coding', 'intronic', "3' UTR", "5' UTR",
+            'pathogenic / likely pathogenic'];
+        const inRegion = (ci, p) => {
+            for (let q = 0; q < regions.length; q++) {
+                const r = regions[q];
+                if (r.i === ci && p >= r.lo && p <= r.hi) return true;
+            }
+            return false;
+        };
+        // Membership in a flat [start,end,start,end,...] interval list, by bisection:
+        // a window holds a few thousand exons and the file holds millions of variants,
+        // so the search has to be on the small side of that.
+        const inFlat = (flat, p) => {
+            let lo = 0, hi = (flat.length >> 1) - 1;
+            while (lo <= hi) {
+                const m = (lo + hi) >> 1, a = flat[m << 1], b = flat[(m << 1) + 1];
+                if (p < a) hi = m - 1;
+                else if (p > b) lo = m + 1;
+                else return true;
+            }
+            return false;
+        };
+        const inSorted = (arr, p) => {
+            let lo = 0, hi = arr.length - 1;
+            while (lo <= hi) {
+                const m = (lo + hi) >> 1;
+                if (arr[m] < p) lo = m + 1; else if (arr[m] > p) hi = m - 1; else return true;
+            }
+            return false;
+        };
+
         const chromIndex = {};
         drawn.forEach((c, i) => {
             chromIndex[c.name] = i;
@@ -1480,6 +1559,9 @@ function (path, config) {
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx;
                 d.n = total; d.snps = []; d.names = sn;
+                // Highlights are derived, not loaded: a fresh set of zeros whenever the
+                // variants change, rather than something to merge and keep in step.
+                d.hl = new Uint8Array(total);
                 const hist = new Uint32Array(HIST_BINS);
                 const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
@@ -1865,6 +1947,235 @@ function (path, config) {
             }
             pan();
             return true;
+        };
+
+        // ---- WHAT THE REGIONS ARE FOR ------------------------------------------
+        //
+        // Two kinds of operation. One edits the variant set -- drop these, keep only
+        // these -- and rebuilds the arrays; the other only marks, writing a code into
+        // the highlight channel so paint() colours those variants without changing
+        // what they are.
+
+        // Rebuild every chromosome's arrays keeping the variants keep() accepts. The
+        // histogram is rebuilt with them: it drives the density view, and leaving it
+        // stale would draw a file that no longer exists.
+        const rebuildKeeping = (keep, label) => {
+            let kept = 0, removed = 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d.n) continue;
+                const idx = [];
+                for (let k = 0; k < d.n; k++) if (keep(ci, d.pos[k])) idx.push(k);
+                removed += d.n - idx.length;
+                const total = idx.length;
+                const sp = new Float64Array(total), sc = new Uint8Array(total);
+                const sr = new Uint8Array(total), sa = new Uint8Array(total);
+                const sh = new Uint8Array(total), scx = new Map(), sn = [];
+                const hadNames = d.names && d.names.length;
+                for (let j = 0; j < total; j++) {
+                    const k = idx[j];
+                    sp[j] = d.pos[k]; sc[j] = d.cls[k]; sr[j] = d.ref[k]; sa[j] = d.alt[k];
+                    if (d.hl) sh[j] = d.hl[k];
+                    if (d.cplx && d.cplx.has(k)) scx.set(j, d.cplx.get(k));
+                    if (hadNames) sn[j] = d.names[k] || '';
+                }
+                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh;
+                d.cplx = scx; d.names = sn; d.snps = []; d.n = total;
+                const hist = new Uint32Array(HIST_BINS);
+                const scale = HIST_BINS / drawn[ci].length;
+                for (let k = 0; k < total; k++) {
+                    let bin = (sp[k] * scale) | 0;
+                    if (bin >= HIST_BINS) bin = HIST_BINS - 1;
+                    hist[bin]++;
+                }
+                d.hist = hist;
+                kept += total;
+            }
+            vtotal = kept;
+            vobjects = Math.min(vtotal, OBJECT_CAP);
+            if (graph.wake) graph.wake();
+            graph.setMessage(' ' + label + ' — ' + removed.toLocaleString() + ' removed, '
+                + kept.toLocaleString() + ' left. ');
+            step(label + ': removed ' + removed + ', kept ' + kept);
+        };
+
+        const markWhere = (pred, code) => {
+            let n = 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d.n) continue;
+                if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n);
+                for (let k = 0; k < d.n; k++) if (pred(ci, d.pos[k], k, d)) { d.hl[k] = code; n++; }
+            }
+            if (graph.wake) graph.wake();
+            return n;
+        };
+
+        const clearHighlights = () => {
+            for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
+            if (graph.wake) graph.wake();
+            graph.setMessage(' Highlights cleared. ');
+        };
+
+        // Ask the server what the selected windows are made of, then classify this
+        // view's own variants against the answer. The intervals travel, not the
+        // variants: a window is a few thousand exons and the file is millions of rows.
+        const annotateRegions = async (kind, code) => {
+            if (!regions.length) {
+                graph.setMessage(' Choose one or more regions first — Select regions, then drag. ');
+                return;
+            }
+            const need = (kind === 'intronic') ? 'gene,exon'
+                : (kind === 'pathogenic') ? 'pathogenic'
+                    : (kind === 'coding') ? 'cds'
+                        : (kind === 'three_utr') ? 'three_utr' : 'five_utr';
+            let marked = 0, failed = 0;
+            for (let q = 0; q < regions.length; q++) {
+                const rg = regions[q];
+                const bare = drawn[rg.i].name.replace(/^chr/, '');
+                graph.setMessage(' Reading annotation for region ' + (q + 1) + ' of '
+                    + regions.length + '… ');
+                let rs = null;
+                try {
+                    const em3 = new EngineMonitor(() => { });
+                    rs = await exec(server + '/py/bio/region-features.py', em3,
+                        bare, String(rg.lo), String(rg.hi), need, (r.species || 'human'));
+                } catch (e) { rs = null; step('region-features threw: ' + e); }
+                if (!rs || !rs.ok) { failed++; step('region ' + (q + 1) + ': ' + (rs && rs.error)); continue; }
+                const flat = (k) => { try { return JSON.parse(rs[k] || '[]'); } catch (e) { return []; } };
+                if (kind === 'pathogenic') {
+                    const hits = flat('pathogenic');
+                    marked += markWhere((ci, p, k, d) => ci === rg.i && p >= rg.lo && p <= rg.hi
+                        && (d.cls[k] === 1 || inSorted(hits, p)), code);
+                } else if (kind === 'intronic') {
+                    const gene = flat('gene'), exon = flat('exon');
+                    marked += markWhere((ci, p) => ci === rg.i && p >= rg.lo && p <= rg.hi
+                        && inFlat(gene, p) && !inFlat(exon, p), code);
+                } else {
+                    const key = (kind === 'coding') ? 'cds'
+                        : (kind === 'three_utr') ? 'three_utr' : 'five_utr';
+                    const iv = flat(key);
+                    marked += markWhere((ci, p) => ci === rg.i && p >= rg.lo && p <= rg.hi
+                        && inFlat(iv, p), code);
+                }
+            }
+            graph.setMessage(' ' + marked.toLocaleString() + ' variant'
+                + (marked === 1 ? '' : 's') + ' marked ' + HL_NAME[code]
+                + (failed ? ' (' + failed + ' region(s) could not be read)' : '') + '. ');
+            step('annotate ' + kind + ': marked ' + marked + ', failed ' + failed);
+        };
+
+        // ---- choosing the regions ----------------------------------------------
+        // A separate mode from Select sequence, which zooms into one range and opens
+        // it. This one only collects, so a drag does not move the view out from under
+        // the next drag.
+        const armRegions = () => {
+            graph.clearMouseListeners();
+            try { graph.__hoverRearm = () => { }; } catch (e) { }
+            try { graph.graph.mode = 'msg: Drag down a chromosome to add a region.'; } catch (e) { }
+            let from = null;
+            graph.addMouseDownListener((x, y) => {
+                from = { x: graph.Xwc(x), y: graph.Ywc(y) };
+                dragging = null;
+            });
+            graph.addMouseMoveListener((x, y) => {
+                if (!from) return;
+                const h = at(from.x, from.y) || at(graph.Xwc(x), graph.Ywc(y));
+                if (!h) return;
+                dragging = { i: h.i, y0: from.y, y1: graph.Ywc(y) };
+                if (graph.wake) graph.wake();
+            });
+            graph.addMouseUpListener((x, y) => {
+                const to = { x: graph.Xwc(x), y: graph.Ywc(y) };
+                const f = from; from = null; dragging = null;
+                if (!f) return;
+                const hit = at(f.x, f.y) || at(to.x, to.y);
+                if (!hit) { graph.setMessage(' Nothing there — drag on a chromosome. '); return; }
+                if (hit.circular) {
+                    graph.setMessage(' The mitochondrial genome is drawn as a ring and cannot '
+                        + 'be dragged over; use the linear chromosomes. ');
+                    return;
+                }
+                const clamp = (bp) => Math.max(0, Math.min(hit.chrom.length, Math.round(bp)));
+                const lo = clamp(-Math.max(f.y, to.y) * MB);
+                const hi = clamp(-Math.min(f.y, to.y) * MB);
+                if (hi - lo < 1000) {
+                    graph.setMessage(' Too short to be a region — drag further. ');
+                    return;
+                }
+                regions.push({ i: hit.i, lo: lo, hi: hi });
+                if (graph.wake) graph.wake();
+                graph.setMessage(' Region ' + regions.length + ': ' + hit.chrom.name + ':'
+                    + human(lo) + '-' + human(hi) + '  ('
+                    + (Math.round((hi - lo) / 1e4) / 100) + ' Mb). Drag again to add another. ');
+                step('region added ' + hit.chrom.name + ':' + lo + '-' + hi);
+            });
+            graph.setMessage(' Drag down a chromosome to add a region. Each drag adds one. ');
+        };
+
+        // ---- the library of things to do with them ------------------------------
+        const regionMenu = () => {
+            const act = (label, fn) => ({
+                label: label,
+                ionFunction: createIonFunction(async () => {
+                    try { hideAllModal(); } catch (e) { }
+                    try { await fn(); } catch (e) {
+                        step('region action threw: ' + e);
+                        graph.setMessage(' That did not run: ' + (e && e.message ? e.message : e) + ' ');
+                    }
+                })
+            });
+            const span = regions.reduce((t, x) => t + (x.hi - x.lo), 0);
+            const head = regions.length
+                ? (regions.length + ' region' + (regions.length === 1 ? '' : 's') + ' selected, '
+                    + (Math.round(span / 1e4) / 100) + ' Mb in total')
+                : 'No regions selected yet — choose <b>Select regions</b> and drag down a chromosome.';
+            showModal({
+                wid: 'card',
+                data: {
+                    cards: [[
+                        {
+                            'title': ' ', 'width': '100%',
+                            'component': {
+                                wid: 'html',
+                                data: '<div style="padding:14px 16px 6px;font:14px Arial;">'
+                                    + '<b>Regions</b><div style="color:#5b6b7a;font:12.5px Arial;'
+                                    + 'margin-top:4px;">' + head + '</div></div>'
+                            }
+                        },
+                        {
+                            'title': ' ', 'width': '100%',
+                            'component': {
+                                wid: 'mt-button',
+                                data: {
+                                    buttons: [
+                                        act('Delete all selected', () => {
+                                            if (!regions.length) { graph.setMessage(' Choose a region first. '); return; }
+                                            rebuildKeeping((ci, p) => !inRegion(ci, p), 'Deleted the selected regions');
+                                        }),
+                                        act('Remove all else', () => {
+                                            if (!regions.length) { graph.setMessage(' Choose a region first. '); return; }
+                                            rebuildKeeping((ci, p) => inRegion(ci, p), 'Kept only the selected regions');
+                                        }),
+                                        act('Label protein coding SNPs', () => annotateRegions('coding', 1)),
+                                        act('Highlight intronic', () => annotateRegions('intronic', 2)),
+                                        act("Highlight 3' UTR", () => annotateRegions('three_utr', 3)),
+                                        act("Highlight 5' UTR", () => annotateRegions('five_utr', 4)),
+                                        act('Highlight pathogenic / likely pathogenic',
+                                            () => annotateRegions('pathogenic', 5)),
+                                        act('Clear highlights', () => clearHighlights()),
+                                        act('Clear regions', () => {
+                                            regions = [];
+                                            if (graph.wake) graph.wake();
+                                            graph.setMessage(' Regions cleared. ');
+                                        }),
+                                    ]
+                                }
+                            }
+                        },
+                    ]]
+                }
+            });
         };
 
         const saveJson = () => {
