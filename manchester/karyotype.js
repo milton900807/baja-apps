@@ -168,6 +168,48 @@ function (path, config) {
                 if (progressBar) progressBar(Math.max(0, Math.min(100, Math.round(pct))));
             } catch (e) { }
         };
+        const fmtBytes = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+            : n >= 1024 ? Math.round(n / 1024) + ' kB' : n + ' B');
+
+        // The note under the title is written directly rather than by re-setting the
+        // component: re-setting it would remount the progress widget and lose the
+        // handle to it, which is the whole reason the bar exists.
+        const setLoadingNote = (t) => {
+            try {
+                const el = document.getElementById('karyo-load-note');
+                if (el) el.textContent = t;
+            } catch (e) { }
+        };
+
+        // GETJSON hands back a parsed body and nothing else, so there is no way to see
+        // it arrive. This reads the stream so the bytes can be counted on the way past.
+        // A plain fetch is enough: /load-file authorises from its query parameters, not
+        // from a header, which is why it can be streamed without a token.
+        //
+        // The count is of DECOMPRESSED bytes -- the browser gunzips transparently -- so
+        // it matches the size of the file as saved, not what crossed the wire.
+        const getJsonCounting = async (url, onBytes) => {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            if (!res.body || !res.body.getReader) return await res.json();   // old browser
+            const reader = res.body.getReader();
+            const dec = new TextDecoder('utf-8');
+            let text = '', got = 0, reported = 0;
+            for (; ;) {
+                const chunk = await reader.read();
+                if (chunk.done) break;
+                got += chunk.value.length;
+                text += dec.decode(chunk.value, { stream: true });
+                // At most every quarter megabyte. The counter is for reassurance, not
+                // for counting packets, and a DOM write per chunk would cost more than
+                // the download it is reporting on.
+                if (onBytes && (got - reported) >= 262144) { reported = got; onBytes(got); }
+            }
+            text += dec.decode();
+            if (onBytes) onBytes(got);
+            return JSON.parse(text);
+        };
+
         let loadingShown = false;
         const showLoading = (what) => {
             if (loadingShown) return;
@@ -182,7 +224,8 @@ function (path, config) {
                                 wid: 'html', width: '100%',
                                 data: '<div style="padding:26px 26px 8px;font:15px Arial;">'
                                     + '<b>Loading karyotype</b>'
-                                    + '<div style="color:#5b6b7a;font:13px Arial;margin-top:6px;">'
+                                    + '<div id="karyo-load-note" '
+                                    + 'style="color:#5b6b7a;font:13px Arial;margin-top:6px;">'
                                     + esc(what || 'Reading the chromosomes.') + '</div></div>'
                             }
                         },
@@ -199,9 +242,13 @@ function (path, config) {
             showLoading('Reading ' + savedPath.split('/').pop() + ' from My Files.');
             setProgress(8);
             try {
-                const raw = await GETJSON(window['env']['apiUrl'] + '/load-file?path='
-                    + savedPath + '&key=user&user=' + getUser());
+                const shortName = savedPath.split('/').pop();
+                const raw = await getJsonCounting(
+                    window['env']['apiUrl'] + '/load-file?path='
+                    + savedPath + '&key=user&user=' + getUser(),
+                    (n) => setLoadingNote('Reading ' + shortName + ' — ' + fmtBytes(n) + ' so far.'));
                 pendingDoc = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+                setLoadingNote('Read ' + shortName + '. Fetching the chromosomes.');
                 setProgress(45);            // file down and parsed
                 step('opening saved karyotype ' + savedPath
                     + ' (species ' + JSON.stringify(pendingDoc && pendingDoc.species) + ')');
@@ -2034,8 +2081,13 @@ function (path, config) {
                         try {
                             // element.path as-is: the browser roots at the user's folder id and
                             // /load-file grants access on that id, not on the raw email.
-                            const doc = await GETJSON(host_ + '/load-file?path=' + element.path
-                                + '&key=user&user=' + getUser());
+                            const doc = await getJsonCounting(
+                                host_ + '/load-file?path=' + element.path
+                                + '&key=user&user=' + getUser(),
+                                // No loading panel on this route -- the file browser is
+                                // still on screen -- so the count goes to the status line.
+                                (n) => graph.setMessage(' Reading ' + (element && element.name)
+                                    + ' — ' + fmtBytes(n) + ' so far… '));
                             const parsed = (typeof doc === 'string') ? JSON.parse(doc) : doc;
                             // Only on success: a file that failed to apply is not the
                             // file this view is showing, and the URL should not claim it.
