@@ -52,8 +52,16 @@ function (__path) {
                     // Guarded on mode so Delete still targets the file rather than
                     // opening it.
                     if (mode !== 'delete' && isKaryotype(element)) {
+                        const kpath = element.path;
                         clear();
-                        exec('manchester/karyotype', element.path);
+                        // The URL carries the file, exactly as the .baja branch below does
+                        // it, so a reload, a bookmark and the back button all land back on
+                        // this karyotype instead of on the default home. Raw path, not
+                        // encoded: dash.component's parseArguments splits on '&' and '='
+                        // without decoding, so an encoded path would arrive still encoded.
+                        window.history.pushState({ 'karyotype': kpath }, 'karyotype',
+                            `/app/manchester/karyotype?path=${kpath}`);
+                        exec('manchester/karyotype', kpath);
                         return;
                     }
                     if (mode === 'delete') {
@@ -453,8 +461,11 @@ function (__path) {
                             return;
                         }
                         if (isKaryotype(element)) {
+                            const kpath = element.path;
                             clear();
-                            exec('manchester/karyotype', element.path);
+                            window.history.pushState({ 'karyotype': kpath }, 'karyotype',
+                                `/app/manchester/karyotype?path=${kpath}`);
+                            exec('manchester/karyotype', kpath);
                             return;
                         }
 
@@ -588,6 +599,17 @@ function (__path) {
                         {
                             label: 'Apps',
                             items: [
+
+                                {
+                                    'label': 'Karyotype Viewer', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        await exec('manchester/karyotype');
+
+                                    })
+                                },
+
+
+
                                 {
                                     'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
                                         clear();
