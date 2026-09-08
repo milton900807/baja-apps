@@ -142,13 +142,67 @@ function (path, config) {
             } catch (e) { step('could not set the url: ' + e); }
         };
 
+        // ---- the loading bar ----------------------------------------------------
+        //
+        // Opening a saved karyotype is the slow part of this view -- a whole VCF is a
+        // hundred megabytes over the wire and millions of variants to place -- and it
+        // used to happen behind a blank panel.
+        //
+        // WHAT THE BAR ACTUALLY MEASURES. The download cannot be measured: the server
+        // sends it gzipped over HTTP/2 with no Content-Length, so there is no total to
+        // divide by and any percentage during the transfer would be invented. The bar
+        // therefore steps at phase boundaries there, and reports REAL progress for the
+        // phase that has a total and blocks the browser -- placing the variants, which
+        // is counted against doc.variants.length.
+        let progressBar = null;
+        const progress_widget = {
+            wid: 'progress',
+            componentRef: 'karyoProgress',
+            data: {
+                progress: 0,
+                progressBar: createIonFunction((pb) => { progressBar = pb; }),
+            }
+        };
+        const setProgress = (pct) => {
+            try {
+                if (progressBar) progressBar(Math.max(0, Math.min(100, Math.round(pct))));
+            } catch (e) { }
+        };
+        let loadingShown = false;
+        const showLoading = (what) => {
+            if (loadingShown) return;
+            loadingShown = true;
+            const lay = {
+                wid: 'card', height: '100%', componentRef: 'mainPanel',
+                data: {
+                    cards: [[
+                        {
+                            'width': '100%',
+                            'component': {
+                                wid: 'html', width: '100%',
+                                data: '<div style="padding:26px 26px 8px;font:15px Arial;">'
+                                    + '<b>Loading karyotype</b>'
+                                    + '<div style="color:#5b6b7a;font:13px Arial;margin-top:6px;">'
+                                    + esc(what || 'Reading the chromosomes.') + '</div></div>'
+                            }
+                        },
+                        { 'width': '90%', 'component': progress_widget },
+                    ]]
+                }
+            };
+            try { showWidget(lay); } catch (e) { step('loading panel failed: ' + e); }
+        };
+
         const savedPath = asSavedFile(path);
         let pendingDoc = null;
         if (savedPath) {
+            showLoading('Reading ' + savedPath.split('/').pop() + ' from My Files.');
+            setProgress(8);
             try {
                 const raw = await GETJSON(window['env']['apiUrl'] + '/load-file?path='
                     + savedPath + '&key=user&user=' + getUser());
                 pendingDoc = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+                setProgress(45);            // file down and parsed
                 step('opening saved karyotype ' + savedPath
                     + ' (species ' + JSON.stringify(pendingDoc && pendingDoc.species) + ')');
             } catch (e) {
@@ -171,6 +225,8 @@ function (path, config) {
         if (!wanted) return false;
 
         // ---- the table -----------------------------------------------------------------------
+        showLoading('Fetching the chromosomes.');
+        setProgress(pendingDoc ? 50 : 15);
         let r = null;
         try {
             const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
@@ -312,6 +368,8 @@ function (path, config) {
         };
         graph.genegraph_panel_layout = genegraph_panel_layout;
         try { clear(); } catch (e) { }
+        setProgress(100);
+        loadingShown = false;          // the bar is gone; a later load can show it again
         showWidget(main_layout);
         try { CurrentLayout.stash('mainPanel', main_layout); } catch (e) { }
         try { CurrentLayout.stash('graph', graph); } catch (e) { }
@@ -1702,7 +1760,7 @@ function (path, config) {
             return out;
         };
 
-        const applyDoc = async (doc) => {
+        const applyDoc = async (doc, onProgress) => {
             if (!doc || doc.type !== 'baja-karyotype') {
                 graph.setMessage(' That file is not a saved karyotype. ');
                 return false;
@@ -1730,7 +1788,18 @@ function (path, config) {
             };
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
-            for (const raw of (doc.variants || [])) {
+            const list = doc.variants || [];
+            const total = list.length;
+            let seen = 0;
+            for (const raw of list) {
+                // Yield every so often. This loop is what blocks the browser on a big
+                // file, and a progress report that cannot repaint during it is a
+                // picture of a progress report. ++seen before the continues below, so
+                // a skipped variant still counts as one gone past.
+                if (onProgress && (++seen % 50000) === 0) {
+                    onProgress(seen, total);
+                    await new Promise((res) => setTimeout(res, 0));
+                }
                 const v = asVariant(raw);
                 if (!v) { count.skipped++; continue; }
                 let ci = chromIndex[v.c];
@@ -1742,6 +1811,7 @@ function (path, config) {
                     ('' + (v.a || 'N')).toUpperCase());
                 count.added++;
             }
+            if (onProgress) onProgress(total, total);
             finalise(bufs, namesOf, count, doc.name || 'the saved file');
             if (doc.view && isFinite(doc.view.x0)) {
                 try { await graph.zoomRect(doc.view.x0, doc.view.x1, doc.view.y1, doc.view.y0, 30); } catch (e) { }
@@ -1969,7 +2039,11 @@ function (path, config) {
                             const parsed = (typeof doc === 'string') ? JSON.parse(doc) : doc;
                             // Only on success: a file that failed to apply is not the
                             // file this view is showing, and the URL should not claim it.
-                            if (await applyDoc(parsed)) rememberFile(element.path);
+                            const applied = await applyDoc(parsed, (done, tot) => {
+                                graph.setMessage(' Placing ' + done.toLocaleString() + ' of '
+                                    + tot.toLocaleString() + ' variants… ');
+                            });
+                            if (applied) rememberFile(element.path);
                         } catch (e) {
                             graph.setMessage(' ' + (element && element.name) + ' could not be opened: '
                                 + (e && e.message ? e.message : e) + ' ');
@@ -2239,7 +2313,15 @@ function (path, config) {
             // zoomRect, which needs a canvas that already knows its size.
             if (pendingDoc) {
                 try {
-                    await applyDoc(pendingDoc);
+                    const nvar = (pendingDoc.variants || []).length;
+                    // The loading panel has been replaced by the karyotype by now, so
+                    // this phase reports on the app's own status line rather than the
+                    // bar -- the canvas exists, and setMessage updates live.
+                    await applyDoc(pendingDoc, (done, tot) => {
+                        graph.setMessage(' Placing ' + done.toLocaleString() + ' of '
+                            + tot.toLocaleString() + ' variants… ');
+                    });
+                    if (nvar) step('placed ' + nvar.toLocaleString() + ' variants');
                     rememberFile(savedPath);
                     step('restored saved karyotype');
                 } catch (e) {
