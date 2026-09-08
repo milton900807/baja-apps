@@ -117,6 +117,31 @@ function (path, config) {
             // changed. Same format, still in people's folders.
             return /\.karyotype(\.json)?$/i.test(t) ? t : '';
         };
+        // THE URL FOLLOWS THE OPEN FILE. Set wherever a document becomes the current
+        // one -- opened from a file browser, opened from this view's own Open, or
+        // just saved -- so a reload comes back to that file rather than to an empty
+        // karyotype. Doing it here rather than only at the browsers' click handlers
+        // means every route into a file is covered by one line, including the ones
+        // that never touch a browser.
+        //
+        // replaceState, not push: this annotates the view rather than navigating to
+        // it. Raw path, matching the browsers, because dash.component's
+        // parseArguments splits on '&' and '=' without decoding. The save response
+        // returns a doubled slash, so the path is collapsed first.
+        const rememberFile = (p) => {
+            let t = ('' + (p == null ? '' : p)).trim().replace(/\/{2,}/g, '/');
+            if (!t) return;
+            // /load-file resolves the path by concatenation, so it needs the leading
+            // slash: without one it answers "Failed to load the file" and a reload
+            // lands on an empty karyotype. Added rather than assumed.
+            if (t.charAt(0) !== '/') t = '/' + t;
+            try {
+                window.history.replaceState({ 'karyotype': t }, 'karyotype',
+                    '/app/manchester/karyotype?path=' + t);
+                step('url now points at ' + t);
+            } catch (e) { step('could not set the url: ' + e); }
+        };
+
         const savedPath = asSavedFile(path);
         let pendingDoc = null;
         if (savedPath) {
@@ -1802,6 +1827,10 @@ function (path, config) {
                     }, window['env']['apiUrl'] + '/save-user-data');
                     if (rs && (rs.status === 'saved' || rs.path)) {
                         restore();
+                        // The file now exists, so the view is showing it. Only when the
+                        // server said where it put it -- a guessed path would send a
+                        // reload somewhere that does not exist.
+                        if (rs.path) rememberFile(rs.path);
                         graph.setMessage(' Saved ' + name + ' to My Files — '
                             + doc.variants.length.toLocaleString() + ' variant'
                             + (doc.variants.length === 1 ? '' : 's')
@@ -1938,7 +1967,9 @@ function (path, config) {
                             const doc = await GETJSON(host_ + '/load-file?path=' + element.path
                                 + '&key=user&user=' + getUser());
                             const parsed = (typeof doc === 'string') ? JSON.parse(doc) : doc;
-                            await applyDoc(parsed);
+                            // Only on success: a file that failed to apply is not the
+                            // file this view is showing, and the URL should not claim it.
+                            if (await applyDoc(parsed)) rememberFile(element.path);
                         } catch (e) {
                             graph.setMessage(' ' + (element && element.name) + ' could not be opened: '
                                 + (e && e.message ? e.message : e) + ' ');
@@ -2209,6 +2240,7 @@ function (path, config) {
             if (pendingDoc) {
                 try {
                     await applyDoc(pendingDoc);
+                    rememberFile(savedPath);
                     step('restored saved karyotype');
                 } catch (e) {
                     step('applying the saved karyotype threw: ' + e);
