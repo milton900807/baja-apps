@@ -860,7 +860,8 @@ function (path, config) {
                             for (let k = 0; k < dm.n; k++) {
                                 const a2 = (dm.pos[k] / c.length) * Math.PI * 2 - Math.PI / 2;
                                 const col = (dm.hl && dm.hl[k] && HL_COLOR[dm.hl[k]])
-                                    || CLS_COLOR[dm.cls[k]] || CLS_COLOR[0];
+                                    || (hlActive ? DIM_COLOR
+                                        : (CLS_COLOR[dm.cls[k]] || CLS_COLOR[0]));
                                 ctx.beginPath();
                                 ctx.arc(cxr + Math.cos(a2) * rad, cyr + Math.sin(a2) * rad,
                                     Math.max(1.6, rad * 0.09), 0, Math.PI * 2);
@@ -1155,7 +1156,8 @@ function (path, config) {
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
                                 const col = (d.hl && d.hl[k] && HL_COLOR[d.hl[k]])
-                                    || CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
+                                    || (hlActive ? DIM_COLOR
+                                        : (CLS_COLOR[d.cls[k]] || CLS_COLOR[0]));
                                 if (bw > 60) {
                                     ctx.strokeStyle = col;
                                     ctx.globalAlpha = 0.9;
@@ -1217,7 +1219,11 @@ function (path, config) {
                                 const h2 = Math.max(1, yB - yA);
                                 if (yB < -4 || yA > ctx.canvas.height + 4) continue;
                                 const f = Math.log(n + 1) / lp;
-                                ctx.fillStyle = 'rgba(255,45,120,' + (0.45 + 0.55 * f).toFixed(3) + ')';
+                                // The strips are every variant, matched or not, so under a
+                                // filter they become the background the matches sit on.
+                                ctx.fillStyle = hlActive
+                                    ? 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')'
+                                    : 'rgba(255,45,120,' + (0.45 + 0.55 * f).toFixed(3) + ')';
                                 ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
                             }
                         }
@@ -1419,7 +1425,12 @@ function (path, config) {
         // questions this view exists for -- drop these, keep only these, mark what is
         // coding inside them -- are asked of several places at once, not one.
         let regions = [];                                  // [{ i, lo, hi }]
-        const HL_COLOR = ['', '#1d4ed8', '#64748b', '#7c3aed', '#0d9488', '#e11d48'];
+        const HL_COLOR = ['', '#ee00ee', '#0ea5e9', '#7c3aed', '#0d9488', '#e11d48'];
+        // While a filter is on, everything it did not match is drawn in this instead of
+        // its own colour: the point of asking "where is the protein coding" is to see
+        // that against the rest, not to hunt coloured dots in a field of coloured dots.
+        const DIM_COLOR = '#cbd5e1';
+        let hlActive = 0;               // the filter currently applied, 0 for none
         const HL_NAME = ['', 'protein-coding', 'intronic', "3' UTR", "5' UTR",
             'pathogenic / likely pathogenic'];
         const inRegion = (ci, p) => {
@@ -2079,57 +2090,104 @@ function (path, config) {
 
         const clearHighlights = () => {
             for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
+            hlActive = 0;
             reindexHighlights();
             if (graph.wake) graph.wake();
             graph.setMessage(' Highlights cleared. ');
         };
 
-        // Ask the server what the selected windows are made of, then classify this
-        // view's own variants against the answer. The intervals travel, not the
-        // variants: a window is a few thousand exons and the file is millions of rows.
-        const annotateRegions = async (kind, code) => {
-            if (!regions.length) {
-                graph.setMessage(' Choose one or more regions first — Select regions, then drag. ');
-                return;
+        // Ask the server what a window is made of, then classify this view's own
+        // variants against the answer. The intervals travel and the variants stay put.
+        // Cached per chromosome and feature set, so asking a second question about the
+        // same genome does not re-read the annotation.
+        const featCache = new Map();
+        const fetchFeatures = async (ci, need, lo, hi) => {
+            const key = drawn[ci].name + '|' + need + '|' + lo + '|' + hi;
+            if (featCache.has(key)) return featCache.get(key);
+            const bare = drawn[ci].name.replace(/^chr/, '');
+            let rs = null;
+            try {
+                const em3 = new EngineMonitor(() => { });
+                rs = await exec(server + '/py/bio/region-features.py', em3,
+                    bare, String(lo), String(hi), need, (r.species || 'human'));
+            } catch (e) { step('region-features threw: ' + e); }
+            if (!rs || !rs.ok) { step('features ' + drawn[ci].name + ': ' + (rs && rs.error)); return null; }
+            const F = {};
+            for (const k of ['cds', 'five_utr', 'three_utr', 'exon', 'gene', 'pathogenic']) {
+                try { F[k] = JSON.parse(rs[k] || '[]'); } catch (e) { F[k] = []; }
             }
+            featCache.set(key, F);
+            return F;
+        };
+
+        // Mark one chromosome, without touching the index -- the caller reindexes once
+        // at the end rather than after every chromosome.
+        const markOn = (ci, pred, code) => {
+            const d = vdata[ci];
+            if (!d || !d.n) return 0;
+            if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n);
+            let n = 0;
+            for (let k = 0; k < d.n; k++) if (pred(d.pos[k], k, d)) { d.hl[k] = code; n++; }
+            return n;
+        };
+
+        // THE WHOLE GENOME BY DEFAULT. "Where is the protein coding" is a question about
+        // every chromosome, so with nothing selected this asks all of them; selected
+        // regions narrow it rather than being required. A whole chromosome is one query
+        // -- chr1 merges to about 21,700 coding intervals -- and the answers are cached.
+        const applyFilter = async (kind, code) => {
             const need = (kind === 'intronic') ? 'gene,exon'
                 : (kind === 'pathogenic') ? 'pathogenic'
                     : (kind === 'coding') ? 'cds'
                         : (kind === 'three_utr') ? 'three_utr' : 'five_utr';
+            const targets = regions.length
+                ? regions.map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi }))
+                : drawn.map((c, i) => ({ i: i, lo: 1, hi: c.length }));
+            const live = targets.filter((t) => vdata[t.i] && vdata[t.i].n);
+            if (!live.length) { graph.setMessage(' There are no variants to mark. '); return; }
+
+            // A filter replaces the last one rather than adding to it: two colours at
+            // once would be a different feature, and a stale mark would be a lie.
+            for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
+
             let marked = 0, failed = 0;
-            for (let q = 0; q < regions.length; q++) {
-                const rg = regions[q];
-                const bare = drawn[rg.i].name.replace(/^chr/, '');
-                graph.setMessage(' Reading annotation for region ' + (q + 1) + ' of '
-                    + regions.length + '… ');
-                let rs = null;
-                try {
-                    const em3 = new EngineMonitor(() => { });
-                    rs = await exec(server + '/py/bio/region-features.py', em3,
-                        bare, String(rg.lo), String(rg.hi), need, (r.species || 'human'));
-                } catch (e) { rs = null; step('region-features threw: ' + e); }
-                if (!rs || !rs.ok) { failed++; step('region ' + (q + 1) + ': ' + (rs && rs.error)); continue; }
-                const flat = (k) => { try { return JSON.parse(rs[k] || '[]'); } catch (e) { return []; } };
+            for (let q = 0; q < live.length; q++) {
+                const t = live[q];
+                graph.setMessage(' Reading ' + drawn[t.i].name + ' annotation — '
+                    + (q + 1) + ' of ' + live.length + '… ');
+                const F = await fetchFeatures(t.i, need, t.lo, t.hi);
+                if (!F) { failed++; continue; }
+                const within = (p) => p >= t.lo && p <= t.hi;
                 if (kind === 'pathogenic') {
-                    const hits = flat('pathogenic');
-                    marked += markWhere((ci, p, k, d) => ci === rg.i && p >= rg.lo && p <= rg.hi
+                    const hits = F.pathogenic || [];
+                    marked += markOn(t.i, (p, k, d) => within(p)
                         && (d.cls[k] === 1 || inSorted(hits, p)), code);
                 } else if (kind === 'intronic') {
-                    const gene = flat('gene'), exon = flat('exon');
-                    marked += markWhere((ci, p) => ci === rg.i && p >= rg.lo && p <= rg.hi
+                    const gene = F.gene || [], exon = F.exon || [];
+                    marked += markOn(t.i, (p) => within(p)
                         && inFlat(gene, p) && !inFlat(exon, p), code);
                 } else {
-                    const key = (kind === 'coding') ? 'cds'
-                        : (kind === 'three_utr') ? 'three_utr' : 'five_utr';
-                    const iv = flat(key);
-                    marked += markWhere((ci, p) => ci === rg.i && p >= rg.lo && p <= rg.hi
-                        && inFlat(iv, p), code);
+                    const iv = F[(kind === 'coding') ? 'cds'
+                        : (kind === 'three_utr') ? 'three_utr' : 'five_utr'] || [];
+                    marked += markOn(t.i, (p) => within(p) && inFlat(iv, p), code);
                 }
+                // Let the canvas repaint between chromosomes so the marks appear as they
+                // are found rather than all at once at the end.
+                reindexHighlights();
+                hlActive = code;
+                if (graph.wake) graph.wake();
+                await new Promise((res) => setTimeout(res, 0));
             }
-            graph.setMessage(' ' + marked.toLocaleString() + ' variant'
-                + (marked === 1 ? '' : 's') + ' marked ' + HL_NAME[code]
-                + (failed ? ' (' + failed + ' region(s) could not be read)' : '') + '. ');
-            step('annotate ' + kind + ': marked ' + marked + ', failed ' + failed);
+            hlActive = marked ? code : 0;
+            reindexHighlights();
+            if (graph.wake) graph.wake();
+            graph.setMessage(' ' + marked.toLocaleString() + ' ' + HL_NAME[code]
+                + ' variant' + (marked === 1 ? '' : 's') + ' in '
+                + (regions.length ? regions.length + ' selected region'
+                    + (regions.length === 1 ? '' : 's') : 'the whole genome')
+                + '; the rest are greyed out.'
+                + (failed ? ' ' + failed + ' chromosome(s) could not be read.' : '') + ' ');
+            step('filter ' + kind + ': marked ' + marked + ', failed ' + failed);
         };
 
         // ---- the library of things to do with them ------------------------------
@@ -2148,8 +2206,8 @@ function (path, config) {
             const head = regions.length
                 ? (regions.length + ' region' + (regions.length === 1 ? '' : 's') + ' selected, '
                     + (Math.round(span / 1e4) / 100) + ' Mb in total')
-                : 'No regions selected yet — choose <b>Select sequence</b> and drag down a '
-                    + 'chromosome. Each drag adds one.';
+                : 'No regions selected — the whole genome. Drag with <b>Select sequence</b> '
+                    + 'to narrow it to chosen regions.';
             showModal({
                 wid: 'card',
                 data: {
@@ -2182,12 +2240,12 @@ function (path, config) {
                                             if (!regions.length) { graph.setMessage(' Choose a region first. '); return; }
                                             rebuildKeeping((ci, p) => inRegion(ci, p), 'Kept only the selected regions');
                                         }),
-                                        act('Label protein coding SNPs', () => annotateRegions('coding', 1)),
-                                        act('Highlight intronic', () => annotateRegions('intronic', 2)),
-                                        act("Highlight 3' UTR", () => annotateRegions('three_utr', 3)),
-                                        act("Highlight 5' UTR", () => annotateRegions('five_utr', 4)),
+                                        act('Label protein coding SNPs', () => applyFilter('coding', 1)),
+                                        act('Highlight intronic', () => applyFilter('intronic', 2)),
+                                        act("Highlight 3' UTR", () => applyFilter('three_utr', 3)),
+                                        act("Highlight 5' UTR", () => applyFilter('five_utr', 4)),
                                         act('Highlight pathogenic / likely pathogenic',
-                                            () => annotateRegions('pathogenic', 5)),
+                                            () => applyFilter('pathogenic', 5)),
                                         act('Clear highlights', () => clearHighlights()),
                                         act('Clear regions', () => {
                                             regions = [];

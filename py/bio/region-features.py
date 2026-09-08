@@ -52,10 +52,13 @@ GFF = {
 }
 CLINVAR = "reference_data/variants/clinvar.vcf.gz"
 
-# A window wider than this is not a selection, it is a chromosome; the interval
-# list would be bigger than the variants it is meant to classify.
-MAX_SPAN = 60_000_000
-MAX_INTERVALS = 200_000
+# A whole chromosome IS a legitimate window: "show me protein coding across the
+# genome" asks this once per chromosome. Measured on the box, chr1 end to end
+# scans in 0.7s and merges to 21,690 CDS intervals -- about 0.35 MB -- because
+# coding exons from every isoform collapse onto each other. So the ceiling is
+# the longest chromosome plus room, not a selection-sized window.
+MAX_SPAN = 300_000_000
+MAX_INTERVALS = 400_000
 
 WANTED_TYPES = {
     "CDS": "cds",
