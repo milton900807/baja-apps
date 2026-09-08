@@ -1265,6 +1265,49 @@ function (path, config) {
                     }
                 }
 
+                // THE HIGHLIGHTS, over both modes. Drawn from their own index rather than
+                // by scanning the variants, and with a pale ring so a mark reads on top of
+                // a dense strip as well as on bare chromosome.
+                {
+                    let shown = 0;
+                    const vA0 = -g.Ywc(0) * MB, vB0 = -g.Ywc(ctx.canvas.height) * MB;
+                    const wLo = Math.min(vA0, vB0), wHi = Math.max(vA0, vB0);
+                    for (let ci = 0; ci < drawn.length && shown < HL_DRAW_CAP; ci++) {
+                        const d = vdata[ci];
+                        if (!d || !d.hlIdx || !d.hlIdx.length || !d.hl) continue;
+                        const c2 = drawn[ci];
+                        if (c2.circular) continue;
+                        const hx0 = g.X(barLeft(ci)), hx1 = g.X(barRight(ci));
+                        if (hx1 < -30 || hx0 > ctx.canvas.width + 30) continue;
+                        const hcx = (hx0 + hx1) / 2, hbw = hx1 - hx0;
+                        const idx = d.hlIdx;
+                        let a3 = 0, z3 = idx.length;
+                        while (a3 < z3) {
+                            const m3 = (a3 + z3) >> 1;
+                            if (d.pos[idx[m3]] < wLo) a3 = m3 + 1; else z3 = m3;
+                        }
+                        const rr = Math.max(2.2, Math.min(5.5, hbw * 0.16));
+                        ctx.save();
+                        for (let j = a3; j < idx.length && shown < HL_DRAW_CAP; j++) {
+                            const k = idx[j];
+                            const p3 = d.pos[k];
+                            if (p3 > wHi) break;
+                            const my3 = g.Y(wy(p3));
+                            if (my3 < -8 || my3 > ctx.canvas.height + 8) continue;
+                            ctx.beginPath();
+                            ctx.arc(hcx, my3, rr + 1.7, 0, Math.PI * 2);
+                            ctx.fillStyle = 'rgba(255,255,255,0.92)';
+                            ctx.fill();
+                            ctx.beginPath();
+                            ctx.arc(hcx, my3, rr, 0, Math.PI * 2);
+                            ctx.fillStyle = HL_COLOR[d.hl[k]] || '#1d4ed8';
+                            ctx.fill();
+                            shown++;
+                        }
+                        ctx.restore();
+                    }
+                }
+
                 // The drag, while it is happening.
                 if (dragging && dragging.i >= 0 && dragging.i < drawn.length) {
                     const c = drawn[dragging.i];
@@ -1557,6 +1600,7 @@ function (path, config) {
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
                 // variants change, rather than something to merge and keep in step.
                 d.hl = new Uint8Array(total);
+                d.hlIdx = [];
                 const hist = new Uint32Array(HIST_BINS);
                 const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
@@ -1993,12 +2037,31 @@ function (path, config) {
                 d.hist = hist;
                 kept += total;
             }
+            reindexHighlights();
             vtotal = kept;
             vobjects = Math.min(vtotal, OBJECT_CAP);
             if (graph.wake) graph.wake();
             graph.setMessage(' ' + label + ' — ' + removed.toLocaleString() + ' removed, '
                 + kept.toLocaleString() + ' left. ');
             step(label + ': removed ' + removed + ', kept ' + kept);
+        };
+
+        // Marked variants get their OWN index. The density mode draws histogram bins
+        // and never iterates the variants -- that is what keeps a genome-sized file
+        // cheap -- so a marked variant would never be drawn at the zoom people
+        // actually mark at. Drawing from this index costs the number of highlights in
+        // view rather than the number of variants.
+        const HL_DRAW_CAP = 20000;          // per frame, over the whole karyotype
+        const reindexHighlights = () => {
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d) continue;
+                const idx = [];
+                if (d.hl && d.n) {
+                    for (let k = 0; k < d.n; k++) if (d.hl[k]) idx.push(k);
+                }
+                d.hlIdx = idx;              // ascending k, so ascending position
+            }
         };
 
         const markWhere = (pred, code) => {
@@ -2009,12 +2072,14 @@ function (path, config) {
                 if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n);
                 for (let k = 0; k < d.n; k++) if (pred(ci, d.pos[k], k, d)) { d.hl[k] = code; n++; }
             }
+            reindexHighlights();
             if (graph.wake) graph.wake();
             return n;
         };
 
         const clearHighlights = () => {
             for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
+            reindexHighlights();
             if (graph.wake) graph.wake();
             graph.setMessage(' Highlights cleared. ');
         };
