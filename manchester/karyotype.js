@@ -1226,6 +1226,50 @@ function (path, config) {
                                     : 'rgba(255,45,120,' + (0.45 + 0.55 * f).toFixed(3) + ')';
                                 ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
                             }
+                            // THE MATCHES, on the same bins and the same scale, so the
+                            // magenta reads as "this much of that density" rather than as
+                            // a second unrelated chart. Always a subset, so never wider
+                            // than the grey underneath it.
+                            if (hlActive && d.hlHist) {
+                                let hlInView = 0;
+                                for (let b = b0; b <= b1; b++) hlInView += d.hlHist[b];
+                                if (hlInView) {
+                                    if (hlInView <= EXACT_MAX && d.hlIdx && d.hlIdx.length) {
+                                        // Few enough to place exactly: a hairline strip is
+                                        // not visible, and a handful of coding variants on
+                                        // a busy chromosome is the case that matters most.
+                                        const idx2 = d.hlIdx;
+                                        let a4 = 0, z4 = idx2.length;
+                                        while (a4 < z4) {
+                                            const m4 = (a4 + z4) >> 1;
+                                            if (d.pos[idx2[m4]] < lo) a4 = m4 + 1; else z4 = m4;
+                                        }
+                                        const rr2 = Math.max(2, Math.min(4.5, bw * 0.14));
+                                        for (let j2 = a4; j2 < idx2.length; j2++) {
+                                            const k2 = idx2[j2];
+                                            if (d.pos[k2] > hi) break;
+                                            const yh = g.Y(wy(d.pos[k2]));
+                                            if (yh < -6 || yh > ctx.canvas.height + 6) continue;
+                                            ctx.beginPath();
+                                            ctx.arc(bx1 + 6, yh, rr2, 0, Math.PI * 2);
+                                            ctx.fillStyle = HL_COLOR[d.hl[k2]] || HL_COLOR[1];
+                                            ctx.fill();
+                                        }
+                                    } else {
+                                        for (let b = b0; b <= b1; b++) {
+                                            const nh = d.hlHist[b];
+                                            if (!nh) continue;
+                                            const yA2 = g.Y(wy(b / scale));
+                                            const yB2 = g.Y(wy((b + 1) / scale));
+                                            if (yB2 < -4 || yA2 > ctx.canvas.height + 4) continue;
+                                            const h3 = Math.max(1, yB2 - yA2);
+                                            const f2 = Math.log(nh + 1) / lp;
+                                            ctx.fillStyle = HL_COLOR[hlActive] || HL_COLOR[1];
+                                            ctx.fillRect(bx1 + 2, yA2, 2 + maxW * f2, h3);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     ctx.restore();
@@ -1266,49 +1310,6 @@ function (path, config) {
                             ctx.fillRect(17, ty2 - 7, tw2 + 4, 14);
                             ctx.fillStyle = '#475569';
                             ctx.fillText(label, 19, ty2);
-                        }
-                        ctx.restore();
-                    }
-                }
-
-                // THE HIGHLIGHTS, over both modes. Drawn from their own index rather than
-                // by scanning the variants, and with a pale ring so a mark reads on top of
-                // a dense strip as well as on bare chromosome.
-                {
-                    let shown = 0;
-                    const vA0 = -g.Ywc(0) * MB, vB0 = -g.Ywc(ctx.canvas.height) * MB;
-                    const wLo = Math.min(vA0, vB0), wHi = Math.max(vA0, vB0);
-                    for (let ci = 0; ci < drawn.length && shown < HL_DRAW_CAP; ci++) {
-                        const d = vdata[ci];
-                        if (!d || !d.hlIdx || !d.hlIdx.length || !d.hl) continue;
-                        const c2 = drawn[ci];
-                        if (c2.circular) continue;
-                        const hx0 = g.X(barLeft(ci)), hx1 = g.X(barRight(ci));
-                        if (hx1 < -30 || hx0 > ctx.canvas.width + 30) continue;
-                        const hcx = (hx0 + hx1) / 2, hbw = hx1 - hx0;
-                        const idx = d.hlIdx;
-                        let a3 = 0, z3 = idx.length;
-                        while (a3 < z3) {
-                            const m3 = (a3 + z3) >> 1;
-                            if (d.pos[idx[m3]] < wLo) a3 = m3 + 1; else z3 = m3;
-                        }
-                        const rr = Math.max(2.2, Math.min(5.5, hbw * 0.16));
-                        ctx.save();
-                        for (let j = a3; j < idx.length && shown < HL_DRAW_CAP; j++) {
-                            const k = idx[j];
-                            const p3 = d.pos[k];
-                            if (p3 > wHi) break;
-                            const my3 = g.Y(wy(p3));
-                            if (my3 < -8 || my3 > ctx.canvas.height + 8) continue;
-                            ctx.beginPath();
-                            ctx.arc(hcx, my3, rr + 1.7, 0, Math.PI * 2);
-                            ctx.fillStyle = 'rgba(255,255,255,0.92)';
-                            ctx.fill();
-                            ctx.beginPath();
-                            ctx.arc(hcx, my3, rr, 0, Math.PI * 2);
-                            ctx.fillStyle = HL_COLOR[d.hl[k]] || '#1d4ed8';
-                            ctx.fill();
-                            shown++;
                         }
                         ctx.restore();
                     }
@@ -2062,7 +2063,6 @@ function (path, config) {
         // cheap -- so a marked variant would never be drawn at the zoom people
         // actually mark at. Drawing from this index costs the number of highlights in
         // view rather than the number of variants.
-        const HL_DRAW_CAP = 20000;          // per frame, over the whole karyotype
         const reindexHighlights = () => {
             for (let ci = 0; ci < drawn.length; ci++) {
                 const d = vdata[ci];
@@ -2072,6 +2072,21 @@ function (path, config) {
                     for (let k = 0; k < d.n; k++) if (d.hl[k]) idx.push(k);
                 }
                 d.hlIdx = idx;              // ascending k, so ascending position
+                // AND a histogram, on the same bins as d.hist. The marks have to survive
+                // the density mode, where nothing iterates the variants -- and a global
+                // cap on how many dots to draw per frame is not the answer: with the
+                // chromosomes drawn smallest first, a cap simply stops part-way through
+                // whichever chromosome the budget runs out on.
+                const hh = new Uint32Array(HIST_BINS);
+                if (idx.length && d.n) {
+                    const sc2 = HIST_BINS / drawn[ci].length;
+                    for (let q = 0; q < idx.length; q++) {
+                        let b = (d.pos[idx[q]] * sc2) | 0;
+                        if (b >= HIST_BINS) b = HIST_BINS - 1;
+                        hh[b]++;
+                    }
+                }
+                d.hlHist = hh;
             }
         };
 
