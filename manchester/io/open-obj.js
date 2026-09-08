@@ -61,6 +61,13 @@ function (graph, genegraph_panel_layout, __path) {
                             // Path AS-IS, for the same reason the editor gets it as-is:
                             // /load-file grants access on the folder id the browser is
                             // rooted at, not on the raw email.
+                            //
+                            // replaceState, not pushState, to match how this file opens a
+                            // screen. main.ts and dash.component recognise a karyotype deep
+                            // link now, so the URL survives a reload rather than falling
+                            // back to home.
+                            window.history.replaceState('', 'karyotype',
+                                `/app/manchester/karyotype?path=${element.path}`);
                             exec('manchester/karyotype', element.path);
                             return;
                         }
@@ -459,6 +466,8 @@ function (graph, genegraph_panel_layout, __path) {
                                         "ionfunction.fileClick": createIonFunction(async (element) => {
                                             clear();
                                             if (isKaryotype(element)) {
+                                                window.history.replaceState('', 'karyotype',
+                                                    `/app/manchester/karyotype?path=${element.path}`);
                                                 exec('manchester/karyotype', element.path);
                                                 return;
                                             }
