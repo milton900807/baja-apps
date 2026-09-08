@@ -377,11 +377,6 @@ function (path, config) {
                                         })
                                     },
                                     {
-                                        label: 'Select regions', icon: 'library_add',
-                                        tooltip: 'Drag down chromosomes to collect regions',
-                                        ionFunction: createIonFunction(() => { armRegions(); })
-                                    },
-                                    {
                                         label: 'Regions', icon: 'checklist',
                                         tooltip: 'What to do with the selected regions',
                                         ionFunction: createIonFunction(() => { regionMenu(); })
@@ -1804,9 +1799,16 @@ function (path, config) {
                 const padMb = Math.max(0.5, (hi - lo) / MB * 0.08);
                 await graph.zoomRect(barLeft(hit.i) - 0.5 * SLOT, barRight(hit.i) + 0.5 * SLOT,
                     wy(lo) + padMb, wy(hi) - padMb, 150);
+                // The lasso IS the region picker. A dragged range is remembered as well as
+                // opened, so Regions has something to work on without a second button
+                // that does almost the same thing.
+                regions.push({ i: hit.i, lo: lo, hi: hi });
                 try { await openRange(hit.i, lo, hi); } catch (e) { step('range failed: ' + e); }
                 graph.setMessage(' ' + hit.chrom.name + ':' + human(lo) + '-' + human(hi)
-                    + '  (' + (Math.round((hi - lo) / 1e4) / 100) + ' Mb) ');
+                    + '  (' + (Math.round((hi - lo) / 1e4) / 100) + ' Mb) — region '
+                    + regions.length + '. Drag again to add another, then Regions. ');
+                step('region added ' + hit.chrom.name + ':' + lo + '-' + hi
+                    + ' (' + regions.length + ' selected)');
                 try {
                     graph.__karyotypeRegion = { chr: hit.chrom.name.replace(/^chr/, ''), start: lo, end: hi };
                 } catch (e) { }
@@ -2065,54 +2067,6 @@ function (path, config) {
             step('annotate ' + kind + ': marked ' + marked + ', failed ' + failed);
         };
 
-        // ---- choosing the regions ----------------------------------------------
-        // A separate mode from Select sequence, which zooms into one range and opens
-        // it. This one only collects, so a drag does not move the view out from under
-        // the next drag.
-        const armRegions = () => {
-            graph.clearMouseListeners();
-            try { graph.__hoverRearm = () => { }; } catch (e) { }
-            try { graph.graph.mode = 'msg: Drag down a chromosome to add a region.'; } catch (e) { }
-            let from = null;
-            graph.addMouseDownListener((x, y) => {
-                from = { x: graph.Xwc(x), y: graph.Ywc(y) };
-                dragging = null;
-            });
-            graph.addMouseMoveListener((x, y) => {
-                if (!from) return;
-                const h = at(from.x, from.y) || at(graph.Xwc(x), graph.Ywc(y));
-                if (!h) return;
-                dragging = { i: h.i, y0: from.y, y1: graph.Ywc(y) };
-                if (graph.wake) graph.wake();
-            });
-            graph.addMouseUpListener((x, y) => {
-                const to = { x: graph.Xwc(x), y: graph.Ywc(y) };
-                const f = from; from = null; dragging = null;
-                if (!f) return;
-                const hit = at(f.x, f.y) || at(to.x, to.y);
-                if (!hit) { graph.setMessage(' Nothing there — drag on a chromosome. '); return; }
-                if (hit.circular) {
-                    graph.setMessage(' The mitochondrial genome is drawn as a ring and cannot '
-                        + 'be dragged over; use the linear chromosomes. ');
-                    return;
-                }
-                const clamp = (bp) => Math.max(0, Math.min(hit.chrom.length, Math.round(bp)));
-                const lo = clamp(-Math.max(f.y, to.y) * MB);
-                const hi = clamp(-Math.min(f.y, to.y) * MB);
-                if (hi - lo < 1000) {
-                    graph.setMessage(' Too short to be a region — drag further. ');
-                    return;
-                }
-                regions.push({ i: hit.i, lo: lo, hi: hi });
-                if (graph.wake) graph.wake();
-                graph.setMessage(' Region ' + regions.length + ': ' + hit.chrom.name + ':'
-                    + human(lo) + '-' + human(hi) + '  ('
-                    + (Math.round((hi - lo) / 1e4) / 100) + ' Mb). Drag again to add another. ');
-                step('region added ' + hit.chrom.name + ':' + lo + '-' + hi);
-            });
-            graph.setMessage(' Drag down a chromosome to add a region. Each drag adds one. ');
-        };
-
         // ---- the library of things to do with them ------------------------------
         const regionMenu = () => {
             const act = (label, fn) => ({
@@ -2129,10 +2083,16 @@ function (path, config) {
             const head = regions.length
                 ? (regions.length + ' region' + (regions.length === 1 ? '' : 's') + ' selected, '
                     + (Math.round(span / 1e4) / 100) + ' Mb in total')
-                : 'No regions selected yet — choose <b>Select regions</b> and drag down a chromosome.';
+                : 'No regions selected yet — choose <b>Select sequence</b> and drag down a '
+                    + 'chromosome. Each drag adds one.';
             showModal({
                 wid: 'card',
                 data: {
+                    // HEIGHT IS NOT OPTIONAL. Every card that shows in a modal in this
+                    // application sets one; without it the card collapses and the modal
+                    // opens with nothing in it, which is exactly what "the menu does not
+                    // show up" looked like.
+                    height: '460px',
                     cards: [[
                         {
                             'title': ' ', 'width': '100%',
