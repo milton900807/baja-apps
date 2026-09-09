@@ -39,10 +39,21 @@ function (djresult, xoffset, track, graph) {
         //     run used to append a second full set on top of the first
         //   • the same amplicon appearing twice in one result set (the backend dedupes by
         //     default, but only when options.dedupe is left on)
-        // The probe is part of the identity: the same primer pair with and without a
-        // hydrolysis probe are two different assays that get ordered separately, and keying
-        // on the primers alone would drop the second one as a duplicate of the first.
-        const ampKey = (lxi, rxf, f, r, p) => (Math.round(+lxi) + '|' + Math.round(+rxf) + '|' + f + '|' + r + '|' + (p || ''));
+        // WHAT MAKES TWO AMPLICONS THE SAME ONE: where it sits and which primers it uses.
+        //
+        // The probe was briefly part of this key, on the reasoning that a pair with and
+        // without a hydrolysis probe are different assays. In practice that broke re-running:
+        // until probes were switched on, every amplicon on every track was designed WITHOUT
+        // one, so its key component was empty while the same amplicon designed today carries
+        // a probe. The keys stopped matching, the guard stopped firing, and a second copy
+        // landed on the first -- same coordinates, pushed to a different row by addOligo's
+        // stacking, which is what "duplicates at the same x" looked like.
+        //
+        // A probe does not move an amplicon or change its primers, so it does not make it a
+        // different amplicon on the track. Where the existing one has no probe and the new
+        // hit has one, the answer is to give the existing one its probe (below), not to place
+        // a second amplicon beside it.
+        const ampKey = (lxi, rxf, f, r) => (Math.round(+lxi) + '|' + Math.round(+rxf) + '|' + f + '|' + r);
 
         // Tm and GC as the DESIGNER computed them (primer3 nearest-neighbour), stamped with
         // the sequence they describe so Amplicon.draw keeps them instead of overwriting them
@@ -55,17 +66,18 @@ function (djresult, xoffset, track, graph) {
             if (isFinite(g) && g > 0) { o.gc = g; any = true; }
             if (any) o.designTmSeq = seq;
         };
-        const seen = new Set();
+        // Keyed to the OBJECT, not just remembered as present, so a repeat hit can reach the
+        // amplicon already on the track and add the probe it was missing.
+        const seen = new Map();
         try {
             for (const o of (track.oligos || [])) {
                 if (!o || !o.left || !o.right) continue;   // only amplicon-shaped objects
-                const k = ampKey(o.left.xi, o.right.xf, '' + (o.left.sequence || ''), '' + (o.right.sequence || ''),
-                    '' + ((o.mid && o.mid.sequence) || o.probeSequence || ''));
-                seen.add(k);
+                const k = ampKey(o.left.xi, o.right.xf, '' + (o.left.sequence || ''), '' + (o.right.sequence || ''));
+                if (!seen.has(k)) seen.set(k, o);
             }
         } catch (e) { }
 
-        let placed = 0, skipped = 0;
+        let placed = 0, skipped = 0, upgraded = 0;
         for (let i = 0; i < hits.length; i++) {
             const h = hits[i];
             const fwd = '' + (h.forward_primer || '');
@@ -96,9 +108,23 @@ function (djresult, xoffset, track, graph) {
                 }
             }
 
-            const key = ampKey(base + start, base + end, fwd, rev, probe);
-            if (seen.has(key)) { skipped++; continue; }
-            seen.add(key);
+            const key = ampKey(base + start, base + end, fwd, rev);
+            const already = seen.get(key);
+            if (already) {
+                // UPGRADE RATHER THAN DUPLICATE. The amplicon is already here; the only thing
+                // this run can add is the probe, for the amplicons designed back when the
+                // designer was not asked for one. Everything else about it is unchanged, so
+                // nothing else is touched.
+                if (mo && !already.mid) {
+                    already.mid = mo;
+                    already.probeSequence = probe;
+                    upgraded++;
+                } else {
+                    skipped++;
+                }
+                continue;
+            }
+            seen.set(key, null);   // claimed by this run; the object is set once it is built
 
             // left (forward) primer: [start .. start+len); right (reverse) primer: [end-len .. end)
             const lo = new Oligo('primer', fwd, fwd, base + start, base + start + fwd.length, 0.15);
@@ -123,13 +149,23 @@ function (djresult, xoffset, track, graph) {
                 amp.name = amp.name + ' p=' + p;
             }
             track.addOligo(amp);
+            seen.set(key, amp);
             placed++;
         }
 
         if (graph && graph.wake) graph.wake();
-        if (graph && graph.setMessage) graph.setMessage(' Placed ' + placed + ' djPrimer amplicon' + (placed === 1 ? '' : 's')
-            + (skipped ? (' — ' + skipped + ' duplicate' + (skipped === 1 ? '' : 's') + ' skipped') : '')
-            + ' on ' + (track.name || 'track') + '. ');
+        // setResultMessage, not setMessage: the canvas only paints error and result toasts,
+        // so the line saying what a run produced was being written to a surface that is never
+        // drawn -- the design finished and nothing said so.
+        const withProbe = ((track.oligos || []).filter((o) => o && o.left && o.right && o.mid)).length;
+        const msg = ' Placed ' + placed + ' djPrimer amplicon' + (placed === 1 ? '' : 's')
+            + (upgraded ? (' — added the probe to ' + upgraded + ' already here') : '')
+            + (skipped ? (' — ' + skipped + ' already here, unchanged') : '')
+            + ' on ' + (track.name || 'track') + '. '
+            + (withProbe ? (withProbe + ' of them carry a hydrolysis probe. ') : 'No probes (SYBR). ');
+        if (graph) {
+            try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+        }
         resolve(placed);
     });
 }

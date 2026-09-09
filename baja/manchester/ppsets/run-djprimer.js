@@ -69,7 +69,16 @@ function (graph, genegraph_panel_layout, presetTrack) {
             try {
                 const gene = t.geneID || t.name || '';
                 const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-                const r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                // Live progress -- see the note in track-design-menu.js. Without a monitor the
+                // python's window-by-window reporting is dropped and a multi-minute design
+                // shows one unchanging line.
+                const __em = new EngineMonitor((m) => {
+                    try {
+                        const b = ('' + (m == null ? '' : m)).replace(/[.\u2026\s]+$/, '');
+                        graph.setMessage(' djPrimer · ' + ((t && t.name) || 'track') + (b ? ' · ' + b : '') + '… ');
+                    } catch (e) { }
+                });
+                const r = await exec('py/ppsets/models/find-primer-amplicons.py', __em, '' + sequence, '', '', opts);
                 t.ampliconResults = r;
                 // Placed from where the design actually began: 0 for a whole track, the
                 // selection's start for a selected one.

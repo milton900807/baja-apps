@@ -2087,8 +2087,19 @@ function (graph, genegraph_panel_layout) {
                                                     let sequence = selectedTrack.getSequenceRange(selectedTrack.markstart, selectedTrack.markend);
                                                     const gene = selectedTrack.geneID || selectedTrack.name || '';
                                                     const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-                                                    graph.setMessage(' Designing primers (djPrimer)... ');
-                                                    let r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                                                    // Live progress: the python reports its way through hundreds of
+                                                    // primer3 windows, and without an EngineMonitor none of it was
+                                                    // collected -- the badge never changed and the run looked hung.
+                                                    // The trailing ellipsis is what keeps the shell's spinner up.
+                                                    const __em = new EngineMonitor((m) => {
+                                                        try {
+                                                            const b = ('' + (m == null ? '' : m)).replace(/[.\u2026\s]+$/, '');
+                                                            graph.setMessage(' djPrimer · ' + ((selectedTrack && selectedTrack.name) || 'track')
+                                                                + (b ? ' · ' + b : '') + '… ');
+                                                        } catch (e) { }
+                                                    });
+                                                    graph.setMessage(' djPrimer · ' + ((selectedTrack && selectedTrack.name) || 'track') + ' · starting… ');
+                                                    let r = await exec('py/ppsets/models/find-primer-amplicons.py', __em, '' + sequence, '', '', opts);
                                                     selectedTrack.ampliconResults = r;
                                                     await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);
                                                     if (graph.wake) graph.wake();

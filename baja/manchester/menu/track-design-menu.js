@@ -1875,6 +1875,39 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             __ppRefresh();
             __designDone('Primer-probe', placed, selectedTrack, 'primer3', r, '/py/ppsets/generate-ppsets.py');
         };
+        // LIVE PROGRESS FOR A DESIGN THAT TAKES MINUTES.
+        //
+        // djPrimer walks the transcript in 260nt windows at a 10nt step and runs primer3 at
+        // every one, so a real transcript is hundreds of primer3 calls -- minutes of work.
+        // The python reports its way through that (works.progress / works.msg), and none of
+        // the four djPrimer call sites passed an EngineMonitor, so none of it was collected:
+        // the badge read "Designing primers (djPrimer)..." from the first moment to the last
+        // and the run was indistinguishable from a hang.
+        //
+        // The ellipsis matters. The shell shows its spinner only while the status ENDS in one
+        // (see flexigraph/gene.js) -- a message without it is read as a conclusion and clears
+        // the badge -- so every line built here keeps one.
+        const __designMonitor = (label) => {
+            let pct = null;
+            const show = (m) => {
+                try {
+                    const body = ('' + (m == null ? '' : m)).replace(/[.…\s]+$/, '');
+                    graph.setMessage(' ' + label + (pct != null ? ' · ' + pct + '%' : '')
+                        + (body ? ' · ' + body : '') + '… ');
+                } catch (e) { }
+            };
+            const em = new EngineMonitor((m) => show(m));
+            try { em.addProgressListener((p) => { const n = +p; if (isFinite(n)) { pct = Math.round(n); show(em.lastMsg || ''); } }); } catch (e) { }
+            // Remember the last message so a progress tick on its own still names what is
+            // running rather than replacing the text with a bare percentage.
+            try {
+                const orig = em.listenerFunction;
+                em.listenerFunction = (m) => { em.lastMsg = m; orig(m); };
+            } catch (e) { }
+            show('starting');
+            return em;
+        };
+
         const runDjprimer = async () => {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
@@ -1882,10 +1915,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             const sequence = __wholeTrackSequence();
             const gene = selectedTrack.geneID || selectedTrack.name || '';
             const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-            graph.setMessage(' Designing primers (djPrimer)... ');
+            const em = __designMonitor('djPrimer · ' + (selectedTrack.name || 'track'));
             let r = null;
             const placed = await __placedDuring(async () => {
-                r = await exec('py/ppsets/models/find-primer-amplicons.py', '' + sequence, '', '', opts);
+                r = await exec('py/ppsets/models/find-primer-amplicons.py', em, '' + sequence, '', '', opts);
                 selectedTrack.ampliconResults = r;
                 await exec('baja/manchester/ppsets/apply-djprimer.js', r, __designOffset(), selectedTrack, graph);
             });
@@ -1898,10 +1931,10 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             if (!__needSequence()) return;
             graph.pushOntoHistory(); graph.clearMouseListeners();
             await __zoomToDesignScope();
-            graph.setMessage(' Designing junction-spanning primer-probes... ');
+            const em = __designMonitor('Exon-exon primer-probes · ' + (selectedTrack.name || 'track'));
             let r = null;
             const placed = await __placedDuring(async () => {
-                r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', selectedTrack);
+                r = await exec('py/ppsets/models/find-primer-amplicons-exon-exon.py', em, selectedTrack);
                 selectedTrack.ampliconResults = r;
                 // OFFSET 0, unlike the two routes above, and this is not an oversight.
                 //
