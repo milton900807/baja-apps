@@ -34,7 +34,8 @@ function (graph, genegraph_panel_layout, params) {
 
         // Ensembl transcript ids for any organism (ENS[species]T#####) and RefSeq ids load
         // directly; anything else is a name and goes through the transcript resolver.
-        const isTranscriptId = (w) => /^(ENS[A-Z]*T\d+(\.\d+)?|[NX][MR]_\d+(\.\d+)?)$/i.test('' + w);
+        const isTranscriptId = (w) => /^(ENS[A-Z]*T\d+(\.\d+)?|[NX][MR]_\d+(\.\d+)?)$/i.test('' + w)
+            || ((typeof isYeastTranscriptId === 'function') && isYeastTranscriptId('' + w));   // YAL069W_mRNA
         const stripV = (s) => ('' + (s || '')).split('.')[0].toUpperCase();
 
         const findLoaded = (tid, symbol) => {

@@ -4,10 +4,14 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         const host_ = server;
         // Any Ensembl transcript stable id (human ENST, mouse ENSMUST, rat ENSRNOT, ...).
         const TRANSCRIPT_ID_RE = /ENS[A-Z]*T\d+/i;
+        // A yeast one has no such prefix (YAL069W_mRNA, snR19_snRNA): lib/core.js knows the shape.
+        const isYeastId = (w) => { try { return isYeastTranscriptId(w); } catch (e) { return false; } };
         // Local copies (these helpers are not global).
         function extractFirstEnsemblId(inputString) {
             const match = ('' + inputString).match(/ENS[A-Z]*[GTPE]\d+/i);
-            return match ? match[0] : null;
+            if (match) return match[0];
+            const w = ('' + inputString).trim().split(/\s+/)[0] || '';
+            return isYeastId(w) ? w : null;
         }
         // Render the New-track form directly in the mainPanel (not a modal), and put the
         // editor canvas back in the mainPanel after loading / cancel.
@@ -94,8 +98,9 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
 
             // If the input already contains a single transcript id, load it directly.
             const idm = query.match(TRANSCRIPT_ID_RE);
-            if (idm && query.split(/\s+/).length === 1) {
-                const oneId = idm[0].toUpperCase();
+            if (query.split(/\s+/).length === 1 && (idm || isYeastId(query))) {
+                // A yeast id keeps its case: tP(UGG)A_tRNA and YAL069W_mRNA are exact keys.
+                const oneId = idm ? idm[0].toUpperCase() : query;
                 const ok = await loadOne({ id: oneId });
                 if (ok) graph.setMouseMode('navigate');
                 resolve(ok ? [{ id: oneId }] : null);
@@ -295,7 +300,42 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
             'all APOE transcripts in human'
         ];
         const __ex = __examples[Math.floor(Math.random() * __examples.length)];
-        let __exActive = true;   // true until the user focuses/edits the box
+        let __exActive = true;   // true until the user puts something in the box
+
+        // GHOST TEXT, NOT CONTENT. The example used to be typed INTO the box, a character
+        // every 25 ms, and cleared when the box was first focused. A keystroke that landed
+        // before that focus was handled -- a fast typist, a paste, a script -- was written
+        // into the middle of the example, and what reached the resolver was both strings
+        // spliced together ("LO1 yeastload the MANE Select for SMN2F"). Drawn as a Monaco
+        // decoration instead, the example is never part of the content: nothing can type
+        // over it, the box reads back exactly what was put in it, and it goes on the first
+        // character and does not come back. Load with the box untouched still uses it.
+        let __ghost = null;                     // the decorations collection, once made
+        const ghost = (text) => {
+            try {
+                const ed = v && v.editor, M = window['monaco'];
+                if (!ed || !M || !ed.createDecorationsCollection) return false;
+                if (!document.getElementById('baja-prompt-ghost-style')) {
+                    const st = document.createElement('style');
+                    st.id = 'baja-prompt-ghost-style';
+                    st.textContent = '.baja-prompt-ghost{color:#8a94a6 !important;opacity:0.85;pointer-events:none;}';
+                    document.head.appendChild(st);
+                }
+                if (!__ghost) __ghost = ed.createDecorationsCollection([]);
+                __ghost.set(text ? [{
+                    range: new M.Range(1, 1, 1, 1),
+                    // An empty range is not drawn unless it is told to be; this one is
+                    // nothing but its "after" text.
+                    options: { showIfCollapsed: true, after: { content: text, inlineClassName: 'baja-prompt-ghost' } }
+                }] : []);
+                return true;
+            } catch (e) { return false; }
+        };
+        const endExample = () => {
+            if (!__exActive) return;
+            __exActive = false;
+            ghost('');
+        };
 
         let describe_transcript = {
             wid: 'card',
@@ -326,10 +366,6 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                         cursorStyle: 'block',
                                         cursorBlinking: 'solid'
                                     },
-                                    // Clear the typed-in example the first time the user clicks in.
-                                    onDidFocusEditorWidget: createIon(() => {
-                                        if (__exActive && v) { try { v.setContent(''); } catch (e) { } __exActive = false; }
-                                    })
                                 }
                             }
                         },
@@ -358,7 +394,7 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                         try {
                                             let transcript = extractFirstEnsemblId(value.toString());
                                             if (transcript && v && v.setContent) {
-                                                v.setContent(transcript); __exActive = false;
+                                                v.setContent(transcript); endExample();
                                             }
                                         } catch (e) { }
                                     }),
@@ -381,10 +417,10 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
                                                     desc = (v && v.getContent) ? v.getContent()
                                                         : (v && v.getWidgetValue ? v.getWidgetValue() : (v && v.value ? v.value : ''));
                                                 } catch (e) { }
-                                                // If the user never touched the box, use the prefilled
-                                                // sample example as the prompt (even if the typewriter
-                                                // hasn't finished, use the full example text).
-                                                if (__exActive) desc = __ex;
+                                                // An untouched box means the example: empty under the
+                                                // ghost text, or (on a widget with no editor to decorate,
+                                                // where the example is typed in) holding a prefix of it.
+                                                if (__exActive && (!('' + desc).trim() || __ex.indexOf(('' + desc).trim()) === 0)) desc = __ex;
                                                 let gene = '';
                                                 try {
                                                     gene = (geneBox && geneBox.getWidgetValue) ? geneBox.getWidgetValue()
@@ -431,12 +467,28 @@ function (server, graph, genegraph_panel_layout, presetQuery) {
         describe_transcript.componentRef = 'mainPanel';
         formShown = true;
         showInMainPanel(describe_transcript);
-        // Typewriter: type the random example into the editor (cleared on first focus).
+        // Typewriter: the random example appears a character at a time, as ghost text. It
+        // ends the moment the box holds anything, whichever way that got there.
         setTimeout(() => {
-            let __i = 0;
+            let __i = 0, __wired = false;
+            const contentOf = () => {
+                try { if (v && v.editor && v.editor.getValue) return '' + v.editor.getValue(); } catch (e) { }
+                try { return '' + ((v && v.getContent) ? v.getContent() : ''); } catch (e) { return ''; }
+            };
             const __iv = setInterval(() => {
-                if (!__exActive || !v || !v.setContent) { try { clearInterval(__iv); } catch (e) { } return; }
-                try { v.setContent(__ex.slice(0, __i + 1)); } catch (e) { }
+                if (!__exActive || !v) { try { clearInterval(__iv); } catch (e) { } return; }
+                if (!__wired && v.editor && v.editor.onDidChangeModelContent) {
+                    __wired = true;
+                    try { v.editor.onDidChangeModelContent(() => { if (contentOf().length) endExample(); }); } catch (e) { }
+                }
+                const cur = contentOf();
+                if (cur.trim()) { endExample(); clearInterval(__iv); return; }
+                if (!ghost(__ex.slice(0, __i + 1))) {
+                    // No editor to decorate: the example is typed in, but only while the box
+                    // holds exactly what this wrote -- one foreign character and it stops.
+                    if (cur !== __ex.slice(0, __i)) { endExample(); clearInterval(__iv); return; }
+                    if (v.setContent) { try { v.setContent(__ex.slice(0, __i + 1)); } catch (e) { } }
+                }
                 __i++;
                 if (__i >= __ex.length) clearInterval(__iv);
             }, 25);

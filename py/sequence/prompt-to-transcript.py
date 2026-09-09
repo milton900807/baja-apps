@@ -45,7 +45,23 @@ ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
 INDEX_ROOT = (os.environ.get("OFFTARGET_INDEX_DIR") or "").strip()
 
 # Ensembl transcript stable id, any species prefix: ENST / ENSMUST / ENSRNOT ...
-TRANSCRIPT_RE = re.compile(r"^ENS[A-Z]*T\d+$", re.I)
+ENSEMBL_TRANSCRIPT_RE = re.compile(r"^ENS[A-Z]*T\d+$", re.I)
+# Yeast has none: Ensembl keeps SGD's names, YAL069W_mRNA / snR19_snRNA / tP(UGG)A_tRNA,
+# and the transposable elements (YPR158W-B) carry no suffix. Same shape as lib/core.js.
+YEAST_TRANSCRIPT_RE = re.compile(
+    r"^(?:[A-Za-z0-9()'-]+_(?:mRNA|ncRNA|tRNA|rRNA|snRNA|snoRNA|transcript)"
+    r"|Y[A-P][LR]\d{3}[WC](?:-[A-Z])?|Q\d{4})$")
+
+
+class _TranscriptRe(object):
+    """Either shape. Yeast ids are case-sensitive keys (tP(UGG)A_tRNA), so the match is on
+    the id as given."""
+    def match(self, tid):
+        t = str(tid or "")
+        return ENSEMBL_TRANSCRIPT_RE.match(t) or YEAST_TRANSCRIPT_RE.match(t)
+
+
+TRANSCRIPT_RE = _TranscriptRe()
 
 MAX_CANDIDATES_PER_GENE = 40    # keeps the pass-2 prompt small; canonical goes first
 MAX_GENES = 12
@@ -57,6 +73,7 @@ SPECIES_INDEX = {
     "mouse": ["mouse_cdna", "mouse_ncrna"],
     "rat": ["rat_cdna", "rat_ncrna"],
     "dog": ["dog_cdna"],
+    "yeast": ["yeast_cdna", "yeast_ncrna"],
     "cynomolgus monkey": ["monkey_cyno_cdna"],
     "rhesus macaque": ["monkey_rhesus_cdna"],
 }
@@ -76,7 +93,132 @@ SPECIES_ALIASES = {
     # A bare "monkey"/"NHP" is nearly always the cyno in tox work.
     "monkey": "cynomolgus monkey", "macaque": "cynomolgus monkey",
     "nhp": "cynomolgus monkey", "non-human primate": "cynomolgus monkey",
+    "saccharomyces cerevisiae": "yeast", "s. cerevisiae": "yeast", "s cerevisiae": "yeast",
+    "cerevisiae": "yeast", "saccharomyces": "yeast", "budding yeast": "yeast",
+    "baker's yeast": "yeast", "bakers yeast": "yeast", "brewer's yeast": "yeast",
+    "sce": "yeast", "sgd": "yeast", "saccer3": "yeast", "r64": "yeast", "s288c": "yeast",
 }
+
+# ---------------------------------------------------------------------------
+# THE YEAST CATALOGUE. The GENCODE sqlite is human-only and the off-target contigs need an
+# index the server may not have built yet, but the yeast annotation is one small GFF3 and
+# holds everything a lookup needs: every transcript, its gene, its symbol (Name=, when the
+# gene has one) and its systematic name. Read once into a sidecar TSV beside the GFF, the
+# way gene-locus.py keeps its symbol table, and answered from there.
+# ---------------------------------------------------------------------------
+YEAST_GFF_CANDIDATES = (
+    "reference_data/yeast.annotation.gff3.bgz",
+    "reference_data/yeast.annotation.gff3.gz",
+    "/opt/baja-server/reference_data/yeast.annotation.gff3.bgz",
+    "/opt/baja-server/reference_data/yeast.annotation.gff3.gz",
+    os.path.expanduser("~/baja-server/reference_data/yeast.annotation.gff3.bgz"),
+    os.path.expanduser("~/baja-server/reference_data/yeast.annotation.gff3.gz"),
+)
+
+
+def yeast_gff_path():
+    for p in YEAST_GFF_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return ""
+
+
+def _gff_attrs(col):
+    d = {}
+    for kv in str(col or "").split(";"):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            d[k.strip()] = v.strip()
+    return d
+
+
+def yeast_catalogue():
+    """[{id, gene_id, symbol, biotype, length}] for every yeast transcript, built on first
+    use from the GFF3 into <gff>.transcripts.tsv."""
+    gff = yeast_gff_path()
+    if not gff:
+        return []
+    side = gff + ".transcripts.tsv"
+    rows = []
+    if os.path.exists(side) and os.path.getmtime(side) >= os.path.getmtime(gff):
+        try:
+            with open(side) as fh:
+                for ln in fh:
+                    f = ln.rstrip("\n").split("\t")
+                    if len(f) >= 5:
+                        rows.append({"id": f[0], "gene_id": f[1], "symbol": f[2],
+                                     "biotype": f[3], "length": int(f[4] or 0)})
+            return rows
+        except Exception:
+            rows = []
+    import gzip
+    genes = {}          # gene_id -> (symbol, biotype)
+    tx = []             # (tid, gene_id, biotype, length)
+    try:
+        with gzip.open(gff, "rt") as fh:
+            for ln in fh:
+                if not ln or ln[0] == "#":
+                    continue
+                f = ln.rstrip("\n").split("\t")
+                if len(f) < 9:
+                    continue
+                a = _gff_attrs(f[8])
+                gid = (a.get("gene_id") or a.get("ID") or "").replace("gene:", "")
+                if f[2] in ("gene", "ncRNA_gene", "transposable_element_gene", "pseudogene"):
+                    if gid:
+                        genes[gid] = (a.get("Name") or "", a.get("biotype") or "")
+                    continue
+                tid = a.get("transcript_id")
+                if not tid:
+                    continue
+                parent = (a.get("Parent") or "").replace("gene:", "")
+                try:
+                    length = int(f[4]) - int(f[3]) + 1
+                except ValueError:
+                    length = 0
+                tx.append((tid, parent, a.get("biotype") or "", length))
+    except Exception:
+        return []
+    for tid, gid, biotype, length in tx:
+        sym, gbio = genes.get(gid, ("", ""))
+        rows.append({"id": tid, "gene_id": gid, "symbol": sym,
+                     "biotype": biotype or gbio, "length": length})
+    try:
+        tmp = side + ".tmp"
+        with open(tmp, "w") as out:
+            for r in rows:
+                out.write("\t".join([r["id"], r["gene_id"], r["symbol"], r["biotype"],
+                                     str(r["length"])]) + "\n")
+        os.replace(tmp, side)
+    except Exception:
+        pass
+    return rows
+
+
+def yeast_candidates(symbols):
+    """{SYMBOL: [{id, canonical, gene}]} -- a symbol (FLO1), a systematic name (YAR050W) or
+    a transcript id itself, matched case-insensitively. A yeast gene has one transcript
+    almost without exception, and it is the canonical one."""
+    if not symbols:
+        return {}
+    rows = yeast_catalogue()
+    if not rows:
+        return {}
+    by_key = {}
+    for r in rows:
+        for k in (r["symbol"], r["gene_id"], r["id"]):
+            if k:
+                by_key.setdefault(k.upper(), []).append(r)
+    out = {}
+    for sym in symbols:
+        hits = by_key.get(str(sym).strip().upper()) or []
+        if not hits:
+            continue
+        ids = [{"id": r["id"], "canonical": True, "gene": r["symbol"] or r["gene_id"],
+                "biotype": r["biotype"]} for r in hits]
+        ids.sort(key=lambda x: (x["biotype"] != "protein_coding", -0, x["id"]))
+        out[str(sym).strip().upper()] = ids[:MAX_CANDIDATES_PER_GENE]
+    return out
 
 
 def norm_species(s):
@@ -151,10 +293,12 @@ def ask_species_and_genes(text, hint):
         "object, no prose:\n"
         '{"targets": [{"species": "human", "genes": ["KRAS", "TP53"]}, '
         '{"species": "mouse", "genes": ["Kras"]}]}\n'
-        "Rules: use the common English species name (human, mouse, rat, dog, cynomolgus "
-        "monkey, rhesus macaque, ...). One entry per species; a request may span several "
-        "(e.g. 'load human, mouse and rat KRAS'). Write each gene in that species' own "
-        "nomenclature: human symbols uppercase (KRAS), mouse and rat title case (Kras). "
+        "Rules: use the common English species name (human, mouse, rat, dog, yeast, "
+        "cynomolgus monkey, rhesus macaque, ...). One entry per species; a request may span "
+        "several (e.g. 'load human, mouse and rat KRAS'). Write each gene in that species' "
+        "own nomenclature: human symbols uppercase (KRAS), mouse and rat title case (Kras), "
+        "yeast (Saccharomyces cerevisiae) as the SGD standard name (ACT1, FLO1) or the "
+        "systematic name (YAR050W) when there is no standard name. "
         "If no species is stated, use human. If the request names a transcript ID rather "
         "than a gene, give the gene that ID belongs to if you know it, otherwise return "
         "an empty gene list.\n"
@@ -211,7 +355,8 @@ def ensembl_symbol_lookup(symbol, species="human"):
     if not requests or not symbol:
         return []
     sp = {"human": "homo_sapiens", "mouse": "mus_musculus", "rat": "rattus_norvegicus",
-          "dog": "canis_lupus_familiaris"}.get(str(species).lower(), "homo_sapiens")
+          "dog": "canis_lupus_familiaris",
+          "yeast": "saccharomyces_cerevisiae"}.get(str(species).lower(), "homo_sapiens")
     hdr = {"Accept": "application/json"}
     try:
         r = requests.get("https://rest.ensembl.org/lookup/symbol/%s/%s?expand=1" % (sp, symbol),
@@ -376,6 +521,12 @@ def index_candidates(species, symbols):
 
 
 def candidates_for(species, symbols):
+    if species == "yeast":
+        c = yeast_candidates(symbols)
+        missing = [s for s in symbols if s.upper() not in c]
+        if missing:
+            c.update(index_candidates("yeast", missing))
+        return c
     if species == "human":
         c = human_candidates(symbols)
         missing = [s for s in symbols if s.upper() not in c]
@@ -487,8 +638,44 @@ species_seen = []
 genes_seen = []
 mode = "anthropic-2pass"
 
+direct_yeast = []
+YEAST_WORDS = ("yeast", "cerevisiae", "saccharomyces", "s", "s.", "sgd", "s288c", "saccer3", "r64")
+YEAST_SYSTEMATIC = re.compile(r"^(?:Y[A-P][LR]\d{3}[WC](?:-[A-Z])?|Q\d{4})(?:_[A-Za-z]+)?$", re.I)
+if prompt_text and not override:
+    # "yeast ACT1", "S. cerevisiae FLO1 TUB2", or a bare systematic name (YAR050W), which
+    # is yeast whatever the rest of the sentence says: the species is read off the words.
+    ws = [w for w in re.split(r"[\s,;]+", str(prompt_text).strip()) if w]
+    named = any(w.lower().strip("().,") in YEAST_WORDS for w in ws)
+    rest = [w for w in ws if w.lower().strip("().,") not in YEAST_WORDS and w.lower() not in ("in", "for", "from", "load", "the", "a", "and", "with", "of", "gene", "genes",
+                          "transcript", "transcripts", "canonical", "please", "show", "open")]
+    if rest and (named or all(YEAST_SYSTEMATIC.match(w) for w in rest)):
+        override = "yeast"
+        prompt_text = " ".join(rest)
+if prompt_text and override == "yeast":
+    # "FLO1", "YAR050W", "act1 tub2": every word is looked up as written. Anything the
+    # catalogue does not know still goes through the model below.
+    words = [w for w in re.split(r"[\s,;]+", str(prompt_text).strip()) if w]
+    if words and len(words) <= MAX_GENES and all(re.match(r"^[A-Za-z0-9()'_.-]+$", w) for w in words):
+        cand = yeast_candidates(words)
+        for w in words:
+            for x in (cand.get(w.upper()) or [])[:1]:
+                direct_yeast.append({"id": x["id"], "gene": x["gene"], "species": "yeast",
+                                     "biotype": x.get("biotype"), "canonical": True,
+                                     "why": "the %s transcript, from the yeast annotation" % w})
+        unknown = [w for w in words if w.upper() not in cand]
+        if direct_yeast and not unknown:
+            prompt_text = ""          # nothing left to ask
+            mode = "yeast-catalogue"
+            if "yeast" not in species_seen:
+                species_seen.append("yeast")
+            for w in words:
+                if w not in genes_seen:
+                    genes_seen.append(w)
+results.extend(direct_yeast)
+
 if not prompt_text:
-    errs.append("empty prompt")
+    if not results:
+        errs.append("empty prompt")
     targets = []
 else:
     step1, e1 = ask_species_and_genes(prompt_text, species_override)

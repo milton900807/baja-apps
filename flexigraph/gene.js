@@ -2732,9 +2732,24 @@ function (progress, options) {
                         let Xmin = this.graph.getxmin() - translateMinX;
                         let Ymax = this.graph.getymax() - translateMaxY;
                         let Ymin = this.graph.getymin() - translateMinY;
-                        let xw = Xmin - Xmax;
-                        let yw = Ymax - Ymin;
-                        let currentAspectRatio = xw / yw;
+                        // MAGNITUDES, because an aspect ratio has no sign.
+                        //
+                        // This read `Xmin - Xmax` over `Ymax - Ymin`: a negated width over a
+                        // plain height. That is only a sane ratio where y is INVERTED -- the
+                        // editor, whose tracks run downward, where both terms come out
+                        // negative and the ratio is positive. In a view whose y runs the
+                        // other way, the karyotype, the same expression is negative, always
+                        // below 10, and the branch below fired on every increment of every
+                        // animated zoom whatever the shape of the view.
+                        //
+                        // Correcting it to `Xmax - Xmin` fixed the karyotype and broke the
+                        // editor, because that flips which orientation gets the sane ratio
+                        // rather than removing the dependence on one. Absolute values serve
+                        // both: the test is about the SHAPE of the rectangle, and a rectangle
+                        // has the same shape whichever way its axes are numbered.
+                        let xw = Math.abs(Xmax - Xmin);
+                        let yw = Math.abs(Ymax - Ymin);
+                        let currentAspectRatio = yw ? (xw / yw) : Infinity;
                         if (currentAspectRatio < 10) {
                             let targetAspectRatio = 10;
                             let new_xw, new_yw;
@@ -2856,7 +2871,21 @@ function (progress, options) {
 
             }
 
+            // WORLD IN, SCREEN OUT.
+            //
+            // Every mouse listener in this file is dispatched with world coordinates --
+            // movel(xwc, ywc), mdl(xwc, ywc) -- and that is what callers hand to getSNPs.
+            // SnpIndel.over() tests against a SCREEN-pixel region covering the whole
+            // lollipop. The two were never converted between, so world numbers were compared
+            // against pixel numbers and the region effectively never matched: clicking a
+            // lollipop head did nothing, and selection fell through to a 12-pixel proximity
+            // test anchored near the track baseline, which is why only the foot of the stem
+            // responded.
+            //
+            // Converting once, here, is what makes the head clickable.
             getSNPs(x, y) {
+                const sx = this.graph.X(x);
+                const sy = this.graph.Y(y);
                 let gwcxs = this.graph.Xwc(0);
                 if (!gwcxs)
                     return;
@@ -2871,7 +2900,7 @@ function (progress, options) {
 
                     for (let snp of snps) {
                         if (snp != null && snp.over != null && this.graph != null) {
-                            if (snp.over(x, y, this.graph, t.tgraph)) {
+                            if (snp.over(sx, sy, this.graph, t.tgraph)) {
                                 s.push(snp);
                             }
                         }
@@ -3223,7 +3252,10 @@ function (progress, options) {
                     // ------------------------------------------------------------
                     // 1. Try local transcript endpoint first for ENST ids
                     // ------------------------------------------------------------
-                    if (/^ENS[A-Z]*T\d/i.test(ensembleId)) {   // any Ensembl transcript: ENST / ENSMUST / ENSRNOT ...
+                    // Any Ensembl transcript (ENST / ENSMUST / ENSRNOT ...) -- or a yeast one, which
+                    // Ensembl names the SGD way (YAL069W_mRNA) and the local server holds.
+                    const __isYeastId = (typeof isYeastTranscriptId === 'function') && isYeastTranscriptId(ensembleId);
+                    if (/^ENS[A-Z]*T\d/i.test(ensembleId) || __isYeastId) {
 
                         let localLoaded = false;
 
@@ -3495,7 +3527,8 @@ function (progress, options) {
                     // local-DB-first, so it only succeeds on a transcript we can actually serve.
                     if (!__noAiResolve) {
                         try {
-                            const sp = /^ENSMUST/i.test(ensembleId) ? 'mouse' : (/^ENSRNOT/i.test(ensembleId) ? 'rat' : 'human');
+                            const sp = /^ENSMUST/i.test(ensembleId) ? 'mouse' : (/^ENSRNOT/i.test(ensembleId) ? 'rat'
+                                : (__isYeastId ? 'yeast' : 'human'));
                             if (this.setMessage) this.setMessage('Transcript "' + ensembleId + '" not found — finding the current version…');
                             const em = (typeof EngineMonitor === 'function') ? new EngineMonitor((m) => { try { if (this.setMessage) this.setMessage('' + m); } catch (e) { } }) : null;
                             const promptTxt = 'The Ensembl transcript stable ID "' + ensembleId + '" is retired or invalid. '
@@ -4134,10 +4167,20 @@ function (progress, options) {
                 return this.graph.getymax();
             }
             async zoom(min, max) {
-                if (this.animating) {
-                    this.animating = false;
-                    return;
-                }
+                // AN EXPLICIT ZOOM IS A DESTINATION, NOT A GESTURE.
+                //
+                // This used to read: if an animation is running, cancel it and RETURN --
+                // so the zoom was swallowed to stop the animation, and the caller's
+                // request was silently dropped. That is the right trade for a drag, which
+                // is why zoomRect and zoomXY still do it: a second drag means "stop", not
+                // "and also go here".
+                //
+                // It is the wrong trade for zoomTo. Worse, `animating` is left true by any
+                // animateTo that does not reach its own end -- one aborted mid-loop, one
+                // interrupted by a component unmount -- and from then on the FIRST zoomTo
+                // after it does nothing at all and only the second works. Clearing the flag
+                // and going anyway is what "go here" means.
+                this.animating = false;
                 await this.graph.zoom(min, max);
                 this.graph.rescale();
             }
@@ -4909,6 +4952,19 @@ function (progress, options) {
                 // already below that, this returns a NARROWER range than asked for,
                 // i.e. it increases the y scale and pulls the tracks back apart.
                 // x is never touched.
+                // Hands a proposed rectangle to the view's own limit, if it set one, and
+                // returns whatever comes back. Never throws and never returns nonsense: a
+                // clamp that fails leaves the zoom alone rather than freezing the view.
+                this.applyViewClamp = (x0, x1, y0, y1) => {
+                    if (typeof this.__clampView !== 'function') return [x0, x1, y0, y1];
+                    try {
+                        const c = this.__clampView(x0, x1, y0, y1);
+                        if (c && c.length === 4 && c.every((v) => isFinite(v))
+                            && c[1] > c[0] && c[3] > c[2]) return c;
+                    } catch (e) { }
+                    return [x0, x1, y0, y1];
+                };
+
                 this.clampYRangeForTracks = (ymin, ymax) => {
                     const pitch = this.minTrackPitchWorld();
                     if (!isFinite(pitch) || pitch <= 0) return [ymin, ymax];
@@ -4945,25 +5001,61 @@ function (progress, options) {
                         [ymin1, ymax1] = this.clampYRangeForTracks(ymin1, ymax1);
                     }
 
-                    return this.slideZoomTo(xmin1, xmax1, ymin1, ymax1, duration);
+                    const cc = this.applyViewClamp(xmin1, xmax1, ymin1, ymax1);
+                    return this.slideZoomTo(cc[0], cc[1], cc[2], cc[3], duration);
                 }
 
+                // AN ANIMATION MUST NOT DRIVE ANOTHER ANIMATION.
+                //
+                // This is already a complete animation: a requestAnimationFrame loop with
+                // its own easing, walking the view from where it is to where it should be.
+                // It used to spend each of those frames calling zoomXY, and zoomXY starts a
+                // THIRTY-STEP animateTo of its own. So frame 1 launched a 30-step animation;
+                // frame 2, ~16 ms later, found `animating` still true, set it to false --
+                // which is how zoomRect cancels -- and returned; the animation launched by
+                // frame 1 then saw its own flag cleared and abandoned itself part-way,
+                // leaving the grid at an intermediate rectangle it never meant to stop at
+                // and skipping the code that would have set the intended one. Frame 3 began
+                // again from there. Sixty times a second.
+                //
+                // Every one of those abandoned steps had also passed through animateTo's
+                // aspect-ratio clamp, which rewrites the rectangle it is given. Compounded
+                // over dozens of partial runs, that is what made zoom out "jump to a new
+                // grid" and squeeze the drawing into a fraction of the width.
+                //
+                // The interpolation here is the only animation needed, so each frame now
+                // sets the grid it computed -- one zoom() call, four bounds and a rescale --
+                // and the view arrives exactly where it was asked to.
                 this.slideZoomTo = async (xmin, xmax, ymin, ymax, duration = 400) => {
                     const sx0 = this.graph.getxmin(), ex0 = this.graph.getxmax();
                     const sy0 = this.graph.getymin(), ey0 = this.graph.getymax();
                     const t0 = performance.now();
+                    const put = (x0, x1, y0, y1) => {
+                        const g = this.graph && this.graph.grid;
+                        if (!g) return;
+                        if (!(x1 > x0) || !(y1 > y0)) return;    // never invert the axes
+                        try {
+                            if (g.zoom) g.zoom(x0, x1, y0, y1);
+                            else {
+                                g.setxmin(x0); g.setxmax(x1);
+                                g.setymin(y0); g.setymax(y1);
+                                if (g.rescale) g.rescale();
+                            }
+                        } catch (e) { return; }
+                        try { if (this.wake) this.wake(); } catch (e) { }
+                    };
 
                     return new Promise(resolve => {
                         const step = (now) => {
                             const t = Math.min(1, (now - t0) / duration);
                             const e = t * t * (3 - 2 * t);
-                            this.zoomXY(
+                            put(
                                 sx0 + (xmin - sx0) * e,
                                 ex0 + (xmax - ex0) * e,
                                 sy0 + (ymin - sy0) * e,
                                 ey0 + (ymax - ey0) * e
                             );
-                            if (t < 1) requestAnimationFrame(step); else resolve();
+                            if (t < 1) requestAnimationFrame(step); else { put(xmin, xmax, ymin, ymax); resolve(); }
                         };
                         requestAnimationFrame(step);
                     });
@@ -5345,7 +5437,6 @@ function (progress, options) {
                     evt.preventDefault();
 
                     const dy = evt.deltaY || 0;
-                    const isCtrlPressed = evt.ctrlKey;
                     const isShiftPressed = evt.shiftKey;
 
                     const grid = this.graph.grid;
@@ -5377,22 +5468,28 @@ function (progress, options) {
                     let newXMin = xmin, newXMax = xmax;
                     let newYMin = ymin, newYMax = ymax;
 
-                    if (!isCtrlPressed && !isShiftPressed) {
+                    // CTRL IS A PINCH, AND A PINCH IS A ZOOM.
+                    //
+                    // Browsers deliver a trackpad pinch as a wheel event with ctrlKey set --
+                    // there is no separate gesture event here -- so the ctrl branch was not
+                    // "the user held ctrl", it was "the user pinched". It zoomed x alone,
+                    // which is why pinching out compressed the drawing sideways and left
+                    // the height where it was. Both axes, by the same factor, is what the
+                    // gesture means and what every other application does with it.
+                    //
+                    // Shift stays y-only: that one really is a key someone chose to hold.
+                    if (!isShiftPressed) {
 
                         const newW = clampSpan(width * factor, MIN_WIDTH, width * MAX_MULTIPLIER);
                         const newH = clampSpan(height * factor, MIN_HEIGHT, height * MAX_MULTIPLIER);
                         newXMin = cx - newW / 2; newXMax = cx + newW / 2;
                         newYMin = cy - newH / 2; newYMax = cy + newH / 2;
 
-                    } else if (isShiftPressed) {
+                    } else {
 
                         const newH = clampSpan(height * factor, MIN_HEIGHT, height * MAX_MULTIPLIER);
                         newYMin = cy - newH / 2; newYMax = cy + newH / 2;
 
-                    } else if (isCtrlPressed) {
-
-                        const newW = clampSpan(width * factor, MIN_WIDTH, width * MAX_MULTIPLIER);
-                        newXMin = cx - newW / 2; newXMax = cx + newW / 2;
                     }
 
                     // Same guard as the zoom-out button: widening y squeezes stacked
@@ -5402,6 +5499,15 @@ function (progress, options) {
                         const [cy0, cy1] = this.clampYRangeForTracks(newYMin, newYMax);
                         newYMin = cy0; newYMax = cy1;
                     }
+                    // A VIEW MAY SAY HOW FAR OUT IS FAR ENOUGH. Only the view knows what it
+                    // is drawing: the karyotype knows the width of a chromosome slot and
+                    // that past a certain compression its chromosomes have no gap left
+                    // between them. Opt-in, so a view without the hook zooms as it always
+                    // did. Ctrl+wheel matters most here -- browsers deliver a trackpad
+                    // PINCH as wheel-with-ctrlKey, which takes the x-only branch above, so
+                    // a pinch out squeezes x alone and crowds everything together.
+                    [newXMin, newXMax, newYMin, newYMax] =
+                        this.applyViewClamp(newXMin, newXMax, newYMin, newYMax);
 
                     grid.xmin = newXMin;
                     grid.xmax = newXMax;
@@ -8028,7 +8134,11 @@ pattern, GGGG | Required`
                         // does but never what it is about -- and what it is about is the thing
                         // a reader is looking for. Back gets none: it is not a kind of thing,
                         // and its own icon has already said what it is.
-                        badge: isBack ? '' : (isSub ? type : 'Action'),
+                        // An item may declare its own badge and accent. The derivation below
+                        // reads them off the label text, which cannot tell a variant from any
+                        // other leaf -- and a variant is not an 'Action', it is a finding.
+                        badge: isBack ? '' : (it.badge != null ? it.badge : (isSub ? type : 'Action')),
+                        accent: it.accent || undefined,
                         blurb: '',
                         // Which cards ACT and which navigate. Every card here carries an
                         // open() that calls the menu's own click handler -- including the ones
@@ -8063,17 +8173,19 @@ pattern, GGGG | Required`
                 //   Selection tools     top level only
                 //   Actions             what can be done to it, last
                 //
-                // The selected things carry no heading. 'Selected items' was naming the
-                // obvious: this is the selection library, the cards are what is selected, and
-                // a title saying so was a row of text between the reader and the thing they
-                // opened the window to see. The two groups that DO need naming are the ones
-                // that are not the selection -- the tools that make one and the actions that
-                // consume it -- and they still say what they are.
+                // The selected things carry a heading that COUNTS them.
                 //
-                // Which is also why the selection comes first now. Unlabelled cards under a
-                // 'Selection tools' heading would read as more tools; leading with them, and
-                // letting the first heading mark where the selection stops, is the ordering
-                // that survives having no label.
+                // They used to carry none, on the reasoning that this is the selection
+                // library so the cards are self-evidently the selection. They are not: with
+                // Selection tools and Actions both labelled below, an unlabelled group at
+                // the top reads as a preamble to the first heading rather than as the
+                // contents of the window. The objection to a label was that 'Selected items'
+                // names the obvious -- which is true, and is why this one does not stop at
+                // naming. It says how many, and of what, so it earns its row by answering
+                // something the cards can only be counted to learn.
+                //
+                // The selection still comes first, for the reason it did before: it is what
+                // the window is about.
                 //
                 // Actions were mixed in among the selected objects, so 'Download all as CSV'
                 // sat between two compounds looking like a third thing that had been selected.
@@ -8102,8 +8214,42 @@ pattern, GGGG | Required`
                             + 'track — and what you catch will be listed here.'
                     }];
                 }
+                // What is in the selection, in the words the shelf already uses for each
+                // kind, so the heading and the badges on the cards agree.
+                // Counting words of their own, not the shelf labels lowercased. Those labels
+                // are headings rather than countable nouns, and trimming an 's' off one gives
+                // '1 snps / indel'.
+                //
+                // Counted from the graph's OWN selection, not from openSelectionMenu's `sel`.
+                // This is a class method and that is a closure variable one scope away: it
+                // read as available and is not, and the reference threw straight into the
+                // empty catch that guards this call -- which does not fail loudly, it falls
+                // through to the side menu. A library that quietly stops being a library.
+                const COUNT_WORD = {
+                    track: ['track', 'tracks'], ann: ['annotation', 'annotations'],
+                    snp: ['variant', 'variants'], oligo: ['oligo', 'oligos'],
+                    amplicon: ['amplicon', 'amplicons'], layer: ['layer item', 'layer items'],
+                };
+                let __sel = [];
+                try { __sel = this.__lassoSelection || []; } catch (e) { __sel = []; }
+                const __countBy = {};
+                const __order = [];
+                for (const e of __sel) {
+                    const k2 = (e && e.kind) || 'item';
+                    if (__countBy[k2] == null) { __countBy[k2] = 0; __order.push(k2); }
+                    __countBy[k2]++;
+                }
+                const __parts = __order.map((k2) => {
+                    const n = __countBy[k2];
+                    const w = COUNT_WORD[k2] || [k2, k2 + 's'];
+                    return n + ' ' + (n === 1 ? w[0] : w[1]);
+                });
+                const SELECTED = subs.length
+                    ? ('Selected  ·  ' + (__parts.join('  ·  ') || subs.length + ' items'))
+                    : 'Selected';
+                const selected = listed.map((b) => Object.assign({}, b, { section: SELECTED }));
                 const actioned = acts.map((b) => Object.assign({}, b, { section: ACTIONS }));
-                const all = backs.concat(listed, tools, actioned);
+                const all = backs.concat(selected, tools, actioned);
                 if (!all.length) {
                     try { this.setResultMessage(' Nothing to show for that selection. '); } catch (e) { }
                     return;
@@ -8681,12 +8827,28 @@ pattern, GGGG | Required`
                         this.bclick = 'zoom_in';
                         setTimeout(() => { this.bclick = ''; this.setMouseMode('navigate'); }, 400);
                         this.graph.rescale();
-                        await this.slideZoomByFactor(0.5, 0.5, 200);
+                        // 1/1.5, written as the inverse rather than as 0.667, so the pair
+                        // below cannot drift apart when either is retuned: one press each
+                        // way returns the view to where it started.
+                        await this.slideZoomByFactor(1 / 1.5, 1 / 1.5, 200);
                         return;
                     case 'zoom_out':
                         this.bclick = 'zoom_out';
                         setTimeout(() => { this.___folder_calculation = false; this.___folder_calculation_status = null; this.bclick = ''; this.setMouseMode('navigate'); }, 400);
-                        await this.slideZoomByFactor(1.50, 1.20, 200);
+                        // THE SAME FACTOR ON BOTH AXES, and the inverse of zoom in.
+                        //
+                        // This was (1.50, 1.20): x widened by half, y by a fifth. That is
+                        // not a zoom, it is a zoom and a stretch -- every press flattened
+                        // the view by 1.25x, so the karyotype's chromosomes grew steadily
+                        // wider apart and shorter, and zooming in afterwards never brought
+                        // back the shape you started from, because zoom in scales both axes
+                        // alike and so could not undo a stretch. 1.5 against zoom in's
+                        // 1/1.5 keeps the step fine and makes the two exact opposites.
+                        //
+                        // Stacked tracks are still protected -- slideZoomByFactor clamps y
+                        // through clampYRangeForTracks whenever fy >= 1 -- so the editor
+                        // keeps its legibility guard without the aspect being paid for it.
+                        await this.slideZoomByFactor(1.5, 1.5, 200);
                         return;
                     case 'navigate':
                         this.bclick = 'navigate';
@@ -8747,6 +8909,27 @@ pattern, GGGG | Required`
                         // Select track sequence, Edit selected sequence, motifs, …).
                         this.bclick = 'select_seq';
                         setTimeout(() => { this.bclick = ''; }, 100);
+                        // A VIEW CAN CLAIM THIS BUTTON. select-sequence.js is the sequence
+                        // menu for TRACKS, and it assumes there are tracks to select on. A
+                        // view drawn on the bare canvas -- the karyotype, where "select a
+                        // sequence" means dragging a range down a chromosome -- has nothing
+                        // for it to act on, and worse: the clearMouseListeners() below wipes
+                        // that view's own drag handlers and leaves the mode on 'navigate',
+                        // so the gesture pans instead of selecting.
+                        //
+                        // So a view may install __selectSeqOverride and take the button,
+                        // exactly as __hoverRearm takes the mouse-over re-arm. Opt-in: with
+                        // no override this behaves as it always did.
+                        try {
+                            if (typeof this.__selectSeqOverride === 'function') {
+                                this.__selectSeqOverride();
+                                return;
+                            }
+                        } catch (e) {
+                            this.setMessage(' Select sequence failed: '
+                                + (e && e.message ? e.message : e));
+                            return;
+                        }
                         try {
 
                             this.clearMouseListeners();
@@ -8811,6 +8994,47 @@ pattern, GGGG | Required`
             // is that polygon with four corners. A separate implementation would have been a
             // second copy of the hit-testing, the track-enclosure rule and the selection
             // assembly -- three things that must agree between the two gestures.
+            // HOW A SELECTED VARIANT IS NAMED IN THE SELECTION LIBRARY.
+            //
+            // A method rather than a local, because the label has to read the same wherever
+            // a variant is listed, and the lasso is not the only thing that lists one.
+            //
+            // Order is deliberate: the change first, because that is the variant; then what
+            // kind of change; then its clinical call, which is the thing a reader scans for;
+            // then the id, which is a handle rather than a description and is often just a
+            // coordinate. A placeholder allele (N, N>N) is dropped rather than printed --
+            // it says nothing and takes the space the real information would use.
+            snpSelLabel(s) {
+                if (!s) { return 'variant'; }
+                const up = (v) => ('' + (v == null ? '' : v)).toUpperCase();
+                const ref = up(s.reference || s.reference0);
+                const alt = up(s.alternate || s.alternate0);
+                const real = ref && alt && ref !== alt
+                    && ref.indexOf('N') < 0 && alt.indexOf('N') < 0;
+                const t = ('' + (s.type || 'snp')).toLowerCase();
+                const peptide = (t === 'aa' || !!s.peptide);
+                const kind = t === 'ins' ? 'insertion' : t === 'del' ? 'deletion'
+                    : peptide ? 'protein variant' : 'variant';
+                const id = ('' + (s.id || s.name || '')).trim();
+                const parts = [];
+                // A protein variant's ref/alt are AMINO ACIDS, and "G>A" beside three
+                // nucleotide rows reads as a base change. Its name (G93A) already carries
+                // the substitution, so the change is left to the name there.
+                parts.push((real && !peptide) ? (ref + '>' + alt + '  ' + kind) : kind);
+                if (s.clinsig) { parts.push('' + s.clinsig); }
+                // Only when it adds something. An id that repeats the change, or that is
+                // the coordinate the row already ends with, is noise -- a VCF with no ID
+                // column names its rows "chr16:23630072", which is the position twice.
+                const pos = isFinite(+s.xi) ? Math.round(+s.xi) : null;
+                const idIsLocus = pos != null
+                    && new RegExp('(^|[^0-9])' + pos + '$').test(id);
+                if (id && id !== (ref + '>' + alt) && !/^(snp|variant)@/i.test(id) && !idIsLocus) {
+                    parts.push(id);
+                }
+                if (pos != null) { parts.push('@' + pos.toLocaleString()); }
+                return parts.join('  ·  ');
+            }
+
             _startLasso(rect) {
                 this.clearMouseListeners();
                 this.setMouseMode(rect ? 'rectselect' : 'lasso');
@@ -8944,7 +9168,17 @@ pattern, GGGG | Required`
                                 if (!__snpHit) __snpHit = trackHit(t, s.xi, s.y != null ? s.y : 0);
                                 if (__snpHit) {
                                     s.highlight = true;
-                                    sel.push({ kind: 'snp', label: (s.id || s.name || ('snp@' + s.xi)) + (s.clinsig ? ' · ' + s.clinsig : ''), track: t, chr: t.chr, xi: s.xi, xf: (s.xf != null ? s.xf : s.xi), ref: s, clinsig: s.clinsig });
+                                    // A SELECTED VARIANT SAYS IT IS ONE.
+                                    //
+                                    // The label was the id alone -- "snp@31659700", or an rs
+                                    // number, or whatever a VCF happened to put in the ID
+                                    // column -- and in a list beside tracks, oligos and
+                                    // annotations that reads as one more object of unknown
+                                    // kind. What makes a variant a variant is the change, so
+                                    // the change is in the label: the mutation itself, what
+                                    // kind of mutation it is, and its clinical call when
+                                    // there is one.
+                                    sel.push({ kind: 'snp', label: this.snpSelLabel(s), track: t, chr: t.chr, xi: s.xi, xf: (s.xf != null ? s.xf : s.xi), ref: s, clinsig: s.clinsig });
                                     n++;
                                 }
                             }
@@ -9377,23 +9611,30 @@ pattern, GGGG | Required`
                 const { cx, cy } = this._ctrlPos('select_seq');
                 this.drawCircleButton(ctx, cx, cy, 11, { circle: true, invert: true });
 
-                // An I-beam over a short baseline of "bases" — the select-sequence
-                // glyph (light on the inverted tropical fill).
+                // highlight_alt: a dashed selection square with a pointer inside it.
+                //
+                // This is the glyph the karyotype's toolbar carried on the button that did
+                // exactly this, and that button has gone -- it and this one armed the same
+                // gesture, so there was no reason for two. The icon moves here rather than
+                // being retired with it: the picture already meant "drag a selection", and
+                // an I-beam over a baseline of bases meant "select TEXT", which is not the
+                // gesture either button ever made.
                 ctx.save();
                 this.resetCanvasEffects(ctx);
                 ctx.strokeStyle = "#ffffff";
-                ctx.lineWidth = 1.4;
-                // I-beam caret
+                ctx.lineWidth = 1.3;
+                ctx.setLineDash([2.2, 1.8]);
+                ctx.strokeRect(cx - 5.5, cy - 5.5, 11, 11);
+                ctx.setLineDash([]);
+                // The pointer, solid, sitting inside the square it is dragging out.
+                ctx.fillStyle = "#ffffff";
                 ctx.beginPath();
-                ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 3);
-                ctx.moveTo(cx - 2.5, cy - 5); ctx.lineTo(cx + 2.5, cy - 5);
-                ctx.moveTo(cx - 2.5, cy + 3); ctx.lineTo(cx + 2.5, cy + 3);
-                ctx.stroke();
-                // sequence baseline ticks
-                ctx.lineWidth = 1.2;
-                ctx.beginPath();
-                ctx.moveTo(cx - 5.5, cy + 6); ctx.lineTo(cx + 5.5, cy + 6);
-                ctx.stroke();
+                ctx.moveTo(cx - 1.2, cy - 2.8);
+                ctx.lineTo(cx + 5.0, cy + 1.0);
+                ctx.lineTo(cx + 2.1, cy + 1.6);
+                ctx.lineTo(cx + 1.2, cy + 4.6);
+                ctx.closePath();
+                ctx.fill();
                 ctx.restore();
 
                 if (this.showHelp) {
@@ -10840,6 +11081,13 @@ pattern, GGGG | Required`
                     return list;
                 };
                 // Paginated picker for a type: each pick opens its per-item action menu.
+                const __variantWord = (ref) => {
+                    const t = ('' + ((ref && ref.type) || 'snp')).toLowerCase();
+                    if (t === 'ins') { return 'insertion'; }
+                    if (t === 'del') { return 'deletion'; }
+                    if (t === 'aa' || (ref && ref.peptide)) { return 'protein variant'; }
+                    return 'variant';
+                };
                 const showTypePicker = (picks, k, openOne, topItems) => {
                     const backItem = { label: '‹ Back', click: () => { openMain(); }, move: () => { } };
                     const reopen = () => showTypePicker(picks, k, openOne, topItems);
@@ -10848,7 +11096,16 @@ pattern, GGGG | Required`
                         // menu" items) — not the generic action page, so no "Remove all others" /
                         // "Deselect" in between.
                         ? { label: (p.label || k) + ' ▸', click: () => { if (openOne) openOne(p); }, move: () => { } }
-                        : { label: (p.label || k), click: () => { show(itemMenu(p, k, openOne, reopen), (p.label || kindLabels[k] || k) + ' ▸'); }, move: () => { } }));
+                        : {
+                            label: (p.label || k),
+                            // A selected variant carries the clinical look and says what kind
+                            // of change it is, rather than being badged 'Action' like every
+                            // other leaf on the shelf.
+                            badge: k === 'snp' ? __variantWord(p.ref) : undefined,
+                            accent: k === 'snp' ? 'variant' : undefined,
+                            click: () => { show(itemMenu(p, k, openOne, reopen), (p.label || kindLabels[k] || k) + ' ▸'); },
+                            move: () => { }
+                        }));
                     show(renderPickPage(topItems || [], pickEntries, 0, backItem, menuLabel(k)), menuLabel(k));
                 };
 
@@ -10909,20 +11166,59 @@ pattern, GGGG | Required`
                             // object. Explicit on purpose: opening a track's menu deliberately
                             // does NOT move the camera, so this is how you ask it to.
                             const zoomItem = { label: 'Zoom to', click: () => { close(); zoomToEntry(p); }, move: () => { } };
+                            const __tn = (p.label || (t && t.name) || 'Track');
+
+                            // THE VARIANTS ON THIS TRACK, AS A LEVEL OF THEIR OWN.
+                            //
+                            // A track that carries variants is usually being opened BECAUSE of
+                            // them, and the fallback menu's 'Variants ▸' hands straight off to
+                            // another script's menu -- so the variants themselves were never a
+                            // level you could walk. Here they are: one card each, and picking
+                            // one opens that variant's own menu (Zoom into snp, More
+                            // information, Allele selective ASOs …) in the same library.
+                            //
+                            // Only when there are any: an entry reading 'SNPs (0)' is a control
+                            // that exists to say no.
+                            const __snps = ((t && t.snpindels) || []).filter(Boolean);
+                            const openSnp = async (sn) => {
+                                let m = null;
+                                try { m = await exec('baja/manchester/menu/snp-menu', this, t, sn); } catch (e) { m = null; }
+                                if (!m || !m.length) { this.setMessage(' That variant has no menu. '); return; }
+                                show(m.concat([{ label: '‹ Back', click: () => { openSnpList(); }, move: () => { } }]),
+                                    this.snpSelLabel(sn) + ' ▸');
+                            };
+                            const openSnpList = () => {
+                                const lbl = __tn + ' — SNPs ▸';
+                                // Paginated, because a track loaded from a whole-gene VCF can
+                                // carry hundreds and a shelf of hundreds is not a menu.
+                                const entries = __snps.map((sn) => ({
+                                    label: this.snpSelLabel(sn),
+                                    badge: __variantWord(sn),
+                                    accent: 'variant',
+                                    click: () => { openSnp(sn); },
+                                    move: () => { },
+                                }));
+                                show(renderPickPage([], entries, 0,
+                                    { label: '‹ Back', click: () => { openOne(p); }, move: () => { } }, lbl), lbl);
+                            };
+                            const snpItem = __snps.length
+                                ? [{ label: 'SNPs (' + __snps.length + ') ▸', click: () => { openSnpList(); }, move: () => { } }]
+                                : [];
+
                             let child;
                             if (p.trackMenu && p.trackMenu.length) {
-                                child = [zoomItem].concat(p.trackMenu, [back]);
+                                child = [zoomItem].concat(snpItem, p.trackMenu, [back]);
                             } else {
                                 const L = this.genegraph_panel_layout;
                                 child = [
                                     zoomItem,
+                                ].concat(snpItem, [
                                     { label: 'Layers ▸', click: () => { closeHandoff(); try { exec('baja/manchester/menu/track-layers-side-menu.js', t, L, this); } catch (e) { } }, move: () => { } },
                                     { label: 'Variants (' + ((t && t.snpindels || []).length) + ') ▸', click: () => { closeHandoff(); try { Promise.resolve(exec('baja/manchester/menu/mutations-menu.js', this, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                     { label: 'Design ▸', click: () => { closeHandoff(); try { const __hasRange = (t && t.markstart != null && t.markend != null && t.markstart >= 0 && t.markend > t.markstart); if (!__hasRange && t && t.selectTrackAndSeq) t.selectTrackAndSeq(); } catch (e) { } try { Promise.resolve(exec('baja/manchester/menu/track-design-menu.js', this, t, L)).catch(() => { }); } catch (e) { } }, move: () => { } },
                                     back,
-                                ];
+                                ]);
                             }
-                            const __tn = (p.label || (t && t.name) || 'Track');
                             try { child.__compactCols = true; child.__menuTitle = __tn; } catch (e) { }
                             show(child, __tn + ' ▸');
                         };
@@ -11128,13 +11424,46 @@ pattern, GGGG | Required`
                             return;
                         }
                     }
-                    const sub = [
+                    const sub = [];
+                    // SNPs / Indels: the thing you select variants FOR. Same chemistry
+                    // library and the same phase choice the SNP right-click menu opens, so
+                    // there is one answer to "design an allele selective ASO here"
+                    // regardless of which way in you took. First in the list because it is
+                    // the reason to have selected them; the downloads follow.
+                    if (k === 'snp') {
+                        const snpTargets = () => sel
+                            .filter((s) => s.kind === 'snp' && s.ref)
+                            .map((s) => ({
+                                snp: s.ref, track: s.track,
+                                label: s.label || (s.ref.id || s.ref.name || 'variant'),
+                            }))
+                            .filter((t) => t.track);
+                        sub.push({
+                            label: 'Design allele selective ASOs…',
+                            click: () => {
+                                const t = snpTargets();
+                                if (!t.length) {
+                                    this.setMessage(' No variants selected to design against. ');
+                                    return;
+                                }
+                                close();
+                                try {
+                                    Promise.resolve(exec('baja/manchester/menu/allele-selective-chemistry.js',
+                                        this, t)).catch(() => { });
+                                } catch (e) {
+                                    this.setMessage(' Could not open the chemistry library: ' + e);
+                                }
+                            },
+                            move: () => { },
+                        });
+                    }
+                    sub.push(
                         { label: 'Download as BED', click: () => { close(); this.exportSelection('bed', k); }, move: () => { } },
                         { label: 'Download as CSV', click: () => { close(); this.exportSelection('csv', k); }, move: () => { } },
                         { label: 'Download as TXT', click: () => { close(); this.exportSelection('txt', k); }, move: () => { } },
                         { label: 'Download as XLSX', click: () => { close(); this.exportSelection('xlsx', k); }, move: () => { } },
                         { label: 'Remove ' + kl.toLowerCase(), click: () => { close(); this.removeSelectedByKind(k); }, move: () => { } },
-                    ];
+                    );
                     // Two things a selection of variants wants that a file download is not:
                     // to be LOOKED AT, and to be READ ABOUT. Both go above the downloads,
                     // because both are what someone came to this menu to do; exporting is

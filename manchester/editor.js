@@ -37,7 +37,9 @@ function (path, config) {
         // transcript resolver.
         function isTranscriptId(word) {
             const w = ('' + (word || '')).toUpperCase();
-            return /^ENS[A-Z]*T\d{3,}(\.\d+)?$/.test(w) || /^(NM|NR|XM|XR)_\d+(\.\d+)?$/.test(w);
+            if (/^ENS[A-Z]*T\d{3,}(\.\d+)?$/.test(w) || /^(NM|NR|XM|XR)_\d+(\.\d+)?$/.test(w)) return true;
+            // Yeast: YAL069W_mRNA, snR19_snRNA, or a bare systematic name (lib/core.js).
+            try { return isYeastTranscriptId(('' + (word || '')).trim()); } catch (e) { return false; }
         }
         function parseENSTWords(str) {
             const words = str.split(/\s+/);
@@ -473,10 +475,31 @@ function (path, config) {
                     });
                 }
 
-                window.addEventListener('dragover', (e) => {
+                // ONE listener per session, not one per open.
+                //
+                // These three are registered on the WINDOW, so they outlive the editor. The
+                // editor is re-entered constantly -- every file opened from the browser runs
+                // this module again -- and each pass used to add another set, so a paste
+                // after three opens was handled three times. Worse now that there is a way
+                // out: a drop handler belonging to a closed editor would still catch a file
+                // dragged onto the home screen.
+                //
+                // Only the REGISTRATION changes; the handler bodies below are untouched.
+                const __once = (type, fn, capture) => {
+                    const key = '__bajaEditorListener_' + type;
+                    try {
+                        if (window[key]) window.removeEventListener(type, window[key], capture);
+                    } catch (e) { }
+                    window[key] = fn;
+                    try { window.addEventListener(type, fn, capture); } catch (e) { }
+                    return fn;
+                };
+                try { window.__bajaEditorListenerTypes = ['dragover', 'drop', 'paste']; } catch (e) { }
+
+                __once('dragover', (e) => {
                     e.preventDefault();
                 });
-                window.addEventListener('drop', (e) => {
+                __once('drop', (e) => {
                     e.preventDefault();
                     const file = e.dataTransfer.files[0];
                     if (file) {
@@ -1046,7 +1069,7 @@ function (path, config) {
                     }
                 }
 
-                window.addEventListener('paste', async (e) => {
+                __once('paste', async (e) => {
 
                     console.log(' ' + e.target)
 
@@ -2323,59 +2346,69 @@ function (path, config) {
                                                 {
                                                     label: 'Track', icon: 'timeline',
                                                     tooltip: 'Add and manage tracks', ionFunction: createIonFunction(() => {
-                                                        graph.showMenu([
-                                                            {
-                                                                label: 'New track', move: () => { },
-                                                                click: () => {
+                                                        // A library, not the centre menu: each way of getting a track
+                                                        // onto the canvas is a card that says what it does before it is
+                                                        // clicked -- the same idiom as Layers and Selection.
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        try { graph.showSideMenu(null); } catch (e) { }
+                                                        const n = (graph.track || []).length;
+                                                        exec('baja/lib/shelf.js', {
+                                                            id: 'baja-tracks-library',
+                                                            title: 'Tracks',
+                                                            subtitle: (n ? n + ' track' + (n === 1 ? '' : 's') + ' on the canvas. ' : 'Nothing on the canvas yet. ')
+                                                                + 'Add a track from a gene, from its variants or from a clinical compound, or move tracks between editors.',
+                                                            graph: graph,
+                                                            books: [
+                                                                {
+                                                                    section: 'Add a track',
+                                                                    title: 'New track',
+                                                                    badge: 'Gene',
+                                                                    blurb: 'Find a gene by symbol or Ensembl id, choose one of its transcripts, and put it on the canvas as a new track ready for design.',
                                                                     // Open the new-track window directly.
-                                                                    graph.showSideMenu(null);
-                                                                    exec('baja/data/prompt-load-transcript.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
+                                                                    open: () => exec('baja/data/prompt-load-transcript.js', window['env']['apiUrl'], graph, genegraph_panel_layout)
+                                                                },
+                                                                {
+                                                                    // Two steps: find the transcripts for a described gene (canonical unless
+                                                                    // asked otherwise), then tick the ones to load and say which variants
+                                                                    // belong on them. baja/data/load-variant-track.js.
+                                                                    section: 'Add a track',
+                                                                    title: 'Load variant track',
+                                                                    badge: 'Variants',
+                                                                    blurb: 'Describe a gene, tick which of its transcripts to load, and say which variants belong on them. The track arrives with those variants already placed and annotated.',
+                                                                    open: () => exec('baja/data/load-variant-track.js', server, graph, genegraph_panel_layout)
+                                                                },
+                                                                {
+                                                                    // The other way to start a track: pick a clinical compound and
+                                                                    // get its sequence as the track, with the compound already on
+                                                                    // it carrying its per-residue chemistry. Same destination as
+                                                                    // Design > Clinical Library, reachable from where tracks are
+                                                                    // made rather than only from where they are designed against.
+                                                                    section: 'Add a track',
+                                                                    title: 'Compound library',
+                                                                    badge: 'Clinical',
+                                                                    blurb: 'Start from a clinical compound such as Spinraza. Its target sequence becomes the track, with the compound already on it carrying its per-residue chemistry and modifications.',
+                                                                    open: () => exec('manchester/clinical-library.js', graph, genegraph_panel_layout)
+                                                                },
+                                                                {
+                                                                    // The whole graph to the copy buffer (clipboard + a local
+                                                                    // fallback), to be pasted into another editor -- there, or
+                                                                    // with Ctrl+V on its canvas. baja/manchester/graph-clipboard.js.
+                                                                    section: 'Move tracks between editors',
+                                                                    title: 'Copy graph',
+                                                                    badge: 'Clipboard',
+                                                                    blurb: 'Copy every track on this canvas, with its layers and annotations, to the clipboard. Paste it into another editor window, or back onto a canvas with Ctrl+V.',
+                                                                    open: () => exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'copy')
+                                                                },
+                                                                {
+                                                                    // Merge a copied graph's tracks into this one.
+                                                                    section: 'Move tracks between editors',
+                                                                    title: 'Paste graph',
+                                                                    badge: 'Clipboard',
+                                                                    blurb: 'Merge the tracks from a copied graph into this canvas, alongside whatever is already here. Nothing on the canvas is replaced.',
+                                                                    open: () => exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'paste')
                                                                 }
-                                                            },
-
-
-                                                            {
-                                                                // Two steps: find the transcripts for a described gene (canonical unless
-                                                                // asked otherwise), then tick the ones to load and say which variants
-                                                                // belong on them. baja/data/load-variant-track.js.
-                                                                label: 'Load variant track', move: () => { log(''); },
-
-                                                                click: () => { graph.showSideMenu(null); exec('baja/data/load-variant-track.js', server, graph, genegraph_panel_layout); }
-                                                            },
-
-
-
-                                                            {
-                                                                // The other way to start a track: pick a clinical compound and
-                                                                // get its sequence as the track, with the compound already on
-                                                                // it carrying its per-residue chemistry. Same destination as
-                                                                // Design ▸ Clinical Library, reachable from where tracks are
-                                                                // made rather than only from where they are designed against.
-                                                                label: 'Compound library', move: () => { },
-                                                                click: () => {
-                                                                    graph.showSideMenu(null);
-                                                                    exec('manchester/clinical-library.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
-                                                            {
-                                                                // The whole graph to the copy buffer (clipboard + a local
-                                                                // fallback), to be pasted into another editor -- there, or
-                                                                // with Ctrl+V on its canvas. baja/manchester/graph-clipboard.js.
-                                                                label: 'Copy graph', move: () => { },
-                                                                click: () => {
-                                                                    graph.hideMenu();
-                                                                    exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'copy');
-                                                                }
-                                                            },
-                                                            {
-                                                                // Merge a copied graph's tracks into this one.
-                                                                label: 'Paste graph', move: () => { },
-                                                                click: () => {
-                                                                    graph.hideMenu();
-                                                                    exec('baja/manchester/graph-clipboard.js', graph, genegraph_panel_layout, 'paste');
-                                                                }
-                                                            }
-                                                        ]);
+                                                            ]
+                                                        });
                                                     })
                                                 },
 
@@ -2983,6 +3016,61 @@ function (path, config) {
                                                             })
                                                         },
                                                     ]
+                                                },
+                                                {
+                                                    // LAST in the row on purpose: help is not
+                                                    // something you do to a design, so it sits
+                                                    // after the things that are.
+                                                    label: 'Help', icon: 'help_outline',
+                                                    tooltip: 'Help and tutorials',
+                                                    ionFunction: createIonFunction(() => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        try { graph.showSideMenu(null); } catch (e) { }
+                                                        // The library idiom, like Tracks and Layers:
+                                                        // a card says what it does before it is
+                                                        // clicked. A leaf's open() runs after the
+                                                        // shelf has closed, so the tour has the
+                                                        // screen to itself.
+                                                        exec('baja/lib/shelf.js', {
+                                                            id: 'baja-help-library',
+                                                            title: 'Help',
+                                                            subtitle: 'Learn your way around the editor.',
+                                                            graph: graph,
+                                                            books: [
+                                                                {
+                                                                    title: 'Quick tour of the editor',
+                                                                    badge: '1 min',
+                                                                    accent: 'sunset',
+                                                                    blurb: 'A guided walk around the toolbar and the '
+                                                                        + 'canvas, pointing at each control and saying '
+                                                                        + 'what it is for. Changes nothing in your design.',
+                                                                    open: async () => {
+                                                                        await exec('baja/manchester/menu/ui-tour.js', graph, {
+                                                                            // Re-arm the default canvas mode the tour
+                                                                            // covered over, the same way the other
+                                                                            // overlays in this editor do on the way out.
+                                                                            onClose: () => {
+                                                                                try {
+                                                                                    exec('baja/manchester/menu/mouse-over-highlight.js',
+                                                                                        graph, genegraph_panel_layout);
+                                                                                } catch (e) { }
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                                {
+                                                                    title: 'Video tutorials',
+                                                                    badge: 'videos',
+                                                                    blurb: 'Short videos covering individual jobs end to '
+                                                                        + 'end — designing allele selective ASOs, running '
+                                                                        + 'off-targets, and more. Opens in a new tab.',
+                                                                    open: () => {
+                                                                        try { window.open('/assets/tutorials.html', '_blank'); } catch (e) { }
+                                                                    }
+                                                                },
+                                                            ]
+                                                        });
+                                                    })
                                                 }
 
                                             ]
@@ -3069,6 +3157,63 @@ function (path, config) {
                 working.status = 'complete'
 
                 CurrentLayout.stash('mainPanel', main_layout)
+
+                // ---- close ------------------------------------------------------------
+                //
+                // This editor fills the screen and had no way out at all. A fixed ✕ rather
+                // than a toolbar entry, matching the chromosome view: the toolbar is a row
+                // of things to DO to the design, and leaving is not one of them.
+                //
+                // Top-right at the same 44px offset the other full-screen views use, which
+                // clears the application's navigation bar and stays off the toolbar, which
+                // runs from the left.
+                try {
+                    const __CLOSE_ID = 'baja-editor-close';
+                    const __prevX = document.getElementById(__CLOSE_ID);
+                    if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);
+                    const __xb = document.createElement('div');
+                    __xb.id = __CLOSE_ID;
+                    __xb.title = 'Close the oligo designer';
+                    __xb.setAttribute('role', 'button');
+                    __xb.setAttribute('tabindex', '0');
+                    __xb.setAttribute('aria-label', 'Close the oligo designer');
+                    __xb.textContent = '\u2715';
+                    __xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
+                        + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                        + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
+                        + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                    __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
+                    __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
+                    const __goHome = async () => {
+                        // Confirm before leaving: a screen full of designed compounds that
+                        // have not been saved is exactly the thing not to discard on one
+                        // click. Defaults to staying.
+                        let __leave = true;
+                        try {
+                            __leave = await exec('baja/lib/confirm-leave.js', {
+                                title: 'Close the oligo designer?',
+                                message: 'Anything you have not saved will be lost.',
+                                confirmLabel: 'Close without saving'
+                            });
+                        } catch (e) { __leave = false; }
+                        if (!__leave) return;
+                        try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
+                        // Take the window listeners with it, or a drop on the home screen is
+                        // still handled by an editor that is no longer on screen.
+                        try {
+                            for (const t of (window.__bajaEditorListenerTypes || [])) {
+                                const k = '__bajaEditorListener_' + t;
+                                if (window[k]) { window.removeEventListener(t, window[k]); window[k] = null; }
+                            }
+                        } catch (e) { }
+                        try { await exec('baja/init'); } catch (e) { console.log('[editor] returning home failed: ' + e); }
+                    };
+                    __xb.onclick = __goHome;
+                    __xb.onkeydown = (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
+                    };
+                    document.body.appendChild(__xb);
+                } catch (e) { console.log('[editor] close button failed: ' + e); }
                 // Every cpd/*.js editor (viewer.js, main.js, editor.js, ...) stashes 'graph'
                 // alongside its own mainPanel, so CurrentLayout.getStashed('graph') is a
                 // reliable way for code with no graph of its own (a file browser, a menu

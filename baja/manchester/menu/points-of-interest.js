@@ -40,6 +40,8 @@ function (graph, genegraph_panel_layout, presetTrack, significance) {
             if (/^ENSMUST/.test(id)) species = 'mouse';
             else if (/^ENSRNOT/.test(id)) species = 'rat';
             else if (/^ENSCAFT/.test(id)) species = 'dog';
+            else if (typeof isYeastTranscriptId === 'function'
+                && isYeastTranscriptId('' + (t.transcriptID || t.name || ''))) species = 'yeast';
             else species = 'human';
         }
 
