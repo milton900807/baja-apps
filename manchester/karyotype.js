@@ -3982,6 +3982,14 @@ function (path, config) {
                 : txt.replace(/[\r\n,;]+/g, ' ').split(' ').filter(Boolean)[0] || '';
             if (!sym) { graph.setMessage(' Type a gene symbol. '); return null; }
             const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            // WHICH GENOME WAS ACTUALLY SEARCHED. gene-locus.py echoes the species it
+            // resolved the name to, and that is checked rather than assumed: it used to fall
+            // back to the human annotation for any name it did not recognise, so a mouse
+            // karyotype asking for Sod1 was answered with the human locus and no error --
+            // an answer that looks like an answer and is about the wrong animal. It refuses
+            // now, but a stale server would not, so the caller verifies.
+            let searched = '';
+            let lastError = '';
             const ask = async (key) => {
                 let res = null;
                 try {
@@ -3990,13 +3998,34 @@ function (path, config) {
                 } catch (e) { return []; }
                 if (!res || res.error) {
                     if (res && res.error) step('gene-locus: ' + res.error);
+                    if (res && res.error) lastError = '' + res.error;
+                    return [];
+                }
+                searched = '' + (res.species || '');
+                const want = ('' + (r.species || 'human')).toLowerCase();
+                if (searched && want.indexOf(searched.toLowerCase()) < 0
+                    && searched.toLowerCase().indexOf(want) < 0) {
+                    step('gene-locus searched ' + searched + ' but this karyotype is ' + want);
+                    graph.setMessage(' That lookup searched the ' + searched + ' genome, not '
+                        + want + '. Ignoring the result. ');
                     return [];
                 }
                 try { return JSON.parse(res.genes || '[]'); } catch (e) { return []; }
             };
             graph.setMessage(' Looking for ' + sym + '… ');
             let hits = await ask(sym);
-            if (!hits.length) {
+            // THE SYNONYM TABLE IS HUMAN ONLY, so it is only consulted for a human
+            // karyotype. /gene-lookup is an Ensembl symbol export whose every row carries an
+            // ENSG id -- human. Asking it to translate a symbol for a mouse or yeast
+            // karyotype returns a HUMAN gene id, which is then looked up in the mouse or
+            // yeast annotation and of course found nowhere; the step could only ever waste a
+            // round trip and, if an ENSG id ever did collide, point the picture at the wrong
+            // chromosome. For those species the annotation's own symbols are all there is.
+            const humanKaryotype = /^(human|homo)/i.test('' + (r.species || 'human'));
+            if (!hits.length && !humanKaryotype) {
+                step('no synonym table for ' + (r.species || '?') + '; the annotation symbols are all there is');
+            }
+            if (!hits.length && humanKaryotype) {
                 // Not a symbol in this annotation. It may still be a synonym, which the
                 // symbol table knows and the annotation does not.
                 try {
@@ -4031,8 +4060,15 @@ function (path, config) {
                 } catch (e) { step('gene-lookup failed: ' + e); }
             }
             if (!hits.length) {
-                graph.setMessage(' No gene called ' + sym + ' in the ' + (r.species || 'human')
-                    + ' annotation. ');
+                // Name the genome that was searched, and say when the search could not run at
+                // all -- "no gene called X" and "this server holds no annotation for that
+                // species" are different answers and were both delivered as the first one.
+                graph.setMessage(lastError
+                    ? (' ' + lastError + ' ')
+                    : (' No gene called ' + sym + ' in the ' + (r.species || 'human')
+                        + ' annotation. '
+                        + (humanKaryotype ? '' : 'Only the symbols in that annotation can be searched for '
+                            + (r.species || 'this species') + ' — synonyms and old names are human only. ')));
                 return null;
             }
             // The chromosome has to be one this karyotype is drawing -- a gene on a patch

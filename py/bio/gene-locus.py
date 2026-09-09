@@ -42,15 +42,51 @@ GFF = {
     "yeast": "reference_data/yeast.annotation.gff3.bgz",
 }
 
+# THE SAME NAMES py/bio/karyotype.py ACCEPTS.
+#
+# Both are handed a species by the same free-text box, so a name one of them understands and
+# the other does not is a name that draws the right chromosomes and then searches the wrong
+# genome. Kept as one table per species, longest match first, so "mus musculus" is not read
+# as "mus" and "s cerevisiae" is not missed for lacking a dot.
+SYNONYMS = {
+    "human": ["human", "homo sapiens", "h sapiens", "hsapiens", "hs", "hg38", "grch38", "man", "people", "patient"],
+    "mouse": ["mouse", "mus musculus", "m musculus", "murine", "mm39", "grcm39", "mice"],
+    "rat": ["rat", "rattus norvegicus", "r norvegicus", "rn7", "rats"],
+    "dog": ["dog", "canis", "canis lupus familiaris", "canine", "canfam", "dogs"],
+    "yeast": ["yeast", "saccharomyces cerevisiae", "s cerevisiae", "scerevisiae", "cerevisiae",
+              "saccharomyces", "sc", "sgd", "saccer3", "saccer", "r64", "s288c", "budding yeast",
+              "baker s yeast", "bakers yeast", "brewer s yeast"],
+}
+
+
+def resolve_species(text):
+    """A species name in words -> the key GFF is indexed by, or '' when it is not one."""
+    t = "".join(c.lower() if (c.isalnum() or c.isspace()) else " " for c in str(text or ""))
+    t = " ".join(t.split())
+    if not t:
+        return ""
+    best, best_len = "", 0
+    for key, names in SYNONYMS.items():
+        for n in names:
+            if (t == n or t.startswith(n + " ") or t.endswith(" " + n) or (" " + n + " ") in (" " + t + " ")):
+                if len(n) > best_len:
+                    best, best_len = key, len(n)
+    return best
+
+
 query = str(works.param(1) or "").strip()
-species = str(works.param(2) or "human").strip().lower() or "human"
+species_in = str(works.param(2) or "human").strip()
+species = resolve_species(species_in) if species_in else "human"
 try:
     max_hits = int(float(works.param(3) or 12))
 except Exception:
     max_hits = 12
 max_hits = max(1, min(200, max_hits))
 
-out = {"ok": False, "query": query, "count": 0, "genes": "[]", "built": False, "error": None}
+# `species` is echoed back so the caller can SEE which genome was actually searched rather
+# than assume it was the one it asked for -- the whole point of the change below.
+out = {"ok": False, "query": query, "species": "", "count": 0, "genes": "[]",
+       "built": False, "error": None}
 
 
 def first_existing(rel):
@@ -107,12 +143,26 @@ def build_index(gff_path, index_path):
     return n
 
 
-gff = first_existing(GFF.get(species) or GFF["human"])
-index_path = os.path.join(os.path.dirname(gff), "%s.gene-symbols.tsv" % species)
+# NO SILENT FALL BACK TO HUMAN. This read `GFF.get(species) or GFF["human"]`, so every
+# species name the table did not recognise -- "Mus musculus", "Saccharomyces cerevisiae",
+# "monkey", or an empty string -- searched the HUMAN annotation and answered with human
+# coordinates and no error at all. Asking where Sod1 is in the mouse genome and being handed
+# chr21:31,659,666, the human SOD1 locus, is worse than being told nothing: it is an answer,
+# it looks like an answer, and nothing about it says it is about the wrong animal.
+out["species"] = species
+if not species:
+    out["error"] = ('"%s" is not a species this holds an annotation for. Try one of: %s.'
+                    % (species_in, ", ".join(sorted(GFF))))
+    gff, index_path = "", ""
+else:
+    gff = first_existing(GFF[species]) or ""
+    index_path = os.path.join(os.path.dirname(gff), "%s.gene-symbols.tsv" % species) if gff else ""
 
-if not query:
+if out["error"]:
+    pass
+elif not query:
     out["error"] = "a gene symbol is needed"
-elif not os.path.exists(gff):
+elif not gff or not os.path.exists(gff):
     out["error"] = "the %s annotation is not on this server" % species
 else:
     try:
