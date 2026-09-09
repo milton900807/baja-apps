@@ -382,6 +382,21 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     });
 
     return (async () => {
+
+        // THIS MENU IS ABOUT ONE TRACK, so the board-wide intent stops here.
+        //
+        // The Layers button (manchester/editor.js) sets window.__bajaApplyAllTracks to mean
+        // "whatever you pick applies to the whole board", then opens the library. Walking from
+        // there into Design Library and choosing a track BY NAME is the user narrowing that
+        // intent to one track, but nothing on this path consumed the flag: shelf.js only clears
+        // it when the shelf closes, and passes it through on 'open'. Anything downstream that
+        // honours the flag -- run-djprimer.js falling back to baja/lib/for-each-track.js, say --
+        // then quietly ran over every track on the canvas, one python call each. That is the
+        // repeated "Parsing input sequence..." with an identical window count on every pass.
+        //
+        // Consuming it here is the narrowing: the later, more specific choice wins.
+        try { window.__bajaApplyAllTracks = false; } catch (e) { }
+
         const selected = async (v) => {
             graph.props.selected_chemistry = v;
             setTimeout(async () => {
@@ -544,7 +559,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
 
 
-                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str);
+                    __activeProgress = progress;
+                    let r = await __runDesign(str, json_input);
+                    try { __sp.stop(); } catch (e) { }
+                    if (!r) { return; }   // refused or failed; __runDesign has said which
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -769,7 +788,11 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         "exclude_gap_cleavage_motif_hits": true
                     }
 
-                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str);
+                    __activeProgress = progress;
+                    let r = await __runDesign(str, json_input);
+                    try { __sp.stop(); } catch (e) { }
+                    if (!r) { return; }   // refused or failed; __runDesign has said which
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -950,7 +973,52 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             },
             {
                 label: "Steric-blocking ASO",
-                click: async (scx, scy) => {
+                // `spliceMode` is 'inclusion', 'exclusion' or null (no splicing). It only ever
+                // changes the ORDER the candidates are tiled in -- the chemistry, the lengths
+                // and the design rules are identical either way. See
+                // baja/manchester/menu/splice-tiling-priority.js for the sign convention.
+                click: async (scx, scy, spliceMode) => {
+                    // A splice-switching run is ranked against the track's cis-regulatory
+                    // model, so without one there is nothing to rank by. Say so and stop:
+                    // running it anyway would produce a design that looks splice-aware and is
+                    // not, which is worse than not running.
+                    // Splice-switching tiles AROUND the model's windows: every cis-regulatory
+                    // layer on the track is read, the windows of the right sign are taken, and
+                    // the designer runs over those regions rather than over the whole
+                    // transcript. Down bars (suppressive) for inclusion, up bars (supportive)
+                    // for exclusion -- see baja/manchester/menu/splice-tiling-priority.js.
+                    //
+                    // With no model, or no window of the needed sign, this DEGRADES to the plain
+                    // steric-blocking design and says so. Refusing was the wrong call: the user
+                    // asked for a steric compound and there is a good one to design. What they
+                    // must not get is a plain design silently presented as splice-switching.
+                    let __prio = null, __targets = null, __sites = [], __scored = [];
+                    const __trackName = ((selectedTrack && selectedTrack.name) || 'this track');
+                    if (spliceMode) {
+                        __prio = await exec('baja/manchester/menu/splice-tiling-priority.js');
+                        const __windows = __prio.modelWindows(selectedTrack);
+                        __targets = __windows.length ? __prio.targetWindows(__windows, spliceMode) : [];
+                        // Keep-out zones for an inclusion design, from EVERY layer on the
+                        // track, not only the ones being targeted.
+                        __sites = __prio.modelSites(selectedTrack);
+                        // Both signs, noise removed: what the ranking measures under each
+                        // compound, as opposed to where the tiling is aimed.
+                        __scored = __prio.scoredWindows(__windows);
+                        if (!__windows.length) {
+                            graph.setMessage(' No cis-regulatory model on ' + __trackName
+                                + ' \u2014 designing standard steric-blocking ASOs across the whole'
+                                + ' transcript instead. Run Models \u25b8 Splicing cis-regulatory windows'
+                                + ' on the track first for a splice-switching design. ');
+                            spliceMode = null;
+                        } else if (!__targets.length) {
+                            graph.setMessage(' The model on ' + __trackName + ' has no '
+                                + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
+                                + ' windows clearing the noise threshold, so there is nothing to tile'
+                                + ' around for exon ' + spliceMode + ' \u2014 designing standard'
+                                + ' steric-blocking ASOs instead. ');
+                            spliceMode = null;
+                        }
+                    }
                     let progress = __designProgress('Steric-blocking ASO');
 
                     let Oligo = await exec('flexigraph/oligo.js');
@@ -969,8 +1037,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         strand: 1,
                         top_n: parseInt(__p.top_n) || 100,
                         lengths: __p.lengths || [18, 19, 20],
+                        // FULL 2'-MOE, FULL PS is the steric-blocking default: every residue
+                        // modified and every linkage phosphorothioate. That is what makes the
+                        // compound occupy a site without recruiting RNase H, which is the whole
+                        // point of the modality -- a PO linkage anywhere is a nuclease liability
+                        // rather than a design choice.
                         full_modification: __p.wing_modification || "2'-MOE",
                         default_backbone: __p.default_backbone || "PS",
+                        // No PO substitutions: an empty list is a FULL PS backbone. Named here
+                        // rather than left as a bare [] so the intent survives the next edit.
                         po_link_positions: [],
                         output_alphabet: __p.output_alphabet || "DNA",
                         // Default TRUE, same as the gapmer call above and for the same reason:
@@ -984,7 +1059,223 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         annotations: [] // optional: populate if you have site annotations
                     };
 
-                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str); let r = await exec(str, progress, json_input); try { __sp.stop(); } catch (e) { }
+                    // Tile AROUND the model's windows, in ONE server call.
+                    //
+                    // Two earlier shapes were wrong. Running the designer once per region read
+                    // well and spent one QUOTA CHARGE per region (freeCharge(req, 'design') in
+                    // baja-server), so later regions came back 402 Payment Required. Asking for
+                    // a dense whole-transcript set and filtering was one charge but missed
+                    // windows outright: the designer returns its top N by score, and a window
+                    // over a low-scoring stretch is simply not in that list at any N a long
+                    // transcript can afford to return.
+                    //
+                    // So the regions are CONCATENATED and sent as one sequence. The designer
+                    // then scores densely over exactly the sequence that matters, and every
+                    // candidate is mapped back to its own region. A candidate straddling the
+                    // join between two regions is not a real site and is discarded -- the join
+                    // is an artefact of the concatenation, not sequence the transcript has.
+                    const __spliceRegions = () => {
+                        const base = (selectedTrack.xi || 0) + __designOffset();
+                        const lens = (json_input.lengths || [18, 19, 20]).map(Number).filter(isFinite);
+                        const maxLen = Math.max.apply(null, lens.concat([20]));
+                        const seqLen = (_sequence || '').length;
+                        const spans = [];
+                        for (const w of (__targets || [])) {
+                            // Padded by a full oligo length each side, so a compound can sit
+                            // CENTRED on the window rather than only clipping its edge.
+                            const lo = Math.max(0, Math.floor(w.x0 - base) - maxLen);
+                            const hi = Math.min(seqLen, Math.ceil(w.x1 - base) + maxLen);
+                            if (hi - lo < maxLen) continue;   // falls outside the sent sequence
+                            spans.push({ lo: lo, hi: hi, impact: Math.abs(+w.impact) });
+                        }
+                        spans.sort((x, y) => x.lo - y.lo);
+                        const out = [];
+                        for (const sp of spans) {
+                            const last = out[out.length - 1];
+                            // Adjacent windows are one stretch to tile, not two.
+                            if (last && sp.lo <= last.hi) {
+                                last.hi = Math.max(last.hi, sp.hi);
+                                last.impact = Math.max(last.impact, sp.impact);
+                            } else out.push({ lo: sp.lo, hi: sp.hi, impact: sp.impact });
+                        }
+                        return out;
+                    };
+
+                    const __designOnRegions = async (regions) => {
+                        const wantN = parseInt(json_input.top_n) || 100;
+                        const parts = [], bounds = [];
+                        let acc = 0;
+                        for (const g of regions) {
+                            const part = (_sequence || '').slice(g.lo, g.hi);
+                            if (!part) continue;
+                            parts.push(part);
+                            bounds.push({ cs: acc, ce: acc + part.length, lo: g.lo, impact: g.impact });
+                            acc += part.length;
+                        }
+                        if (!parts.length) return null;
+                        let rr = null;
+                        try {
+                            __activeProgress = progress;
+                            rr = await __runDesign(str, Object.assign({}, json_input, {
+                                sequence: parts.join(''),
+                                // Dense over a short sequence: the regions are a few hundred
+                                // bases, so this covers them without a large payload.
+                                enforce_non_overlapping: false,
+                                top_n: Math.max(400, wantN * 4)
+                            }));
+                        } catch (e) { rr = null; }   // __runDesign already reported it
+                        if (!rr || !Array.isArray(rr.top_candidates)) return null;
+                        let kept = [];
+                        for (const c of rr.top_candidates) {
+                            let b = null;
+                            for (const x of bounds) {
+                                if (c.start >= x.cs && c.end <= x.ce) { b = x; break; }
+                            }
+                            if (!b) continue;                       // straddles a join
+                            const cc = Object.assign({}, c);
+                            cc.start = c.start - b.cs + b.lo;        // back into the sent sequence
+                            cc.end = c.end - b.cs + b.lo;
+                            cc.__windowImpact = b.impact;
+                            kept.push(cc);
+                        }
+                        // AN INCLUSION ASO MUST NOT SIT ON THE SPLICE SITE.
+                        //
+                        // Covering the 5' or 3' splice site blocks U1 / U2AF from it, which is
+                        // how an exon is made to SKIP -- the opposite of what this design is
+                        // for. A suppressive window right beside a junction is a real target and
+                        // the compound over it is not, so the candidates are filtered rather
+                        // than the windows: the rest of that window stays usable.
+                        //
+                        // Exclusion designs are left alone. Sitting on the splice site is a
+                        // legitimate, and classic, way to force skipping.
+                        let __onSite = 0;
+                        if (spliceMode === 'inclusion' && __sites && __sites.length) {
+                            const SITE_GUARD_NT = 3;   // the junction consensus, not just the AG/GT
+                            const b3 = (selectedTrack.xi || 0) + __designOffset();
+                            const safe = [];
+                            for (const c of kept) {
+                                const span = { xi: c.start + b3, xf: c.end + b3 };
+                                if (__prio.hitsSite(span, __sites, SITE_GUARD_NT)) { __onSite++; continue; }
+                                safe.push(c);
+                            }
+                            kept = safe;
+                            if (!kept.length) {
+                                graph.setMessage(' Every candidate over the suppressive windows of '
+                                    + __trackName + ' would sit on a splice site, which would force'
+                                    + ' skipping rather than inclusion. Nothing was designed. ');
+                                return null;
+                            }
+                        }
+
+                        if (!kept.length) return null;
+
+                        // RANK ON THE SUMMED ATTRIBUTION UNDER THE COMPOUND, and by a lot.
+                        //
+                        // The score is the SIGNED sum of every model window the ASO covers,
+                        // each scaled by how much of that window is covered. Sign carries the
+                        // direction, so the two modes read off the same number:
+                        //
+                        //   inclusion -> the MOST NEGATIVE sum wins (most suppressive sequence
+                        //                covered, so the site is freed)
+                        //   exclusion -> the MOST POSITIVE sum wins (most supportive sequence
+                        //                covered, so the site is starved)
+                        //
+                        // Summing rather than taking the best single window is what makes a
+                        // compound that covers a suppressive window AND a supportive one score
+                        // as the net of the two, which is what it would actually do. It also
+                        // lets a long compound spanning three elements earn all three.
+                        //
+                        // The two terms are on different scales -- the sum is log-odds, the
+                        // design score is roughly 0-50 -- so each is normalised across this
+                        // candidate set before blending.
+                        //
+                        // ATTR_WEIGHT is the knob, and it is deliberately high. At 0.95 the
+                        // design score can only move a compound past another whose summed
+                        // attribution is within 5% of the range -- so it acts as a tie-break
+                        // between compounds the model rates alike, and never overrules the
+                        // model. At the previous 0.8 a top-scoring compound could beat one
+                        // covering a quarter more suppressive sequence, which is backwards for
+                        // a design whose whole purpose is the attribution. Set it to 1 to rank
+                        // on the model alone and ignore the design rules entirely.
+                        const ATTR_WEIGHT = 0.95;
+                        const dir = (spliceMode === 'inclusion') ? -1 : 1;
+                        const base2 = (selectedTrack.xi || 0) + __designOffset();
+                        for (const c of kept) {
+                            const span = { xi: c.start + base2, xf: c.end + base2 };
+                            c.__spliceSum = __prio.spliceSum(span, __scored);
+                            // Higher is better, whichever direction was asked for.
+                            c.__attrGood = dir * c.__spliceSum;
+                        }
+                        let minA = Infinity, maxA = -Infinity, minS = Infinity, maxS = -Infinity;
+                        for (const c of kept) {
+                            if (c.__attrGood < minA) minA = c.__attrGood;
+                            if (c.__attrGood > maxA) maxA = c.__attrGood;
+                            const sc = +c.score || 0;
+                            if (sc < minS) minS = sc;
+                            if (sc > maxS) maxS = sc;
+                        }
+                        const spanA = (maxA - minA) || 1;
+                        const spanS = (maxS - minS) || 1;
+                        for (const c of kept) {
+                            c.__rankScore = ATTR_WEIGHT * ((c.__attrGood - minA) / spanA)
+                                + (1 - ATTR_WEIGHT) * (((+c.score || 0) - minS) / spanS);
+                        }
+                        kept.sort((x, y) => (y.__rankScore - x.__rankScore)
+                            || (y.__attrGood - x.__attrGood) || ((y.score || 0) - (x.score || 0)));
+                        // The request turned non-overlap off to get dense coverage of every
+                        // region, so honour the design's own setting here instead.
+                        let out = kept;
+                        if (json_input.enforce_non_overlapping) {
+                            const taken = []; out = [];
+                            for (const c of kept) {
+                                let clash = false;
+                                for (const t of taken) { if (c.start < t.hi && c.end > t.lo) { clash = true; break; } }
+                                if (clash) continue;
+                                taken.push({ lo: c.start, hi: c.end });
+                                out.push(c);
+                            }
+                        }
+                        out = out.slice(0, wantN);
+                        out.forEach((c, i) => { c.rank = i + 1; });
+                        const res = Object.assign({}, rr,
+                            { top_candidates: out, returned_candidates: out.length });
+                        res.__windowCount = (__targets || []).length;
+                        res.__regionCount = regions.length;
+                        res.__onSiteDropped = __onSite;
+                        res.__attrWeight = ATTR_WEIGHT;
+                        return res;
+                    };
+
+                    const __sp = __showSpinner(__chemistryOf(str, json_input) || __designLabel(str), str);
+                    let r = null;
+                    if (spliceMode) {
+                        const __regions = __spliceRegions();
+                        if (!__regions.length) {
+                            // Nothing has been charged yet, so the plain design below is still
+                            // this run's ONE call.
+                            graph.setMessage(' No ' + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
+                                + ' window on ' + __trackName + ' lies inside the sequence being designed'
+                                + ' \u2014 designing standard steric-blocking ASOs instead. ');
+                            spliceMode = null;
+                        } else {
+                            r = await __designOnRegions(__regions);
+                            if (!r) {
+                                // The call was made and charged. Do NOT spend a second one on a
+                                // fallback design; say so and stop.
+                                graph.setMessage(' No compound could be placed on the '
+                                    + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
+                                    + ' windows of ' + __trackName + '. Nothing was designed. ');
+                                try { __sp.stop(); } catch (e) { }
+                                return;
+                            }
+                        }
+                    }
+                    if (!r) {
+                        __activeProgress = progress;
+                        r = await __runDesign(str, json_input);
+                        if (!r) { try { __sp.stop(); } catch (e) { } return; }
+                    }
+                    try { __sp.stop(); } catch (e) { }
                     // Cancelled while it ran: drop the result rather than tiling designs
                     // onto a track the user has already moved on from.
                     if (__sp.cancelled) { return; }
@@ -998,6 +1289,53 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         if (score >= 10) return "orange";
                         return "red";
                     }
+
+                    // WHY a compound is red, in the label rather than only in the colour.
+                    //
+                    // Red is the bottom band of the design score (< 10). The colour says a
+                    // compound is poor and nothing says what is wrong with it, which leaves the
+                    // user to guess or to go digging in the report. The scorer already writes
+                    // the reasons -- score_gc, score_tm and score_offtarget_toxicity_rules in
+                    // py/ssaso/design-steric-blocking.py each append a note -- so the label is
+                    // built from the candidate's OWN notes rather than re-deriving anything.
+                    //
+                    // Ordered by the penalty the scorer actually applies, so the worst reason
+                    // is first and a truncated label still names the real problem.
+                    const __whyRed = (c) => {
+                        const notes = Array.isArray(c.notes) ? c.notes : [];
+                        // Anything the scorer calls favourable, and anything that is a caveat
+                        // about the SCORER rather than the compound, is not a reason it is red.
+                        const NOT_A_FAULT = /favorable|acceptable but not ideal|No major|bonus|annotations|does not explicitly model|sequence-only/i;
+                        // [match, penalty the scorer applies, terse label]
+                        const FAULTS = [
+                            [/GC outside preferred range\s*\(([^)]*)\)/i, 15, (m) => 'GC ' + m[1]],
+                            [/Tm outside preferred range\s*\(([^)]*)\)/i, 12, (m) => 'Tm ' + m[1]],
+                            [/Contains CpG motif/i, 8, () => 'CpG motif'],
+                            [/Long G run detected\s*\(max (\d+)\)/i, 6, (m) => 'G-run ' + m[1]],
+                            [/Palindrome/i, 6, () => 'palindromic'],
+                            [/Self-complementary stretch detected\s*\(max (\d+)\)/i, 5, (m) => 'self-complementary ' + m[1]],
+                            [/Repetitive sequence/i, 5, () => 'repetitive']
+                        ];
+                        const found = [];
+                        for (const n of notes) {
+                            if (!n || NOT_A_FAULT.test(n)) continue;
+                            let hit = null;
+                            for (const f of FAULTS) {
+                                const m = ('' + n).match(f[0]);
+                                if (m) { hit = { w: f[1], t: f[2](m) }; break; }
+                            }
+                            // An unrecognised note is still a fault -- the scorer only writes a
+                            // note when it has something to say -- so it is kept verbatim rather
+                            // than dropped for not matching a pattern this list knows about.
+                            found.push(hit || { w: 1, t: ('' + n).replace(/\s+detected.*$/i, '') });
+                        }
+                        found.sort((a, b) => b.w - a.w);
+                        const head = 'Low score ' + (Math.round((+c.score || 0) * 10) / 10);
+                        if (!found.length) return head;
+                        const shown = found.slice(0, 3).map((f) => f.t);
+                        return head + ' — ' + shown.join(', ')
+                            + (found.length > 3 ? (' +' + (found.length - 3) + ' more') : '');
+                    };
 
                     // A raw JSON dump of the design result used to fire here, before the
                     // compounds were even built -- leftover debugging that put a modal over
@@ -1019,7 +1357,15 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
                         const oligos = [];
 
-                        resultJson.top_candidates.forEach((c) => {
+                        // THE MAXIMUM IS ENFORCED HERE TOO, at the last point before compounds
+                        // are built. The designer honours top_n and the splice path slices to
+                        // it as well, so this is a backstop rather than the only guard -- but
+                        // it is the one place every route passes through, so a future path that
+                        // forgets cannot put more on the track than was asked for.
+                        const __maxAso = Math.max(1, parseInt(json_input.top_n) || 100);
+                        const __candidates = resultJson.top_candidates.slice(0, __maxAso);
+
+                        __candidates.forEach((c) => {
                             try {
                                 // + the design offset: c.start indexes the sequence that was SENT, which is the
                                 // selection when there is one, so without this every result lands at the start
@@ -1088,6 +1434,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                                 });
 
                                 oligo.color = scoreToColor(c.score);
+                                // Only the red band gets the reason. A green compound needs no
+                                // explaining, and replacing its score label with prose would
+                                // cost information rather than add it.
+                                if (oligo.color === 'red') {
+                                    oligo.flagReason = __whyRed(c);
+                                    oligo.setLabelAttribute('flagReason', {
+                                        prefix: '',
+                                        offsetY: -18,
+                                        textColor: 'white',
+                                        fillColor: '#a3402c',
+                                        strokeColor: '#4a170e',
+                                        font: 'bold 10px Arial'
+                                    });
+                                }
 
                                 oligos.push(oligo);
                             } catch (e) {
@@ -1102,6 +1462,19 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                             try { __packOligoRows(track, oligos, track.xi); } catch (e) { }
                             let __gi = 0;
                             for (const oligo of oligos) {
+                                // INTO TRACK SPACE. c.start indexes the SEQUENCE that was sent,
+                                // so a compound built from it sits at a raw sequence offset --
+                                // on a track whose xi is a genomic coordinate that is millions
+                                // of bases to the left of the track, i.e. invisible. The gapmer
+                                // and siRNA paths both do this; steric was the one that did not,
+                                // which is why its compounds never appeared.
+                                //
+                                // Length is taken FIRST and xf rebuilt from it: xf is an absolute
+                                // coordinate too, so adding the offset to both would stretch every
+                                // compound by track.xi rather than move it.
+                                const length = Math.abs(oligo.xf - oligo.xi);
+                                oligo.xi += track.xi;
+                                oligo.xf = oligo.xi + length;
                                 track.addOligo(oligo);
                                 // Bright landing bling, staggered by add order, so each ASO is seen landing.
                                 try {
@@ -1114,11 +1487,48 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         return oligos;
                     }
 
+                    // The candidates ARE the tiling around the windows now, already ordered
+                    // strongest element first, so there is nothing to re-rank. Report what was
+                    // tiled, so a splice-switching run is distinguishable from a plain one by
+                    // more than the menu item that started it.
+                    if (spliceMode && r) {
+                        const __n = (r.top_candidates || []).length;
+                        graph.setMessage(' Exon ' + spliceMode + ': tiled ' + __n + ' compound'
+                            + (__n === 1 ? '' : 's') + ' on ' + (r.__windowCount || 0) + ' '
+                            + (spliceMode === 'inclusion' ? 'suppressive (down)' : 'supportive (up)')
+                            + ' window' + (((__targets || []).length === 1) ? '' : 's')
+                            + ', ranked ' + Math.round((r.__attrWeight != null ? r.__attrWeight : 0.95) * 100)
+                            + '% on model attribution / '
+                            + Math.round((1 - (r.__attrWeight != null ? r.__attrWeight : 0.95)) * 100)
+                            + '% on design score'
+                            + ((r.__onSiteDropped > 0)
+                                ? ('; ' + r.__onSiteDropped + ' rejected for sitting on a splice site') : '')
+                            + ((r.top_candidates && r.top_candidates[0])
+                                ? ('; best covers a summed attribution of '
+                                    + (+(r.top_candidates[0].__spliceSum || 0)).toFixed(2)
+                                    + ' (' + (spliceMode === 'inclusion' ? 'most negative' : 'most positive')
+                                    + ' wins)') : '')
+                            + '. ');
+                    }
+
+                    // Non-overlap can yield FEWER than the maximum -- with it on, a request
+                    // for 100 came back with 48, because that is how many fit without
+                    // overlapping. Saying so stops a short list reading as a failed run.
+                    const __askedMax = Math.max(1, parseInt(json_input.top_n) || 100);
                     const stericBlockingArray = buildStericBlockingArray(r, {
                         strand: selectedTrack.strand,
                         y: OLIGO_FLOOR_Y,
                         track: selectedTrack
                     });
+                    try {
+                        const __n = stericBlockingArray.length;
+                        if (__n < __askedMax) {
+                            graph.setMessage(' Placed ' + __n + ' of a maximum ' + __askedMax
+                                + ' — that is how many fit'
+                                + (json_input.enforce_non_overlapping ? ' without overlapping' : '')
+                                + (spliceMode ? ' on the targeted windows' : '') + '. ');
+                        }
+                    } catch (e) { }
                     __designDone('ASO', stericBlockingArray, selectedTrack, __chemistryOf(str, json_input), r, str);
 
                     // Optional:
@@ -1280,6 +1690,153 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             } catch (e) { }
         };
 
+        // Show every compound already on the board: pulse them all magenta and pull the
+        // camera back far enough to see them at once.
+        //
+        // It reads graph.track, NOT selectedTrack: a design run usually leaves compounds on
+        // several tracks, and "where did everything land" is the question this answers.
+        //
+        // The camera moves here deliberately, which the design runs deliberately do not (see
+        // __clearMenusForDesign). Framing everything IS the request, so the trade the designers
+        // refuse -- losing where the user had navigated to -- is the one being asked for.
+        const __highlightAllCompounds = async () => {
+            const tracks = ((graph && graph.track) || []).filter(Boolean);
+            let x0 = Infinity, x1 = -Infinity, yTop = Infinity, yBot = -Infinity;
+            let n = 0, onTracks = 0;
+            for (const t of tracks) {
+                const os = ((t && t.oligos) || []).filter(Boolean);
+                if (!os.length) continue;
+                onTracks++;
+                // THROUGH THE TRACK'S OWN MAPPING. An oligo's xi/xf are positions along the
+                // TRACK; zoomRect works in the world frame, which is what the y bounds below
+                // were already collected in (g.yi, g.height). Mixing the two put the camera at
+                // a base number read as a world coordinate -- an arbitrary place that only
+                // coincides with the compounds on a track whose two frames happen to line up.
+                // tgraph.X is the same mapping every draw() goes through.
+                const g = t.tgraph || t.grid;
+                for (const o of os) {
+                    const a = Math.min(+o.xi, +o.xf), b = Math.max(+o.xi, +o.xf);
+                    if (isFinite(a) && isFinite(b) && g && typeof g.X === 'function') {
+                        const wa = g.X(a), wb = g.X(b);
+                        if (isFinite(wa) && isFinite(wb)) {
+                            x0 = Math.min(x0, wa, wb); x1 = Math.max(x1, wa, wb);
+                        }
+                    }
+                    // >= 1200 is what oligo.js treats as a LANDING highlight: the expanding
+                    // burst plus the on/off blink, rather than the brief hover glow.
+                    try { o.highlight(2600, 'magenta'); n++; } catch (e) { }
+                }
+                if (g && isFinite(+g.yi)) {
+                    yTop = Math.min(yTop, +g.yi);
+                    yBot = Math.max(yBot, +g.yi + (+g.height || 0));
+                }
+            }
+            if (!n) {
+                graph.setMessage(' No compounds on the canvas to highlight — design or load some first. ');
+                return;
+            }
+            // Frame them. A guard on every bound: a compound with no usable coordinates would
+            // otherwise zoom the camera to Infinity and lose the board entirely, which is a far
+            // worse outcome than simply not moving.
+            try {
+                if (typeof graph.zoomRect === 'function'
+                    && isFinite(x0) && isFinite(x1) && x1 > x0
+                    && isFinite(yTop) && isFinite(yBot)) {
+                    const xpad = Math.max(50, (x1 - x0) * 0.06);
+                    const cy = (yTop + yBot) / 2;
+                    const yhalf = (Math.abs(yBot - yTop) || 1) * 0.62;
+                    await graph.zoomRect(x0 - xpad, x1 + xpad, cy + yhalf, cy - yhalf, 220);
+                }
+            } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            // Re-fire after the camera has settled: the blink runs on a timer, and most of it
+            // would otherwise play out during the zoom, off-screen or mid-flight.
+            setTimeout(() => {
+                for (const t of tracks) {
+                    for (const o of ((t && t.oligos) || [])) {
+                        try { if (o) o.highlight(2600, 'magenta'); } catch (e) { }
+                    }
+                }
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+            }, 260);
+            graph.setMessage(' Highlighting ' + n + ' compound' + (n === 1 ? '' : 's')
+                + ' on ' + onTracks + ' track' + (onTracks === 1 ? '' : 's') + '. ');
+        };
+
+        // Every design call goes through here. exec() REJECTS on a non-2xx, and none of the
+        // three designers caught that -- a 402 became an unhandled rejection and the user saw
+        // a stream error in the console and nothing on screen. Returns null when the run did
+        // not happen, having already told the user why.
+        // Is there a design left? Asked BEFORE the call, not after it fails.
+        //
+        // exec() goes through lion_engine -> POSTJSON -> RxJS, and a 402 there does NOT reject
+        // the promise the caller awaits: the error path throws "invalid object where a stream
+        // was expected" inside the subscriber, so the await never settles and no catch around
+        // it can ever run. That is why a refused design looked like it had silently done
+        // nothing, and why wrapping the call in try/catch did not fix it.
+        //
+        // /free-quota is an ordinary GET that answers reliably -- the free-plan bar reads it
+        // every 20s -- so the question is asked there instead.
+        //
+        // FAILS OPEN. Anything unreadable (no user, endpoint down, unknown shape) proceeds
+        // with the call: the cost of a wrong "you are out" is a paying user blocked from what
+        // they bought, and the cost of a wrong "go ahead" is one 402 from the server, which is
+        // the authority anyway.
+        const __designAllowanceGate = async () => {
+            try {
+                const host = (window['env'] && window['env']['apiUrl']) || window.location.origin;
+                const user = (typeof getUser === 'function') ? (getUser() || '') : '';
+                const q = await GETJSON(host + '/free-quota?user=' + encodeURIComponent(user)
+                    + '&t=' + Date.now());
+                if (!q || q.error || q.subscribed) return null;
+                const left = (q.designRemaining != null) ? q.designRemaining
+                    : ((q.aiRemaining != null) ? q.aiRemaining : null);
+                if (left == null || left > 0) return null;
+                // Shaped like the server's own 402 body so the notice reads identically
+                // whichever route reached it. `message` is left out on purpose: the notice
+                // composes it from limit and resetsOn rather than keeping a second copy of
+                // the server's sentence that could drift from freeLimitBody.
+                return {
+                    error: 'free-limit', metric: 'design',
+                    used: q.design,
+                    limit: (q.designLimit != null) ? q.designLimit : q.limit,
+                    resetsOn: q.resetsOn
+                };
+            } catch (e) { return null; }
+        };
+
+        const __runDesign = async (scriptPath, input) => {
+            // The free-plan bar shows the remaining allowance. A run spends one, so poke it
+            // either way: on success the count has dropped, and on a refusal it is at zero
+            // and the bar is the thing that explains why.
+            const __pokeBar = () => {
+                try { if (typeof window.__bajaFreeBarRefresh === 'function') window.__bajaFreeBarRefresh(); } catch (e) { }
+            };
+            const __gate = await __designAllowanceGate();
+            if (__gate) {
+                try { await exec('baja/lib/free-limit-notice.js', graph, __gate, 'design'); } catch (e) { }
+                __pokeBar();
+                return null;
+            }
+            try {
+                const out = await exec(scriptPath, progressOf(scriptPath), input);
+                __pokeBar();
+                return out;
+            } catch (e) {
+                __pokeBar();
+                let shown = false;
+                try { shown = await exec('baja/lib/free-limit-notice.js', graph, e, 'design'); } catch (e2) { }
+                if (!shown) {
+                    try { graph.setMessage(' Design failed: ' + (e && (e.message || e)) + ' '); } catch (e2) { }
+                    try { console.log('design call failed: ' + (e && (e.stack || e.message || e))); } catch (e2) { }
+                }
+                return null;
+            }
+        };
+        // The progress bar belongs to the caller; each designer makes its own before running.
+        let __activeProgress = null;
+        const progressOf = () => __activeProgress;
+
         const __designOffset = () => {
             const t = selectedTrack;
             try { return (t && t.selectedOffset) ? t.selectedOffset() : 0; } catch (e) { return 0; }
@@ -1374,13 +1931,27 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         //
         // Whatever each oligo had before is restored at the end, so this cannot clobber a
         // highlight something else set (an off-target run marks its hits the same way).
-        const highlightCompounds = () => {
-            const t = selectedTrack;
-            const list = (t && t.oligos) ? t.oligos.slice() : [];
-            if (!list.length) {
-                infoPrompt(' There are no compounds on this track to highlight. ');
-                return;
-            }
+        // An amplicon carries .left and .right (and .mid when there is a probe), which is what
+        // separates a primer set from a single-strand compound in the same oligos list. Same
+        // test filterByOffTargets uses to leave amplicons alone.
+        const isPrimerProbe = (o) => !!(o && (o.type === 'amplicon' || (o.left && o.right)));
+        const __probeCount = (() => {
+            let here = 0, canvas = 0;
+            try {
+                for (const t of ((graph && graph.track) || [])) {
+                    const n = ((t && t.oligos) || []).filter(isPrimerProbe).length;
+                    canvas += n;
+                    if (t === selectedTrack) here = n;
+                }
+            } catch (e) { }
+            return { here: here, canvas: canvas };
+        })();
+
+        // The blink, shared. It was written inline for compounds; primer probes want exactly
+        // the same behaviour on a different subset, and a second copy would drift the first
+        // time the timing or the colour changed.
+        const __blinkOligos = (list, noun) => {
+            if (!list || !list.length) return;
             const MAGENTA = '#ff2fd6';
             const prev = list.map((o) => o.highlight__);
             let on = false, ticks = 0;
@@ -1396,9 +1967,23 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 }
             }, 450);
             try {
-                graph.setMessage(' Highlighting ' + list.length + ' compound'
-                    + (list.length === 1 ? '' : 's') + ' on ' + ((t && t.name) || 'track') + '. ');
+                graph.setMessage(' Highlighting ' + list.length + ' ' + noun
+                    + (list.length === 1 ? '' : 's') + ' on '
+                    + ((selectedTrack && selectedTrack.name) || 'track') + '. ');
             } catch (e) { }
+        };
+
+        // The two callers. Each picks its own subset and says what it is highlighting, so the
+        // status line names probes as probes rather than calling everything a compound.
+        const highlightCompounds = () => {
+            const list = ((selectedTrack && selectedTrack.oligos) || []).filter(Boolean);
+            if (!list.length) { infoPrompt(' There are no compounds on this track to highlight. '); return; }
+            __blinkOligos(list, 'compound');
+        };
+        const highlightPrimerProbes = () => {
+            const list = ((selectedTrack && selectedTrack.oligos) || []).filter(isPrimerProbe);
+            if (!list.length) { infoPrompt(' There are no primer probes on this track to highlight. '); return; }
+            __blinkOligos(list, 'primer set');
         };
 
 
@@ -1437,30 +2022,210 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                     + 'cutting it. The modality for splice switching, uORFs and start codons.'
             }
         };
+        // Steric blocking is the one modality whose TARGET is a decision rather than a
+        // consequence of the chemistry: the same compound raises or lowers exon inclusion
+        // depending only on which element it covers. So it opens a small library of its own
+        // instead of designing straight away.
+        const stericBooks = async (t) => {
+            // A splice-switching design is ranked and placed against the track's
+            // cis-regulatory model, so with no model there is nothing to design against.
+            // The card is GREYED rather than hidden, and says what to do about it: a missing
+            // prerequisite the user can fix reads very differently from a feature that does
+            // not exist, and hiding it would leave them wondering where the option went.
+            let nWindows = 0;
+            try {
+                const P = await exec('baja/manchester/menu/splice-tiling-priority.js');
+                nWindows = (P.modelWindows(selectedTrack) || []).length;
+            } catch (e) { nWindows = 0; }
+            const hasModel = nWindows > 0;
+            const trackName = (selectedTrack && selectedTrack.name) || 'this track';
+
+            return [
+            {
+                title: 'Use splicing', badge: 'Splice switching',
+                ready: hasModel,
+                readyNote: 'needs a splicing model',
+                blurb: hasModel
+                    ? ('Aim the tiling at the ' + nWindows + ' cis-regulatory window'
+                        + (nWindows === 1 ? '' : 's') + ' on ' + trackName + ', so the compounds '
+                        + 'that sit on the elements that matter are designed first.')
+                    : ('No splicing model on ' + trackName + '. Add one first: Layers \u25b8 Models '
+                        + '\u25b8 Splicing \u2014 cis-regulatory windows, then click a splice site on '
+                        + 'the track. That marks which sequence supports the site and which '
+                        + 'suppresses it, which is what a splice-switching design is aimed at.'),
+                subtitle: 'Which way should the exon move?',
+                books: () => [
+                    {
+                        title: 'Exon inclusion', badge: 'Include',
+                        blurb: 'Cover the windows the model scores as SUPPRESSIVE. The native '
+                            + 'sequence there holds the splice site down, so occupying it should '
+                            + 'increase use of the exon.',
+                        open: () => t.click(0, 0, 'inclusion')
+                    },
+                    {
+                        title: 'Exon exclusion', badge: 'Exclude',
+                        blurb: 'Cover the windows the model scores as SUPPORTIVE. The site depends '
+                            + 'on that sequence, so occupying it should reduce use of the exon.',
+                        open: () => t.click(0, 0, 'exclusion')
+                    }
+                ]
+            },
+            {
+                // Named for WHAT IT DESIGNS, not for what it leaves out. "No splicing" defined
+                // the option by its absence, which reads as the lesser of the two even when it
+                // is the one you want -- and it is the whole modality, not a fallback.
+                title: 'Steric Blocking oligo', badge: 'Steric',
+                blurb: 'Tile the transcript on the design rules alone, with no splice-switching '
+                    + 'priority. The behaviour this modality has always had'
+                    + (hasModel ? '.' : ' — and the only option here until a model is added.'),
+                open: () => t.click(0, 0, null)
+            }
+            ];
+        };
+
         const therapeuticBooks = () => therapeutics.map((t) => {
             const a = THERAPEUTIC_ABOUT[t.label] || {};
-            return {
+            const book = {
                 title: t.label,
                 badge: a.badge || 'Therapeutic',
                 blurb: a.blurb || ('Design ' + t.label + ' over ' + scopeNote() + '.'),
                 open: () => t.click()
             };
+            if (t.label === 'Steric-blocking ASO') {
+                delete book.open;              // a card with both is treated as a sub-library
+                book.subtitle = 'Design against the splicing model, or on the rules alone';
+                book.books = () => stericBooks(t);
+            }
+            return book;
         }).concat([{
             // Not a fourth modality: a different question. The three above design against the
             // transcript; this one designs against ONE ALLELE of it, and the modality (siRNA or
             // gapmer) is chosen inside. baja/manchester/menu/allele-selective-design.js.
             title: 'Allele selective', badge: 'Around a mutation',
-            blurb: 'Oligos that hit the mutant allele and spare the wild-type one — siRNA or '
-                + 'gapmer, chosen next. Designed against a variant already on the track, and '
-                + 'ranked by WHERE the wild-type mismatch falls: the central/seed positions of '
-                + 'an siRNA guide, or inside a gapmer\'s DNA gap, because that placement is '
-                + 'what discrimination is.',
+            // Gated on the CANVAS: the designer asks which track carries the mutation when it
+            // is not the selected one, so a variant on another track is still designable and
+            // greying on the selected track alone would refuse a design that would work.
+            ready: __variantCount.canvas > 0,
+            readyNote: 'no variants loaded',
+            blurb: (__variantCount.canvas > 0)
+                ? ('Oligos that hit the mutant allele and spare the wild-type one — siRNA or '
+                    + 'gapmer, chosen next. Designed against one of the ' + __variantCount.canvas
+                    + ' variant' + (__variantCount.canvas === 1 ? '' : 's') + ' already on the canvas, '
+                    + 'and ranked by WHERE the wild-type mismatch falls: the central/seed positions '
+                    + 'of an siRNA guide, or inside a gapmer\'s DNA gap, because that placement is '
+                    + 'what discrimination is.')
+                : ('No variants on the canvas to design against. This design needs a specific '
+                    + 'mutation to discriminate against the wild-type allele — load one first '
+                    + 'from Data \u25b8 Variants (ClinVar, dbSNP, gnomAD or COSMIC), or describe '
+                    + 'one with Draw \u25b8 Describe a variant.'),
             // A LEAF, not a shelf. It used to open a two-card level naming the modalities, and
             // the design then asked for the modality again in its own menu -- the same question
             // twice, with the shelf's answer thrown away. The card opens the design directly,
             // and the modality is asked once, where the chemistry and the mutation are also
             // chosen: Therapeutics -> Allele selective -> modality -> chemistry.
             open: () => exec('baja/manchester/menu/allele-selective-design.js', window['env']['apiUrl'], graph, genegraph_panel_layout, selectedTrack)
+        }, {
+            // Screening belongs beside designing: an ASO is not finished until you know what
+            // else it binds, and having to leave Therapeutics to find out made that a separate
+            // errand. The same entry points as the off-target tools menu -- one screen, reached
+            // from two places, rather than a second implementation that can drift.
+            title: 'Off-targets', badge: 'Screen',
+            ready: __oligoCount.here > 0,
+            readyNote: (__oligoCount.canvas > 0) ? 'compounds are on another track' : 'no compounds yet',
+            subtitle: 'Screen the compounds on this track',
+            blurb: (__oligoCount.here > 0)
+                ? ('Screen the ' + __oligoCount.here + ' compound'
+                    + (__oligoCount.here === 1 ? '' : 's') + ' on ' + __trackLabel + ' against the '
+                    + 'transcriptome, and count what else each one binds. Results attach to the '
+                    + 'compounds, so the design report and the off-target filter can both read them.')
+                : ((__oligoCount.canvas > 0)
+                    ? ('No compounds on ' + __trackLabel + ' to screen. There '
+                        + (__oligoCount.canvas === 1 ? 'is 1 compound' : 'are ' + __oligoCount.canvas + ' compounds')
+                        + ' elsewhere on the canvas — select that track and reopen this menu.')
+                    : 'Design some compounds first, then this will screen them against the '
+                        + 'transcriptome and record what else they bind.'),
+            books: () => {
+                // The "selected" variants only exist when something IS selected, exactly as in
+                // baja/manchester/menu/off-target-tools-sub-menu.js -- offering them otherwise
+                // would be a screen of nothing.
+                let anySelected = false;
+                try {
+                    anySelected = ((graph.track) || []).some((t) =>
+                        ((t && t.oligos) || []).some((o) => o && (o.selected || o.highlight__)));
+                } catch (e) { anySelected = false; }
+                const books = [
+                    {
+                        title: 'Full antisense sequence', badge: 'Screen',
+                        blurb: 'Screen the whole antisense strand of every compound on the canvas. '
+                            + 'The default for an ASO, where the entire length is the binding event.',
+                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout)
+                    },
+                    {
+                        title: 'Seed sequence only', badge: 'siRNA',
+                        blurb: 'Screen the seed region rather than the full strand — positions 2-8 of '
+                            + 'the guide, which is what drives siRNA off-target silencing. Use this for '
+                            + 'a duplex, not for a steric-blocking ASO.',
+                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout)
+                    },
+                    {
+                        title: 'Fuzzy match (edit distance)', badge: 'Levenshtein',
+                        blurb: 'A tolerant search that finds near-matches as well as exact ones, so a '
+                            + 'site differing by a base or two is still reported.',
+                        open: () => exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'], graph, genegraph_panel_layout)
+                    }
+                ];
+                if (anySelected) {
+                    books.push({
+                        title: 'Full antisense (selected only)', badge: 'Screen',
+                        blurb: 'The same full-strand screen, restricted to the compounds currently '
+                            + 'selected on the canvas.',
+                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout, true)
+                    });
+                    books.push({
+                        title: 'Seed sequence (selected only)', badge: 'siRNA',
+                        blurb: 'The seed-region screen, restricted to the selected compounds.',
+                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout, true)
+                    });
+                }
+                return books;
+            }
+        }, {
+            // Not a designer either: a way of WRITING UP what the designers produced. It needs
+            // compounds to describe, so with none on this track it is greyed with the reason
+            // rather than offered and then failing.
+            title: 'Generate Design Report', badge: 'Written up',
+            ready: __oligoCount.here > 0,
+            readyNote: (__oligoCount.canvas > 0) ? 'compounds are on another track' : 'no compounds yet',
+            blurb: (__oligoCount.here > 0)
+                ? ('Write up the ' + __oligoCount.here + ' compound'
+                    + (__oligoCount.here === 1 ? '' : 's') + ' on ' + __trackLabel + ': the target, the '
+                    + 'data and ML model layers in use, the compounds and their chemistry, and their '
+                    + 'off-targets. The facts are read off the track and the model only writes them up '
+                    + '— it is told to invent nothing and to say plainly where a screen was not run.')
+                : ((__oligoCount.canvas > 0)
+                    ? ('No compounds on ' + __trackLabel + ' to report on. There '
+                        + (__oligoCount.canvas === 1 ? 'is 1 compound' : 'are ' + __oligoCount.canvas + ' compounds')
+                        + ' elsewhere on the canvas — select that track and reopen this menu.')
+                    : 'Design some compounds first, then this will write up the target, the models '
+                        + 'in use, the chemistry and the off-targets as a report you can export.'),
+            open: () => exec('baja/manchester/menu/design-report.js', graph, genegraph_panel_layout, selectedTrack)
+        }, {
+            // Not a designer: a way of FINDING what the designers already produced. It sits
+            // here because this is where compounds come from, and after a few runs across
+            // several tracks they are easy to lose track of.
+            title: 'Highlight all compounds', badge: 'On the board',
+            // Gated on the CANVAS total, not this track: this one deliberately reaches every
+            // track, so compounds elsewhere are exactly what it is for.
+            ready: __oligoCount.canvas > 0,
+            readyNote: 'nothing designed yet',
+            blurb: (__oligoCount.canvas > 0)
+                ? ('Pulse all ' + __oligoCount.canvas + ' compound'
+                    + (__oligoCount.canvas === 1 ? '' : 's') + ' on the canvas magenta and pull the '
+                    + 'camera back to frame them — across every track, not just this one. Nothing '
+                    + 'is designed, changed or removed.')
+                : ('No compounds anywhere on the canvas to highlight. Design some first — '
+                    + 'siRNA, Gapmer or Steric-blocking ASO above.'),
+            open: () => __highlightAllCompounds()
         }]);
 
         const primerBooks = () => [
@@ -1481,8 +2246,59 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 blurb: 'Probes spanning an exon-exon junction, so genomic DNA cannot amplify. '
                     + 'Results open as JSON rather than on the track.',
                 open: () => runExonExon()
+            },
+            {
+                // Not a designer: finding what the designers already placed. Gated on primer
+                // sets specifically, not on compounds in general -- a track can be covered in
+                // ASOs and still have no amplicon to highlight, and offering it there would be
+                // a button that blinks nothing.
+                title: 'Highlight primer probes', badge: 'Locate',
+                ready: __probeCount.here > 0,
+                readyNote: (__probeCount.canvas > 0) ? 'primer sets are on another track' : 'no primer sets yet',
+                blurb: (__probeCount.here > 0)
+                    ? ('Twinkle the ' + __probeCount.here + ' primer set'
+                        + (__probeCount.here === 1 ? '' : 's') + ' on ' + __trackLabel + ' magenta for '
+                        + 'about five seconds. Amplicons only — the ASOs on the track are left alone.')
+                    : ((__probeCount.canvas > 0)
+                        ? ('No primer sets on ' + __trackLabel + '. There '
+                            + (__probeCount.canvas === 1 ? 'is 1' : 'are ' + __probeCount.canvas)
+                            + ' elsewhere on the canvas — select that track and reopen this menu.')
+                        : 'Design primers first — primer3, djPrimer or exon-exon probes above — '
+                            + 'and this will find them on the track.'),
+                open: () => highlightPrimerProbes()
             }
         ];
+
+        // Compounds available to act on: on the SELECTED track, which is what the filters
+        // operate on, and across the whole canvas, which is what makes "they are on another
+        // track" sayable instead of a flat "there are none".
+        const __oligoCount = (() => {
+            let here = 0, canvas = 0;
+            try {
+                for (const t of ((graph && graph.track) || [])) {
+                    const n = ((t && t.oligos) || []).filter(Boolean).length;
+                    canvas += n;
+                    if (t === selectedTrack) here = n;
+                }
+            } catch (e) { }
+            return { here: here, canvas: canvas };
+        })();
+        const __trackLabel = (selectedTrack && selectedTrack.name) || 'this track';
+
+        // Variants available to design against. The SAME filter allele-selective-design.js
+        // applies -- a snpindel with no xi is not a position it can aim at -- so the menu
+        // cannot offer a design the designer would then refuse.
+        const __variantCount = (() => {
+            let here = 0, canvas = 0;
+            try {
+                for (const t of ((graph && graph.track) || [])) {
+                    const n = ((t && t.snpindels) || []).filter((v) => v && v.xi != null).length;
+                    canvas += n;
+                    if (t === selectedTrack) here = n;
+                }
+            } catch (e) { }
+            return { here: here, canvas: canvas };
+        })();
 
         const DESIGN = [
             {
@@ -1500,26 +2316,50 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 books: primerBooks
             },
             {
-                title: 'Off-targets', badge: 'Filtering',
-                subtitle: 'Prune the compounds on this track',
-                blurb: 'Act on off-target results already attached to the compounds on this track.',
-                books: () => [{
-                    title: 'Filter by off-target count', badge: 'Remove',
-                    blurb: 'Remove every oligo whose off-target count is above a maximum you give. '
-                        + 'Amplicons are left alone, and undo restores what it removed.',
-                    open: () => filterByOffTargets()
-                }]
-            },
-            {
+                // Off-target FILTERING moved in here from a top level node of its own. Pruning
+                // by off-target count is something you do to compounds already on the track, so
+                // it belongs with the rest of that work rather than beside the designers.
+                // Running a screen still lives under Therapeutics, next to the designs that
+                // produce the compounds: one is finishing a design, the other is managing what
+                // the design left behind.
                 title: 'Compounds', badge: 'On this track',
-                subtitle: 'Find what is already here',
-                blurb: 'Work with the compounds already designed onto this track.',
-                books: () => [{
-                    title: 'Highlight compounds', badge: 'Locate',
-                    blurb: 'Twinkle every compound on the track magenta for about five seconds — '
-                        + 'motion catches the eye where a static highlight on a busy track does not.',
-                    open: () => highlightCompounds()
-                }]
+                subtitle: 'Work with the compounds already here',
+                ready: __oligoCount.here > 0,
+                readyNote: (__oligoCount.canvas > 0) ? 'compounds are on another track' : 'no compounds yet',
+                blurb: (__oligoCount.here > 0)
+                    ? ('Find and prune the ' + __oligoCount.here + ' compound'
+                        + (__oligoCount.here === 1 ? '' : 's') + ' already designed onto ' + __trackLabel + '.')
+                    : ((__oligoCount.canvas > 0)
+                        ? ('No compounds on ' + __trackLabel + '. There '
+                            + (__oligoCount.canvas === 1 ? 'is 1 compound' : 'are ' + __oligoCount.canvas + ' compounds')
+                            + ' elsewhere on the canvas — select that track and reopen this menu.')
+                        : ('Nothing designed on the canvas yet. Design compounds first — '
+                            + 'Therapeutics \u25b8 siRNA, Gapmer or Steric-blocking ASO — and they '
+                            + 'will show up here.')),
+                books: () => [
+                    {
+                        title: 'Highlight compounds', badge: 'Locate',
+                        ready: __oligoCount.here > 0,
+                        readyNote: 'no compounds on this track',
+                        blurb: (__oligoCount.here > 0)
+                            ? ('Twinkle the ' + __oligoCount.here + ' compound'
+                                + (__oligoCount.here === 1 ? '' : 's') + ' on this track magenta for '
+                                + 'about five seconds — motion catches the eye where a static '
+                                + 'highlight on a busy track does not.')
+                            : 'Nothing on this track to highlight.',
+                        open: () => highlightCompounds()
+                    },
+                    {
+                        title: 'Filter by off-target count', badge: 'Remove',
+                        ready: __oligoCount.here > 0,
+                        readyNote: 'no compounds on this track',
+                        blurb: 'Remove every oligo whose off-target count is above a maximum you give. '
+                            + 'Amplicons are left alone, and undo restores what it removed. Compounds '
+                            + 'that have not been screened have no count to filter on, so run the '
+                            + 'screen first: Therapeutics \u25b8 Off-targets.',
+                        open: () => filterByOffTargets()
+                    }
+                ]
             },
             {
                 title: 'Clinical Library', badge: 'Reference',

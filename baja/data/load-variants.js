@@ -15,6 +15,19 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
     // It is applied here rather than in the query because /variants/region has no class
     // parameter. That makes the counts below matter: a filtered load must say how many it
     // dropped, or "6 loaded" from a source holding 900 reads as an almost empty database.
+    // WHICH MESSAGES ARE ACTUALLY DRAWN.
+    //
+    // graph.setMessage() is the TRANSIENT status line -- the canvas deliberately does not
+    // paint it, so that "Loading…" and spinner frames do not pile up as toasts. Only
+    // setError (orange) and setResultMessage (cyan) are drawn.
+    //
+    // Every OUTCOME here was reported with setMessage, so a load that found nothing said so
+    // to a surface nobody sees: the run simply ended. That is the whole of "loading variants
+    // fails silently". Outcomes now go to setResultMessage, failures to setError, and only
+    // genuine in-progress chatter stays on setMessage.
+    const say = (m) => { try { graph.setResultMessage(m); } catch (e) { try { graph.setMessage(m); } catch (e2) { } } };
+    const fail = (m) => { try { graph.setError(m); } catch (e) { try { graph.setMessage(m); } catch (e2) { } } };
+
     const label = dbLabel || db;
     const FILTER = filter || null;
     const filterNote = (FILTER && FILTER.label) ? ' [' + FILTER.label + ']' : '';
@@ -103,7 +116,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
         graph.setMouseMode('navigate');
         try {
             if (!track || !track.chr) {
-                graph.setMessage(' That track has no chromosome for a variant lookup. ');
+                fail(' That track has no chromosome for a variant lookup. ');
                 restoreHover(); return;
             }
             const species = ('' + (track.species || 'human')).toLowerCase();
@@ -116,7 +129,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             // no mapping for these contigs, so there is nothing to place: say that, and name
             // the way out, instead of "No ClinVar variants found for chr5:274951-302936".
             if (track.altContig || (track.contig && !/^(chr)?([0-9]{1,2}|X|Y|MT?|W|Z)$/i.test('' + track.contig))) {
-                graph.setMessage(' ' + (track.name || 'This track') + ' is on the alternate contig '
+                fail(' ' + (track.name || 'This track') + ' is on the alternate contig '
                     + (track.contig || track.chr) + ', not on chr' + chr + '. ' + label + ' coordinates are on the '
                     + 'primary assembly and this contig cannot be mapped to it, so no variants can be placed. '
                     + 'Load the primary-assembly transcript of the gene instead. ');
@@ -129,8 +142,39 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             // variants get mapped back onto the exons by variantWorldX().
             const tg = track.tgraph;
             const isChild = !!(track.isChildCDNATrack && track.isChildCDNATrack());
+
+            // THE GENOMIC SPAN COMES FROM THE EXONS.
+            //
+            // A track's tgraph is in whatever frame the track was laid out in. For a pre-mRNA
+            // track built from a transcript that frame is LOCAL -- SMN2 came out as
+            // 274951..302936 -- and asking ClinVar for chr5:274951-302936 is a real query
+            // about the wrong megabase. It answers 0 variants with no error, so the load
+            // failed silently and looked like "this gene has no variants".
+            //
+            // Each exon annotation carries gxi/gxf, the genomic coordinates of that exon, and
+            // variantWorldX() maps a returned variant back onto the track THROUGH those same
+            // fields. So the exon-derived span is not just more correct than the tgraph bounds,
+            // it is exactly the range whose hits can be placed. On a track already laid out in
+            // genomic coordinates the two agree, so this is not a special case for spliced
+            // tracks -- it is the right question in both.
+            const exonGenomicSpan = () => {
+                try {
+                    let lo = Infinity, hi = -Infinity;
+                    for (const a of (track.getExons() || [])) {
+                        const gi = +a.gxi, gf = +a.gxf;
+                        if (!isFinite(gi) || !isFinite(gf)) continue;
+                        lo = Math.min(lo, gi, gf);
+                        hi = Math.max(hi, gi, gf);
+                    }
+                    return (isFinite(lo) && isFinite(hi) && hi > lo) ? { lo: lo, hi: hi } : null;
+                } catch (e) { return null; }
+            };
+
             let tlo, thi;
-            if (isChild && track.gxi != null && track.gxf != null) {
+            const __ex = exonGenomicSpan();
+            if (__ex) {
+                tlo = __ex.lo; thi = __ex.hi;
+            } else if (isChild && track.gxi != null && track.gxf != null) {
                 tlo = Math.min(track.gxi, track.gxf);
                 thi = Math.max(track.gxi, track.gxf);
             } else if (tg && tg.xmin != null && tg.xmax != null) {
@@ -172,7 +216,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 gEnd = thi;
             }
             gStart = Math.floor(gStart); gEnd = Math.ceil(gEnd);
-            if (!(gEnd > gStart)) { graph.setMessage(' Could not determine a region for ' + (track.name || 'track') + '. '); restoreHover(); return; }
+            if (!(gEnd > gStart)) { fail(' Could not determine a region for ' + (track.name || 'track') + '. '); restoreHover(); return; }
 
             const url = server + '/variants/region?species=' + encodeURIComponent(species)
                 + '&region=' + encodeURIComponent(chr + ':' + gStart + '-' + gEnd)
@@ -217,16 +261,16 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             finally { clearInterval(spinner); }
             const list = (resp && resp.variants) || [];
             if (!list.length) {
-                graph.setMessage(' No ' + label + ' variants found' + (resp && resp.error ? ' (' + resp.error + ')' : '')
+                say(' No ' + label + ' variants found' + (resp && resp.error ? ' (' + resp.error + ')' : '')
                     + ' for chr' + chr + ':' + gStart + '-' + gEnd + '. ');
-                restoreHover(); return;
+                restoreHover(); return 0;
             }
 
             graph.setMessage(' ' + spinFrames[0] + ' Placing ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's') + '… ');
 
             let SnpIndel = null;
             try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { }
-            if (!SnpIndel) { graph.setMessage(' Variant support unavailable. '); restoreHover(); return; }
+            if (!SnpIndel) { fail(' Variant support unavailable. '); restoreHover(); return; }
 
             const MAX_ALLELE = 50;   // skip structural variants (giant ref/alt)
             let added = 0, skippedSv = 0, skippedFilter = 0;
@@ -357,25 +401,27 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 // Two different nothings, and they need different answers: the class filter
                 // matched none of them (widen the class), or the region genuinely holds none.
                 if (skippedFilter) {
-                    graph.setMessage(' None of the ' + list.length + ' ' + label + ' variant'
+                    say(' None of the ' + list.length + ' ' + label + ' variant'
                         + (list.length === 1 ? '' : 's') + ' over this region are '
                         + ((FILTER && FILTER.label) ? FILTER.label.toLowerCase() : 'of that class')
                         + '. Try a wider class from the Variants library. ');
                     restoreHover(); return;
                 }
                 // Server returned variants but none mapped onto the track's extent.
-                graph.setMessage(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
+                say(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
                     + ' returned for chr' + chr + ':' + gStart + '-' + gEnd
                     + ' but none fall within this track (' + chr + ':' + Math.floor(tlo) + '-' + Math.ceil(thi) + '). ');
                 restoreHover(); return;
             }
             const capNote = (resp && resp.truncated) ? ' (capped at ' + list.length + (resp.total ? ' of ' + resp.total : '') + ' — select a smaller range for the rest)' : '';
-            graph.setMessage(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
+            say(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
                 + filterNote + capNote
                 + (skippedFilter ? ' (' + skippedFilter + ' outside that class)' : '')
                 + ' onto ' + (track.name || 'track') + '. ');
+            restoreHover();
+            return added;
         } catch (e) {
-            graph.setMessage(' Variant load error: ' + e + ' ');
+            fail(' Variant load error: ' + e + ' ');
         }
         restoreHover();
     };
@@ -414,7 +460,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             dragging = false;
             end = Math.ceil(track.tgraph.Xwc(x - 2 * track.tgraph.xi));
             const a = Math.min(start, end), b = Math.max(start, end);
-            if (!(b > a)) { graph.setMessage(' Empty selection — drag to select a region. '); restoreHover(); return; }
+            if (!(b > a)) { fail(' Empty selection — drag to select a region. '); restoreHover(); return; }
             try { track.markstart = a; track.markend = b; track.highlight(a, b); } catch (e) { }
             await loadRegion(track, false);
         });
@@ -427,6 +473,12 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
     // to look at while they pick a track, and the editor stashes its own layout under
     // mainPanel -- mounting over it with no click coming is what blanked the canvas behind
     // the menu in patents.js.
+    if (Array.isArray(tracks) && !tracks.length) {
+        // The opener passed a track list and it was empty -- e.g. a menu that resolves to
+        // `selectedTrack ? [selectedTrack] : []` with nothing selected. Falling through to
+        // the scope prompt is right, but say why, or the click reads as having done nothing.
+        say(' No track selected — click a track to load ' + label + '. ');
+    }
     if (Array.isArray(tracks) && tracks.length) {
         const list = tracks.filter(Boolean);
         return (async () => {
@@ -439,24 +491,63 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                     if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                 } catch (e) { }
             };
-            let done = 0;
+            let done = 0, placed = 0;
             for (let i = 0; i < list.length; i++) {
                 const t = list[i];
                 status(label + ' · ' + ((t && t.name) || ('track ' + (i + 1))) + ' · ' + (i + 1) + ' of ' + list.length + '…');
                 // forceWhole false: loadRegion reads the track's own selected range when it
                 // has one, so a track with a selection gets variants over that only.
-                try { await loadRegion(t, false); done++; } catch (e) { }
+                //
+                // COUNT WHAT LANDED, not how many calls returned. `done++` on a call that
+                // completed treated "found nothing" as a success, and the summary below then
+                // overwrote loadRegion's own "No ClinVar variants found" with "loaded onto 1 of
+                // 1 track" -- which is how a load of zero variants came to look like a load
+                // that worked.
+                try {
+                    const n = await loadRegion(t, false);
+                    if (n > 0) { done++; placed += n; }
+                } catch (e) { }
             }
             status('');
-            const msg = ' ' + label + ' loaded onto ' + done + ' of ' + list.length
-                + ' track' + (list.length === 1 ? '' : 's') + '. ';
-            try { graph.setResultMessage(msg); } catch (e) { graph.setMessage(msg); }
+            // DO NOT OVERWRITE A REASON WITH A TALLY.
+            //
+            // loadRegion has already said the precise thing for each track -- "SMN2-231 is on
+            // the alternate contig HSCHR5_1_CTG1_1", "none of the 9 are somatic", "no ClinVar
+            // variants found for chr5:...". On a ONE-track load a roll-up adds nothing and
+            // lands a moment later, so all the reader ever sees is "no variants found on that
+            // track" and the answer to why is gone. The tally is only worth posting when it
+            // says something the per-track message could not: several tracks, or a count.
+            if (placed) {
+                say(' ' + label + ': ' + placed + ' variant' + (placed === 1 ? '' : 's')
+                    + ' onto ' + done + ' of ' + list.length + ' track' + (list.length === 1 ? '' : 's') + '. ');
+            } else if (list.length > 1) {
+                say(' ' + label + ': no variants found on any of the ' + list.length + ' tracks. ');
+            }
             return graph;
         })();
     }
 
-    CurrentLayout.clearComponent('mainPanel');
-    CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
+    // Going back to the editor is CurrentLayout.reset('mainPanel'), not a clear + set.
+    //
+    // reset() remounts the layout manchester/editor.js stashed under 'mainPanel' -- the whole
+    // editor. clear + setComponent(genegraph_panel_layout) mounts only the panel object this
+    // module was handed, which is not the same thing: the clear ran and the canvas never came
+    // back, so the message and the scope menu below were drawn onto nothing and picking a
+    // variant class looked like it did nothing at all. editor.js also PATCHES reset() so
+    // returning to mainPanel re-arms mouse-over-highlight.
+    //
+    // The clear + set stays as a fallback for a host that stashed nothing.
+    // Same fix as baja/bio/rbp/rbp-profile.js, for the same reason.
+    (() => {
+        try {
+            if (CurrentLayout.getStashed && CurrentLayout.getStashed('mainPanel')) {
+                CurrentLayout.reset('mainPanel');
+                return;
+            }
+        } catch (e) { }
+        try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+        try { if (genegraph_panel_layout) CurrentLayout.setComponent('mainPanel', genegraph_panel_layout); } catch (e) { }
+    })();
 
     // Auto-scope: if the user already has a sequence selected on one or more tracks,
     // load the variants straight onto those selected regions (no scope prompt). Only
@@ -474,7 +565,7 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             })();
             return;
         }
-        graph.setMessage(' No sequence selected — select a sequence or click a track to load ' + label + '. ');
+        say(' No sequence selected — select a sequence or click a track to load ' + label + '. ');
         // fall through to the scope prompt below
     }
 

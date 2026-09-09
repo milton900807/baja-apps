@@ -13,10 +13,17 @@ whether that costs the wild-type its activity depends entirely on its position:
           the gap, near its centre, blocks cleavage of the wild-type transcript; a mismatch
           under a modified wing does not, because the wings do not recruit the enzyme.
 
-So candidates are every oligo of the requested length that covers the variant; each is scored
-by that placement first and by ordinary sequence quality (GC, runs, thermodynamic asymmetry)
-second, and anything whose variant lands outside the discriminating window is dropped rather
-than ranked low -- an oligo that does not discriminate is not an allele-selective oligo.
+So candidates are EVERY oligo of the requested length that covers the variant -- one per
+register, so a 20-mer over one allele is twenty candidates, the variant sitting at position 1
+of the first and position 20 of the last. Each is scored by that placement first and by
+ordinary sequence quality (GC, runs, thermodynamic asymmetry) second.
+
+A register whose mismatch lands where it cannot discriminate (an siRNA's P1 or 3' end, or
+under a gapmer's wing) used to be DROPPED. It is now returned, carrying discriminates=false,
+a weight low enough to sort it below every real candidate, and a note saying what is wrong
+with it. Dropping them meant a 20-mer gapmer came back as ten compounds and the other ten
+walks across the same allele were never shown -- and a design is easier to judge against the
+alternatives it was picked over than on its own.
 
 Params (after the EngineMonitor):
     param(1) : JSON
@@ -28,14 +35,14 @@ Params (after the EngineMonitor):
                      "type": "snp"|"ins"|"del", "ref": "A", "alt": "T", "label": "K27M" },
         "modality": "sirna" | "gapmer",
         "lengths": [21],           oligo lengths to try
-        "top_n": 20,
+        "top_n": 0,          # 0 / absent = every register; a number caps the list
         "gapmer": { "wing": 5, "gap": 10, "strict": true },   strict: the geometry is exact
 
         "chemistry": { "template": "standard"|"esc"|"esc_plus"|"galnac_esc"|"all_2ome",   siRNA
                        "wing": "LNA"|"2'-MOE"|"2'-OMe",   gapmer wings
                        "backbone": "PS" } }
 
-Resolves { ok, modality, candidates: [...], considered, rejected, error }.
+Resolves { ok, modality, candidates: [...], considered, discriminating, rejected, error }.
 Each candidate carries its offset into the window, both strands, the variant's position in
 the antisense strand (1-based from its 5' end), why that position discriminates, and a score.
 """
@@ -65,27 +72,44 @@ def longest_run(s):
 
 
 # --- selectivity: the position of the wild-type mismatch inside the oligo -------------------
+#
+# EVERY REGISTER IS DESIGNED; POSITION RANKS IT, IT NO LONGER VETOES IT.
+#
+# These returned None for a mismatch that does not discriminate, and the caller dropped the
+# candidate. The reasoning was sound -- an oligo that does not discriminate is not an
+# allele-selective oligo -- but the effect was that a 20-mer gapmer came back as ten
+# compounds, not twenty: only the registers with the variant inside the DNA gap survived, and
+# the other ten walks across the same allele were never shown at all. A design is easier to
+# judge against the alternatives it was picked over than in isolation, and "this register is
+# poor, here is why" is more useful than the register being absent.
+#
+# So each returns (weight, label, discriminates). A non-discriminating register keeps a weight
+# low enough to sort it below every real candidate and to colour it red in the client, and its
+# label says what is wrong with it rather than just being a small number.
 def sirna_discrimination(pos, guide_len):
-    """pos is 1-based from the guide's 5' end. Returns (weight 0..1, label) or None."""
+    """pos is 1-based from the guide's 5' end. Returns (weight 0..1, label, discriminates)."""
     if pos <= 1:
-        return None                      # position 1 is not read as a base pair
+        return 0.05, "5' base (P1) - not read as a base pair, no discrimination", False
     if 9 <= pos <= 11:
-        return 1.00, "central / cleavage site (P%d)" % pos
+        return 1.00, "central / cleavage site (P%d)" % pos, True
     if 2 <= pos <= 8:
-        return 0.80, "seed (P%d)" % pos
+        return 0.80, "seed (P%d)" % pos, True
     if 12 <= pos <= 15:
-        return 0.45, "3' supplementary (P%d)" % pos
-    return None                          # past P15, and the 3' end, discriminate poorly
+        return 0.45, "3' supplementary (P%d)" % pos, True
+    return 0.10, "3' end (P%d) - discriminates poorly" % pos, False
 
 
 def gapmer_discrimination(pos, gap_start, gap_end, oligo_len):
     """pos 1-based from the ASO 5' end; gap_start/gap_end 1-based inclusive."""
     if not (gap_start <= pos <= gap_end):
-        return None                      # under a wing: RNase H is unaffected by it
+        wing = "5'" if pos < gap_start else "3'"
+        return (0.10, "under the %s wing (P%d, gap is %d-%d) - RNase H is unaffected by a mismatch here"
+                % (wing, pos, gap_start, gap_end), False)
     centre = (gap_start + gap_end) / 2.0
     half = max(1.0, (gap_end - gap_start) / 2.0)
     # 1.0 dead centre, falling to 0.55 at the gap edges.
-    return 1.0 - 0.45 * (abs(pos - centre) / half), "DNA gap position %d of %d-%d" % (pos, gap_start, gap_end)
+    return (1.0 - 0.45 * (abs(pos - centre) / half),
+            "DNA gap position %d of %d-%d" % (pos, gap_start, gap_end), True)
 
 
 # --- chemistry -----------------------------------------------------------------------------
@@ -187,7 +211,8 @@ def design(cfg):
     v = cfg.get("variant") or {}
     modality = str(cfg.get("modality") or "sirna").lower()
     lengths = [int(x) for x in (cfg.get("lengths") or ([21] if modality == "sirna" else [16, 18, 20])) if int(x) > 5]
-    top_n = max(1, int(cfg.get("top_n") or 20))
+    _tn = cfg.get("top_n")
+    top_n = max(1, int(_tn)) if _tn else 0        # 0 = keep every register designed
     gcfg = cfg.get("gapmer") or {}
     wing = max(2, int(gcfg.get("wing") or 5))
     gap_len = max(4, int(gcfg.get("gap") or 10))
@@ -253,12 +278,15 @@ def design(cfg):
                 d = sirna_discrimination(anti_pos, L)
             else:
                 d = gapmer_discrimination(anti_pos, g_start, g_end, L)
-            if not d:
+            sel, why, discriminates = d
+            if not discriminates:
+                # Still designed and still returned -- counted, not dropped. The count is what
+                # the caller reports as "N of these do not discriminate".
                 rejected["position"] += 1
-                continue
-            sel, why = d
             qual, notes = quality(site, modality)
             score = round(100.0 * (0.65 * sel + 0.35 * qual), 1)
+            if not discriminates:
+                notes = list(notes) + ["Does not discriminate the wild-type allele: " + why]
             cand = {
                 "offset": start, "length": L,
                 "target_site": site,
@@ -268,6 +296,7 @@ def design(cfg):
                 "variant_position": anti_pos,
                 "variant_offset_in_site": k,
                 "discrimination": why,
+                "discriminates": bool(discriminates),
                 "selectivity": round(sel, 3),
                 "quality": round(qual, 3),
                 "gc_percent": round(gc_percent(site), 1),
@@ -312,10 +341,12 @@ def design(cfg):
                 cand["wt_site"] = ""
             out.append(cand)
 
-    out.sort(key=lambda c: (-c["score"], -c["selectivity"], c["offset"]))
-    for i, c in enumerate(out[:top_n], 1):
+    out.sort(key=lambda c: (not c["discriminates"], -c["score"], -c["selectivity"], c["offset"]))
+    kept = out[:top_n] if top_n else out
+    for i, c in enumerate(kept, 1):
         c["rank"] = i
-    return {"candidates": out[:top_n], "considered": considered, "rejected": rejected}, None
+    return {"candidates": kept, "considered": considered, "rejected": rejected,
+            "discriminating": sum(1 for c in kept if c["discriminates"])}, None
 
 
 try:
@@ -333,6 +364,9 @@ works.resolve({
     "modality": str(cfg.get("modality") or "sirna").lower(),
     "candidates": json.dumps((res or {}).get("candidates") or []),
     "considered": (res or {}).get("considered") or 0,
+    # How many of the returned registers actually discriminate the wild-type allele. The rest
+    # are still designed and still placed, marked and ranked last -- see the note above.
+    "discriminating": (res or {}).get("discriminating") or 0,
     "rejected": json.dumps((res or {}).get("rejected") or {}),
     "error": err,
 })

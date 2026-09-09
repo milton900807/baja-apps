@@ -747,7 +747,8 @@ function () {
                 // screencell > 5 is the same threshold this file already uses for "zoomed in
                 // enough to draw base letters".
                 const wantsTarget = !!this.showTargetSequence;
-                if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer' || this.type === 'siRNA' || this.type === 'sirna')) return;
+                if (!wantsTarget && (this.type === 'aso' || this.type === 'gapmer'
+                    || this.type === 'siRNA' || this.type === 'sirna')) return;
                 if (wantsTarget) {
                     let __cell = 0;
                     try { __cell = graph.screenWidth(tgraph.screenWidth(1)); } catch (e) { __cell = 0; }
@@ -776,11 +777,16 @@ function () {
                 if (o.type === 'amplicon') {
                     let leftOligo = Object.assign(new Oligo(), o['left']);
                     let rightOligo = Object.assign(new Oligo(), o['right']);
-                    let midOligo = Object.assign(new Oligo(), o['mid']);
                     let ampliconObject = Object.assign(new Amplicon(), o);
                     ampliconObject.left = leftOligo;
-                    ampliconObject.mid = midOligo;
                     ampliconObject.right = rightOligo;
+                    // ONLY WHEN THERE IS ONE. Object.assign(new Oligo(), undefined) is a
+                    // valid empty Oligo, so a SYBR amplicon came back from copy() carrying a
+                    // probe with no sequence and no coordinates -- truthy everywhere that
+                    // asks "does this set have a probe", which is how a two-oligo set could
+                    // export a blank probe column and draw a zero-length stud at the origin.
+                    if (o['mid']) ampliconObject.mid = Object.assign(new Oligo(), o['mid']);
+                    else delete ampliconObject.mid;
                     return ampliconObject;
                 } else if (o.type === 'siRNA') {
                     return Object.assign(new SIRNA(), o);

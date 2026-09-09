@@ -143,8 +143,14 @@ function () {
                 } else {
                     this.name = 'unknown location'
                 }
-                if (this.midOligo)
-                    this.mid = midOligo;
+                // THE PROBE. This read `if (this.midOligo)` -- a property no Amplicon has
+                // ever had, so the test was always false and the third oligo of every
+                // TaqMan set was dropped on the floor at construction. Everything
+                // downstream that handles a probe (the maroon bar below, its off-targets,
+                // the export's probe column, the design summary, the off-target scan's
+                // [left, right, mid] loop) was therefore dead code: correct, and never
+                // reached. Passing a probe in now keeps it.
+                if (midOligo) this.mid = midOligo;
             }
 
             setSelected(value) {
@@ -238,9 +244,20 @@ function () {
             async draw(graph, tgraph, y) {
                 // Recompute GC% and Tm for each primer/probe on every redraw so they
                 // always reflect the current sequence (e.g. after edits or trimming).
+                // PREFER THE DESIGNER'S NUMBERS; RECOMPUTE ONLY WHEN THE SEQUENCE HAS MOVED ON.
+                //
+                // This overwrote tm/gc on every redraw with the Wallace/Marmur estimate
+                // below, throwing away primer3's nearest-neighbour Tm. Two degrees out is
+                // tolerable on a primer. It is not on a hydrolysis probe, whose entire
+                // design constraint is sitting several degrees ABOVE the primers -- read
+                // off the estimate, a good probe and a useless one look alike. The designer
+                // stamps designTmSeq with the sequence its numbers describe, so an oligo
+                // that was since edited or trimmed still falls back to the estimate, which
+                // is the case the recompute existed for.
                 for (let part of [this.left, this.right, this.mid]) {
                     if (!part) continue;
                     let seq = part.sequence || part.synthesisSequence;
+                    if (part.designTmSeq && part.designTmSeq === seq) continue;
                     let gc = gcContent(seq);
                     let tm = meltingTemp(seq);
                     if (gc != null) part.gc = gc;
@@ -268,8 +285,16 @@ function () {
                 // (right) red, center amplicon (mid) maroon.
                 const FWD_COLOR = '#2e9e44';                 // forward primer — green
                 const REV_COLOR = '#d1342f';                 // reverse primer — red
-                const MID_COLOR = 'rgba(128,0,0,0.55)';      // center amplicon — maroon (thick)
-                const MID_COLOR_THIN = '#800000';            // center amplicon — maroon (thin)
+                const MID_COLOR = '#800000';                 // hydrolysis probe — maroon
+                const MID_COLOR_THIN = '#800000';            // hydrolysis probe — maroon (thin)
+
+                // ONE test for "is there a probe on this set", used by every branch below.
+                // Oligo.copy() builds `mid` unconditionally, so a SYBR amplicon that has been
+                // copied carries an EMPTY Oligo rather than nothing -- truthy, with no xi and
+                // no sequence. Testing `this.mid` alone would draw a zero-length maroon stud
+                // at the origin and print a chip with no numbers in it.
+                const hasProbe = !!(this.mid && this.mid.xi != null && this.mid.xf != null
+                    && (this.mid.xf > this.mid.xi));
 
                 let canvas = graph.canvas;
                 if (canvas != null) {
@@ -326,7 +351,7 @@ function () {
                         this.left.draw(graph, tgraph, y);
                     }
 
-                    if ( this.mid && this.mid.offtarget ){
+                    if ( hasProbe && this.mid.offtarget ){
 
                         this.mid.showOfftargets = true;
                         this.mid.y = this.y;
@@ -353,11 +378,68 @@ function () {
                         }
                     } catch (e) { }
 
+                    // THE PROBE'S OWN CHIP.
+                    //
+                    // The two primers each got one; the probe got none, so the oligo whose
+                    // numbers decide whether a TaqMan assay works was the one part of the
+                    // drawing carrying no numbers. What matters for a probe is not its Tm in
+                    // isolation but its Tm RELATIVE to the primers -- the design rule is
+                    // several degrees above them, and a probe that melts with the primers is
+                    // consumed before it can report -- so the difference is computed here
+                    // rather than left for the reader to do in their head off two other chips.
+                    //
+                    // Below the body, clear of the bp chip, and centred on the probe itself so
+                    // it points at what it describes.
+                    try {
+                        if (hasProbe) {
+                            const bits = [];
+                            if (this.mid.tm) bits.push('Probe Tm ' + truncateFloat(this.mid.tm) + '°C');
+                            if (this.mid.gc) bits.push('GC ' + truncateFloat(this.mid.gc) + '%');
+                            const lt = +this.left.tm, rt = +this.right.tm, pt = +this.mid.tm;
+                            if (isFinite(lt) && isFinite(rt) && isFinite(pt) && lt && rt && pt) {
+                                const d = pt - (lt + rt) / 2;
+                                bits.push('ΔTm ' + (d >= 0 ? '+' : '') + truncateFloat(d));
+                            }
+                            // Longest form that fits, rather than all-or-nothing. A single
+                            // width test drops the chip entirely at any zoom that cannot hold
+                            // the full line, which is most of them -- and the reader loses the
+                            // fact that there IS a probe along with its numbers. The shortest
+                            // form is one word, so a probe is named wherever there is room to
+                            // name it, and only a genuinely cramped amplicon gets nothing.
+                            const forms = [bits.join('  ·  ')];
+                            if (bits.length > 1) forms.push(bits[0] + '  ·  ' + bits[bits.length - 1]);
+                            if (bits.length > 0) forms.push(bits[0]);
+                            forms.push('probe');
+                            const mxi = graph.X(tgraph.X(this.mid.xi));
+                            const mxf = graph.X(tgraph.X(this.mid.xf));
+                            const room = Math.abs(rxf - lxi);
+                            ctx.save();
+                            ctx.font = '10px Arial, Helvetica, sans-serif';
+                            let ptxt = null, pneed = 0;
+                            for (const f of forms) {
+                                if (!f) continue;
+                                const w = ctx.measureText(f).width + 12;
+                                if (room > w + 24) { ptxt = f; pneed = w; break; }
+                            }
+                            ctx.restore();
+                            if (ptxt) {
+                                drawMetricChip(ctx, ptxt, (mxi + mxf) / 2 - pneed / 2, ys + 44,
+                                    MID_COLOR, 'left');
+                            }
+                        }
+                    } catch (e) { }
+
                     let screencell = graph.screenWidth(tgraph.screenWidth(1));
                     if (screencell > 1) {
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), ampColor, 5, 'round');
-                        if (this.mid && this.mid.xi){
-                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), MID_COLOR, 30, 'round');
+                        // The probe, at the SAME WEIGHT as the two primers. It was a 30px
+                        // translucent band -- six times their thickness -- which read as a
+                        // highlight laid over the amplicon rather than as the third oligo of
+                        // the assay, and buried the sequence underneath it. It is an oligo
+                        // that gets ordered and synthesised like the other two, so it is
+                        // drawn like them, in maroon.
+                        if (hasProbe){
+                            graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), MID_COLOR, 10, 'round');
                         }
 
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), FWD_COLOR, 10, 'round');
@@ -366,7 +448,7 @@ function () {
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), ampColor, 5, 'round');
                         graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.left.xf), tgraph.Y(this.y), FWD_COLOR, 7, 'round');
                         graph.drawStrokeLine(tgraph.X(this.right.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), REV_COLOR, 7, 'round');
-                        if (this.mid && this.mid.xi){
+                        if (hasProbe){
                             graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), MID_COLOR_THIN, 7, 'round');
                         }
 
@@ -410,6 +492,13 @@ function () {
             // the amplicon is, not what its ends are made of.
             drawIcon(graph, tgraph) {
                 graph.drawStrokeLine(tgraph.X(this.left.xi), tgraph.Y(this.y), tgraph.X(this.right.xf), tgraph.Y(this.y), this.ampColor, 1, 'round');
+                // A probe-based set and a SYBR set are different assays that get ordered
+                // differently, and at this zoom they were indistinguishable -- one line
+                // either way. A maroon stud over the probe span is enough to tell them
+                // apart while scanning a track, and costs one stroke.
+                if (this.mid && this.mid.xi != null && this.mid.xf > this.mid.xi) {
+                    graph.drawStrokeLine(tgraph.X(this.mid.xi), tgraph.Y(this.y), tgraph.X(this.mid.xf), tgraph.Y(this.y), '#800000', 3, 'round');
+                }
             }
 
         }

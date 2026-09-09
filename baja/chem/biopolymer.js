@@ -310,20 +310,36 @@ function () {
 
             static createPrimerProbe(p, track) {
                 let mo = null;
-                console.log('debubg');
                 if (p['mid']) {
 
                     let m = p['mid'];
                     let msequence = m.sequence;
+                    // primer3 reports an oligo's position as the ARRAY [start, length] --
+                    // which is how left and right are read a few lines below. This read it as
+                    // a comma-joined string and called .split() on it, so the moment a probe
+                    // was actually passed in, the probe branch threw and took the whole set
+                    // with it. Tolerant of both shapes because a caller that builds the set
+                    // by hand may well pass "start,len".
                     let mx = m.x;
-                    let mix = mx.split(',')[0];
-                    mix = +mix;
+                    let mix = Array.isArray(mx) ? +mx[0] : +('' + mx).split(',')[0];
+                    if (!isFinite(mix)) mix = 0;
                     let mchemistry_template = `([?]d.p.){${msequence.length - 1}}([?]d){1}`
-                    mo = Biopolymer.createFromOS(mchemistry_template, msequence, 'primer', track.xi + mix, 0.15);
+                    mo = Biopolymer.createFromOS(mchemistry_template, msequence, 'probe', track.xi + mix, 0.15);
                     mo['tm'] = m['tm']
                     mo['gc'] = m['gc']
                     mo['hairpin_th'] = m['hairpin_th']
                     mo['end_stability'] = m['end_stability']
+                    // The probe is an oligo on a strand like the other two, and the drawing
+                    // needs an end as well as a start -- createFromOS sets xi from the
+                    // position it is given, and the span is the sequence's own length.
+                    mo.sequence = msequence;
+                    mo.synthesisSequence = msequence;
+                    mo.strand = track.strand;
+                    if (!(mo.xf > mo.xi)) mo.xf = mo.xi + msequence.length;
+                    // primer3's nearest-neighbour Tm/GC, stamped with the sequence they
+                    // describe so Amplicon.draw keeps them rather than replacing them with
+                    // its own estimate (see designTmSeq in flexigraph/amplicon.js).
+                    if (m['tm'] || m['gc']) mo.designTmSeq = msequence;
 
                 }
 
@@ -368,15 +384,15 @@ function () {
                     ro.synthesisSequence = Biopolymer.reverseComp(ro.sequence)
                 }
 
-                let amplicon = null;
-                if (!p['mid']) {
-                    amplicon = new Amplicon(lo, ro);
-                    return amplicon;
-                } else {
+                // Stamp the primers the same way, so the two chips beside them show what
+                // primer3 computed rather than the rough estimate.
+                if (left['tm'] || left['gc']) lo.designTmSeq = lo.sequence;
+                if (right['tm'] || right['gc']) ro.designTmSeq = ro.sequence;
 
-                    amplicon = new Amplicon(lo, ro, mo);
-                    return amplicon;
-                }
+                // `mo` is null unless the probe branch above built one, so this covers both
+                // the probe and the no-probe case without a second test of p['mid'] that
+                // could disagree with it.
+                return new Amplicon(lo, ro, mo);
             }
 
             static createProbe(xi, xf, track) {

@@ -520,6 +520,49 @@ def primer3_global_settings(
     )
 
 
+def _p3_num(res, key: str) -> float:
+    """A primer3 numeric result, or 0.0 when it did not report one.
+
+    0.0 rather than None on purpose: these go into a DataFrame column and out through
+    json.dumps, and a None among floats becomes NaN, which json writes as the bare token
+    NaN -- not valid JSON, and the browser's JSON.parse rejects the whole payload. Every
+    consumer already treats 0 as "not reported" for tm/gc.
+    """
+    try:
+        v = res.get(key, None)
+        return float(v) if v is not None else 0.0
+    except Exception:
+        return 0.0
+
+
+def _probe_span(res, *, probe_seq: str, window_start: int, amp_start: int, amplicon: str):
+    """WHERE the probe is, not just what it is.
+
+    The hydrolysis probe is the third oligo of a TaqMan assay and the one whose position
+    inside the amplicon decides whether the assay works, but only its SEQUENCE was carried
+    out of here. The canvas had nothing to draw it at, so a probe-based set was plotted as
+    two primers with an empty middle. primer3 reports the probe exactly the way it reports
+    the primers -- PRIMER_INTERNAL_0 is [start, length] in WINDOW coordinates -- so the
+    coordinates cost nothing to carry, on the same template frame as amp_start/amp_end.
+
+    Falls back to locating the probe inside the amplicon when a primer3 build reports the
+    sequence without the interval, which is why the amplicon is passed in.
+    """
+    if not probe_seq:
+        return (-1, -1)
+    pi = res.get("PRIMER_INTERNAL_0", None)
+    if isinstance(pi, (list, tuple)) and len(pi) >= 2 and pi[0] is not None and pi[1] is not None:
+        s = int(window_start) + int(pi[0])
+        return (s, s + int(pi[1]))
+    k = amplicon.find(probe_seq)
+    if k < 0:
+        k = amplicon.find(revcomp(probe_seq))
+    if k >= 0:
+        s = int(amp_start) + k
+        return (s, s + len(probe_seq))
+    return (-1, -1)
+
+
 def design_candidates_windowed(
     template: str,
     *,
@@ -590,6 +633,11 @@ def design_candidates_windowed(
         amp_start = window_start + amp_start_local
         amp_end = window_start + amp_end_local
 
+        probe_start, probe_end = _probe_span(
+            res, probe_seq=probe_seq, window_start=window_start,
+            amp_start=amp_start, amplicon=amplicon,
+        )
+
         candidates.append(
             dict(
                 amp_start=int(amp_start),
@@ -598,6 +646,19 @@ def design_candidates_windowed(
                 forward_primer=str(left_seq),
                 reverse_primer=str(right_seq),
                 probe=str(probe_seq),
+                probe_start=int(probe_start),
+                probe_end=int(probe_end),
+                probe_len=int(len(probe_seq)),
+                # primer3's nearest-neighbour Tm, kept alongside the sequence. The canvas
+                # was re-deriving Tm from a Marmur/Wallace approximation on every redraw,
+                # which is a couple of degrees out -- tolerable for a primer, not for a
+                # probe, whose whole design constraint is sitting 8-10 deg C above them.
+                left_tm=_p3_num(res, "PRIMER_LEFT_0_TM"),
+                right_tm=_p3_num(res, "PRIMER_RIGHT_0_TM"),
+                probe_tm=_p3_num(res, "PRIMER_INTERNAL_0_TM"),
+                left_gc=_p3_num(res, "PRIMER_LEFT_0_GC_PERCENT"),
+                right_gc=_p3_num(res, "PRIMER_RIGHT_0_GC_PERCENT"),
+                probe_gc=_p3_num(res, "PRIMER_INTERNAL_0_GC_PERCENT"),
                 amplicon=str(amplicon),
                 p3_pair_penalty=float(res.get("PRIMER_PAIR_0_PENALTY", 0.0) or 0.0),
                 window_start=int(window_start),
@@ -729,7 +790,7 @@ def ion_main() -> None:
     step = int(options.get("step", 10))
     max_designs = int(options.get("max_designs", 3000))
     relax = bool(options.get("relax", True))
-    no_probe = bool(options.get("no_probe", True))
+    no_probe = bool(options.get("no_probe", False))
     debug_primer3 = bool(options.get("debug_primer3", False))
 
     dedupe = bool(options.get("dedupe", True))
@@ -769,6 +830,30 @@ def ion_main() -> None:
         relax=relax,
         debug=debug_primer3,
     )
+
+    # ASKING FOR A PROBE MUST NOT COST THE PRIMERS.
+    #
+    # PRIMER_PICK_INTERNAL_OLIGO makes primer3 discard a pair it cannot place a probe
+    # inside, so switching probes on by default could turn a window that used to yield
+    # plenty of primers into one that yields none -- the design would come back empty and
+    # look broken rather than look like SYBR. When the probe run finds nothing, fall back
+    # to designing without one and say so, so the user gets primers either way and knows
+    # which kind they got.
+    probe_designed = allow_probe
+    if not cands and allow_probe:
+        _msg("No primer sets with a hydrolysis probe here - designing without one (SYBR).")
+        probe_designed = False
+        cands = design_candidates_windowed(
+            template,
+            product_min=product_min,
+            product_max=product_max,
+            window_size=window_size,
+            step=step,
+            max_designs=max_designs,
+            allow_probe=False,
+            relax=relax,
+            debug=debug_primer3,
+        )
 
     if not cands:
         _emit_payload(
@@ -836,6 +921,7 @@ def ion_main() -> None:
         "max_designs": max_designs,
         "relax": relax,
         "no_probe": no_probe,
+        "probe_designed": probe_designed,
         "dedupe": dedupe,
         "min_sep": min_sep,
         "model_path": model_path,
