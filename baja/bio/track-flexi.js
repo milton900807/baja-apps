@@ -2086,6 +2086,87 @@ return new Promise(async (resolve, reject) => {
         // the view is zoomed out -- precisely the zoom the ring exists for. Painted from the
         // track so every modality gets it at every zoom. Centre comes from the caller, which
         // has already mapped the compound to the screen.
+        // WHY A COMPOUND IS RED, OUT WHERE draw() NO LONGER RUNS.
+        //
+        // Past 0.3 px/base the track paints compounds itself and Oligo.draw -- which owns
+        // every label -- is skipped entirely. That is exactly the zoom at which the whole
+        // design is on screen and the reader is scanning for the bad ones, and it was the
+        // one zoom where a red compound said nothing about why it was red.
+        //
+        // Labels are laid out rather than simply drawn. A compound is a pixel or two wide
+        // here, so twenty flagged ones inside one label's width would stack into an
+        // unreadable smear that also hides the track. So:
+        //
+        //   worst first    -- ranked by score, so the one label that fits is the one worth
+        //                     reading, not whichever compound the list happened to hold first
+        //   no overlaps    -- a label is skipped when its box would touch one already placed
+        //   a count        -- the skipped ones are not silently dropped; the tally says how
+        //                     many more there are, so the reader knows to zoom in
+        //
+        // A leader line ties each label to its compound: at this zoom the label is many times
+        // wider than the thing it describes, and without one it is guesswork which mark it
+        // belongs to.
+        __drawFlagLabels(graph, ctx, flagged) {
+            try {
+                if (!ctx || !flagged || !flagged.length) return;
+                const MAX = 6;              // more than this is a wall, whatever the spacing
+                const items = flagged.slice().sort((a, b) => {
+                    const sa = +(a.o && a.o.score), sb = +(b.o && b.o.score);
+                    return (isFinite(sa) ? sa : 0) - (isFinite(sb) ? sb : 0);   // worst first
+                });
+                ctx.save();
+                ctx.font = 'bold 10px Arial';
+                const placed = [];
+                let shown = 0;
+                for (const it of items) {
+                    if (shown >= MAX) break;
+                    const text = '' + (it.o.flagReason || '');
+                    if (!text) continue;
+                    const w = ctx.measureText(text).width + 12;
+                    const h = 14;
+                    const left = it.x - w / 2;
+                    const top = it.y - 26;
+                    const box = { l: left, r: left + w, t: top, b: top + h };
+                    let clash = false;
+                    for (const q of placed) {
+                        if (box.l < q.r + 4 && box.r > q.l - 4 && box.t < q.b + 2 && box.b > q.t - 2) {
+                            clash = true; break;
+                        }
+                    }
+                    if (clash) continue;
+                    placed.push(box);
+                    shown++;
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = '#a3402c';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(it.x, it.y);
+                    ctx.lineTo(it.x, box.b);
+                    ctx.stroke();
+                    ctx.fillStyle = '#a3402c';
+                    ctx.strokeStyle = '#4a170e';
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(box.l, box.t, w, h, 3);
+                    else ctx.rect(box.l, box.t, w, h);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(text, it.x, box.t + h / 2 + 0.5);
+                }
+                const hidden = items.length - shown;
+                if (hidden > 0 && placed.length) {
+                    const last = placed[placed.length - 1];
+                    ctx.font = '10px Arial';
+                    ctx.fillStyle = '#a3402c';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('+' + hidden + ' more flagged', last.r + 6, last.t + 7.5);
+                }
+                ctx.restore();
+            } catch (e) { }
+        }
+
         __drawLandingBurst(graph, o, bx, by) {
             try {
                 if (!o || !o.__burstT0) return;
@@ -4733,6 +4814,12 @@ return new Promise(async (resolve, reject) => {
                         }
                     }
                 } else {
+                    // Out past 0.3 px/base draw() is never called, so everything it paints --
+                    // the compound's colour and its labels included -- is this branch's job or
+                    // it does not happen. Flagged compounds are collected here and labelled
+                    // after the loop, so a label cannot be painted over by a compound drawn
+                    // later.
+                    const __flagged = [];
                     for (let o of visOligos) {
 
                         // Below ~0.3 px/base a 16-20mer gapmer is only a pixel or two wide, so
@@ -4750,13 +4837,21 @@ return new Promise(async (resolve, reject) => {
                         if (o.drawIcon)
                             o.drawIcon(graph, this.grid)
                         else
-                            drawLine(ctx, xa, yy, Math.max(xb, xa + 1), yy, 'gray', 1, 'round')
+                            // IN THE COMPOUND'S OWN COLOUR. This was a flat grey, so the one
+                            // band where the score colouring matters most -- the whole design
+                            // on screen at once, which is when you look for the bad ones --
+                            // was the band that threw it away. A red compound was grey, and
+                            // indistinguishable from a green one.
+                            drawLine(ctx, xa, yy, Math.max(xb, xa + 1), yy,
+                                (o.color || 'gray'), 1, 'round')
+                        if (o.flagReason) __flagged.push({ o: o, x: (xa + xb) / 2, y: yy });
                         // Out here the compound is a pixel or two wide and draws no landing
                         // ring of its own -- draw() is not called at all -- so the track paints
                         // it. At this zoom the ring is the only thing that says where a
                         // just-designed compound landed, whatever modality it is.
                         this.__drawLandingBurst(graph, o, (xa + xb) / 2, yy);
                     }
+                    this.__drawFlagLabels(graph, ctx, __flagged);
 
                 }
             } else {

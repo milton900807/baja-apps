@@ -475,6 +475,24 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                     + '; chemistry ' + (c.chemistry_label || chem.label) + '.';
                 cmp.color = !sel ? '#d1342f'
                     : (c.score >= 85 ? '#22c55e' : (c.score >= 70 ? '#e0a400' : '#d1342f'));
+                // WHY IT IS RED, ON THE COMPOUND. The steric and gapmer designers put their
+                // reason in flagReason and the renderer draws it beside a red compound at
+                // every zoom (flexigraph/oligo.js, baja/bio/track-flexi.js). These were
+                // coloured red and left silent, so the one modality where red has TWO quite
+                // different causes -- a register that cannot discriminate at all, and one
+                // that simply scores badly -- was the one that did not say which.
+                if (cmp.color === '#d1342f') {
+                    cmp.flagReason = !sel
+                        ? ('Not selective — ' + c.discrimination)
+                        : ('Low score ' + (Math.round((+c.score || 0) * 10) / 10) + ' — ' + c.discrimination);
+                    try {
+                        cmp.setLabelAttribute('flagReason', {
+                            prefix: '', offsetY: -18,
+                            textColor: 'white', fillColor: '#a3402c', strokeColor: '#4a170e',
+                            font: 'bold 10px Arial'
+                        });
+                    } catch (e) { }
+                }
                 // Same final step every other designer takes: adjustOligo walks the compounds
                 // already on the track and pushes this one down until it sits clear of them, so
                 // the coordinates must be set BEFORE it runs and left alone after.

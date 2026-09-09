@@ -702,7 +702,17 @@ function () {
                 // General centered label: any attribute path on the oligo. Hidden by
                 // default; enabled globally via graph.showOligoLabels (toggle in the
                 // Oligos menu).
-                const generalLabel = graph.showOligoLabels ? this.getDisplayLabelValue() : null;
+                //
+                // WHY flagReason IGNORES THAT TOGGLE.
+                //
+                // The reason a compound is red is not one of its attributes, it is the
+                // warning that explains the colour. Behind an off-by-default toggle, the red
+                // said "something is wrong" and nothing said what -- the reader has to find a
+                // menu before the drawing will tell them why it is warning them. Score, name
+                // and every other attribute stay behind the toggle; this one does not.
+                const __flagged = this.labelAttribute === 'flagReason' && this.flagReason;
+                const generalLabel = (graph.showOligoLabels || __flagged)
+                    ? this.getDisplayLabelValue() : null;
                 if (generalLabel != null) {
                     drawCenteredOvalLabel(generalLabel, this.labelOffsetY, {
                         font: this.labelFont,
