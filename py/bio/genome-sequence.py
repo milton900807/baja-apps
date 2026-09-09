@@ -28,10 +28,15 @@ try:
 except Exception:
     pysam = None
 
-# The two genomes this box holds. Same files the off-target indexes were built from.
+# The genomes this box holds. Human and mouse are the files the off-target indexes were
+# built from; yeast is Ensembl's R64-1-1 (== SGD R64 == UCSC sacCer3), 12 MB, the file the
+# server's own transcript loader reads for pre-mRNA, fetched by py/bio/build-yeast-reference.py.
+# Its contigs are I..XVI and Mito; the karyotype asks for chrI..chrXVI and chrM, and
+# resolve_contig translates.
 GENOME = {
     "human": "data/genome/GRCh38.primary_assembly.genome.fa",
     "mouse": "data/genome/Mus_musculus.GRCm39.dna.primary_assembly.fa",
+    "yeast": "data/genome/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa",
 }
 
 # A window wider than this is not legible anyway -- the caller only asks when a base is
@@ -84,9 +89,9 @@ def resolve_contig(names, want):
     if not want:
         return ""
     bare = want[3:] if want.lower().startswith("chr") else want
+    mito = bare.upper() in ("MT", "M", "MITO")
     for cand in (want, "chr" + bare, bare, "CHR" + bare,
-                 "chrM" if bare.upper() in ("MT", "M") else "",
-                 "MT" if bare.upper() in ("M", "MT") else ""):
+                 "chrM" if mito else "", "MT" if mito else "", "Mito" if mito else ""):
         if cand and cand in names:
             return cand
     low = {n.lower(): n for n in names}
@@ -107,7 +112,7 @@ species = (str(works.param(4) or "human").strip().lower() or "human")
 if not chrom or end < start or start < 1:
     out["error"] = "a chromosome and a 1-based start<=end are required"
 elif species not in GENOME:
-    out["error"] = ('no genome on this server for "%s" -- human and mouse are held' % species)
+    out["error"] = ('no genome on this server for "%s" -- human, mouse and yeast are held' % species)
 else:
     path = first_existing(GENOME[species])
     if not path:

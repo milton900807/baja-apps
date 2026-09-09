@@ -49,6 +49,7 @@ GFF = {
     "mouse": "reference_data/mouse.annotation.gff3.bgz",
     "rat": "reference_data/rat.annotation.gff3.bgz",
     "dog": "reference_data/dog.annotation.gff3.bgz",
+    "yeast": "reference_data/yeast.annotation.gff3.bgz",
 }
 CLINVAR = "reference_data/variants/clinvar.vcf.gz"
 
@@ -124,9 +125,11 @@ def resolve_contig(names, want):
     if not want:
         return ""
     bare = want[3:] if want.lower().startswith("chr") else want
+    # The mitochondrion has as many names as there are annotators: chrM (UCSC), MT
+    # (Ensembl vertebrates), Mito (Ensembl yeast).
+    mito = bare.upper() in ("MT", "M", "MITO")
     for c in (want, "chr" + bare, bare,
-              "chrM" if bare.upper() in ("MT", "M") else "",
-              "MT" if bare.upper() in ("M", "MT") else ""):
+              "chrM" if mito else "", "MT" if mito else "", "Mito" if mito else ""):
         if c and c in names:
             return c
     return ""
@@ -156,7 +159,15 @@ try:
     end = int(float(works.param(3) or 0))
 except Exception:
     start = end = 0
-want = str(works.param(4) or "").strip().lower()
+# A COMMA LIST ARRIVES AS A LIST. works.arg() turns any parameter containing a comma into
+# an array -- that is what it is for -- so "cds,exon" reaches this script as ['cds','exon'],
+# and str() of that is "['cds', 'exon']", which splits into nothing that matches a feature
+# name. Every multi-type request therefore came back with all counts zero and no error: the
+# intronic filter asks for "gene,exon" and had been silently finding nothing at all.
+_want_raw = works.param(4)
+if isinstance(_want_raw, (list, tuple)):
+    _want_raw = ",".join(str(x) for x in _want_raw)
+want = str(_want_raw or "").strip().lower()
 species = (str(works.param(5) or "human").strip().lower() or "human")
 wanted = set(x.strip() for x in want.split(",") if x.strip()) if want else None
 

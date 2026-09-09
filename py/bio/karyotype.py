@@ -33,6 +33,9 @@ SYNONYMS = {
     "mouse": ["mouse", "mus musculus", "m musculus", "murine", "mm39", "grcm39", "mice"],
     "rat": ["rat", "rattus norvegicus", "r norvegicus", "rn7", "rats"],
     "dog": ["dog", "canis", "canis lupus familiaris", "canine", "canfam", "dogs"],
+    "yeast": ["yeast", "saccharomyces cerevisiae", "s cerevisiae", "scerevisiae", "cerevisiae",
+              "saccharomyces", "sc", "sgd", "saccer3", "saccer", "r64", "s288c", "budding yeast",
+              "baker s yeast", "bakers yeast", "brewer s yeast"],
 }
 
 text = str(works.param(1) or "").strip()
@@ -64,7 +67,7 @@ else:
     species = resolve(text)
     if not species:
         out["error"] = ('"%s" is not a species this holds chromosomes for. '
-                        "Try human, mouse, rat or dog." % text)
+                        "Try human, mouse, rat, dog or yeast." % text)
     else:
         path = first_existing(os.path.join(DIR, "%s.json" % species))
         if not os.path.exists(path):

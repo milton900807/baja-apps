@@ -88,6 +88,27 @@ def fetch(path, contig, s1, e1):
             return
 
 
+def a_is_transcript(col):
+    """A feature row that carries a transcript_id is a transcript, whatever its type."""
+    return "transcript_id=" in str(col or "")
+
+
+def contigs_of(path):
+    """Every contig the index knows, or an empty set when that cannot be asked."""
+    if pysam:
+        try:
+            return set(pysam.TabixFile(path).contigs)
+        except Exception:
+            pass
+    if _TABIX:
+        try:
+            proc = subprocess.run([_TABIX, "-l", path], capture_output=True, text=True, timeout=60)
+            return set(x.strip() for x in proc.stdout.splitlines() if x.strip())
+        except Exception:
+            pass
+    return set()
+
+
 def attrs(col):
     d = {}
     for kv in str(col or "").split(";"):
@@ -106,23 +127,55 @@ elif not pysam and not _TABIX:
 elif not os.path.exists(gff):
     out["error"] = "the %s annotation is not on this server" % species
 else:
-    q = chrom if chrom.startswith("chr") else ("chr" + chrom)
+    # THE CONTIG IS SPELT THE WAY THE FILE SPELLS IT. GENCODE says chr7; Ensembl says 7,
+    # and the Ensembl yeast file says I..XVI and Mito. The caller strips any chr prefix
+    # before asking, so both spellings are tried, and the mitochondrion's three names.
+    bare = chrom[3:] if chrom.lower().startswith("chr") else chrom
+    mito = bare.upper() in ("MT", "M", "MITO")
+    have = contigs_of(gff)
+    q = ""
+    for cand in ("chr" + bare, bare, chrom,
+                 "chrM" if mito else "", "MT" if mito else "", "Mito" if mito else ""):
+        if cand and (not have or cand in have):
+            q = cand
+            break
+    if not q:
+        q = "chr" + bare
     works.msg("Reading %s:%s-%s…" % (q, start, end))
     genes = {}          # name -> record
     tx = {}             # name -> (rank, id, length)
+    gid2name = {}       # gene_id -> name, for transcripts that only name their Parent
     for row in fetch(gff, q, start, end):
         f = row.split("\t")
         if len(f) < 9:
             continue
         kind = f[2]
-        if kind not in ("gene", "transcript"):
+        # Ensembl's yeast file has no "transcript" rows: its transcripts are mRNA,
+        # ncRNA, tRNA, snoRNA, rRNA and so on, each with a transcript_id.
+        if kind == "gene":
+            pass
+        elif kind == "transcript" or a_is_transcript(f[8]):
+            kind = "transcript"
+        else:
             continue
         a = attrs(f[8])
-        name = a.get("gene_name") or ""
+        # GENCODE names a gene with gene_name; Ensembl with Name, and a yeast ORF that
+        # has never been named carries only its systematic gene_id (YAL069W).
+        name = a.get("gene_name") or a.get("Name") or ""
+        if kind == "gene":
+            gid = (a.get("gene_id") or a.get("ID") or "").replace("gene:", "")
+            if not name:
+                name = gid
+            if gid:
+                gid2name[gid] = name
+        elif not name:
+            # An Ensembl transcript names no gene: it points at one through Parent, and
+            # the gene row came first in the file, so its name is already known here.
+            name = gid2name.get((a.get("Parent") or "").replace("gene:", ""), "")
         if not name:
             continue
         if kind == "gene":
-            gtype = a.get("gene_type") or ""
+            gtype = a.get("gene_type") or a.get("biotype") or ""
             if gtype == "artifact":
                 continue
             g = genes.get(name)
