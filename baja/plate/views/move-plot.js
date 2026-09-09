@@ -77,9 +77,7 @@ function (pt, plot, x, y) {
 
 
                 plot.highlightButton('move');
-                graph.setMouseMode(
-                    `msg: Click to drop: ${plot.x}, ${plot.y.toFixed(2)}`
-                );
+                graph.setMouseMode('msg: Click to drop the window here');
 
                 plot.x = pt.grid.Xwc(x) - pt.grid.worldWidth(xs);
                 plot.y = pt.grid.Ywc(y) + pt.grid.worldHeight(ys);

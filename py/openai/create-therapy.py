@@ -411,7 +411,7 @@ def run_therapeutic_cost_time_builder(
     user_prompt: str,
     assumptions_json: Any,
     *,
-    model: str = "gpt-4o-mini",       # retained for compatibility
+    model: str = "claude-haiku-4-5",       # retained for compatibility
     temperature: float = 0.15,        # retained for compatibility
 ) -> Dict[str, Any]:
     assumption_rows = _assumptions_rows(assumptions_json)
@@ -443,7 +443,7 @@ def run_therapeutic_cost_time_builder(
 
 
 # ---------- ion entrypoint ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user_prompt = works.param(1)
     except Exception as e:
@@ -484,4 +484,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("🔧 loading high-level therapeutic cost + time analysis builder…")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

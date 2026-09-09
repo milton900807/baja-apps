@@ -8888,7 +8888,26 @@ pattern, GGGG | Required`
                                     let yi = this.currentShape.y;
                                     let yf = this.currentShape.y - this.currentShape.h;
                                     this.currentShape = null;
-                                    await this.zoomRect(xi, xf, yf, yi, 150);
+                                    // A VIEW MAY KNOW BETTER WHAT ITS OWN RECTANGLE MEANS.
+                                    //
+                                    // zoomRect goes through animateTo, which RESHAPES what it
+                                    // is handed: it discards y below a world height of 1 and
+                                    // then forces the aspect to at least 10:1 by widening x.
+                                    // Both numbers are absolute world units, so they assume a
+                                    // world the size of a human genome. On a karyotype whose y
+                                    // unit is a megabase, a yeast genome is 1.5 units tall in
+                                    // total -- every box drawn on it is under 1, so y is thrown
+                                    // away and x is then blown out to ~95% of the full width,
+                                    // which is the box zoom appearing to do nothing at all.
+                                    //
+                                    // Opt-in, so a view without the hook zooms exactly as it
+                                    // always did. Returning a falsy value hands it back.
+                                    let handled = false;
+                                    if (typeof this.__zoomRectOverride === 'function') {
+                                        try { handled = await this.__zoomRectOverride(xi, xf, yf, yi); }
+                                        catch (e) { handled = false; }
+                                    }
+                                    if (!handled) await this.zoomRect(xi, xf, yf, yi, 150);
                                     // Box-zoom is one-shot: return to navigate /
                                     // mouse-over-highlight once the zoom is complete.
                                     // Deferred so it re-installs listeners after this
@@ -12168,7 +12187,8 @@ pattern, GGGG | Required`
                 const textWidth = metrics.width;
                 const textHeight = Math.ceil(fontSize * 1.2);
 
-                const boxW = Math.ceil(textWidth + paddingX * 2);
+                // +4 for the lead-in past the accent bar, so the text is not tight against it.
+                const boxW = Math.ceil(textWidth + paddingX * 2 + 4);
                 const boxH = Math.ceil(textHeight + paddingY * 2);
 
                 const clampPad = 6;
@@ -12194,19 +12214,25 @@ pattern, GGGG | Required`
                     ctx.closePath();
                 };
 
-                ctx.shadowColor = 'rgba(8, 22, 38, 0.45)';
-                ctx.shadowBlur = 14;
+                // THE SAME CARD THE TOAST USES.
+                //
+                // This was a "parrot-tropical" card -- an orange-to-amber gradient with a
+                // bright cyan border, a white inner ring and cyan-glowing navy text. It did
+                // stand out, which was the intent, but it looked like it belonged to a
+                // different application: everything else the canvas draws over itself, the
+                // result toast included, is a navy card with a cyan accent and white text.
+                // A hint that follows the cursor is the most-seen surface in the editor, so
+                // it is the last thing that should be the odd one out.
+                //
+                // Navy card, thin cyan rule down the leading edge, white text. Shadow instead
+                // of a glow, because a glow on text at 15px reads as a rendering fault.
+                ctx.shadowColor = 'rgba(4, 14, 26, 0.55)';
+                ctx.shadowBlur = 16;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 6;
 
-                // Parrot-tropical card: vivid orange gradient fill so mouse hints pop off
-                // the canvas, with a bright cyan border and dark text.
-                const grad = ctx.createLinearGradient(boxX, liftedBoxY, boxX + boxW, liftedBoxY + boxH);
-                grad.addColorStop(0.0, '#ff8c1a');   // tropical orange
-                grad.addColorStop(0.5, '#ff6f3c');   // coral orange
-                grad.addColorStop(1.0, '#ffa733');   // amber
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.fillStyle = grad;
+                ctx.fillStyle = 'rgba(10,37,64,0.96)';           // navy card, as the toast
                 ctx.fill();
 
                 ctx.shadowColor = 'transparent';
@@ -12215,22 +12241,21 @@ pattern, GGGG | Required`
                 ctx.shadowOffsetY = 0;
 
                 roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.strokeStyle = '#12c2e0';   // bright cyan border
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                roundRect(boxX + 2, liftedBoxY + 2, boxW - 4, boxH - 4, Math.max(1, radius - 2));
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';   // bright inner ring
+                ctx.strokeStyle = 'rgba(26,163,189,0.75)';       // cyan border, as the toast
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                ctx.shadowColor = 'rgba(18, 194, 224, 0.55)';    // cyan glow
-                ctx.shadowBlur = 12;
-                ctx.fillStyle = '#08243a';                       // dark navy text for contrast
-                ctx.fillText(text, textX, liftedBoxY + paddingY);
+                // The accent bar: a 3px cyan rule down the left edge, clipped to the card so
+                // it follows the rounded corner instead of squaring it off.
+                ctx.save();
+                roundRect(boxX, liftedBoxY, boxW, boxH, radius);
+                ctx.clip();
+                ctx.fillStyle = '#1aa3bd';
+                ctx.fillRect(boxX, liftedBoxY, 3, boxH);
+                ctx.restore();
 
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(text, textX + 4, liftedBoxY + paddingY);
 
                 ctx.restore();
             }
@@ -12360,7 +12385,11 @@ pattern, GGGG | Required`
                             if (mode.startsWith("msg:")) {
                                 const mx = (this.graph.mscx) + 18;
                                 const my = (this.graph.mscy) - 28;
-                                this._drawCursorHint(ctx, mode.split(':')[1], mx, my);
+                                // slice(4), not split(':')[1]: a hint that mentions a locus or a
+                                // ratio carries its own colon, and splitting threw away everything
+                                // after it -- "Click a track to load ClinVar: chr5" became
+                                // "Click a track to load ClinVar".
+                                this._drawCursorHint(ctx, mode.slice(4).trim(), mx, my);
                             }
                     }
                     if (this.___folder_calculation) {

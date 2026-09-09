@@ -253,7 +253,7 @@ function (server, graph, genegraph_panel_layout) {
             if (!TRANSCRIPT_ID_RE.test(query)) {
                 try {
                     const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
-                    say('Looking up "' + query + '" in OMIM…');
+                    say('Looking up "' + query + '"…');
                     const o = await exec(server + '/py/bio/omim-variants.py', em, query, '6');
                     let og = [], om = [], op = [];
                     try { og = JSON.parse((o && o.genes) || '[]'); } catch (e) { og = []; }
@@ -273,8 +273,9 @@ function (server, graph, genegraph_panel_layout) {
                 list = [{ id: query.toUpperCase(), canonical: true, why: 'the id you gave' }];
             } else if (omim) {
                 const total = omim.phenotypes.reduce((n, p) => n + (p.variants || 0), 0);
-                say(omim.disease + ' — ' + omim.mims.map((m) => 'OMIM:' + m).join(', ')
-                    + ', ' + total + ' pathogenic record' + (total === 1 ? '' : 's')
+                // The disease and what was found for it. The phenotype identifiers the
+                // lookup resolved are what the filtering runs on, not something to read.
+                say(omim.disease + ' — ' + total + ' pathogenic record' + (total === 1 ? '' : 's')
                     + ' in ' + omim.genes.length + ' gene' + (omim.genes.length === 1 ? '' : 's')
                     + ': ' + omim.genes.join(', ') + '. Finding their transcripts…');
                 // How much of the phenotype each gene actually carries, so the reason shown

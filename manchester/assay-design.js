@@ -228,10 +228,28 @@ function (path, config) {
                 });
             }
 
-            window.addEventListener('dragover', (e) => {
+            // ONE listener per session, not one per open, and SHARED with the oligo
+            // designer's keys on purpose: the two screens are never open at once, so
+            // opening this one clears any listener the other left behind and vice versa.
+            // Registered on the window, these outlive the screen; each re-entry used to add
+            // another set, so a paste after three opens was handled three times.
+            //
+            // Only the REGISTRATION changes; the handler bodies below are untouched.
+            const __once = (type, fn, capture) => {
+                const key = '__bajaEditorListener_' + type;
+                try {
+                    if (window[key]) window.removeEventListener(type, window[key], capture);
+                } catch (e) { }
+                window[key] = fn;
+                try { window.addEventListener(type, fn, capture); } catch (e) { }
+                return fn;
+            };
+            try { window.__bajaEditorListenerTypes = ['dragover', 'drop', 'paste']; } catch (e) { }
+
+            __once('dragover', (e) => {
                 e.preventDefault();
             });
-            window.addEventListener('drop', (e) => {
+            __once('drop', (e) => {
                 e.preventDefault();
                 const file = e.dataTransfer.files[0];
                 if (file) {
@@ -705,7 +723,7 @@ function (path, config) {
                 }
             }
 
-            window.addEventListener('paste', async (e) => {
+            __once('paste', async (e) => {
 
                 console.log(' ' + e.target)
 
@@ -1822,6 +1840,59 @@ function (path, config) {
             working.status = 'complete'
 
             CurrentLayout.stash('mainPanel', main_layout)
+
+            // ---- close --------------------------------------------------------------
+            //
+            // Same fixed ✕ as the oligo designer and the chromosome view: top-right at the
+            // 44px offset that clears the application's navigation bar, off the toolbar
+            // which runs from the left. Leaving is not a thing you do TO the design, so it
+            // does not belong on the toolbar.
+            try {
+                const __CLOSE_ID = 'baja-assay-close';
+                const __prevX = document.getElementById(__CLOSE_ID);
+                if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);
+                const __xb = document.createElement('div');
+                __xb.id = __CLOSE_ID;
+                __xb.title = 'Close the assay designer';
+                __xb.setAttribute('role', 'button');
+                __xb.setAttribute('tabindex', '0');
+                __xb.setAttribute('aria-label', 'Close the assay designer');
+                __xb.textContent = '\u2715';
+                __xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
+                    + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                    + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
+                    + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
+                __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
+                const __goHome = async () => {
+                    // Confirm first. Defaults to staying, and a dialog that cannot be shown
+                    // refuses the close rather than becoming a silent discard.
+                    let __leave = true;
+                    try {
+                        __leave = await exec('baja/lib/confirm-leave.js', {
+                            title: 'Close the assay designer?',
+                            message: 'Anything you have not saved will be lost.',
+                            confirmLabel: 'Close without saving'
+                        });
+                    } catch (e) { __leave = false; }
+                    if (!__leave) return;
+                    try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
+                    // Take the window listeners with it, or a file dropped on the home
+                    // screen is still handled by a designer that is no longer on screen.
+                    try {
+                        for (const t of (window.__bajaEditorListenerTypes || [])) {
+                            const k = '__bajaEditorListener_' + t;
+                            if (window[k]) { window.removeEventListener(t, window[k]); window[k] = null; }
+                        }
+                    } catch (e) { }
+                    try { await exec('baja/init'); } catch (e) { console.log('[assay] returning home failed: ' + e); }
+                };
+                __xb.onclick = __goHome;
+                __xb.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
+                };
+                document.body.appendChild(__xb);
+            } catch (e) { console.log('[assay] close button failed: ' + e); }
 
             if (window['env']['auth'] === 'b2c') {
                 var result = await verifyUserPath('manchester/editor', 'bajabio-Designer');

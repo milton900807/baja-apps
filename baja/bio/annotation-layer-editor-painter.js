@@ -5,7 +5,7 @@ function (graph, genegraph_panel_layout) {
         let TrackLayer = await exec('baja/bio/track-layer.js');
 
         graph.clearMouseListeners();
-        graph.setMouseMode("msg:Click and drag on canvas")
+        graph.setMouseMode("msg: Click and drag on the canvas")
         graph.selectOff();
 
         let trackLayer = null;

@@ -603,13 +603,13 @@ def _extract_json(s: str) -> Dict[str, Any]:
         start = s.find("{", start+1)
     return {}
 
-def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_name: str, options: List[str], model: str = "gpt-4o-mini") -> Dict[str, Any]:
+def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_name: str, options: List[str], model: str = "claude-haiku-4-5") -> Dict[str, Any]:
     # First compute local domain/actions for fallback and for local selection
     l_dt, l_desc, l_actions, l_notes = local_actions(headers, samples)
     # Local selection (always available)
     local_choice, local_ranking = local_select_option(options, headers, samples, l_dt)
 
-    if not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return {
             "status":"ok","source":"local",
             "table_name":table_name,"headers":headers,"samples":samples,
@@ -633,7 +633,7 @@ def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_n
     user_payload = {"table_name": table_name, "headers": headers, "samples": samples, "options": options}
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
         raw = ""
         try:
@@ -774,7 +774,7 @@ def main() -> int:
     samples = build_column_samples(headers, rows, cap=12)
 
     # Classify + select
-    model = "gpt-4o-mini"
+    model = "claude-haiku-4-5"
     result = classify_with_gpt(headers, samples, table_name, options, model=model)
 
     # Ensure core echoes

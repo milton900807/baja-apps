@@ -27,7 +27,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
         const Annotation = await exec('flexigraph/annotation')
         let ml = () => {
             graph.clearMouseListeners();
-            graph.setMouseMode('msg: click and drag on track')
+            graph.setMouseMode('msg: Click and drag on a track')
             graph.addMouseDownListener(async (x, y) => {
                 md = true;
                 graph.mouse_message = null;

@@ -34,10 +34,8 @@ from typing import Dict, List, Tuple, Any, Optional
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- config ----------
-DEFAULT_MODEL = "gpt-4o-mini"
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
+DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TEMPERATURE = 0.15
 MAX_TOKENS = 4000
 
@@ -645,8 +643,8 @@ def _chat_call(
     json_mode: bool = False,
     max_tokens: int = MAX_TOKENS,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs: Dict[str, Any] = dict(
         model=model,
@@ -748,7 +746,7 @@ def generate_pnl_via_gpt(
         "Reminder: Only reference the labels listed above when using Assumptions[...]."
     )
 
-    works.msg("🧾 requesting PnL rows + formulas from GPT…")
+    works.msg("🧾 requesting PnL rows + formulas from Claude…")
     content = _chat_call(
         model=model,
         system=system,

@@ -42,9 +42,7 @@ except Exception:
 
 # ---------- OpenAI client ----------
 # pip install -U openai
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (can be overridden with --grammar-file) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r"""
 # (reserved for future grammar guards if you want to hard-validate tokens)
 """
@@ -235,7 +233,7 @@ def generate_domain_block_and_anchor_hints(
     domain_prompt: str,
     grammar_text: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
 ) -> Tuple[str, str]:
     sys_msg = (
@@ -300,11 +298,11 @@ def _summarize_prior_for_prompt(prev: dict) -> str:
 def expand_user_prompt(
     prompt: str,
     *,
-    model: str = "gpt-4o",
+    model: str = "claude-haiku-4-5",
     previous_results: Optional[dict] = None,
 ) -> str:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     sys_msg = (
         "Rewrite the user's request into one concise paragraph describing a startup financial model that:\n"
@@ -408,9 +406,9 @@ def getOpenAIModel(
     temperature: float = 0.2,
     return_all: bool = True,
 ) -> dict:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     scaffold_model = scaffold_model or model
 
@@ -633,11 +631,11 @@ def _diagnose_model_payload(final_json: dict) -> str:
 def refine_model_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.01,
 ) -> dict:
     try:
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
             return model_json or {}
 
         compact_json = _json_dumps_compact(model_json or {}, max_len=120_000)
@@ -858,9 +856,9 @@ def _fetch_gpt_defaults_for_missing_refs(
     domain_prompt: str,
     missing: Dict[str, Set[str]],
     units: Optional[Dict[str, Dict[str, str]]] = None,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
 ) -> Dict[str, Dict[str, str]]:
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return {}
 
     want = {t: sorted(list(lbls)) for t, lbls in (missing or {}).items()}
@@ -958,7 +956,7 @@ def validate_and_patch_references_gpt(
     final_json: dict,
     *,
     domain_prompt: str = "",
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     fallback_empty: bool = True
 ) -> dict:
     data = dict(final_json or {})
@@ -1299,8 +1297,8 @@ _REQUIRED_TABLES = [
 ]
 
 # ---------- (Kept but unused by pipeline) GPT seeding helpers ----------
-def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "gpt-4o-mini") -> Dict[str, Dict[str, str]]:
-    if not os.environ.get("OPENAI_API_KEY"):
+def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "claude-haiku-4-5") -> Dict[str, Dict[str, str]]:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return {"Assumptions": {}, "Profit_and_Loss": {}}
     sys_msg = (
         "Return ONLY a JSON object with two keys Assumptions and Profit_and_Loss. "
@@ -1330,7 +1328,7 @@ def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "gpt-4o-mini") 
     except Exception:
         return {"Assumptions": {}, "Profit_and_Loss": {}}
 
-def seed_required_tables(final_json: dict, *, domain_prompt: str = "", model: str = "gpt-4o-mini") -> dict:
+def seed_required_tables(final_json: dict, *, domain_prompt: str = "", model: str = "claude-haiku-4-5") -> dict:
     """
     Ensures 'Assumptions' and 'pNl' exist with headers.
     """
@@ -1427,11 +1425,11 @@ def _needs_refine(full_json: dict) -> bool:
 def refine_formulas_only_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.0,
     max_tokens: int = 4000,
 ) -> dict:
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return model_json or {}
 
     pruned_tables = _strip_values_from_tables((model_json or {}).get("tables") or {})
@@ -2046,7 +2044,7 @@ def enforce_two_table_contract(final_json: dict) -> dict:
 def call_llm_with_retry(
     prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     max_retries: int = 3,
     json_mode: bool = True,
@@ -2059,7 +2057,7 @@ def call_llm_with_retry(
 
     Returns: raw text output from the model.
     """
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
     import time
     client = OpenAI()
 
@@ -2094,13 +2092,13 @@ def call_llm_with_retry(
     raise RuntimeError(f"LLM call failed after {max_retries} retries: {last_error}")
 
 
-def generate_json_from_grammar(prompt: str, model: str = "gpt-4o-mini") -> dict:
+def generate_json_from_grammar(prompt: str, model: str = "claude-haiku-4-5") -> dict:
     """
     Stage 1 (revised): Calls the LLM with a concrete SaaS-3-products instruction
     and the strict two-table contract. Returns parsed JSON.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set; cannot call OpenAI.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set; cannot call OpenAI.")
 
     grammar_text = load_grammar_text()
 
@@ -2132,9 +2130,9 @@ USER PROMPT (from caller):
 
     # visible breadcrumb
     try:
-        works.msg("🔗 calling OpenAI chat.completions (generate_json_from_grammar)")
+        works.msg("🔗 calling Claude chat.completions (generate_json_from_grammar)")
     except Exception:
-        print("🔗 calling OpenAI chat.completions (generate_json_from_grammar)", file=sys.stderr)
+        print("🔗 calling Claude chat.completions (generate_json_from_grammar)", file=sys.stderr)
 
     raw_output = call_llm_with_retry(
         prompt=f"{system_scaffold}\n\nYour task:\nReturn ONLY the JSON model.\n\n{user_instruction}",
@@ -2160,7 +2158,7 @@ USER PROMPT (from caller):
     return parsed
 
 
-def run_two_stage(prompt: str, domain_prompt: str = "", anchor_hints: str = "", model: str = "gpt-4o-mini") -> dict:
+def run_two_stage(prompt: str, domain_prompt: str = "", anchor_hints: str = "", model: str = "claude-haiku-4-5") -> dict:
     """
     Orchestrator (revised):
     1) Explicit LLM call that bakes in 3-product SaaS structure.
@@ -2498,7 +2496,7 @@ def main():
         user_prompt   = works.param(1)
         domain_prompt = ""
         anchor_hints  = ""
-        model_name    = "gpt-4o-mini"
+        model_name    = "claude-haiku-4-5"
 
         works.msg("🚀 Starting two-stage generation (Ion Works)...")
         works.msg(f"model={model_name}")

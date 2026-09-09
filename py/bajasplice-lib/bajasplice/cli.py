@@ -83,6 +83,8 @@ def main(argv=None):
                    add_help=False)
     sub.add_parser("validate", help="check agreement with external published datasets",
                    add_help=False)
+    sub.add_parser("cis", help="cis-regulatory impact of sequence around a splice site",
+                   add_help=False)
 
     # options after the step belong to the step's own parser, so collect them
     # here rather than letting the top-level parser reject them
@@ -116,6 +118,10 @@ def main(argv=None):
         from bajasplice.validate import suite
         sys.argv = ["bajasplice validate"] + extra
         return suite.main()
+    if args.cmd == "cis":
+        from bajasplice import cis
+        sys.argv = ["bajasplice cis"] + extra
+        return cis.main()
     return 0
 
 

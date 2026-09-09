@@ -38,7 +38,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI (for expansion/inference/refs) -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -49,8 +49,8 @@ def _get_client() -> OpenAI:
 def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.2, json_mode: bool = True,
                max_tokens: int = 1500, tries: int = 3, backoff: float = 2.0) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -68,7 +68,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -277,7 +277,7 @@ def expand_prompt_via_gpt(prompt: str, *, model: str, temperature: float, densit
         if expanded:
             return expanded
     except Exception as e:
-        works.msg(f"⚠️ GPT prompt expansion failed: {e}")
+        works.msg(f"⚠️ Claude prompt expansion failed: {e}")
     return prompt  # fallback
 
 # ===== GPT milestone inference (LEGAL w/ bankruptcy) =====
@@ -369,7 +369,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, **meta})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT legal milestone inference failed: {e}")
+        works.msg(f"⚠️ Claude legal milestone inference failed: {e}")
         return []
 
 def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, density: float) -> List[Dict[str, Any]]:
@@ -400,7 +400,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT reference extraction failed: {e}")
+        works.msg(f"⚠️ Claude reference extraction failed: {e}")
         return []
 
 # ===== Business time helpers =====
@@ -754,7 +754,7 @@ def filter_points_by_debtor(points: List[Dict[str, Any]]) -> List[Dict[str, Any]
 def _hours_from(ref: datetime, dt: datetime) -> float:
     return max(0.0, (dt - ref).total_seconds() / 3600.0)
 
-def build_milestones(prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2, density: float = 0.5) -> Dict[str, Any]:
+def build_milestones(prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2, density: float = 0.5) -> Dict[str, Any]:
     density = _clamp01(density, 0.5)
 
     works.msg("🧩 expanding scope of prompt for legal normalization & adjacent (bankruptcy) steps…")
@@ -771,14 +771,14 @@ def build_milestones(prompt: str, *, model: str = "gpt-4o-mini", temperature: fl
     if not milestones:
         works.msg("🧠 inferring legal milestones from expanded content (no dated lines found)…")
         inferred = infer_milestones_via_gpt(combined_prompt, model=model, temperature=temperature, density=density)
-        works.msg(f"🧠 GPT inference (expanded) produced: {len(inferred)}")
+        works.msg(f"🧠 Claude inference (expanded) produced: {len(inferred)}")
         milestones = inferred
 
     # 1b) If still none, fallback: infer on the ORIGINAL prompt
     if not milestones:
         works.msg("↩️ fallback inference on original prompt…")
         inferred2 = infer_milestones_via_gpt(prompt, model=model, temperature=temperature, density=density)
-        works.msg(f"🧠 GPT inference (original) produced: {len(inferred2)}")
+        works.msg(f"🧠 Claude inference (original) produced: {len(inferred2)}")
         milestones = inferred2
 
     # 1c) High density → augmentation
@@ -865,7 +865,7 @@ def _read_param(i: int) -> Any:
     try: return works.param(i)
     except Exception: return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     prompt = _read_param(1)
     model = _read_param(2) or default_model
     temperature = float(_read_param(3) or 0.2)

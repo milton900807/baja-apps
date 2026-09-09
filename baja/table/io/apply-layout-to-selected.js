@@ -100,34 +100,44 @@ function (plate) {
                             items: [
                                 {
                                     label: 'Folder',
-                                    ionfunction: createIonFunction(() => {
-                                        showModal({
-                                            wid: 'input-param-items',
-                                            data: {
-                                                input_labels: ['Folder name'],
-                                                buttons: [{
-                                                    'label': 'Open', 'function': createIonFunction(async (button_label, input_params) => {
-                                                        let host_ = window['env']['apiUrl']
-                                                        let foldername = input_params['Folder name']
-                                                        if (foldername != undefined && foldername != null && foldername.length > 0) {
-                                                            let jsonobj = {
-                                                                "key": "user",
-                                                                "user": getUser(),
-                                                                "spath": path_j + '/' + foldername,
-                                                            }
-                                                            let rs = await POSTJSON(jsonobj, host_ + '/save-user-dir');
-
-                                                            await userFiles_panel.refresh();
-                                                            await userFiles_panel.navigateToFolderNamed(foldername);
-                                                        }
-                                                        hideAllModal();
-
-                                                    })
-                                                }]
-                                            }
-                                        })
-
-                                    })
+                                    ionfunction: createIonFunction(async () => {
+                                                     // The navy dialog, not a bare input-param-items widget handed to showModal.
+                                                     // Same shared prompt as the other New-folder menus.
+                                                     const __dir = (path_j) || '/';
+                                                     const where = ('' + __dir).split('/').filter(Boolean).pop();
+                                                     const foldername = await exec('baja/lib/prompt-name.js', {
+                                                         title: 'New folder',
+                                                         message: where ? ('It will be created in ' + where + '.')
+                                                             : 'It will be created in your files.',
+                                                         label: 'Folder name',
+                                                         placeholder: 'e.g. KRAS screens',
+                                                         confirmLabel: 'Create',
+                                                         validate: (v) => {
+                                                             if (v.indexOf('/') >= 0) return 'A folder name cannot contain a slash.';
+                                                             if (v === '.' || v === '..') return 'Choose a different name.';
+                                                             if (v.charAt(0) === '.') return 'A name starting with a dot is hidden.';
+                                                             return '';
+                                                         }
+                                                     });
+                                                     if (!foldername) return;
+                                                 
+                                                     const host_ = window['env']['apiUrl'];
+                                                     try {
+                                                         const rs = await POSTJSON({
+                                                             "key": "user",
+                                                             "user": getUser(),
+                                                             "spath": __dir + '/' + foldername
+                                                         }, host_ + '/save-user-dir');
+                                                         if (userFiles_panel) {
+                                                             await userFiles_panel.refresh();
+                                                             try { await userFiles_panel.navigateToFolderNamed(foldername); } catch (e) { }
+                                                         }
+                                                         if (rs && rs.error) infoPrompt(' ' + foldername + ' was not created: ' + rs.error + ' ');
+                                                     } catch (e) {
+                                                         infoPrompt(' ' + foldername + ' was not created: '
+                                                             + (e && e.message ? e.message : e) + ' ');
+                                                     }
+                                                 })
                                 },
 
                             ]

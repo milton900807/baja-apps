@@ -297,7 +297,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
             let __all = false;
             try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
             if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(tier); return; }
-            graph.setMouseMode('msg: Click on a track to score its introns for retention.');
+            graph.setMouseMode('msg: Click on a track to score its introns for retention');
             restoreEditor();
             const pt = pickedTrack();
             if (pt) {

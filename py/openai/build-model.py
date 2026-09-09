@@ -51,9 +51,7 @@ except Exception:
 
 # ---------- OpenAI client ----------
 # pip install -U openai
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (can be overridden with --grammar-file) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r"""
 # (reserved for future grammar guards if you want to hard-validate tokens)
 """
@@ -230,7 +228,7 @@ def generate_domain_block_and_anchor_hints(
     domain_prompt: str,
     grammar_text: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
 ) -> Tuple[str, str]:
     sys_msg = (
@@ -299,11 +297,11 @@ def _summarize_prior_for_prompt(prev: dict) -> str:
 def expand_user_prompt(
     prompt: str,
     *,
-    model: str = "gpt-4o",
+    model: str = "claude-haiku-4-5",
     previous_results: Optional[dict] = None,
 ) -> str:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     sys_msg = (
         "Rewrite the user's request into one concise paragraph describing a startup financial model that:\n"
@@ -503,9 +501,9 @@ def getOpenAIModel(
     temperature: float = 0.2,
     return_all: bool = True,
 ) -> dict:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     scaffold_model = scaffold_model or model
 
@@ -735,11 +733,11 @@ def _diagnose_model_payload(final_json: dict) -> str:
 def refine_model_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.01,
 ) -> dict:
     try:
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
             return model_json or {}
 
         compact_json = _json_dumps_compact(model_json or {}, max_len=120_000)
@@ -968,14 +966,14 @@ def _fetch_gpt_defaults_for_missing_refs(
     domain_prompt: str,
     missing: Dict[str, Set[str]],
     units: Optional[Dict[str, Dict[str, str]]] = None,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
 ) -> Dict[str, Dict[str, str]]:
     """
     Ask the model for realistic default values for the exact missing refs.
     Returns: { table: { label: value_str, ... }, ... }
     If API not available or returns nothing, we return {} and the caller can decide how to proceed.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return {}
 
     # Build a compact ask, including any unit hints to guide realism.
@@ -1093,7 +1091,7 @@ def validate_and_patch_references_gpt(
     final_json: dict,
     *,
     domain_prompt: str = "",
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     fallback_empty: bool = True
 ) -> dict:
     """
@@ -1456,13 +1454,13 @@ _REQUIRED_TABLES = [
     "Scenarios",
 ]
 
-def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "gpt-4o-mini") -> Dict[str, Dict[str, str]]:
+def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "claude-haiku-4-5") -> Dict[str, Dict[str, str]]:
     """
     Ask the model for realistic, startup-appropriate default values.
     Returns {"Assumptions": {label: value_str, ...}, "Profit_and_Loss": {label: value_str, ...}}
     If the call fails or API is not configured, returns empty dicts (structure-only fallback).
     """
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return {"Assumptions": {}, "Profit_and_Loss": {}}
     sys_msg = (
         "Return ONLY a JSON object with two keys Assumptions and Profit_and_Loss. "
@@ -1501,7 +1499,7 @@ def _fetch_gpt_finance_seeds(domain_prompt: str, *, model: str = "gpt-4o-mini") 
     except Exception:
         return {"Assumptions": {}, "Profit_and_Loss": {}}
 
-def seed_required_tables(final_json: dict, *, domain_prompt: str = "", model: str = "gpt-4o-mini") -> dict:
+def seed_required_tables(final_json: dict, *, domain_prompt: str = "", model: str = "claude-haiku-4-5") -> dict:
     data = dict(final_json or {})
     tables = dict(data.get("tables") or {})
 
@@ -1613,7 +1611,7 @@ def _needs_refine(full_json: dict) -> bool:
 def refine_formulas_only_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.0,
     max_tokens: int = 4000,
 ) -> dict:
@@ -1621,7 +1619,7 @@ def refine_formulas_only_with_chat(
     Sends a pruned view (labels only) + current formulas and asks the model
     to return ONLY a corrected 'formulas' object. We then merge locally.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return model_json or {}
 
     pruned_tables = _strip_values_from_tables((model_json or {}).get("tables") or {})
@@ -1871,7 +1869,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Three-stage AssignLang builder with optional prior-results refinement."
     )
     p.add_argument("prompt", help="Natural language description.")
-    p.add_argument("--model", default="gpt-4o-mini", help="Model ID (default: gpt-4o-mini)")
+    p.add_argument("--model", default="claude-haiku-4-5", help="Model ID (default: gpt-4o-mini)")
     p.add_argument("--out", dest="out_path", help="Path to write ONLY the final JSON output (default: stdout)")
     p.add_argument("--outdir", help="Directory to dump expanded prompt and full response bundle")
     p.add_argument("--grammar-file", help="Path to a grammar file to override the default", default=None)
@@ -1896,7 +1894,7 @@ def _load_json_from_path_or_text(s: Optional[str]) -> Optional[dict]:
     with open(s, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     if not _HAS_ION:
         raise RuntimeError("Ion entrypoint called but Ion is not available.")
     try:
@@ -1919,6 +1917,6 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 # Optional Ion autostart (safe no-op if Ion missing)
 if _HAS_ION and __name__ == "__main__":
     works.msg('loading model')
-    _main_ion('gpt-4.1-mini')
+    _main_ion('claude-haiku-4-5')
 
 # End of file

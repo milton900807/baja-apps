@@ -79,6 +79,12 @@ function (graph, genegraph_panel_layout, sequence) {
             compound.id = '' + Math.random();
             compound.sequence = t.getSequenceRange(compound.xi, compound.xf);
             compound.orientation = best[5];   // "Forward" | "Reverse" | "Forward Complement" | "Reverse Complement"
+            // The ACTUAL edit distance of this hit, which can be lower than the tolerance
+            // the pass was run at, and where it landed. Both are reported back to the user:
+            // "matched at edit distance 2" and "found while allowing 2" are different
+            // claims, and only the first one is about the sequence.
+            compound.editDistance = +best[4];
+            compound.matchStart = t.xi + best[3];
             compound.highlight(10000, 'purple');
             t.addOligo(compound);
             return compound;
@@ -281,35 +287,55 @@ function (graph, genegraph_panel_layout, sequence) {
         // simply the sequence as pasted ("Forward") -- worth surfacing (an oligo that only
         // matched as its reverse complement is a meaningfully different finding), not worth
         // cluttering the common as-pasted case with.
-        const describePlaced = (p) => (p.track.name || 'track')
-            + (p.compound && p.compound.orientation && p.compound.orientation !== 'Forward'
-                ? (' (' + p.compound.orientation.toLowerCase() + ')') : '');
+        // Each hit named with the numbers that decide whether to believe it: which track,
+        // the hit's OWN edit distance, the orientation that matched, and where it landed.
+        const describePlaced = (p) => {
+            const c = p.compound || {};
+            const bits = [];
+            bits.push(isFinite(c.editDistance)
+                ? (c.editDistance === 0 ? 'exact' : c.editDistance + 'mm') : '?');
+            if (c.orientation && c.orientation !== 'Forward') bits.push(c.orientation.toLowerCase());
+            if (isFinite(c.matchStart)) bits.push('@' + Math.round(c.matchStart));
+            return (p.track.name || 'track') + ' [' + bits.join(', ') + ']';
+        };
 
-        const DEFAULT_ED = 1;
-        graph.setMessage(' Searching displayed tracks for a match… ');
-        let placed = await mapOntoDisplayedTracks(seq, DEFAULT_ED);
+        // Widen AUTOMATICALLY: exact first, then one mismatch, then two. Escalating in that
+        // order matters — the first pass to hit wins, so a sequence present exactly is
+        // reported as exact rather than as whatever a looser pass would also have found.
+        // This replaced a single pass at edit distance 1 that asked the user how far to
+        // widen only after it had already missed, which both hid the exact/inexact
+        // distinction and put a prompt in the way of the common case.
+        const ED_LADDER = [0, 1, 2];
+        const nTracks = (graph.track || []).length;
+        if (!nTracks) {
+            graph.setMessage(' No tracks on the canvas to map onto — searching the reference instead… ');
+        }
+        const params = seq.length + ' nt, ' + nTracks + ' track' + (nTracks === 1 ? '' : 's')
+            + ', all 4 orientations';
+
+        let placed = [];
+        let hitEd = null;
+        for (const ed of ED_LADDER) {
+            graph.setMessage(' Mapping pasted sequence: ' + params
+                + ', edit distance ' + ed + (ed === 0 ? ' (exact)' : '') + '… ');
+            placed = await mapOntoDisplayedTracks(seq, ed);
+            if (placed.length) { hitEd = ed; break; }
+        }
         if (placed.length) {
-            graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
-                + (placed.length === 1 ? '' : 's') + ': ' + placed.map(describePlaced).join(', ') + '. ');
+            // The tolerance the pass ran at, and the best distance actually achieved, are
+            // reported separately: they are different facts and only one is about the match.
+            const best = placed.reduce((m, p) => Math.min(m,
+                isFinite(p.compound && p.compound.editDistance) ? p.compound.editDistance : 99), 99);
+            graph.setResultMessage(' Mapped ' + seq.length + ' nt onto ' + placed.length + ' track'
+                + (placed.length === 1 ? '' : 's')
+                + ' at edit distance ' + hitEd + (hitEd === 0 ? ' (exact match)' : '')
+                + (isFinite(best) && best !== hitEd ? ', best hit ' + best + ' mismatch'
+                    + (best === 1 ? '' : 'es') : '')
+                + ' — ' + placed.map(describePlaced).join(', ')
+                + '.  [searched ' + params + '; tried edit distance '
+                + ED_LADDER.slice(0, ED_LADDER.indexOf(hitEd) + 1).join(', ') + '] ');
             restoreHover();
             return;
-        }
-
-        // Miss at the default tolerance: NOW ask how far to widen the CLIENT-SIDE search
-        // before trying again -- 0-3, via the same quick center-menu choice every
-        // client-side mapping path in this app uses. Only a picked value WIDER than the
-        // default is worth a second pass; 0 or 1 again would just repeat the miss above.
-        const ED = await exec('baja/manchester/menu/prompt-edit-distance.js', graph, DEFAULT_ED);
-        if (ED > DEFAULT_ED) {
-            graph.setMessage(' Trying again at edit distance ' + ED + '… ');
-            placed = await mapOntoDisplayedTracks(seq, ED);
-            if (placed.length) {
-                graph.setResultMessage(' Mapped onto ' + placed.length + ' track'
-                    + (placed.length === 1 ? '' : 's') + ' at edit distance ' + ED + ': '
-                    + placed.map(describePlaced).join(', ') + '. ');
-                restoreHover();
-                return;
-            }
         }
 
         // Still no hit anywhere on screen: search the pre-mRNA reference automatically. No
@@ -324,8 +350,10 @@ function (graph, genegraph_panel_layout, sequence) {
         // way the user widened the on-screen one would make it far less selective (more
         // candidate sites, slower, noisier) rather than more useful.
         const PREMRNA_ED = 1;
-        graph.setMessage(' No match on the tracks currently on display -- searching the'
-            + ' pre-mRNA reference (this covers introns, so it can take a few seconds)… ');
+        graph.setMessage(' No match on the ' + nTracks + ' displayed track'
+            + (nTracks === 1 ? '' : 's') + ' at edit distance ' + ED_LADDER.join('/')
+            + ' (' + params + ') — searching the pre-mRNA reference at edit distance '
+            + PREMRNA_ED + ' (this covers introns, so it can take a few seconds)… ');
         let result;
         try { result = await exec('py/sequence/offtarget/find-gene-in-premrna.py', seq, PREMRNA_ED, 'human_premrna'); }
         catch (e) { result = { error: '' + e }; }

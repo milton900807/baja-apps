@@ -114,7 +114,7 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             try { sel = (graph.track || []).filter((t) => t && t.showResizeBar); } catch (e) { }
             if (sel.length === 1) return resolve(sel[0]);
             if ((graph.track || []).length === 1) return resolve(graph.track[0]);
-            // graph.setMouseMode('msg: Click the track the variant belongs to.');
+            // graph.setMouseMode('msg: Click the track the variant belongs to');
             // graph.addMouseDownListener((x, y) => {
             //     const ti = graph.getTrack(x, y);
             //     graph.clearMouseListeners(); graph.setMouseMode('navigate');

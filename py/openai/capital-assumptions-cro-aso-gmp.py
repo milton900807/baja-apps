@@ -42,9 +42,7 @@ from typing import Dict, List, Any
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- helpers ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 def _key(table: str, i: int, j: int) -> str:
     return f"{table}[{i}:{i}][{j}:{j}]"
 
@@ -65,8 +63,8 @@ def _chat_call(
     json_mode: bool = False,
     max_tokens: int = 1200
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -228,7 +226,7 @@ Output:
 def generate_capital_assumptions(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2
 ) -> List[Dict[str, str]]:
     system = (
@@ -339,7 +337,7 @@ def infer_units(table_name: str, rows: List[Dict[str, str]]) -> Dict[str, Dict[s
 def run_capital_assumptions_only(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2
 ) -> Dict[str, Any]:
     works.msg(
@@ -370,7 +368,7 @@ def run_capital_assumptions_only(
 
 
 # ---------- Ion entry/exit ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         # param(1) = user prompt
         user_prompt = works.param(1)
@@ -414,4 +412,4 @@ if __name__ == "__main__":
         "(GMP ASO / GalNAc, no lab/equipment/instruments, Initial_Capital_Investment_USD enforced, "
         "Capital_per_ASO_USD fixed at 1,000,000)…"
     )
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

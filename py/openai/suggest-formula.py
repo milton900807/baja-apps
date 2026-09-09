@@ -9,7 +9,7 @@ Params (Ion works):
   param(1): tables (JSON array, jfile:/path, path, or noisy/percent-encoded).
              You may also pass a Python/JSON list that contains both tables and the keyword.
   param(2): target label keyword (e.g., "Initial_Capital") — may be noisy; we'll clean/fuzzy match.
-  param(3): optional model (default: "gpt-4o-mini"). "None"/None/null -> fallback to default.
+  param(3): optional model (default: "claude-haiku-4-5"). "None"/None/null -> fallback to default.
   param(4): optional temperature (float; default: 0.25)
 
 Behavior:
@@ -20,7 +20,7 @@ Behavior:
 
 Requirements:
   pip install openai
-  The environment must have OPENAI_API_KEY set.
+  The environment must have ANTHROPIC_API_KEY set.
 """
 
 import os
@@ -35,10 +35,7 @@ from urllib.parse import unquote
 from ion import works  # type: ignore
 
 # -------- OpenAI client --------
-from openai import OpenAI
-
-
-# ---------- Example formulas (reference only; many include functions) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 EXAMPLE_FORMULAS = r"""
 - Formulas: (examples)  
 "table_a[1:1][1:1]": "fte_table[Molecular_Biologist,Salary]+fte_table[Project_Manager,Salary]
@@ -355,10 +352,10 @@ def _coerce_tables_and_keyword(raw1, raw2):
 
 # ---------- Model safety ----------
 
-def _pick_model(requested: Optional[str], default_model: str = "gpt-4o-mini") -> str:
-    m = (requested or "").strip() or default_model or "gpt-4o-mini"
+def _pick_model(requested: Optional[str], default_model: str = "claude-haiku-4-5") -> str:
+    m = (requested or "").strip() or default_model or "claude-haiku-4-5"
     if m.lower() in {"none", "null"}:
-        m = "gpt-4o-mini"
+        m = "claude-haiku-4-5"
     return m
 
 
@@ -399,7 +396,7 @@ def _chat_call_safe(
     except Exception as e:
         # Retry on model not found with default
         if "model_not_found" in str(e) or "does not exist" in str(e):
-            return _chat_call(model="gpt-4o-mini", system=system, user=user, temperature=temperature, json_mode=json_mode)
+            return _chat_call(model="claude-haiku-4-5", system=system, user=user, temperature=temperature, json_mode=json_mode)
         raise
 
 
@@ -452,8 +449,8 @@ def suggest_formulas_for_target(
         ]
       }
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     schema = _summarize_tables_for_llm(tables_spec)
 
@@ -541,7 +538,7 @@ def suggest_formulas_for_target(
 
 # ---------- Ion entry point ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     """
     Ion entry:
       param(1): tables (JSON / jfile:/path / path / noisy / list-wrapped)
@@ -597,4 +594,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 # Auto-run when loaded by Ion
 works.msg(' loading suggester ')
-_main_ion('gpt-4o-mini')
+_main_ion('claude-haiku-4-5')

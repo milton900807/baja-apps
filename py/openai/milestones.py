@@ -24,7 +24,7 @@ What this does
 Ion params
 ----------
 param(1): prompt (string with lines or a paragraph)
-param(2): model (optional; default "gpt-4o-mini")
+param(2): model (optional; default "claude-haiku-4-5")
 param(3): temperature (optional; default 0.2)
 param(4): density (optional; float in [0,1], default 0.5)  # NEW
 """
@@ -53,7 +53,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI (for paragraph milestone inference or date window infer if needed) -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -64,8 +64,8 @@ def _get_client() -> OpenAI:
 def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.2, json_mode: bool = True,
                max_tokens: int = 900, tries: int = 3, backoff: float = 2.0) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -83,7 +83,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -242,7 +242,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT milestone inference failed: {e}")
+        works.msg(f"⚠️ Claude milestone inference failed: {e}")
         return []
 
 def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, density: float) -> List[Dict[str, Any]]:
@@ -273,7 +273,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT reference extraction failed: {e}")
+        works.msg(f"⚠️ Claude reference extraction failed: {e}")
         return []
 
 # ===== Business time helpers =====
@@ -392,7 +392,7 @@ def _extract_financials_gpt(prompt: str, *, model: str, temperature: float) -> D
                 res["gross_margin"] = None
         return res
     except Exception as e:
-        works.msg(f"⚠️ GPT financial extraction failed: {e}")
+        works.msg(f"⚠️ Claude financial extraction failed: {e}")
         return {}
 
 def _extract_financials(prompt: str, *, model: str, temperature: float) -> Dict[str, Any]:
@@ -513,7 +513,7 @@ def _dedupe_milestones(milestones: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         out.append(m)
     return out
 
-def build_milestones(prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2, density: float = 0.5) -> Dict[str, Any]:
+def build_milestones(prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2, density: float = 0.5) -> Dict[str, Any]:
     density = _clamp01(density, 0.5)
     target_count, _, augment_flag = _desired_counts_from_density(density)
 
@@ -609,7 +609,7 @@ def _read_param(i: int) -> Any:
     try: return works.param(i)
     except Exception: return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     prompt = _read_param(1)
     model = _read_param(2) or default_model
     temperature = float(_read_param(3) or 0.2)

@@ -19,9 +19,7 @@ import json
 import re
 from typing import Dict, List, Tuple, Any
 from ion import works  # type: ignore
-from openai import OpenAI
-
-# ---------- utilities ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 _KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\[(\d+):\d+\]\[(\d+):\d+\]$')
 
@@ -41,8 +39,8 @@ def _extract_json_snippet(text: str) -> str:
     return text[s:e+1].strip()
 
 def _chat_call(*, model: str, system: str, user: str, temperature: float = 0.15, json_mode: bool = False, max_tokens: int = 2000) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -138,7 +136,7 @@ def _rows_to_wire(table_name: str, rows: List[Dict[str, str]]) -> Tuple[Dict[str
 def generate_capital_requirements_via_gpt(
     *,
     tables_json: list[dict],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15,
 ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, Dict[str, str]], Dict[str, str]]:
     available_labels = _parse_table_labels(tables_json)
@@ -157,7 +155,7 @@ def generate_capital_requirements_via_gpt(
         "Reminder: Use only these labels when building formulas."
     )
 
-    works.msg("🏗️ requesting Capital Requirements table from GPT…")
+    works.msg("🏗️ requesting Capital Requirements table from Claude…")
     content = _chat_call(model=model, system=system, user=user, temperature=temperature, json_mode=True, max_tokens=4000)
     try:
         data = json.loads(content)
@@ -188,7 +186,7 @@ def generate_capital_requirements_via_gpt(
 def run_capital_builder(
     tables_json: list[dict],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15,
 ) -> Dict[str, Any]:
     cap_tables, cap_formulas, cap_units, cap_notes = generate_capital_requirements_via_gpt(
@@ -208,7 +206,7 @@ def run_capital_builder(
 
 # ---------- Ion entry/exit ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         tables_arg = works.param(1)
         tables_json = (tables_arg)
@@ -235,4 +233,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("💰 loading Capital Requirements builder…")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

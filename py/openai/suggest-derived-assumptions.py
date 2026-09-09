@@ -38,9 +38,7 @@ import json
 import argparse
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
-from openai import OpenAI
-
-# ------------------------------- Utilities -------------------------------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 def _decode(s: Any) -> Optional[str]:
     if s is None:
@@ -156,7 +154,7 @@ def _normalize_selections(sel: Any) -> Dict[str, Any]:
 
 # ------------------------------- OpenAI call -------------------------------
 
-def _pick_model(requested: Optional[str], default_model: str = "gpt-4o-mini") -> str:
+def _pick_model(requested: Optional[str], default_model: str = "claude-haiku-4-5") -> str:
     m = (requested or "").strip() or default_model
     if m.lower() in {"none", "null"}:
         m = default_model
@@ -204,8 +202,8 @@ def build_formula_chain(
         "notes": "rationale / guidance"
       }
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set.")
 
     tname = _clean_name(tablename or "final_outputs")
     schema = _summarize_tables_for_llm(tables_spec or [])
@@ -290,7 +288,7 @@ def main():
     ap.add_argument("--tablename", required=True, help="Final table name.")
     ap.add_argument("--tables", required=False, default="[]", help="JSON/path/inline of existing tables.")
     ap.add_argument("--selections", required=True, help='JSON of qualifiers → value (or list of {"k":v}).')
-    ap.add_argument("--model", required=False, default="gpt-4o-mini")
+    ap.add_argument("--model", required=False, default="claude-haiku-4-5")
     ap.add_argument("--temperature", required=False, type=float, default=0.2)
     args = ap.parse_args()
 

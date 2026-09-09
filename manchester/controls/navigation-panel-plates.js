@@ -404,7 +404,7 @@ function (plate_graph) {
                             ltable.deselectWells();
 
                             const graph = CurrentLayout.getStashed('graph')
-                            graph.setMouseMode("msg:Click on canvas to drop variable")
+                            graph.setMouseMode("msg: Click on canvas to drop variable")
                             const t = {
                                 id: 'override-droptable',
                                 mouseMoveListener: async (x, y) => { },

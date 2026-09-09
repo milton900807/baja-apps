@@ -12,14 +12,14 @@ Param(2): user prompt string describing which wells to select
 Behavior
 --------
 1. Parse the table JSON into headers + rows
-2. Use OpenAI (via OPENAI_API_KEY) to infer which rows match the user prompt
+2. Use OpenAI (via ANTHROPIC_API_KEY) to infer which rows match the user prompt
 3. Fall back to heuristic matching if the OpenAI call fails or returns nothing
 4. Return selected well UIDs
 
 Environment
 -----------
 Requires:
-  OPENAI_API_KEY
+  ANTHROPIC_API_KEY
 
 Optional:
   OPENAI_MODEL (defaults to gpt-4o-mini)
@@ -55,9 +55,7 @@ import re
 from typing import Any, Dict, List, Tuple, Optional
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 STOPWORDS = {
     "select", "find", "show", "get", "choose", "pick", "the", "a", "an",
     "all", "with", "that", "those", "these", "for", "of", "to", "in", "on",
@@ -65,7 +63,7 @@ STOPWORDS = {
     "uids", "uid"
 }
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
 
 
 def _safe_str(v: Any) -> str:
@@ -407,7 +405,7 @@ def _llm_select_rows(
     Use OpenAI to choose matching row_index values.
     Returns 1-based row indices.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return []
 

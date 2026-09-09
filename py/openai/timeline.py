@@ -50,7 +50,7 @@ except Exception:
 
 # ----- Optional GPT client -----
 try:
-    from openai import OpenAI  # type: ignore
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None
 
@@ -336,7 +336,7 @@ def _chat_call(line: str, *, model: str, temperature: float):
             )
             return json.loads(resp.choices[0].message.content.strip())
         except Exception as e:
-            works.msg(f"⚠️ GPT error: {e}; retrying...")
+            works.msg(f"⚠️ Claude error: {e}; retrying...")
             time.sleep(2 ** attempt)
     return None
 
@@ -421,7 +421,7 @@ def ensure_unique_names(
     _process(intervals)
     _process(milestones)
 
-def build_intervals(prompt: str, model="gpt-4o-mini", temperature=0.2):
+def build_intervals(prompt: str, model="claude-haiku-4-5", temperature=0.2):
     lines = [l.strip() for l in (prompt or "").splitlines() if l.strip()]
     if not lines:
         now = _now_local()
@@ -488,7 +488,7 @@ def _read_param(i: int):
 
 def _main_ion():
     prompt = _read_param(1)
-    model = _read_param(2) or "gpt-4o-mini"
+    model = _read_param(2) or "claude-haiku-4-5"
     temperature = float(_read_param(3) or 0.2)
 
     if not prompt:

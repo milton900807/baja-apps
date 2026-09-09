@@ -86,7 +86,7 @@ function (pt, sp) {
 
                 const graph = CurrentLayout.getStashed('graph');
 
-                graph.setMouseMode("msg:Click on canvas to drop the table");
+                graph.setMouseMode("msg: Click on canvas to drop the table");
 
                 const t = {
                     id: 'override-droptable',
@@ -3839,7 +3839,7 @@ function (pt, sp) {
 
 
                                                                                         const graph = CurrentLayout.getStashed('graph')
-                                                                                        graph.setMouseMode("msg:Click on a cell")
+                                                                                        graph.setMouseMode("msg: Click on a cell")
 
 
 
@@ -3917,7 +3917,7 @@ function (pt, sp) {
 
                                         const tablename = `${safeName}`;
                                         const graph = CurrentLayout.getStashed('graph')
-                                        graph.setMouseMode("msg:Click on canvas to drop the table")
+                                        graph.setMouseMode("msg: Click on canvas to drop the table")
                                         const t = {
                                             id: 'override-droptable',
                                             mouseMoveListener: async (x, y) => { },

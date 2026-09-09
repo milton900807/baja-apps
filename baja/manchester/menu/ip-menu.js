@@ -1,5 +1,5 @@
 function (datapath, server, graph, genegraph_panel_layout) {
-    graph.setMouseMode('msg: click on track')
+    graph.setMouseMode('msg: Click on a track')
 
     console.log(" we have the rna binding proteins menu " + graph)
     graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');

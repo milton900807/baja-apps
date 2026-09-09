@@ -1,12 +1,22 @@
 function (graph) {
     // Annotation tool: a boxed text label to name a feature/region.
     // a comment dialog commits it, then the mouse returns to navigate + mouse-over.
+    // The shape class is loaded UP FRONT, not awaited inside mousedown. An await there
+    // leaves a yield between the press and the state it sets: a quick click can land its
+    // mouseup BEFORE the class resolves, so mouseup sees no shape and skips its cleanup,
+    // and the late mousedown then builds a shape that the still-live move listener stretches
+    // to follow the cursor forever. That is the "keeps drawing after mouse up" behaviour.
+    // A press arriving before the class is ready is ignored, which is a dropped click in the
+    // first few milliseconds rather than a tool that never lets go.
+    let RectangleText = null;
+    exec('flexigraph/shapes/RectangleText.js').then((k) => { RectangleText = k; });
+
     graph.clearMouseListeners();
-    graph.setMouseMode("msg:Click and drag to add a text label");
+    graph.setMouseMode("msg: Click and drag to add a text label");
     graph.selectOff();
     let md = false;
-    graph.addMouseDownListener(async (x, y) => {
-        let RectangleText = await exec('flexigraph/shapes/RectangleText.js');
+    graph.addMouseDownListener((x, y) => {
+        if (!RectangleText) return;   // class not loaded yet
         md = true;
         graph.currentShape = new RectangleText('test', x, y);
     });

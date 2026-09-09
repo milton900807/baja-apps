@@ -12,6 +12,7 @@ function () {
 
         let t =
         {
+            title: 'Flow log',
             height: '800px',
             editorOptions: {
                 language: 'bajabio',
@@ -47,13 +48,13 @@ function () {
             code: st,
             buttons: [
                 {
-                    'label': 'Reset', 'color': 'black', "action": () => {
+                    'label': 'Reset', "action": () => {
                         LJScript.reset();
                     }
                 },
 
                 {
-                    'label': 'Close', 'color': 'black', "action": () => {
+                    'label': 'Close', "action": () => {
                         ref.hideEditor();
                     }
                 }

@@ -2173,6 +2173,71 @@ return new Promise(async (resolve, reject) => {
             return temp;
         }
 
+        // A GENOMIC POSITION, AS A POSITION ON THIS TRACK -- or null when this track does
+        // not hold it. Seven callers ask for this by name (the ClinVar loader, VCF paste,
+        // the variant prompt, points-of-interest, text-extract, the sequence mapper and the
+        // karyotype's transcript handover) and every one of them guards with
+        //     track.variantWorldX ? track.variantWorldX(chr, pos) : null
+        // so while it did not exist they all took the null branch and silently placed
+        // nothing. Transcripts loaded; the variants that were supposed to land on them
+        // never appeared, and no error said so.
+        //
+        // The mapping is the one conservation-data.js already uses to put bigwig values on
+        // an exon: linear within the exon, between its genomic span (gxi..gxf) and its
+        // track span (xi..xf). Direction is carried by the spans themselves, so a
+        // minus-strand track needs no special case.
+        variantWorldX(chr, genomicPos) {
+            const g = Math.floor(+genomicPos);
+            if (!isFinite(g)) return null;
+            // this.chr is normalised at load: a name with digits becomes a NUMBER
+            // (chr21 -> 21) and one without stays a string (chrX). Both sides are reduced
+            // to the same bare token before comparing, and a blank on either side is not
+            // treated as a mismatch -- some tracks never learn their chromosome.
+            const bare = (v) => ('' + (v == null ? '' : v)).trim().toLowerCase().replace(/^chr/, '');
+            const a1 = bare(chr), b1 = bare(this.chr);
+            if (a1 && b1 && a1 !== b1) return null;
+
+            const exons = this.getExons() || [];
+            if (!exons.length) return null;
+            const ok = (a) => isFinite(+a.gxi) && isFinite(+a.gxf)
+                && isFinite(+a.xi) && isFinite(+a.xf);
+
+            for (const a of exons) {
+                if (!ok(a)) continue;
+                const gi = +a.gxi, gf = +a.gxf, xi = +a.xi, xf = +a.xf;
+                if (g < Math.min(gi, gf) || g > Math.max(gi, gf)) continue;
+                if (gf === gi) return xi;
+                return xi + ((g - gi) * (xf - xi)) / (gf - gi);
+            }
+
+            // NOT IN AN EXON. On a track laid out in genomic space -- introns occupying
+            // the room they occupy on the chromosome -- an intronic position still has a
+            // place, and the same offset maps it. On a SPLICED track it does not, and
+            // guessing one would put the variant on a base that is not where it is.
+            //
+            // Which of the two this track is, is a fact about its own exons, so it is
+            // measured rather than assumed: two exons whose track gap equals their genomic
+            // gap are laid out genomically.
+            const usable = exons.filter(ok);
+            if (usable.length < 2) return null;
+            const srt = usable.slice().sort((p1, p2) => Math.min(+p1.gxi, +p1.gxf) - Math.min(+p2.gxi, +p2.gxf));
+            const e1 = srt[0], e2 = srt[srt.length - 1];
+            const gSpan = Math.min(+e2.gxi, +e2.gxf) - Math.min(+e1.gxi, +e1.gxf);
+            const xSpan = Math.min(+e2.xi, +e2.xf) - Math.min(+e1.xi, +e1.xf);
+            if (!gSpan) return null;
+            // Within a base over the whole transcript: genomic layout. A spliced track is
+            // shorter than its genomic span by every intron, which is never this close.
+            if (Math.abs(Math.abs(xSpan) - Math.abs(gSpan)) > 1) return null;
+            const dir = (xSpan < 0) !== (gSpan < 0) ? -1 : 1;
+            const gRef = Math.min(+e1.gxi, +e1.gxf), xRef = Math.min(+e1.xi, +e1.xf);
+            const x = xRef + dir * (g - gRef);
+            // Only inside the track's own extent -- past either end it is not on it.
+            const lo = Math.min(+e1.xi, +e1.xf, +e2.xi, +e2.xf);
+            const hi = Math.max(+e1.xi, +e1.xf, +e2.xi, +e2.xf);
+            if (x < lo || x > hi) return null;
+            return x;
+        }
+
         // ---- TRACK THEMES ---------------------------------------------------------------
         //
         // A theme is a small set of COLOUR ROLES the renderer asks for by name instead of
@@ -2388,7 +2453,27 @@ return new Promise(async (resolve, reject) => {
                     return l;
 
                 } else {
-                    let l = Object.assign(new TrackLayer(), layer)
+                    // Keep whatever class the layer actually is. Flattening a custom layer
+                    // into a base TrackLayer drops its painter, so it redraws with the
+                    // generic interval renderer -- which anchors at the layer box midpoint,
+                    // not the sequence line. That is what made a saved cis-regulatory plot
+                    // jump half way up the track.
+                    //
+                    // Object.create(prototype) rather than new: the constructor takes
+                    // arguments this copy does not have, and every own value is copied over
+                    // anyway. Non-enumerable fields (the back-reference to the track) are
+                    // not copied by assign, so they are re-attached explicitly.
+                    let l;
+                    const Klass = (layer && layer.constructor && layer.constructor !== Object)
+                        ? layer.constructor : TrackLayer;
+                    try { l = Object.assign(Object.create(Klass.prototype), layer); }
+                    catch (e) { l = Object.assign(new TrackLayer(), layer); }
+                    try {
+                        if (layer && layer.track && !Object.prototype.hasOwnProperty.call(l, 'track')) {
+                            Object.defineProperty(l, 'track',
+                                { value: layer.track, enumerable: false, writable: true });
+                        }
+                    } catch (e) { }
                     l.name = layer.name + '*'
                     return l;
                 }

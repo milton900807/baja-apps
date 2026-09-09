@@ -36,7 +36,7 @@ works.run(
   '{"tables":{"startup_costs[0:0][0:0]":"Label","startup_costs[1:1][0:0]":"Value",'
   '"startup_costs[0:0][1:1]":"Laboratory_Setup_Costs","startup_costs[1:1][1:1]":"500000 USD"},'
   '"formulas":{},"annotations":{},"units":{}}',   # param(3) = inline JSON
-  "gpt-4o-mini"                # param(4) optional
+  "claude-haiku-4-5"                # param(4) optional
 )
 
 # Example B: pass a path to a JSON file as param(3)
@@ -45,7 +45,7 @@ works.run(
   "startup_costs",             # source
   "kpi_forecasts",             # target
   "/path/to/current_model.json", # param(3) = path to file
-  "gpt-4o-mini"
+  "claude-haiku-4-5"
 )
 
 Returns
@@ -63,9 +63,7 @@ from typing import Dict, Any, Optional, Tuple, List, Set
 from ion import works  # type: ignore
 
 # ---------- OpenAI ----------
-from openai import OpenAI
-
-# ===================== Utilities =====================
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 _KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\[(\d+):\d+\]\[(\d+):\d+\]$')
 _RANGE_REF_RE = re.compile(r'(?P<table>[A-Za-z_][A-Za-z0-9_]*)\[(?P<xi>\d+):\d+\]\[(?P<yj>\d+):\d+\]')
@@ -284,7 +282,7 @@ def prompt_for_link(source_table: str,
 def chat_linker_call(source_table: str,
                      target_table: str,
                      model_json: Dict[str, Any],
-                     model_id: str = "gpt-4o-mini",
+                     model_id: str = "claude-haiku-4-5",
                      temperature: float = 0.1) -> Dict[str, Any]:
     client = OpenAI()
     content = client.chat.completions.create(
@@ -358,7 +356,7 @@ def _load_json_from_path_or_text(s: str) -> Dict[str, Any]:
 
 # ===================== ION entry =====================
 
-def main_ion(default_model: str = "gpt-4o-mini") -> int:
+def main_ion(default_model: str = "claude-haiku-4-5") -> int:
     """
     Ion parameters:
       param(1): source_table (e.g., "startup_costs")
@@ -370,8 +368,8 @@ def main_ion(default_model: str = "gpt-4o-mini") -> int:
       - If it's inline JSON, it's parsed directly.
       - If it's a file path, that file is opened and parsed.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY must be set")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY must be set")
 
     source_table = str(works.param(1) or "").strip()
     target_table = str(works.param(2) or "").strip()
@@ -402,4 +400,4 @@ def main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("[linker] Starting generalized linker…")
-    main_ion("gpt-4o-mini")
+    main_ion("claude-haiku-4-5")

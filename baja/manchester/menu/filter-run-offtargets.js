@@ -74,7 +74,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
 
         // Otherwise, click a track.
         graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-        graph.setMouseMode('msg: Click on a track to run off-targets and filter live.');
+        graph.setMouseMode('msg: Click on a track to run off-targets and filter live');
         graph.setMessage(' Click on a track to run off-targets and filter live. ');
         graph.addMouseDownListener(async (x, y) => {
             const ti = graph.getTrack(x, y);

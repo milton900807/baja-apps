@@ -124,14 +124,6 @@ function (path) {
                             clear();
                             window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
                             exec('manchester/editor', path, { mode: 'editor' })
-                        } else if (element.path.endsWith('.bjb')) {
-                            clear();
-                            let config = {
-                                silent: true,
-                                user: getUser(),
-                                mode: 'editor'
-                            }
-                            exec('cpd/bajabio-project', element.path, config, `/app/cpd/baja-project`)
                         } else {
 
                             if (element.path.endsWith('.share')) {
@@ -390,20 +382,6 @@ function (path) {
                             return;
                         }
 
-                        if (lowerPath.endsWith('.bjb')) {
-                            exec(
-                                'cpd/bajabio-project',
-                                element.path,
-                                {
-                                    silent: true,
-                                    user: getUser(),
-                                    mode: 'editor'
-                                },
-                                '/app/cpd/bajabio-project'
-                            );
-                            return;
-                        }
-
                         if (lowerPath.endsWith('.pdf')) {
 
                             let host_ = window['env']['apiUrl']
@@ -530,40 +508,51 @@ function (path) {
 
                                 {
                                     label: 'New folder',
-                                    ionfunction: createIonFunction(() => {
-
-                                        showModal({
-                                            wid: 'input-param-items',
-                                            data: {
-                                                input_labels: ['Folder name'],
-                                                buttons: [{
-                                                    'label': 'Create', 'function': createIonFunction(async (button_label, input_params) => {
-
-                                                        let host_ = window['env']['apiUrl']
-                                                        let foldername = input_params['Folder name']
-                                                        if (foldername != undefined && foldername != null && foldername.length > 0) {
-                                                            let directory = userFiles_panel.currentPath;
-                                                            if (!directory) {
-                                                                directory = '/'
-                                                            }
-                                                            let jsonobj = {
-                                                                "key": "user",
-                                                                "user": getUser(),
-                                                                "spath": directory + '/' + foldername
-                                                            }
-                                                            let rs = await POSTJSON(jsonobj, host_ + '/save-user-dir');
-                                                            if (userFiles_panel) {
-                                                                await userFiles_panel.refresh();
-                                                                await userFiles_panel.navigateToFolderNamed(foldername);
-                                                            }
-                                                        }
-                                                        hideAllModal();
-                                                    })
-                                                }]
-                                            }
-                                        })
-
-                                    })
+                                    ionfunction: createIonFunction(async () => {
+                                                     // The navy dialog, not a bare input-param-items widget handed to showModal. That
+                                                     // had no title saying what was being asked, no cancel, and an unstyled input
+                                                     // rendered against the modal's own background, which is where the unreadable
+                                                     // boxes came from. baja/lib/prompt-name.js is the shared one.
+                                                     let directory = (userFiles_panel && userFiles_panel.currentPath) || '/';
+                                                     const where = ('' + directory).split('/').filter(Boolean).pop();
+                                                     const foldername = await exec('baja/lib/prompt-name.js', {
+                                                         title: 'New folder',
+                                                         message: where ? ('It will be created in ' + where + '.')
+                                                             : 'It will be created in your files.',
+                                                         label: 'Folder name',
+                                                         placeholder: 'e.g. KRAS screens',
+                                                         confirmLabel: 'Create',
+                                                         // A path segment on the server, so a slash would create something other than
+                                                         // what was typed.
+                                                         validate: (v) => {
+                                                             if (v.indexOf('/') >= 0) return 'A folder name cannot contain a slash.';
+                                                             if (v === '.' || v === '..') return 'Choose a different name.';
+                                                             if (v.charAt(0) === '.') return 'A name starting with a dot is hidden.';
+                                                             return '';
+                                                         }
+                                                     });
+                                                     if (!foldername) return;
+                                                 
+                                                     const host_ = window['env']['apiUrl'];
+                                                     try {
+                                                         const rs = await POSTJSON({
+                                                             "key": "user",
+                                                             "user": getUser(),
+                                                             "spath": directory + '/' + foldername
+                                                         }, host_ + '/save-user-dir');
+                                                         // Refresh first, THEN navigate: navigating into a folder the listing has not
+                                                         // seen yet lands on an empty view that looks like the create failed.
+                                                         if (userFiles_panel) {
+                                                             await userFiles_panel.refresh();
+                                                             try { await userFiles_panel.navigateToFolderNamed(foldername); } catch (e) { }
+                                                         }
+                                                         // A create that failed used to say nothing at all.
+                                                         if (rs && rs.error) infoPrompt(' ' + foldername + ' was not created: ' + rs.error + ' ');
+                                                     } catch (e) {
+                                                         infoPrompt(' ' + foldername + ' was not created: '
+                                                             + (e && e.message ? e.message : e) + ' ');
+                                                     }
+                                                 })
                                 },
                                 {
                                     label: 'Delete this folder',

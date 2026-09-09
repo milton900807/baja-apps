@@ -4,6 +4,8 @@ setup.cfg
 bajasplice/__init__.py
 bajasplice/attribution.py
 bajasplice/bajaclip.py
+bajasplice/bajair.py
+bajasplice/cis.py
 bajasplice/cli.py
 bajasplice/config.py
 bajasplice/datasets.py

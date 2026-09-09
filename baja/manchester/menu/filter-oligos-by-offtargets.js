@@ -68,7 +68,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
 
         // Otherwise, click a track to filter.
         graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-        graph.setMouseMode('msg: Click on a track to filter its oligos by off-target count.');
+        graph.setMouseMode('msg: Click on a track to filter its oligos by off-target count');
         graph.setMessage(' Click on a track to filter its oligos by off-target count. ');
         graph.addMouseDownListener(async (x, y) => {
             const ti = graph.getTrack(x, y);

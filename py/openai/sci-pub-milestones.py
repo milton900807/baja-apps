@@ -7,8 +7,8 @@ Prompt → ChatGPT refines into a structured PubMed query plan → NCBI PubMed q
 Loosening adds ORs iteratively; we try at least 6 iterations (7 with RAW) before failing.
 
 Env:
-- OPENAI_API_KEY: API key for OpenAI
-- OPENAI_MODEL: (optional) model name, default "gpt-4o-mini"
+- ANTHROPIC_API_KEY: API key for OpenAI
+- OPENAI_MODEL: (optional) model name, default "claude-haiku-4-5"
 - NCBI_EMAIL / NCBI_API_KEY: optional, forwarded to NCBI
 
 Inputs
@@ -59,11 +59,11 @@ RE_DOI = re.compile(r'^10\.\d{4,9}/[^\s"<>]+$', re.IGNORECASE)
 # ===================== ChatGPT → structured query plan =====================
 
 def chatgpt_refine_query(user_prompt: str) -> Optional[Dict[str, Any]]:
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return None
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    model = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
     system = (
         "You turn biomedical prompts into a focused PubMed search plan. "
         "Respond ONLY with compact JSON matching the schema. No prose."
@@ -89,7 +89,7 @@ Example:
 """
     try:
         try:
-            from openai import OpenAI  # type: ignore
+            from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
             client = OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
                 model=model,

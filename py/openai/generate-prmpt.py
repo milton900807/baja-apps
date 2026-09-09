@@ -8,7 +8,7 @@ Operations Scheduler with Plate/Table-Aware Prompt Rewriter + GPT-Assisted Inter
 Ion entry:
   param(1): user_prompt          (str, required)
   param(2): plates_or_tables     (EITHER list[dict] plates OR artifact with "tables"/"plates", optional)
-  param(3): model                (str, optional; default "gpt-4o-mini")
+  param(3): model                (str, optional; default "claude-haiku-4-5")
   param(4): temperature          (float, optional; default 0.2)
 
 Behavior:
@@ -56,7 +56,7 @@ except Exception:
 
 # ----- Optional OpenAI client -----
 try:
-    from openai import OpenAI, APITimeoutError  # type: ignore
+    from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None  # type: ignore
     APITimeoutError = Exception  # type: ignore
@@ -337,7 +337,7 @@ def _parse_numeric(value: str) -> Optional[float]:
 def _gpt_analyze_label_values(
     label_values: Dict[str, str],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1
 ) -> Dict[str, Any]:
     """
@@ -401,7 +401,7 @@ def _gpt_analyze_label_values(
             return {}
         return data
     except Exception as e:
-        works.msg(f"⚠️ GPT label-analysis error, ignoring GPT hints: {e}")
+        works.msg(f"⚠️ Claude label-analysis error, ignoring Claude hints: {e}")
         return {}
 
 # ==========================================================
@@ -411,7 +411,7 @@ def _gpt_analyze_label_values(
 def build_intervals_and_milestones_from_labels(
     label_values: Dict[str, str],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
@@ -672,7 +672,7 @@ def _gpt_filter_step_lines(
     candidate_lines: List[str],
     plates: Any,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
     max_lines: int = 20,
 ) -> List[str]:
@@ -750,14 +750,14 @@ def _gpt_filter_step_lines(
             return []
         return filtered[:max_lines]
     except Exception as e:
-        works.msg(f"⚠️ GPT filter-step-lines error, using unfiltered lines: {e}")
+        works.msg(f"⚠️ Claude filter-step-lines error, using unfiltered lines: {e}")
         return [_clean_step_text(l) for l in candidate_lines if l and l.strip()]
 
 def _gpt_expand_prompt_to_lines(
     user_prompt: str,
     plates: Any,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     max_lines: int = 20
 ) -> List[str]:
@@ -824,7 +824,7 @@ def _gpt_expand_prompt_to_lines(
             raise ValueError("GPT returned no usable lines")
 
         # >>> run filter pass to drop non-task / structural noise and clean
-        works.msg("🧹 filtering GPT step lines to remove structural/table noise and clean text…")
+        works.msg("🧹 filtering Claude step lines to remove structural/table noise and clean text…")
         filtered_lines = _gpt_filter_step_lines(
             user_prompt,
             lines,
@@ -838,11 +838,11 @@ def _gpt_expand_prompt_to_lines(
             return filtered_lines[:max_lines]
 
         # If filter wiped everything out, fall back to original cleaned lines
-        works.msg("⚠️ GPT filter removed all lines; using unfiltered lines from expansion.")
+        works.msg("⚠️ Claude filter removed all lines; using unfiltered lines from expansion.")
         return lines[:max_lines]
 
     except Exception as e:
-        works.msg(f"⚠️ GPT expansion error, using raw prompt lines instead: {e}")
+        works.msg(f"⚠️ Claude expansion error, using raw prompt lines instead: {e}")
         return [_clean_step_text(l) for l in (user_prompt or "").splitlines() if l.strip()]
 
 # ==========================================================
@@ -934,7 +934,7 @@ def _local_parse_line(line: str, now: datetime) -> Tuple[Optional[datetime], Opt
 def _chat_schedule_fallback(
     line: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2
 ) -> Optional[Dict[str, Any]]:
     client = _get_client()
@@ -966,7 +966,7 @@ def _chat_schedule_fallback(
             text = (resp.choices[0].message.content or '').strip()
             return json.loads(text)
         except (APITimeoutError, Exception) as e:
-            works.msg(f"⚠️ GPT schedule-fallback error: {e}; retrying...")
+            works.msg(f"⚠️ Claude schedule-fallback error: {e}; retrying...")
             time.sleep(2 ** attempt)
     return None
 
@@ -1020,7 +1020,7 @@ def build_interval_for_line(line: str, *, model: str, temperature: float) -> Dic
 def build_intervals_from_lines(
     lines: List[str],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2
 ) -> Dict[str, Any]:
     if not lines:
@@ -1126,7 +1126,7 @@ def _read_param(i: int):
     except Exception:
         return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     user_prompt = _read_param(1)
     if not user_prompt:
         works.resolve({"status": "❌ error", "error": "param(1) required: user_prompt"})
@@ -1191,7 +1191,7 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
             merged_label_values.update(plate_label_values)
 
         if merged_label_values:
-            works.msg("🧮 building intervals + milestones from merged labels (heuristics + GPT + duration_periods)…")
+            works.msg("🧮 building intervals + milestones from merged labels (heuristics + Claude + duration_periods)…")
             label_intervals, label_milestones = build_intervals_and_milestones_from_labels(
                 merged_label_values,
                 model=str(model),
@@ -1225,4 +1225,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("🔧 operations scheduler — plate/table-aware prompt rewriter + merged-label intervals/milestones")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

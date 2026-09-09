@@ -405,7 +405,7 @@ function () {
             //
             // The annotation is no longer a sentence; it is a record, composed as
             //
-            //     Cystic fibrosis (OMIM:219700) · Pathogenic · truncates the protein ·
+            //     Cystic fibrosis · Pathogenic · truncates the protein ·
             //     loss of function — chloride channel function is lost
             //
             // and it was being drawn as one undifferentiated wrapped blob in a square white
@@ -449,7 +449,7 @@ function () {
                 if (!(hx > -60 && hx < cw + 60 && hy > -60 && hy < ch + 60)) return;
 
                 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
-                const TITLE_FS = 12.5, BODY_FS = 11, CHIP_FS = 10, MUTED_FS = 10.5;
+                const TITLE_FS = 12.5, BODY_FS = 11, CHIP_FS = 10;
                 const lineH = 15, maxW = 258, padX = 11, padY = 9, radius = 6;
 
                 // The composed record splits on the middle dot. Anything that was set by hand
@@ -458,12 +458,14 @@ function () {
                 // like.
                 const parts = ('' + text).split('·').map((p) => p.trim()).filter(Boolean);
                 const composed = parts.length > 1;
-                let title = '', ident = '', chip = '', body = '';
+                let title = '', chip = '', body = '';
                 if (composed) {
                     const head = parts[0];
-                    const m = head.match(/^(.*?)\s*\((OMIM:[^)]+)\)\s*$/);
+                    // A record saved before identifiers were dropped still carries the
+                    // parenthetical in its stored text, so it is matched here to be REMOVED
+                    // from the heading rather than drawn underneath it.
+                    const m = head.match(/^(.*?)\s*\((?:OMIM|MIM):[^)]+\)\s*$/);
                     title = m ? m[1] : head;
-                    ident = m ? m[2] : '';
                     const rest = parts.slice(1);
                     // The classification is whichever part _sigStyle recognises; it is not
                     // always second, and a record with none simply has no chip.
@@ -494,7 +496,6 @@ function () {
                 const titleFont = '600 ' + TITLE_FS + 'px ' + FONT;
                 const bodyFont = BODY_FS + 'px ' + FONT;
                 const chipFont = '600 ' + CHIP_FS + 'px ' + FONT;
-                const mutedFont = MUTED_FS + 'px ' + FONT;
 
                 const titleLines = title ? wrap(title, titleFont, maxW) : [];
                 const bodyLines = body ? wrap(body, bodyFont, maxW) : [];
@@ -509,20 +510,17 @@ function () {
                 ctx.font = chipFont;
                 const chipTextW = chip ? ctx.measureText(chip).width : 0;
                 const chipW = chip ? chipTextW + 14 : 0, chipH = 16;
-                ctx.font = mutedFont;
-                const identW = ident ? ctx.measureText(ident).width : 0;
 
                 let tw = 0;
                 ctx.font = titleFont;
                 for (const l of titleLines) tw = Math.max(tw, ctx.measureText(l).width);
                 ctx.font = bodyFont;
                 for (const l of bodyLines) tw = Math.max(tw, ctx.measureText(l).width);
-                tw = Math.max(tw, identW, chipW);
+                tw = Math.max(tw, chipW);
 
                 const bw = Math.ceil(tw) + padX * 2 + 3;   // +3 for the accent rail
                 const bh = padY * 2
                     + titleLines.length * (TITLE_FS + 4)
-                    + (ident ? MUTED_FS + 4 : 0)
                     + (chip ? chipH + 5 : 0)
                     + bodyLines.length * lineH
                     + ((titleLines.length && (bodyLines.length || chip)) ? 3 : 0);
@@ -596,13 +594,6 @@ function () {
                 ctx.font = titleFont;
                 ctx.fillStyle = '#0f172a';
                 for (const l of titleLines) { ctx.fillText(l, x, y); y += TITLE_FS + 4; }
-
-                if (ident) {
-                    ctx.font = mutedFont;
-                    ctx.fillStyle = '#64748b';
-                    ctx.fillText(ident, x, y);
-                    y += MUTED_FS + 4;
-                }
 
                 if (chip) {
                     ctx.fillStyle = st.bg;
@@ -732,6 +723,15 @@ function () {
                 const sLo = Math.min(sA, sB) - radius - hpad;
                 const sHi = Math.max(sA, sB) + radius + hpad;
                 instance._hitScreen = { x: sMidX - radius - hpad, y: sLo, w: (radius * 2) + hpad * 2, h: sHi - sLo };
+                // WHERE THE HEAD IS, separately from the region that can be hit.
+                //
+                // The region deliberately spans the whole lollipop so the stem is clickable
+                // too, which means two markers at the same base in different lanes have
+                // overlapping regions -- the taller one's contains the shorter one's
+                // entirely. Picking the first match would then select whichever happened to
+                // be enumerated first, not the one under the pointer. Ranking by distance to
+                // the HEAD is what makes the click land on the lollipop you aimed at.
+                instance._headScreen = { x: sMidX, y: sB };
             }
 
             // Lighten (amt>0) or darken (amt<0) a #rrggbb color; returns rgb(). Falls back
@@ -1054,10 +1054,10 @@ function () {
                     pick = phs.find((ph) => ph.mims.some((x) => want.has(('' + x).toUpperCase()))) || null;
                 }
                 if (!pick) pick = phs[0];
-                // The plain numeric id, not the phenotypic series: PS268000 names a family of
-                // ninety numbered forms and is not what this record is.
-                const id = pick.mims.find((x) => !/^PS/i.test(x)) || pick.mims[0] || '';
-                return pick.name + (id ? ' (OMIM:' + id + ')' : '');
+                // The NAME only. The identifiers behind it are still read and still decide
+                // which of a record's several conditions this is (focusMims, above) -- they
+                // are simply not something the reader is shown.
+                return pick.name;
             }
 
             _consequence() {
@@ -1096,9 +1096,8 @@ function () {
                 if (this.annotation && !this._derivedAnnotation) return;
                 const tidy = (v) => ('' + v).replace(/_/g, ' ').replace(/\|/g, '; ').trim();
                 const parts = [];
-                // The phenotype with its OMIM number, when the record carries one. Falls back
-                // to the plain condition text for a variant that came from somewhere with no
-                // CLNDISDB to pair against -- a described change, or another database.
+                // The phenotype name. Falls back to the plain condition text for a variant
+                // that came from somewhere with no CLNDISDB to pair against -- a described change, or another database.
                 // "not provided" and "not specified" are ClinVar saying it has no condition for
                 // this record. Printing them back is worse than printing nothing.
                 const ph = this._phenotypeLine();
@@ -1321,21 +1320,40 @@ function () {
                 const iLo = Math.min(syP, sy0b) - hpad;
                 const iHi = Math.max(syP, sy0b) + hpad;
                 this._hitScreen = { x: Math.min(sMinX, sMaxX) - hpad, y: iLo, w: Math.abs(sMaxX - sMinX) + hpad * 2, h: (iHi - iLo) };
+                // The indel's marker sits at syP; see the note in _drawSnpMarker.
+                this._headScreen = { x: (sMinX + sMaxX) / 2, y: syP };
                 if (__dimCtx) __dimCtx.globalAlpha = 1;
             }
 
-            over(x, y, graph, tgraph) {
-                // x,y are SCREEN pixels (mouse-over-highlight converts with tgraph.Xwc(x)).
-                // Prefer the screen-space lollipop hit region (head + stem line).
+            // IS THE POINTER ON THIS LOLLIPOP? sx,sy are SCREEN PIXELS -- Gene.getSNPs
+            // converts, because the mouse listeners are dispatched in world coordinates.
+            //
+            // _hitScreen is the whole lollipop: the head AND the stem, from the track
+            // baseline up to the marker. That is the point of testing in screen space. A
+            // marker's head is drawn at a FIXED PIXEL OFFSET above the baseline and lane-
+            // packed upward, so vertically it sits outside its own track while horizontally
+            // it stays over the base it belongs to. Any test that asks "is this inside the
+            // track" answers no for the head, which is exactly the part people aim at.
+            //
+            // No _hitScreen means this marker was not drawn on the last frame, so there is
+            // nothing to hit. It used to fall back to _drawBounds, which is built from
+            // unconverted world values -- comparing pixels against those could only ever
+            // match by accident. The caller keeps a real proximity fallback of its own.
+            over(sx, sy, graph, tgraph) {
                 const h = this._hitScreen;
-                if (h) {
-                    return (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-                }
-                if (!this._drawBounds) return false;
-                const sx = graph.X(x);
-                const sy = graph.Y(y);
-                const b = this._drawBounds;
-                return (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h);
+                if (!h) return false;
+                return (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h);
+            }
+
+            // Pixels from the pointer to this marker's HEAD. Used to choose between several
+            // lollipops whose hit regions overlap -- see the note where _headScreen is set.
+            // Infinity when the marker was not drawn on the last frame, so a marker with no
+            // known head never wins a comparison against one that has one.
+            headDistance(sx, sy) {
+                const h = this._headScreen;
+                if (!h) return Infinity;
+                const dx = sx - h.x, dy = sy - h.y;
+                return Math.sqrt((dx * dx) + (dy * dy));
             }
 
             drawDetail(graph, tgraph, x, y, lane = 0) {

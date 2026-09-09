@@ -21,7 +21,7 @@ Ion Works:
             - "force-zero"           -> ignore model defaults and write 0s
             - "append-only"          -> if <Var>_Breakdown exists, create <Var>_Breakdown_2, etc.
             - "no-map"               -> do not allow GPT to map to dataset refs (always literals)
-  param(4): model id (default "gpt-4o-mini")
+  param(4): model id (default "claude-haiku-4-5")
   param(5): temperature float (default 0.2)
   param(6): max_rows int cap for model rows (default 10)
 
@@ -59,8 +59,7 @@ except Exception:
 
 # ---- OpenAI client ----
 import os
-from openai import OpenAI
-
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 IDENT_LABEL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ----------------- dataset helpers -----------------
@@ -189,8 +188,8 @@ def extract_json_snippet(text: str) -> str:
     return text[s:e+1].strip()
 
 def chat_json(model: str, temperature: float, system: str, user: str) -> dict:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -284,7 +283,7 @@ def main() -> int:
     src_json_text = works.param(1)
     var_name = (works.param(2) or "").strip()
     flags_raw = (works.param(3) or "").strip()
-    model = (works.param(4) or "gpt-4o-mini").strip()
+    model = (works.param(4) or "claude-haiku-4-5").strip()
     try:
         temperature = float(works.param(5) or 0.2)
     except Exception:

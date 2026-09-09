@@ -131,14 +131,14 @@ _path = first_existing(INDEX_REL)
 if not text:
     out["error"] = "no description given"
 elif not os.path.exists(_path):
-    out["error"] = ("the ClinVar/OMIM index is not on this server (%s). Build it with "
+    out["error"] = ("the ClinVar phenotype index is not on this server (%s). Build it with "
                     "py/bio/build-clinvar-omim-index.py." % INDEX_REL)
 else:
     try:
         with open(_path) as fh:
             INDEX = (json.load(fh) or {}).get("phenotypes") or {}
     except Exception as e:
-        out["error"] = "the ClinVar/OMIM index could not be read: %s" % e
+        out["error"] = "the ClinVar phenotype index could not be read: %s" % e
 
 # Name matching is by CONTENT WORDS, not by phrase. "sickle cell disease" is filed by ClinVar
 # as "Hb SS disease" and "cystic fibrosis" as "Cystic fibrosis", and a phrase test finds the
@@ -166,7 +166,7 @@ def dominant_genes(entry):
 
 
 def entry_out(mim, e):
-    return {"mim": mim, "name": e.get("name") or ("OMIM " + mim),
+    return {"mim": mim, "name": e.get("name") or ("phenotype " + mim),
             "variants": e.get("v") or 0, "stars": e.get("s") or 0,
             "genes": e.get("genes") or []}
 
@@ -260,7 +260,7 @@ if INDEX is not None and not out["error"]:
                     cand[mim] = e
                     by_name += 1
         if not cand:
-            out["note"] = ("no OMIM phenotype with pathogenic ClinVar records matches \"%s\""
+            out["note"] = ("no phenotype with pathogenic ClinVar records matches \"%s\""
                            % (out["disease"] or text))
         else:
             # Best evidenced first: that is the order the chooser reads, and the order the
@@ -269,7 +269,7 @@ if INDEX is not None and not out["error"]:
                                                           -(kv[1].get("v") or 0)))[:MAX_CANDIDATES]
             chosen = [m for m, _ in ranked]
             if len(ranked) > 1:
-                works.msg("Choosing among %d OMIM phenotype(s)…" % len(ranked))
+                works.msg("Choosing among %d phenotype(s)…" % len(ranked))
                 lines = []
                 for mim, e in ranked:
                     genes = dominant_genes(e)
@@ -307,7 +307,7 @@ if INDEX is not None and not out["error"]:
                 # falls back to enumerating the condition, so this is a normal outcome and not
                 # an error -- is_context stays true, because the text really is a disease.
                 out["note"] = (out["note"]
-                               or ("no OMIM phenotype with pathogenic ClinVar records is "
+                               or ("no phenotype with pathogenic ClinVar records is "
                                    "\"%s\"" % (out["disease"] or text)))
             # Ordered by how much of the chosen phenotypes each gene actually carries, so a
             # cap takes the ones the condition is about rather than the first alphabetically.

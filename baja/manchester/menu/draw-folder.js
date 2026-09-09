@@ -1,6 +1,6 @@
 function (graph) {
     graph.clearMouseListeners();
-    graph.setMouseMode("msg:Click and drag on canvas");
+    graph.setMouseMode("msg: Click and drag on the canvas");
     graph.selectOff();
     let md = false;
     graph.addMouseDownListener(async (x, y) => {

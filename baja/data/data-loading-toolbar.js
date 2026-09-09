@@ -130,7 +130,7 @@ function (graph, genegraph_panel_layout) {
             'label': 'Edit layers', 'ionfunction': go(async () => {
                 // Prompt to click a track, then open its layer editor.
                 graph.clearMouseListeners();
-                graph.setMouseMode('msg: Click on a track to edit its layers.');
+                graph.setMouseMode('msg: Click on a track to edit its layers');
                 graph.addMouseDownListener(async (x, y) => {
                     const ti = graph.getTrack(x, y);
                     if (ti < 0) return;

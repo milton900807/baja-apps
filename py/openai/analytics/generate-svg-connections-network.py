@@ -45,10 +45,7 @@ from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict, is_dataclass
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- data structures ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 @dataclass
 class svg_text:
@@ -472,8 +469,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -591,7 +588,7 @@ IMPORTANT:
 def generate_svg_groups_from_prompt(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> List[svg_group]:
     """
@@ -606,7 +603,7 @@ Natural-language description of roles / responsibilities:
 
 Now extract nodes and return ONLY the JSON object as described.
 """
-    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from GPT…")
+    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from Claude…")
     content = _chat_call(
         model=model,
         system=NODE_EXTRACTION_SYSTEM,
@@ -812,7 +809,7 @@ def assemble_svg_from_groups(
     user_prompt: str,
     groups: List[svg_group],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     """
@@ -847,7 +844,7 @@ that follows the system instructions:
 Return ONLY the <svg>...</svg> markup.
 """
 
-    works.msg("🧩 Stage 2: requesting assembled SVG (nodes + edges, fully connected) from GPT…")
+    works.msg("🧩 Stage 2: requesting assembled SVG (nodes + edges, fully connected) from Claude…")
     content = _chat_call(
         model=model,
         system=SVG_ASSEMBLY_SYSTEM,
@@ -877,7 +874,7 @@ Return ONLY the <svg>...</svg> markup.
 def generate_svg_diagram(
     user_prompt: str,
     *largs,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     """
@@ -904,7 +901,7 @@ def generate_svg_diagram(
 def run_svg_builder(
     user_prompt: str,
     *largs,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> dict[str, Any]:
     """
@@ -936,7 +933,7 @@ def run_svg_builder(
 
 # ---------- Ion entry ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading two-stage SVG responsibility diagram builder (all nodes connected)…")
 
     # User prompt in param(1) (required)
@@ -980,4 +977,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 # ---------- Bootstrap ----------
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

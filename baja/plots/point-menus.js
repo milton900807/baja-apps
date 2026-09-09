@@ -1094,8 +1094,8 @@ function () {
                                 pt.grid.yi + pt.grid.height / 2 - (itemHeight * items.length) / 2
                             );
 
-                            const bg = 'rgba(255,255,255,0.95)';
-                            const fg = 'navy';
+                            const bg = 'rgba(255,255,255,0.98)';
+                            const fg = '#1f2937';
                             const border = 2;
 
                             pt.menu = null;
@@ -1579,8 +1579,8 @@ function () {
                                 pt.grid.yi + pt.grid.height / 2 - (itemHeight * items.length) / 2
                             );
 
-                            const bg = 'rgba(255,255,255,0.95)';
-                            const fg = 'navy';
+                            const bg = 'rgba(255,255,255,0.98)';
+                            const fg = '#1f2937';
                             const border = 2;
 
                             pt.menu = null;

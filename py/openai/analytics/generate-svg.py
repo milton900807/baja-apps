@@ -13,13 +13,13 @@ except Exception:  # pragma: no cover
     works = None
 
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 def build_svg_schema() -> Dict[str, Any]:
@@ -58,10 +58,10 @@ def extract_svg(svg_text: str) -> str:
 def infer_svg_from_prompt(prompt: str) -> Dict[str, Any]:
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=ANTHROPIC_API_KEY)
     schema = build_svg_schema()
 
     instructions = """

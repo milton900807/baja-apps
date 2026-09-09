@@ -396,7 +396,7 @@ def _build_year_tables_cumulative(input_array: List[Dict[str, Any]]) -> List[Dic
 
 
 # ---------------- Ion main ----------------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     p1 = _read_param(1)
     if p1 in (None, "", [], {}):
         raise RuntimeError("Ion: param(1) required: JSON text, dict/list, jfile:URI, or a path to a JSON file.")
@@ -421,4 +421,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

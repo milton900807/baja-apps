@@ -63,9 +63,25 @@ function () {
 
             if (window['env']['auth'] === 'b2c') {
 
-
-                return exec('cpd/yak.js', '/', true)
-
+                // THE HOME SCREEN: the applications across the top, the user's files
+                // underneath.
+                //
+                // It used to open the project workspace (cpd/yak.js), which meant the first
+                // thing a user saw after signing in was a drawing canvas rather than the
+                // three things this application is for. The file browser is the right home
+                // -- it is where work is resumed from -- and the launcher is what makes the
+                // choice of application visible without hunting through a menu.
+                //
+                // The row is built first and handed to the browser, because the browser
+                // clears the screen before it renders; anything shown beforehand is wiped.
+                let __apps = null;
+                try {
+                    __apps = await exec('baja/applications.js');
+                } catch (e) {
+                    // A launcher that failed to build must not cost the user their files.
+                    console.log('[init] application launcher unavailable: ' + e);
+                }
+                return exec('manchester/fb.js', null, __apps)
 
             } else {
 

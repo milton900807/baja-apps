@@ -1,7 +1,11 @@
-function (graph, genegraph_panel_layout, presetTrack, presetRange) {
+function (graph, genegraph_panel_layout, presetTrack, presetRange, presetRbp) {
     // RBP binding profile — pick an RBP, click a track, send its sequence to the
     // local bajaclip-lib model (py/bio/rbp/rbp-profile.py) and draw the per-position
     // binding score as a coverage-style track layer (like the RNASeq coverage).
+    //
+    // presetRbp: the protein was already chosen by whoever opened this -- the models
+    // library asks on its own reference page -- so the selection list below is skipped
+    // rather than asking the same question twice on two screens.
     return new Promise((resolve) => {
 
         const restoreHover = () => {
@@ -254,7 +258,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
             let __all = false;
             try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
             if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(rbp); return; }
-            graph.setMouseMode('msg: Click on a track to build an RBP binding profile.');
+            graph.setMouseMode('msg: Click on a track to build an RBP binding profile');
             restoreEditor();
             // Run on the existing selection when there is one -- see pickedTrack above.
             const pt = pickedTrack();
@@ -277,6 +281,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange) {
                 await runOnTrack(track, rbp, null);
             });
         };
+
+        // Already chosen: arm the run directly. Nothing is unmounted and no list is
+        // shown, so the layer lands over the editor the caller was already looking at.
+        if (presetRbp) {
+            armTrackClick('' + presetRbp);
+            resolve(true);
+            return;
+        }
 
         // Show a selection-list of the reliable RBPs (with confidence), then arm
         // the track click for the chosen one.

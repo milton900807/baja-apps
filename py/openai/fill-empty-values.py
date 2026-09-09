@@ -31,9 +31,7 @@ except Exception:
 
 # ---------- OpenAI client ----------
 # pip install -U openai
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (can be overridden with --grammar-file) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r"""
 grammar AssignLang;
 
@@ -221,11 +219,11 @@ def generate_domain_block_and_anchor_hints(
     domain_prompt: str,
     grammar_text: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.3,
 ) -> Tuple[str, str]:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     sys_msg = (
         "You are a domain pack synthesizer for a grammar-driven modeling system.\n"
@@ -409,7 +407,7 @@ If neither exists, add "<table>[1:1][Y:Y]" = "0" to "tables". Perform this check
 def expand_user_prompt(
     prompt: str,
     *,
-    model: str = "gpt-4o",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     starting_scaffold: dict | str | None = None,
 ) -> str:
@@ -426,8 +424,8 @@ def expand_user_prompt(
     import json as _json
     import re as _re
 
-    if not _os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+    if not _os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     # ---------- ORIGINAL BEHAVIOR (no scaffold) ----------
     if starting_scaffold is None:
@@ -530,9 +528,9 @@ def getOpenAIModel(
     temperature: float = 0.2,
     return_all: bool = True,
 ) -> dict:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     scaffold_model = scaffold_model or model
 
@@ -587,7 +585,7 @@ def getOpenAIModel(
 def refine_model_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
 ) -> dict:
     """
@@ -995,7 +993,7 @@ def synthesize_missing_tables_via_api(
     prior_prompt: str,
     grammar_text: str,
     current_json: dict,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15,
 ) -> dict:
     """
@@ -1060,7 +1058,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Three-stage AssignLang builder: (1) expand prompt, (2) JSON-constrained model generation, (3) refine & enforce."
     )
     p.add_argument("prompt", help="Natural language description.")
-    p.add_argument("--model", default="gpt-4o-mini", help="Model ID (default: gpt-4o-mini)")
+    p.add_argument("--model", default="claude-haiku-4-5", help="Model ID (default: gpt-4o-mini)")
     p.add_argument("--out", dest="out_path", help="Path to write ONLY the final JSON output (default: stdout)")
     p.add_argument("--outdir", help="Directory to dump expanded prompt and full response bundle")
     p.add_argument("--grammar-file", help="Path to a grammar file to override the default", default=None)
@@ -1186,6 +1184,6 @@ def _main_ion(default_model: str) -> int:
 if __name__ == "__main__":
     # If you want CLI behavior when not under Ion, call main_cli(); otherwise keep Ion by default.
     if _HAS_ION:
-        sys.exit(_main_ion('gpt-4o-mini'))
+        sys.exit(_main_ion('claude-haiku-4-5'))
     else:
         sys.exit(main_cli())

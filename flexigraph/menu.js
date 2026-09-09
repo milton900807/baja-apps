@@ -229,7 +229,7 @@ function () {
             scrollTimer = null;
             columns = 1;
             menu_type = null;
-            titleFont = '600 13px Arial'
+            titleFont = '600 13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif'
             titleColor = '#111827'
             isdisplayed = false;
 
@@ -458,7 +458,7 @@ function () {
                 if (this.collapsible && this.collapsed) {
                     const __mob = (typeof isMobile === 'function') && isMobile();
                     const label = ('' + (this.title || 'Menu'));
-                    ctx.font = this.titleFont || (__mob ? '700 15px Arial' : '700 12px Arial');
+                    ctx.font = this.titleFont || (__mob ? '700 15px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif' : '700 12px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif');
                     const tw = ctx.measureText(label).width;
                     let w, h, cx, cy;
                     if (__mob) {
@@ -586,10 +586,10 @@ function () {
                         const pulse = 0.5 + 0.5 * Math.abs(Math.sin((gel / GDUR) * Math.PI * 2));
                         const a = f * pulse;
                         ctx.save();
-                        ctx.shadowColor = 'rgba(26,163,189,' + (0.9 * a).toFixed(3) + ')';
-                        ctx.shadowBlur = 12 + 24 * a;
-                        ctx.lineWidth = 2 + 3 * a;
-                        ctx.strokeStyle = 'rgba(26,163,189,' + (0.85 * a).toFixed(3) + ')';
+                        ctx.shadowColor = 'rgba(37,99,235,' + (0.7 * a).toFixed(3) + ')';
+                        ctx.shadowBlur = 10 + 18 * a;
+                        ctx.lineWidth = 1.5 + 2 * a;
+                        ctx.strokeStyle = 'rgba(37,99,235,' + (0.7 * a).toFixed(3) + ')';
                         menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
                         ctx.stroke();
                         ctx.restore();
@@ -601,7 +601,7 @@ function () {
                 } catch (e) { }
 
                 if (this.title && !this.externalTitle) {
-                    ctx.font = this.titleFont || '600 13px Arial';
+                    ctx.font = this.titleFont || '600 13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                     ctx.fillStyle = this.titleColor || '#111827';
                     ctx.textAlign = 'left';
                     ctx.fillText(this.title, panelX + 12, panelY + titleH / 2 + 1);
@@ -610,7 +610,7 @@ function () {
                     // right edge; flips to the left edge when there's no room on the right.
                     try {
                         ctx.save();
-                        ctx.font = this.titleFont || '700 12px Arial';
+                        ctx.font = this.titleFont || '700 12px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                         const tw = ctx.measureText(this.title).width;
                         const chipPadX = 8, chipThick = 18;            // pill thickness across the edge
                         const chipLen = tw + chipPadX * 2;             // pill length along the edge
@@ -680,7 +680,7 @@ function () {
 
                     // Label: left-aligned, ellipsis-truncated
                     if (menuItem.label) {
-                        ctx.font = '14px Arial';
+                        ctx.font = '13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.fillStyle = isHi ? (menuItem.sf || this.sf || '#1d4ed8')
                             : (menuItem.fg || this.fg || '#344054');
                         ctx.textAlign = 'left';

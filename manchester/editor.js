@@ -883,7 +883,7 @@ function (path, config) {
                                                 // -- the ##fileformat line, or the #CHROM header --
                                                 // and failing both, by two or more lines that are
                                                 // literally chrom/pos/id/ref/alt.
-                                                oksLikeVcf = (t) => {
+                                                const looksLikeVcf = (t) => {
                                                     if (/^\s*##fileformat=VCF/im.test(t)) return true;
                                                     if (/^#CHROM\s+POS\s+ID\s+REF\s+ALT/im.test(t)) return true;
                                                     // ONE ROW IS ENOUGH WHEN IT IS UNMISTAKABLY ONE.
@@ -2470,89 +2470,16 @@ function (path, config) {
                                                             graph.__lassoSelection = [];
                                                         } catch (e) { }
                                                         if (graph.wake) graph.wake();
-                                                        // First-click center menu: Sequence | Sketch.
-                                                        graph.showMenu([
-                                                            {
-                                                                label: 'Sequence', move: () => { }, click: () => {
-                                                                    graph.hideMenu();
-                                                                    // Side menu of sequence-annotation options (incl. protein sequence).
-                                                                    graph.showSideMenu([
-                                                                        {
-                                                                            label: 'Annotate by description...', move: () => { log(''); }, click: async () => {
-                                                                                graph.showSideMenu(null);
-                                                                                await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'annotate');
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Select', move: () => { log(''); }, click: () => {
-                                                                                // Arm click-and-drag sequence selection right away (default), so the
-                                                                                // user can start selecting immediately — the menu below still lets
-                                                                                // them switch to Box drag.
-                                                                                // true → show annotation tools for the selected sequence on release.
-                                                                                exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
-                                                                                // Choose a selection interaction for the sequence (center menu).
-                                                                                graph.showMenu([
-                                                                                    {
-                                                                                        label: 'Click and drag on a track', move: () => { }, click: () => {
-                                                                                            if (graph.hideMenu) graph.hideMenu();
-                                                                                            // true → show annotation tools for the selected sequence on release.
-                                                                                            exec('baja/manchester/menu/select-sequence.js', graph, genegraph_panel_layout, true);
-                                                                                        }
-                                                                                    },
-                                                                                    {
-                                                                                        label: 'Box drag', move: () => { }, click: () => {
-                                                                                            if (graph.hideMenu) graph.hideMenu();
-                                                                                            exec('baja/manchester/menu/select-box-sequence.js', graph, genegraph_panel_layout);
-                                                                                        }
-                                                                                    }
-                                                                                ]);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Sequence tools', move: () => { log(''); }, click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/sequence.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Protein sequence', move: () => { log(''); }, click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/protein-annotation-tools.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Annotations', move: () => { log(''); }, click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/annotation/annotation-tools2.js', graph, genegraph_panel_layout);
-                                                                            }
-                                                                        },
-                                                                        {
-                                                                            label: 'Show / hide annotations', move: () => { log(''); }, click: () => {
-                                                                                graph.showSideMenu(null);
-                                                                                exec('baja/manchester/menu/annotation/show-annotations-menu.js', graph);
-                                                                            }
-                                                                        }
-                                                                    ]);
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'Annotation', move: () => { }, click: () => {
-                                                                    graph.hideMenu();
-                                                                    graph.showSideMenu(null);
-                                                                    // Drawing tools (rectangle / oval / line / freehand) for the canvas.
-                                                                    exec('baja/manchester/menu/draw-tools-simple.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'Variant', move: () => { }, click: () => {
-                                                                    graph.hideMenu();
-                                                                    graph.showSideMenu(null);
-                                                                    // Describe a variant →  resolves type & genomic position, place it
-                                                                    // on every track it can live on, and zoom into the last one added.
-                                                                    exec('baja/data/prompt-variant.js', window['env']['apiUrl'], graph, genegraph_panel_layout);
-                                                                }
-                                                            }
-                                                        ]);
+                                                        // THE LIBRARY, NOT A CENTER MENU.
+                                                        //
+                                                        // This was a center menu of Sequence / Annotation / Variant, where
+                                                        // Sequence opened a side menu and one of ITS entries opened another
+                                                        // center menu -- three interaction styles deep to reach "box drag".
+                                                        // Everything that was in there is now a card in the drawing library
+                                                        // (baja/manchester/menu/draw-tools-library.js), sectioned and one
+                                                        // click deep, with a line on each saying what it does. Same idiom as
+                                                        // Data, Models and Design.
+                                                        exec('baja/manchester/menu/draw-tools-library.js', graph, genegraph_panel_layout);
                                                     })
                                                 },
 
@@ -2578,71 +2505,74 @@ function (path, config) {
 
 
 
-                                                        graph.showMenu([
-                                                            {
-                                                                label: 'View all', move: () => { },
-                                                                click: async () => {
-                                                                    if (graph.hideMenu) graph.hideMenu();
-                                                                    try { await graph.viewAllTracks(); } catch (e) { }
-                                                                    try {
-                                                                        graph.clearMouseListeners();
-                                                                        graph.setMouseMode('navigate');
-                                                                        exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
-                                                                    } catch (e) { }
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'View track...', move: () => { },
-                                                                click: () => {
-                                                                    // Second center menu: one item per track (name + annotation);
-                                                                    // clicking zooms to that track.
-                                                                    const items = (graph.track || []).filter(t => t && t.tgraph).map(t => {
+                                                        // Navigate is a LIBRARY, not a centre menu.
+                                                        //
+                                                        // It was a popup of five items, two of which opened further popups -- the pattern
+                                                        // the shelves replaced everywhere else in the app. Same entries, same actions,
+                                                        // rendered as baja/lib/shelf.js so navigation reads like the rest of the app and
+                                                        // each entry can say what it does rather than relying on its label.
+                                                        //
+                                                        // Find sits FIRST because it is the general case: the other entries move you to a
+                                                        // place you already know the name of, and Find is for when you do not.
+                                                        const __navHome = async () => {
+                                                            try {
+                                                                graph.clearMouseListeners();
+                                                                graph.setMouseMode('navigate');
+                                                                exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
+                                                            } catch (e) { }
+                                                        };
+                                                        await exec('baja/lib/shelf.js', {
+                                                            id: 'baja-navigate-library',
+                                                            title: 'Navigate',
+                                                            subtitle: 'Move to a gene, a region or a feature',
+                                                            graph: graph,
+                                                            onClose: () => { __navHome(); },
+                                                            books: [
+                                                                {
+                                                                    title: 'Find', badge: 'Search', ready: true,
+                                                                    blurb: 'Keyword-search everything on the canvas -- tracks, features, oligos, '
+                                                                        + 'variants and layers -- then click a result to zoom to it.',
+                                                                    open: () => exec('baja/lib/find-objects.js', graph, genegraph_panel_layout)
+                                                                },
+                                                                {
+                                                                    title: 'View all', badge: 'Fit', ready: true,
+                                                                    blurb: 'Zoom out until every track on the canvas is in view.',
+                                                                    open: async () => { try { await graph.viewAllTracks(); } catch (e) { } __navHome(); }
+                                                                },
+                                                                {
+                                                                    // One card per track, built when the card is opened so a track added since
+                                                                    // the shelf opened is still listed.
+                                                                    title: 'View track', badge: 'Tracks', ready: true,
+                                                                    blurb: 'Pick a track by name and zoom to it.',
+                                                                    books: () => ((graph.track || []).filter((t) => t && t.tgraph).map((t, i) => {
                                                                         const annot = t.description || t.geneID
                                                                             || (Array.isArray(t.annotations) && t.annotations[0] && t.annotations[0].name)
                                                                             || t.track_type || '';
                                                                         return {
-                                                                            label: (t.name || 'track') + (annot ? '  —  ' + annot : ''),
-                                                                            move: () => { },
-                                                                            click: async () => {
-                                                                                if (graph.hideMenu) graph.hideMenu();
-                                                                                try { await graph.zoomToTrack(t); } catch (e) { }
-                                                                                try {
-                                                                                    graph.clearMouseListeners();
-                                                                                    graph.setMouseMode('navigate');
-                                                                                    exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout);
-                                                                                } catch (e) { }
-                                                                            }
+                                                                            title: t.name || ('track ' + (i + 1)),
+                                                                            badge: (t.track_type || 'Track'),
+                                                                            blurb: annot || 'Zoom to this track.',
+                                                                            open: async () => { try { await graph.zoomToTrack(t); } catch (e) { } __navHome(); }
                                                                         };
-                                                                    });
-                                                                    if (!items.length) { graph.setMessage(' No tracks to view. '); return; }
-                                                                    graph.showMenu(items);
+                                                                    }))
+                                                                },
+                                                                {
+                                                                    title: 'Mutations', badge: 'Variants', ready: true,
+                                                                    blurb: 'Drill down by track, then by mutation type, to a variant by location.',
+                                                                    open: () => exec('baja/manchester/menu/mutations-menu.js', graph, genegraph_panel_layout)
+                                                                },
+                                                                {
+                                                                    title: 'Where do you want to go?', badge: 'Ask', ready: true,
+                                                                    blurb: 'Describe the destination in words and let the app work out the move.',
+                                                                    open: () => exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate')
+                                                                },
+                                                                {
+                                                                    title: 'History', badge: 'Back', ready: true,
+                                                                    blurb: 'Step backward and forward through the views you have held still on.',
+                                                                    open: () => exec('baja/manchester/menu/view-history-menu.js', graph, genegraph_panel_layout)
                                                                 }
-                                                            },
-                                                            {
-                                                                label: 'Mutations', move: () => { },
-                                                                click: () => {
-                                                                    // Drill-down: tracks -> mutation types -> variants by g. location
-                                                                    // (paged with More…/‹ Back when there are a lot).
-                                                                    exec('baja/manchester/menu/mutations-menu.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'Where do you want to go?', move: () => { },
-                                                                click: async () => {
-                                                                    if (graph.hideMenu) graph.hideMenu();
-                                                                    await exec('baja/data/prompt-action.js', window['env']['apiUrl'], graph, genegraph_panel_layout, 'navigate');
-                                                                }
-                                                            },
-                                                            {
-                                                                label: 'History', move: () => { },
-                                                                click: async () => {
-                                                                    // Side menu to step backward/forward through recorded views
-                                                                    // (grid states that were held still for >2s).
-                                                                    if (graph.hideMenu) graph.hideMenu();
-                                                                    await exec('baja/manchester/menu/view-history-menu.js', graph, genegraph_panel_layout);
-                                                                }
-                                                            }
-                                                        ]);
+                                                            ]
+                                                        });
                                                     })
                                                 },
                                                 // Empty for everyone but the recorder account.

@@ -38,8 +38,8 @@ function (graph, genegraph_panel_layout) {
         // first. One track and there is nothing to ask; several and that is one more shelf;
         // none and say so, because every designer in there works against a track.
         //
-        // Returns false when it opens nothing, which is openShelf's signal to put the root
-        // back rather than leave the user on a hidden window behind a chip.
+        // Returns false when it opens nothing, which is openShelf's signal to say so on the
+        // canvas rather than leave the user looking at nothing after a click.
         const designTargets = () => ((graph && graph.track) || []).filter(Boolean);
         const openDesignFor = (t) => exec('baja/manchester/menu/track-design-menu.js', graph, t, genegraph_panel_layout);
         const openDesignLibrary = async () => {
@@ -84,7 +84,7 @@ function (graph, genegraph_panel_layout) {
                         path: 'baja/data/data-resources-library.js'
                     },
                     {
-                        name: 'ML Models Library',
+                        name: 'Machine Learning Models',
                         blurb: 'The models as things you run: BajaCLIP, BajaSplice, BajaIR and djPrimer, each '
                             + 'writing its prediction onto a track as a layer.',
                         path: 'baja/ml/models-library.js'
@@ -171,98 +171,42 @@ function (graph, genegraph_panel_layout) {
             scroll.style.cssText = 'flex:1 1 auto;overflow:auto;padding:18px 22px 28px;';
 
             let onKey = null;
-            let chip = null, watch = null, sawChild = false;
 
-            const dropChip = () => {
-                try { if (watch) clearInterval(watch); } catch (e) { }
-                watch = null;
-                try { if (chip && chip.parentNode) chip.parentNode.removeChild(chip); } catch (e) { }
-                chip = null;
-            };
             const close = () => {
-                dropChip();
                 try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
                 try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
             };
-
-            // Is one of the libraries still on screen? Every one of them -- the four that run on
-            // baja/lib/shelf.js and the four with their own overlay -- mounts a position:fixed
-            // element on document.body in the same z-index band (2147483000-2147483350). Asking
-            // the band makes this a property of the family rather than a list of DOM ids that
-            // would silently fall out of step the next time one is added.
-            const libraryUp = () => {
+                        // The board-level Layers button announces "Data · will load onto all N tracks…" and sets
+            // __bajaApplyAllTracks before a library has even opened: it is a statement of intent that a
+            // loader consumes (baja/lib/for-each-track.js). If the user leaves without loading anything,
+            // nothing consumes it and the spinner sits there saying data is about to arrive when it is
+            // not. Leaving a library is the end of that intent, so both go here.
+            const dismiss = () => {
                 try {
-                    const kids = (document.body && document.body.children) || [];
-                    for (let i = 0; i < kids.length; i++) {
-                        const el = kids[i];
-                        if (el === overlay || el === chip) continue;
-                        const st = (typeof window !== 'undefined' && window.getComputedStyle)
-                            ? window.getComputedStyle(el) : null;
-                        if (!st || st.position !== 'fixed' || st.display === 'none') continue;
-                        if (parseInt(st.zIndex, 10) >= 2147483000) return true;
+                    if (window.__bajaApplyAllTracks) {
+                        window.__bajaApplyAllTracks = false;
+                        if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
+                            window.__workStatus = '';
+                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                        }
                     }
                 } catch (e) { }
-                return false;
+                close(); restoreHover();
             };
 
-            const backHome = () => {
-                dropChip();
-                try { overlay.style.display = 'flex'; } catch (e) { }
-            };
-
-            // The way back to the root. Bottom-left, clear of every library's own header --
-            // shelf.js puts Back top-left and Search/Close top-right, and the four custom ones
-            // put Close top-right too.
-            const showChip = (name) => {
-                try {
-                    dropChip();
-                    chip = document.createElement('div');
-                    chip.title = 'Back to the Institute';
-                    chip.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483400;cursor:pointer;'
-                        + 'display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;'
-                        + 'background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.22);'
-                        + 'box-shadow:0 10px 26px rgba(0,0,0,0.5);'
-                        + 'font:700 12.5px Arial,Helvetica,sans-serif;';
-                    // The library's own name is not repeated here: its header already says where
-                    // you are, and the two together made a pill wider than some of the windows.
-                    chip.innerHTML = '<span>\u2039 Institute for RNA Therapeutics Design</span>';
-                    chip.onclick = backHome;
-                    document.body.appendChild(chip);
-
-                    // The chip belongs to the library it was raised for, so it goes when that
-                    // library does -- otherwise it sits over the canvas offering to reopen a
-                    // window the user has already left.
-                    sawChild = false;
-                    let ticks = 0;
-                    watch = setInterval(() => {
-                        try {
-                            ticks++;
-                            if (libraryUp()) { sawChild = true; return; }
-                            // Not before the child has actually appeared. exec() is async, so for
-                            // a moment after the click nothing is up yet, and checking blind would
-                            // remove the chip before the thing it belongs to existed.
-                            if (sawChild) { dropChip(); return; }
-                            // Nothing after five seconds means nothing is coming -- a script that
-                            // threw before it drew, or one that decided against opening. Put the
-                            // root back rather than leave a hidden window and a chip over the
-                            // canvas as the only trace of the click.
-                            if (ticks >= 10) backHome();
-                        } catch (e) { }
-                    }, 500);
-                } catch (e) { }
-            };
 
             const openShelf = (it) => {
-                // HIDDEN, not destroyed. Every one of these libraries used to be a dead end:
-                // its Close puts you on the canvas, so getting back to the shelf you were
-                // reading meant finding the menu that opened the Institute in the first place.
-                // Keeping the root alive underneath makes the chip below a real Back.
+                // CLOSED, not hidden.
                 //
-                // Hidden rather than left showing, because a child overlay is opaque and
-                // full-bleed anyway, and a display:none root cannot take Escape or a stray
-                // click meant for the library on top of it.
-                try { overlay.style.display = 'none'; } catch (e) { }
-                showChip(it.name);
+                // This used to hide the root and raise a pill in the bottom-left corner
+                // reading "< Institute for RNA Therapeutics Design", so the shelf you came
+                // from could be got back to. The pill was the problem: it sat in a corner of
+                // an unrelated full-screen library, named a thing rather than an action, and
+                // read as a stray navigation control belonging to whatever was on top of it.
+                //
+                // Closing the root outright is what every other library in this application
+                // does, so a Close now means the same thing everywhere: back to the canvas.
+                close();
                 // A card is either a path to exec or an open() of its own -- Design needs the
                 // second, because it has to settle a track before it can name its arguments.
                 const run = () => (typeof it.open === 'function')
@@ -270,16 +214,17 @@ function (graph, genegraph_panel_layout) {
                     : exec(it.path, graph, genegraph_panel_layout);
                 try {
                     Promise.resolve(run()).then((r) => {
-                        // false means it decided there was nothing to open. Without this the
-                        // root stays hidden behind a chip for a window that never appeared.
-                        if (r === false) backHome();
+                        // false means it decided there was nothing to open. The root has
+                        // already gone, so say so rather than leave the user on a bare canvas
+                        // wondering whether the click registered.
+                        if (r === false) {
+                            try { graph.setMessage(' ' + it.name + ' had nothing to open. '); } catch (e2) { }
+                        }
                     }).catch((e) => {
                         try { graph.setMessage(' ' + it.name + ' failed: ' + __scrub(e && e.message ? e.message : e) + ' '); } catch (e2) { }
-                        backHome();
                     });
                 } catch (e) {
                     try { graph.setMessage(' ' + it.name + ' failed: ' + __scrub(e) + ' '); } catch (e2) { }
-                    backHome();
                 }
             };
 
@@ -337,10 +282,10 @@ function (graph, genegraph_panel_layout) {
                 try {
                     if (e.key !== 'Escape') return;
                     if (overlay.style.display === 'none') return;
-                    close(); restoreHover();
+                    dismiss();
                 } catch (er) { }
             };
-            x.onclick = () => { close(); restoreHover(); };
+            x.onclick = () => { dismiss(); };
             // No click-the-backdrop dismiss any more: full-bleed, the "backdrop" is the empty
             // space between cards, and closing the window on a miss-click there would be a
             // trapdoor. Escape and Close are the ways out, as they are on the shelves.

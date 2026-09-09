@@ -11,6 +11,12 @@ function (js) {
         let Annotation = await exec('flexigraph/annotation.js')
         let { Track, TrackRef } = await exec('baja/bio/track.js')
         let TrackLayer = await exec('baja/bio/track-layer.js')
+        // Custom layer classes, by the `type` they save themselves under. A layer restored
+        // as a plain TrackLayer keeps its data but loses its painter, and the generic
+        // interval renderer then draws it at the layer box midpoint rather than on the
+        // sequence -- the saved cis-regulatory plot jumping half way up the track.
+        let LAYER_CLASSES = {};
+        try { LAYER_CLASSES['CisLayer'] = await exec('baja/bio/splicing/cis-layer.js'); } catch (e) { }
         let RNASecondaryStructure = await exec('baja/structure/rna-secondary-structure-track.js')
         let TrackPlot = await exec('flexigraph/track-plot.js')
 
@@ -23,7 +29,8 @@ function (js) {
         if (js.track_layers != null && js.track_layers.length > 0) {
             let tlayers = []
             for (let tl of js.track_layers) {
-                let track_layer = Object.assign(new TrackLayer(), tl)
+                const LayerClass = (tl && LAYER_CLASSES[tl.type]) || TrackLayer;
+                let track_layer = Object.assign(Object.create(LayerClass.prototype), tl)
                 track_layer.svgs = []
                 if (tl.svgs && tl.svgs.length > 0) {
                     for (let tli of tl.svgs) {
@@ -42,6 +49,12 @@ function (js) {
                 track_layer.annotations = tann;
 
                 track_layer.tgraph = Object.assign(new MGrid(), tl.tgraph)
+                // Re-attach the back-reference a custom layer needs to reach the track's
+                // own grid. Non-enumerable, so it is not written back out on the next save.
+                try {
+                    Object.defineProperty(track_layer, 'track',
+                        { value: foo, enumerable: false, writable: true, configurable: true });
+                } catch (e) { }
                 tlayers.push(track_layer)
             }
             foo.track_layers = tlayers;

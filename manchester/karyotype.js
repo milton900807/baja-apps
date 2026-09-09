@@ -472,6 +472,32 @@ function (path, config) {
         // so the two are one behaviour and not two.
         try { graph.__selectSeqOverride = () => { arm(); }; } catch (e) { }
 
+        // AND THE BOX ZOOM IS THIS VIEW'S TOO.
+        //
+        // Box zoom ends in zoomRect -> animateTo, which reshapes the rectangle by the two
+        // rules goView already exists to avoid (see animWouldReshape, below): y is discarded
+        // under a world height of 1, and the aspect is then forced to 10:1 by widening x.
+        // Those are absolute numbers over a y unit of ONE MEGABASE, so they are assumptions
+        // about the size of a human genome. A yeast genome is 1.53 Mb from end to end, so
+        // every box drawn on one is under a single world unit tall: y was replaced by the
+        // current view and x expanded to about 95% of the whole width, which put the camera
+        // back where it started. The same rectangle on a human chromosome is tens of units
+        // tall, so the rule never fired there and the gesture looked fine.
+        //
+        // goView takes the rectangle at its word, animating only when animateTo would have
+        // left it alone. Installed late enough that goView is defined by the time a drag can
+        // reach it -- it is called from a mouse-up, not from here.
+        try {
+            graph.__zoomRectOverride = async (xmin, xmax, ymin, ymax) => {
+                if (![xmin, xmax, ymin, ymax].every((v) => isFinite(v))) return false;
+                await goView({
+                    x0: Math.min(xmin, xmax), x1: Math.max(xmin, xmax),
+                    y0: Math.min(ymin, ymax), y1: Math.max(ymin, ymax)
+                });
+                return true;
+            };
+        } catch (e) { }
+
         // HOW FAR OUT IS FAR ENOUGH.
         //
         // The chromosomes sit at fixed world positions, a slot apart, with the bar taking
@@ -3034,11 +3060,18 @@ function (path, config) {
         // With no listeners installed the graph pans and zooms on its own. The one thing to
         // stop is its habit of filling that vacuum: a click on a bare canvas re-arms
         // mouse-over-highlight, which is the hover tool for TRACKS and has nothing to hover
-        // here. __hoverRearm is the graph's own override for exactly that, so it is pointed
-        // at a function that does nothing rather than left to exec a tool into this view.
+        // here. __hoverRearm is the graph's own override for exactly that.
+        //
+        // It is pointed BACK AT pan, not at a function that does nothing. The graph clears
+        // the listeners whenever it returns to navigate -- which box zoom does the moment it
+        // finishes, being one-shot -- and a no-op re-arm left this view with no listeners at
+        // all: the zoom landed and then nothing on the canvas was clickable until something
+        // else happened to reinstall them. pan() IS this view's default interaction, so it
+        // is the right answer to "put the canvas back the way it was". No loop: the graph
+        // only re-arms when no listeners are installed, and pan installs them.
         const pan = () => {
             graph.clearMouseListeners();
-            try { graph.__hoverRearm = () => { }; } catch (e) { }
+            try { graph.__hoverRearm = () => { pan(); }; } catch (e) { }
             try { graph.graph.mode = 'navigate'; } catch (e) { }
             // Released here and only here: arm() takes it, and every path out of arm()
             // ends in pan(), so navigating can never be left switched off.

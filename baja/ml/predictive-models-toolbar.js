@@ -19,7 +19,7 @@ function (graph, genegraph_panel_layout) {
     // ---- Models: the library ---------------------------------------------------
     const modelItems = [
         {
-            'label': 'ML Models Library…', 'ionfunction': go(async () => {
+            'label': 'Machine Learning Models…', 'ionfunction': go(async () => {
                 graph.clearMouseListeners();
                 graph.setMouseMode('navigate');
                 // Every model, grouped, each with its reference view -- what it predicts, how
@@ -46,7 +46,7 @@ function (graph, genegraph_panel_layout) {
             'label': 'Edit layers', 'ionfunction': go(async () => {
                 // Prompt to click a track, then open its layer editor.
                 graph.clearMouseListeners();
-                graph.setMouseMode("msg: Click on a track to view its layer editor.");
+                graph.setMouseMode("msg: Click on a track to view its layer editor");
                 graph.addMouseDownListener(async (x, y) => {
                     const ti = graph.getTrack(x, y);
                     if (ti < 0) return;

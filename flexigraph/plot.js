@@ -750,14 +750,15 @@ function (MGrid) {
         function drawResizeHandle(ctx, brx, bry, size, active, __callout) {
             ctx.save();
 
-            const fillBase = active ? 'rgba(0, 255, 255, 1)' : 'rgba(224,255,255,0.35)';
-            const strokeBase = active ? 'rgba(63, 10, 255, 0.95)' : 'rgba(0,140,180,0.55)';
-            const chevronInk = active ? 'rgba(0,110,150,0.95)' : 'rgba(0,110,150,0.7)';
-            const glowColor = 'rgba(255, 0, 234, 0.45)';
+            // Neutral light-gray handle; slightly darker while dragging.
+            const fillBase = active ? 'rgba(226,232,240,0.98)' : 'rgba(241,245,249,0.95)';
+            const strokeBase = active ? 'rgba(100,116,139,0.95)' : 'rgba(148,163,184,0.9)';
+            const chevronInk = active ? 'rgba(71,85,105,0.95)' : 'rgba(148,163,184,0.95)';
+            const glowColor = 'rgba(15,23,42,0.18)';
 
-            ctx.lineWidth = active ? 2 : 1.5;
-            ctx.shadowColor = active ? glowColor : 'rgba(0,0,0,0.15)';
-            ctx.shadowBlur = active ? 5 : 2;
+            ctx.lineWidth = active ? 1.5 : 1;
+            ctx.shadowColor = active ? glowColor : 'rgba(15,23,42,0.10)';
+            ctx.shadowBlur = active ? 6 : 3;
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 1;
 
@@ -776,7 +777,7 @@ function (MGrid) {
             ctx.lineCap = 'butt';
 
             const leg = Math.max(6, size * 0.65);
-            const legThick = Math.max(2, Math.floor(size * 0.12));
+            const legThick = Math.max(1.5, Math.floor(size * 0.08));
             ctx.lineWidth = legThick;
             ctx.strokeStyle = strokeBase;
 
@@ -810,7 +811,7 @@ function (MGrid) {
             drawChevron(d3);
 
             if (active) {
-                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.fillStyle = 'rgba(71,85,105,0.9)';
                 ctx.beginPath();
                 ctx.arc(brx - 1, bry - 1, Math.max(2, size * 0.08), 0, Math.PI * 2);
                 ctx.fill();
@@ -820,10 +821,10 @@ function (MGrid) {
 
                 const text = 'Resize window',
                     show = true,
-                    font = '13px Arial',
-                    textColor = '#000',
-                    bg = 'rgba(255,255,255,0.95)',
-                    border = 'rgba(0,0,0,0.25)',
+                    font = '12px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif',
+                    textColor = '#334155',
+                    bg = 'rgba(255,255,255,0.97)',
+                    border = 'rgba(15,23,42,0.16)',
                     padX = 8,
                     padY = 5,
                     gap = 8,
@@ -851,7 +852,7 @@ function (MGrid) {
                     const boxY = Math.round(triBottom + offsetY);
 
                     if (glow) {
-                        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+                        ctx.shadowColor = 'rgba(15,23,42,0.14)';
                         ctx.shadowBlur = 6;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 1;
@@ -902,21 +903,21 @@ function (MGrid) {
                     const endY = hitY - uy * headSize;
 
                     if (glow) {
-                        ctx.shadowColor = 'rgba(0,0,0,0.3)';
-                        ctx.shadowBlur = 4;
+                        ctx.shadowColor = 'rgba(15,23,42,0.12)';
+                        ctx.shadowBlur = 3;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 1;
                     } else {
                         ctx.shadowBlur = 0;
                     }
-                    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                    ctx.strokeStyle = 'rgba(100,116,139,0.9)';
                     ctx.lineWidth = shaftWidth;
                     ctx.beginPath();
                     ctx.moveTo(startX, startY);
                     ctx.lineTo(endX, endY);
                     ctx.stroke();
 
-                    ctx.fillStyle = 'rgba(0,0,0,0.9)';
+                    ctx.fillStyle = 'rgba(100,116,139,0.95)';
                     ctx.beginPath();
                     ctx.moveTo(hitX, hitY);
                     ctx.lineTo(
@@ -1028,7 +1029,7 @@ function (MGrid) {
 
                 labelOffset = 6,
                 labelFontSize = 12,
-                labelFontFamily = "Arial",
+                labelFontFamily = 'Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif',
                 textColor,
 
                 shadow = null,
@@ -1072,30 +1073,30 @@ function (MGrid) {
 
             ctx.save();
 
-            ctx.lineWidth = (highlight || selected) ? 3 : 2;
-            ctx.strokeStyle = baseColor;
+            // Slate handle; blue when selected. Text is always dark so it reads on white.
+            const ACCENT = "#2563eb";
+            const INK = "#1f2937";
+            ctx.lineWidth = (highlight || selected) ? 2 : 1.5;
+            ctx.strokeStyle = selected ? ACCENT : (highlight ? baseColor : "rgba(100,116,139,0.9)");
 
             let fillGradient = ctx.createLinearGradient(left, top, left, top + h);
             if (selected) {
-
-                fillGradient.addColorStop(0, "rgba(255, 102, 153, 0.95)");
-                fillGradient.addColorStop(1, "rgba(255, 51, 102, 0.8)");
+                fillGradient.addColorStop(0, "rgba(219,234,254,1)");
+                fillGradient.addColorStop(1, "rgba(191,219,254,0.95)");
             } else if (highlight) {
-
                 fillGradient.addColorStop(0, "rgba(255,255,255,1.0)");
-                fillGradient.addColorStop(1, "rgba(230,255,230,0.95)");
+                fillGradient.addColorStop(1, "rgba(241,245,249,0.95)");
             } else {
-
                 fillGradient.addColorStop(0, "rgba(255,255,255,0.95)");
-                fillGradient.addColorStop(1, "rgba(245,245,245,0.9)");
+                fillGradient.addColorStop(1, "rgba(248,250,252,0.9)");
             }
             ctx.fillStyle = fillGradient;
 
             if (shadow) {
                 applyShadow(ctx, shadow, master);
             } else if (master && (highlight || selected)) {
-                ctx.shadowColor = selected ? "rgba(255,0,128,0.8)" : baseColor;
-                ctx.shadowBlur = selected ? 12 : 8;
+                ctx.shadowColor = selected ? "rgba(37,99,235,0.35)" : "rgba(15,23,42,0.18)";
+                ctx.shadowBlur = selected ? 10 : 6;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 1;
             }
@@ -1130,15 +1131,15 @@ function (MGrid) {
                 } else {
 
                     if (master && (highlight || selected)) {
-                        ctx.shadowColor = selected ? "rgba(255,0,128,0.25)" : "rgba(0,0,0,0.18)";
-                        ctx.shadowBlur = selected ? 10 : 6;
+                        ctx.shadowColor = selected ? "rgba(37,99,235,0.22)" : "rgba(15,23,42,0.14)";
+                        ctx.shadowBlur = selected ? 8 : 6;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 2;
                     }
                 }
 
-                ctx.fillStyle = "rgba(255,255,255,0.95)";
-                ctx.strokeStyle = selected ? "rgba(255, 60, 130, 0.9)" : baseColor;
+                ctx.fillStyle = "rgba(255,255,255,0.97)";
+                ctx.strokeStyle = selected ? ACCENT : "rgba(15,23,42,0.18)";
                 ctx.lineWidth = 1;
 
                 ctx.beginPath();
@@ -1154,7 +1155,7 @@ function (MGrid) {
                 clearShadow(ctx);
                 ctx.stroke();
 
-                ctx.fillStyle = textColor || (selected ? "rgba(255, 60, 130, 1)" : baseColor);
+                ctx.fillStyle = textColor || (selected ? "#1d4ed8" : INK);
                 ctx.fillText(labelText, x, pillY + pillH - padY);
             }
 
@@ -1748,6 +1749,67 @@ function (MGrid) {
             surfaces: {
                 panelOpacity: 0.95
             }
+        };
+
+        THEMES["timeline-clean"] = {
+            name: "timeline-clean",
+            colors: {
+                handle: "#2563eb",
+                text: "#1f2937",
+                line: "#2563eb",
+                arrow: "#2563eb",
+                background: "#ffffff",
+                panelBg: "#ffffff",
+                panelBorder: "rgba(15,23,42,0.14)",
+                muted: "#64748b",
+                tick: "#cbd5e1",
+                axis: "#334155",
+                weekend: "#94a3b8",
+                weekendBand: "rgba(15,23,42,0.035)",
+                axisBand: "rgba(15,23,42,0.025)"
+            },
+            effects: {
+                strokeWidth: 3,
+                displayTextWrapper: false,
+                shadows: { enabled: false }
+            },
+            fonts: {
+                family: 'Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif',
+                weight: "500",
+                size: 12,
+                sizeMain: 13,
+                sizeSmall: 12,
+                min: 11,
+                max: 16
+            },
+            sizes: {
+                plot: { minTiny: 15, minSmall: 25, insetX: 25, insetY: 25 },
+                lineWidth: 1,
+                panelRadius: 6,
+                radius: 6,
+                tickHeight: 16,
+                headSize: 12,
+                arrowHeadLength: 10,
+                arrowHeadWidth: 12,
+                paddingX: 8,
+                paddingY: 4
+            },
+            surfaces: {
+                panelOpacity: 0.98,
+                panel: {
+                    bg: "#ffffff",
+                    border: { color: "rgba(15,23,42,0.12)", width: 1, radius: 8 },
+                    shadow: { color: "rgba(15,23,42,0.06)", blur: 8, offsetX: 0, offsetY: 2 },
+                    resizing: {
+                        fill: "rgba(37,99,235,0.08)",
+                        shadow: { color: "rgba(15,23,42,0.18)", blur: 10, offsetX: 0, offsetY: 2 }
+                    },
+                    highlight: {
+                        shadow: { color: "rgba(37,99,235,0.25)", blur: 10, offsetX: 0, offsetY: 2 }
+                    }
+                }
+            },
+            states: { broken: { fill: "#fee2e2", overlay: "rgba(153,27,27,0.85)", textFont: "14px Arial" } }
         };
 
         function mergeTheme(base, over) {
@@ -2903,7 +2965,7 @@ function (MGrid) {
                 )
                 pt.wb(null)
 
-                const smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                const smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 pt.setMenu(smenu)
             }
 
@@ -2915,8 +2977,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = null;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
 
@@ -2925,8 +2987,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = integerAxis;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
                 ml.push({
@@ -2934,8 +2996,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = dollarAxis;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
                 ml.push({
@@ -2945,8 +3007,8 @@ function (MGrid) {
                         this.formatAxis = thousandsAxis;
 
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
                 })
 
                 ml.push({
@@ -2956,11 +3018,11 @@ function (MGrid) {
                         this.formatAxis = percentAxis;
 
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
                 })
                 let cols = Math.ceil(ml.length / 20);
-                pt.menu = new Menu(ml, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                pt.menu = new Menu(ml, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)
                 pt.menu_vis = true;
             }
 
@@ -3648,7 +3710,7 @@ function (MGrid) {
                                 const bry = rect.y + rect.h - pad;
                                 const active = !!(this.resizing || this.__resizing);
                                 if (this.showMenuBar)
-                                    drawResizeHandle(ctx, cornerX, cornerY, arrowSize)
+                                    drawResizeHandle(ctx, cornerX, cornerY, arrowSize, active)
 
                                 const hbSize = size + pad;
                                 this.__resizeHandle = {
@@ -4730,10 +4792,9 @@ function (MGrid) {
                 return null;
             }
             async getContextMenuItems(pt) {
-                let m = [];
-                if (this.type === timeline)
-                    m = this.buildTimelineMenu(pt, m);
-                m = m.concat(this.getOptionsMenuList(pt));
+                // getOptionsMenuList() seeds Title / Copy / Download PNG and, for a
+                // timeline, hands the list to buildTimelineMenu() -- build it once.
+                let m = this.getOptionsMenuList(pt);
 
                 if (this.___pointMenuItems) {
                     m = m.concat(this.___pointMenuItems);
@@ -4766,7 +4827,12 @@ function (MGrid) {
                     exec('flexigraph/show-mobile-menu.js', 0, 0, m, null, null, 'mainPanel')
                 } else {
                     m = this.getOptionsMenuList(pt)
-                    const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 3)
+                    // A short, grouped list reads top-down in one column; long flat lists keep 3.
+                    const cols = m.length > 12 ? 3 : 1;
+                    const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)
+                    if (this.type === timeline) {
+                        smenu.title = (this.name && this.name.toLowerCase() !== 'untitled') ? this.name : 'Timeline';
+                    }
 
                     setTimeout(() => {
                         pt.setMenu(smenu)
@@ -5197,6 +5263,15 @@ function (MGrid) {
                             }
                             let v = await exec('baja/table/io/import-timeline-into-timeline.js', this)
                             showModal(v)
+                        }
+                    })
+
+                menuList.push(
+                    {
+                        label: `Timeline from an image (AI)…`,
+                        __date: '',
+                        click: async (scx, scy) => {
+                            await exec('baja/draw/timeline-from-image.js', pt, this)
                         }
                     })
 
@@ -7921,7 +7996,7 @@ function (MGrid) {
 
                                                 if (isDrawing) {
                                                     let options = this.get_select_(pt, arr.x, arr.xf)
-                                                    let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 1), 'rgb(205, 255, 155)', 'navy', 1)
+                                                    let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 1), 'rgba(255,255,255,0.98)', '#1f2937', 1)
                                                     pt.setMenu(smenu)
                                                     arr = null;
                                                     this.__date = null;
@@ -7932,7 +8007,7 @@ function (MGrid) {
                                             mouseDownListener: async (x, y) => {
                                                 if (isDrawing) {
                                                     let options = this.get_select_(pt, arr.x, arr.xf)
-                                                    let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 1), 'rgb(205, 255, 155)', 'navy', 1)
+                                                    let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 1), 'rgba(255,255,255,0.98)', '#1f2937', 1)
                                                     pt.setMenu(smenu)
                                                     arr = null;
                                                     this.__date = null;
@@ -8073,8 +8148,8 @@ function (MGrid) {
                                     pt.grid.yi + pt.grid.height / 2 - (itemHeight * items.length) / 2
                                 );
 
-                                const bg = 'rgba(255,255,255,0.95)';
-                                const fg = 'navy';
+                                const bg = 'rgba(255,255,255,0.98)';
+                                const fg = '#1f2937';
                                 const border = 2;
 
                                 pt.menu = null;
@@ -8568,7 +8643,7 @@ function (MGrid) {
                                     }
                                 }
                             ];
-                            let smenu = new Menu(menuItems, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * menuItems.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                            let smenu = new Menu(menuItems, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * menuItems.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                             pt.setMenu(smenu)
                         }
 
@@ -8785,7 +8860,113 @@ function (MGrid) {
                     }
                 )
 
-                return m1;
+                // ---------------------------------------------------------------
+                // Top-down menu: a short first level of categories, each opening a
+                // titled submenu. Every action keeps its original object/handler;
+                // this only decides where each one is listed.
+                // ---------------------------------------------------------------
+                const __all = [...m1, ...menuList];
+                const __used = new Set();
+                const __norm = (t) => ('' + (t || '')).replace(/[.…▸]+$/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const __find = (pat) => {
+                    const re = pat instanceof RegExp ? pat
+                        : new RegExp('^' + __norm(pat).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i');
+                    for (const it of __all) {
+                        if (!it || __used.has(it) || !it.label) continue;
+                        if (re.test(__norm(it.label))) { __used.add(it); return it; }
+                    }
+                    return null;
+                };
+                const __as = (it, label) => it ? Object.assign({}, it, { label }) : null;
+                const __pick = (...specs) => specs.map((sp) => Array.isArray(sp) ? __as(__find(sp[0]), sp[1]) : __find(sp)).filter(Boolean);
+
+                const __title = () => (this.name && this.name.toLowerCase() !== 'untitled') ? this.name : 'Timeline';
+                let __top = [];
+                const __open = (title, items) => {
+                    const list = items.slice();
+                    list.push({ label: '‹ Back', click: async () => __openTop() });
+                    if (typeof isMobile === 'function' && isMobile()) { pt.setMenu(list); return; }
+                    setTimeout(() => {
+                        try { pt.wb(null); } catch (e) { }
+                        if (typeof pt.showMenuWithTitle === 'function') pt.showMenuWithTitle(title, list);
+                        else pt.setMenu(list);
+                    }, 300);
+                };
+                const __openTop = () => {
+                    if (typeof isMobile === 'function' && isMobile()) { pt.setMenu(__top); return; }
+                    setTimeout(() => {
+                        try { pt.wb(null); } catch (e) { }
+                        if (typeof pt.showMenuWithTitle === 'function') pt.showMenuWithTitle(__title(), __top);
+                        else pt.setMenu(__top);
+                    }, 300);
+                };
+                const __group = (label, items) => (items.length ? { label: label + ' ▸', __date: '', click: async () => __open(label, items) } : null);
+
+                const __zoom = __find(/^zoom (in|out)$/);
+                const __add = __pick(
+                    ['Add Pts', 'Point (milestone, interval, PDF)…'],
+                    ['(x+y) Arrow', 'Arrow (x+y)'],
+                    ['Add items', 'Items from text…'],
+                    ['Timeline from an image (AI)', 'From an image (AI)…'],
+                    ['Add PDF', 'PDF document…'],
+                    ['Paste points', 'Paste points…'],
+                    ['Paste (label text|time-duration) Serial', 'Paste rows, serial'],
+                    ['Paste (label-text|time-duration) Concurrent', 'Paste rows, concurrent']
+                );
+                const __time = __pick(
+                    ['Goto time', 'Go to a date…'],
+                    ['Set start time', 'Set start date…'],
+                    ['Set Time Range', 'Set date range…'],
+                    ['Extend timeline', 'Extend the range…']
+                );
+                const __edit = __pick(
+                    ['Select', 'Select…'],
+                    ['Advanced', 'Layout & spacing…'],
+                    ['Link table to point', 'Link a table to a point…'],
+                    ['Apply icons', 'Apply icons'],
+                    ['Delete all timeline points', 'Delete all events']
+                );
+                const __data = __pick(
+                    ['Data', 'Data models…'],
+                    ['Import timeline from file', 'Import from a timeline file…'],
+                    ['Import Microsoft Calendar', 'Import Microsoft calendar…']
+                );
+                const __look = __pick(
+                    ['Theme', 'Theme…'],
+                    ['Background color', 'Background color…'],
+                    ['Transparent background', 'Transparent background'],
+                    ['Plot Name', 'Rename…'],
+                    [/^(show|hide) \[now\] mark$/, this.showNowBar ? 'Hide the now marker' : 'Show the now marker'],
+                    [/^(lock to|unlock from) background$/, this.isBackground ? 'Unlock from background' : 'Lock to background'],
+                    [/^(maximize|default \(un-maximize\) size)$/, this.maximize ? 'Restore size' : 'Maximize']
+                );
+                const __share = __pick(
+                    ['Save plot', 'Save…'],
+                    ['Open plot', 'Open…'],
+                    ['Publish plot', 'Publish…'],
+                    [/^pui?blish timeline$/, 'Publish timeline…'],
+                    ['Export', 'Export…'],
+                    ['Download PNG', 'Download PNG'],
+                    ['Copy', 'Copy'],
+                    ['Title', 'Title…']
+                );
+                const __delete = __find('Delete');
+                __find('More');   // superseded by the grouping below
+                const __rest = __all.filter((it) => it && it.label && !__used.has(it));
+
+                __top = [
+                    __zoom,
+                    __group('Add', __add),
+                    __group('Time', __time),
+                    __group('Edit', __edit),
+                    __group('Data', __data),
+                    __group('Appearance', __look),
+                    __group('Share', __share),
+                    __rest.length ? __group('More', __rest) : null,
+                    __delete
+                ].filter(Boolean);
+
+                return __top;
 
             }
 
@@ -8848,7 +9029,7 @@ function (MGrid) {
                         label: `Set axis range`,
                         click: async (scx, scy) => {
                             let options = this.getXAxisMenuOptions(pt)
-                            let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                            let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
 
                             let t = {
                                 id: 'plot-export-menu',
@@ -9593,7 +9774,7 @@ function (MGrid) {
             setExportListeners(bx, by, pt) {
                 let mm = this.getExportMenuList(pt)
                 this.highlight();
-                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 let t = {
                     id: 'plot-export-menu',
                     mouseMoveListener: null,
@@ -9638,7 +9819,7 @@ function (MGrid) {
 
             displayXAxisMenuOptions(bx, by, pt) {
                 let mm = this.getXAxisMenuOptions(pt)
-                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 let t = {
                     id: 'plot-export-menu',
                     mouseMoveListener: null,
@@ -10080,7 +10261,7 @@ function (MGrid) {
                                     }
                                 },
                             ];
-                            let smenu = new Menu(menuItems, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * menuItems.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                            let smenu = new Menu(menuItems, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * menuItems.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                             pt.setMenu(smenu)
                         }
 
@@ -11449,7 +11630,7 @@ function (MGrid) {
                             );
                             pt.wb(null)
                             const menu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                                pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                                pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
 
                             const graph = CurrentLayout.getStashed('graph')
                             if (graph) {
@@ -12149,7 +12330,7 @@ function (MGrid) {
             async setOptionListeners(bx, by, pt) {
                 let m = this.getOptionsMenuList(pt)
                 pt.wb(null)
-                smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 let active = false;
                 let t = {
                     id: 'plot-options-menu' + Math.random(),
@@ -13191,6 +13372,14 @@ function (MGrid) {
                     };
                 };
 
+                const __stockLine = (this.theme && this.theme.colors && String(this.theme.colors.line || '').toLowerCase());
+                const __stockGreens = ['#22e922ff', '#22e922', '#2a6b2a'];
+                if (this.type === 'timeline' && THEMES["timeline-clean"] &&
+                    (!this.themeName || this.themeName === 'classic-light' || this.themeName === 'default-classic' ||
+                        __stockGreens.includes(__stockLine))) {
+                    this.themeName = 'timeline-clean';
+                    this.theme = mergeTheme(DEFAULT_THEME, THEMES["timeline-clean"]);
+                }
                 const theme = getThemeSafe(this);
                 const colors = (theme && theme.colors) || {};
                 const fonts = (theme && theme.fonts) || {};
@@ -13439,20 +13628,45 @@ function (MGrid) {
                         const xMin = this.grid.xmin;
                         const xMax = this.grid.xmax;
                         grid.rescale();
-                        if (this.name && this.name !== 'untitled') {
+                        if (this.name && this.name.toLowerCase() !== 'untitled' && !this.maximize && this.grid.yi >= 0) {
+                            const titleFamily = fonts.family || 'Arial';
+                            const titleColor = textColor;
+                            const subtitleColor = colors.muted || 'rgba(0,0,0,0.55)';
+                            const fmtUTC = (d) => (d instanceof Date && !isNaN(d))
+                                ? `${monthNames[d.getUTCMonth()]} ${d.getUTCDate()}, ${_yearLabel(d.getUTCFullYear())}`
+                                : '';
+                            const rangeText = (this.startDate && this.endDate)
+                                ? `${fmtUTC(this.startDate)} \u2013 ${fmtUTC(this.endDate)}`
+                                : '';
+
+                            const reservedRight = (this.showTopMenuBar && Array.isArray(this.buttons)) ? this.buttons.length * bsize + 16 : 16;
+                            const maxTitleW = Math.max(40, this.grid.width - reservedRight - 24);
+
+                            const fitText = (text, maxW) => {
+                                if (ctx.measureText(text).width <= maxW) return text;
+                                let t = text;
+                                while (t.length > 1 && ctx.measureText(t + '\u2026').width > maxW) t = t.slice(0, -1);
+                                return t + '\u2026';
+                            };
+
                             ctx.save();
-                            ctx.font = '28px Arial';
-                            ctx.fillStyle = 'rgba(200, 200, 200, 0.15)';
-                            ctx.textAlign = 'center';
-                            ctx.textBaseline = 'middle';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'top';
+                            ctx.shadowColor = 'transparent';
+                            ctx.shadowBlur = 0;
 
-                            const centerX = this.grid.xi + this.grid.width / 2;
-                            const centerY = this.grid.yi + this.grid.height + (100);
+                            const tx = this.grid.xi + 12;
+                            const ty = this.grid.yi + 10;
 
-                            ctx.translate(centerX, centerY);
+                            ctx.font = `600 14px ${titleFamily}`;
+                            ctx.fillStyle = titleColor;
+                            ctx.fillText(fitText(String(this.name), maxTitleW), tx, ty);
 
-                            ctx.fillText(this.name, 0, 0);
-
+                            if (rangeText) {
+                                ctx.font = `11px ${titleFamily}`;
+                                ctx.fillStyle = subtitleColor;
+                                ctx.fillText(fitText(rangeText, maxTitleW), tx, ty + 19);
+                            }
                             ctx.restore();
                         }
 
@@ -13512,30 +13726,33 @@ function (MGrid) {
                         }
 
                         const timelineY = grid.Y(grid.ymin);
+                        const baseTheme = getThemeSafe(this);
+                        const maxY = Math.max(...this.scatterData.points.map(p => p.y));
 
                         ctx.save();
-                        ctx.lineWidth = 3;
-                        ctx.strokeStyle = '#222';
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-                        ctx.shadowBlur = 6;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 2;
-
-                        ctx.beginPath();
-                        ctx.moveTo(grid.X(xMin), timelineY);
-                        ctx.lineTo(grid.X(xMax), timelineY);
-                        ctx.stroke();
-                        const baseTheme = getThemeSafe(this);
-
-                        ctx.restore();
-                        const maxY = Math.max(...this.scatterData.points.map(p => p.y));
-                        ctx.beginPath();
-                        ctx.moveTo(grid.X(xMin), timelineY);
-                        ctx.lineTo(grid.X(xMax), timelineY);
-                        ctx.stroke();
+                        ctx.shadowColor = 'transparent';
                         ctx.shadowBlur = 0;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 0;
+
+                        // Soft band under the baseline where the date labels live.
+                        if (colors.axisBand && !this.maximize) {
+                            const bandLeft = Math.max(this.grid.xi, grid.X(xMin));
+                            const bandRight = Math.min(this.grid.xi + this.grid.width, grid.X(xMax));
+                            if (bandRight > bandLeft) {
+                                ctx.fillStyle = colors.axisBand;
+                                ctx.fillRect(bandLeft, timelineY, bandRight - bandLeft, 84);
+                            }
+                        }
+
+                        ctx.lineWidth = 2;
+                        ctx.lineCap = 'round';
+                        ctx.strokeStyle = colors.axis || textColor || '#222';
+                        ctx.beginPath();
+                        ctx.moveTo(grid.X(xMin), timelineY);
+                        ctx.lineTo(grid.X(xMax), timelineY);
+                        ctx.stroke();
+                        ctx.restore();
                         let found_one_highlighted = false;
                         const drawnLabelBoxes = [];
 
@@ -14523,7 +14740,7 @@ function (MGrid) {
                                                 ctx.fillText(nameText, x, adjustedBoxY + paddingY);
 
                                                 if (point.filename) {
-                                                    ctx.fillStyle = cLine;
+                                                    ctx.fillStyle = TLC.muted ?? cLine;
                                                     ctx.fillText(point.filename, x, adjustedFilenameY);
                                                 }
                                                 ctx.restore();
@@ -14801,32 +15018,7 @@ function (MGrid) {
                     const cornerX = bottomRightStartX - cornerSize
                     const cornerY = bottomRightStartY - cornerSize
 
-                    ctx.fillStyle = "navy";
-                    ctx.strokeStyle = "lightCyan";
-                    ctx.lineWidth = 2;
-                    ctx.shadowBlur = 1;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-
-                    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-
-                    if (this.resizing) {
-                        ctx.fillStyle = "black";
-                        ctx.strokeStyle = "lightCyan";
-                        ctx.lineWidth = 4;
-                        ctx.shadowBlur = 10;
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-
-                    }
-
-                    drawResizeHandle(ctx, cornerX, cornerY, arrowSize)
-
-                    ctx.beginPath();
-                    ctx.moveTo(cornerX, cornerY);
-                    ctx.lineTo(cornerX - arrowSize, cornerY);
-                    ctx.lineTo(cornerX, cornerY - arrowSize);
-                    ctx.closePath();
-                    ctx.fill();
+                    drawResizeHandle(ctx, cornerX, cornerY, arrowSize, !!this.resizing)
 
                     ctx.shadowBlur = 0;
                     ctx.shadowOffsetX = 0;
@@ -15092,152 +15284,96 @@ function (MGrid) {
                     if (buttonY < 0 && (buttonY + screen_height) > 0) {
                         buttonY = 10;
                     }
-                    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                    ctx.shadowBlur = 2;
-                    ctx.shadowOffsetX = 1;
+                    // Window controls: neutral, flat, slate-toned; close tints red on hover.
+                    const hovered = (highlightTab === button.name) || (this.highlightbutton === button.name);
+                    const circleRadius = Math.min(bsize, buttonHeight) / 2;
+                    const centerX = buttonX + bsize / 2;
+                    const centerY = buttonY + buttonHeight / 2;
+                    const isClose = button.name === "close";
+
+                    const fill = hovered ? (isClose ? '#fee2e2' : '#e2e8f0') : 'rgba(248,250,252,0.97)';
+                    const border = hovered ? (isClose ? '#ef4444' : '#64748b') : 'rgba(148,163,184,0.9)';
+                    const ink = hovered ? (isClose ? '#b91c1c' : '#1f2937') : '#475569';
+
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(15,23,42,0.12)';
+                    ctx.shadowBlur = 3;
+                    ctx.shadowOffsetX = 0;
                     ctx.shadowOffsetY = 1;
-                    if (button.name === "close") {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
 
-                        ctx.fillStyle = button.color;
+                    if (isClose || button.name === "move" || button.name === "minimize") {
+                        ctx.fillStyle = fill;
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, circleRadius - 0.5, 0, 2 * Math.PI);
+                        ctx.fill();
 
-                        if (highlightTab === button.name) {
-                            ctx.fillStyle = 'cyan';
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.strokeStyle = border;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+
+                        ctx.strokeStyle = ink;
+                        ctx.fillStyle = ink;
+                        ctx.lineWidth = 1.5;
+
+                        if (isClose) {
+                            const r = circleRadius * 0.38;
+                            ctx.beginPath();
+                            ctx.moveTo(centerX - r, centerY - r);
+                            ctx.lineTo(centerX + r, centerY + r);
+                            ctx.moveTo(centerX - r, centerY + r);
+                            ctx.lineTo(centerX + r, centerY - r);
+                            ctx.stroke();
+                        } else if (button.name === "move") {
+                            const arm = circleRadius * 0.62;
+                            const head = Math.max(2, circleRadius * 0.22);
+                            ctx.beginPath();
+                            ctx.moveTo(centerX - arm, centerY);
+                            ctx.lineTo(centerX + arm, centerY);
+                            ctx.moveTo(centerX, centerY - arm);
+                            ctx.lineTo(centerX, centerY + arm);
+                            ctx.stroke();
+                            const arrow = (tipX, tipY, dx, dy) => {
+                                ctx.beginPath();
+                                ctx.moveTo(tipX - dx * head - dy * head, tipY - dy * head + dx * head);
+                                ctx.lineTo(tipX, tipY);
+                                ctx.lineTo(tipX - dx * head + dy * head, tipY - dy * head - dx * head);
+                                ctx.stroke();
+                            };
+                            arrow(centerX + arm, centerY, 1, 0);
+                            arrow(centerX - arm, centerY, -1, 0);
+                            arrow(centerX, centerY - arm, 0, -1);
+                            arrow(centerX, centerY + arm, 0, 1);
+                        } else {
+                            const w = circleRadius * 0.5;
+                            const gapY = Math.max(2.5, circleRadius * 0.3);
+                            ctx.beginPath();
+                            for (const dy of [-gapY, 0, gapY]) {
+                                ctx.moveTo(centerX - w, centerY + dy);
+                                ctx.lineTo(centerX + w, centerY + dy);
+                            }
+                            ctx.stroke();
                         }
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 10;
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 2;
-
-                        let padding = 5;
-                        let x1 = centerX - circleRadius + padding;
-                        let y1 = centerY - circleRadius + padding;
-                        let x2 = centerX + circleRadius - padding;
-                        let y2 = centerY + circleRadius - padding;
-
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.moveTo(x1, y2);
-                        ctx.lineTo(x2, y1);
-                        ctx.stroke();
-                    }
-                    else if (button.name === "move") {
-
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-
-                        ctx.fillStyle = 'lightCyan';
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 4;
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        let arrowLength = circleRadius * 0.8;
-                        let arrowHead = 2;
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY - arrowLength);
-                        ctx.lineTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.moveTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY + arrowLength);
-                        ctx.lineTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.moveTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX - arrowLength, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX + arrowLength, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                    }
-
-                    else if (button.name === "minimize") {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 4;
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.font = `${circleRadius}px Arial`;
-                        ctx.fillStyle = 'black';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText('M', centerX, centerY);
-
                     } else {
-
-                        ctx.fillStyle = button.color;
-                        ctx.fillRect(buttonX, buttonY, bsize, buttonHeight);
-
-                        ctx.shadowBlur = 4;
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        ctx.strokeStyle = 'black';
-                        ctx.strokeRect(buttonX, buttonY, bsize, buttonHeight);
-                        ctx.fillStyle = 'black';
-                        ctx.font = '9px Arial';
+                        ctx.fillStyle = fill;
+                        ctx.beginPath();
+                        ctx.roundRect(buttonX + 1, buttonY + 1, bsize - 2, buttonHeight - 2, 4);
+                        ctx.fill();
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.strokeStyle = border;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                        ctx.fillStyle = ink;
+                        ctx.font = '9px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
                         ctx.fillText(button.name, centerX, centerY);
                     }
+                    ctx.restore();
 
                     index++;
                 }
@@ -15257,12 +15393,12 @@ function (MGrid) {
 
                 const {
                     labels = {},
-                    font = '11px Arial',
-                    textColor = '#000',
-                    strokeColor = '#111',
-                    fillColor = '#111',
-                    labelBg = 'rgba(255,255,255,0.95)',
-                    labelBorder = 'rgba(0,0,0,0.25)',
+                    font = '11px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif',
+                    textColor = '#334155',
+                    strokeColor = 'rgba(100,116,139,0.9)',
+                    fillColor = 'rgba(100,116,139,0.95)',
+                    labelBg = 'rgba(255,255,255,0.97)',
+                    labelBorder = 'rgba(15,23,42,0.16)',
                     gap = 7,
                     arrowHead = 7,
                     shaftWidth = 2,
@@ -15366,7 +15502,7 @@ function (MGrid) {
                     boxY = candidate.y;
 
                     if (glow) {
-                        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+                        ctx.shadowColor = 'rgba(15,23,42,0.14)';
                         ctx.shadowBlur = 6;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 1;
@@ -15392,8 +15528,8 @@ function (MGrid) {
                     const shaftEndY = centerY;
 
                     if (glow) {
-                        ctx.shadowColor = 'rgba(0,0,0,0.3)';
-                        ctx.shadowBlur = 4;
+                        ctx.shadowColor = 'rgba(15,23,42,0.12)';
+                        ctx.shadowBlur = 3;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 1;
                     } else {
@@ -15527,6 +15663,11 @@ function (MGrid) {
                 const cArrow = TLC.arrow ?? cLine;
                 const cPanelBg = TLC.panelBg ?? TLC.background ?? "rgba(255,255,255,0.95)";
                 const cPanelBorder = TLC.panelBorder ?? "rgba(0,0,0,0.15)";
+                const cMuted = TLC.muted ?? cLine;
+                const cTick = TLC.tick ?? cLine;
+                const cAxis = TLC.axis ?? cText;
+                const cWeekend = TLC.weekend ?? cArrow ?? cText;
+                const pillRadius = (typeof TLS.panelRadius === "number" ? TLS.panelRadius : 6);
 
                 const fontFamily = TLF.family ?? "Arial";
                 const baseFontSize = (typeof TLF.size === "number" ? TLF.size : 12);
@@ -15642,7 +15783,8 @@ function (MGrid) {
                     ctx.beginPath();
                     ctx.moveTo(x, cymin);
                     ctx.lineTo(x, cymin + len);
-                    ctx.strokeStyle = strokeOverride || (major ? cText : cLine);
+                    ctx.lineWidth = major ? Math.max(1, lineWidth) : 1;
+                    ctx.strokeStyle = strokeOverride || (major ? cAxis : cTick);
                     applyShadow("line");
                     ctx.stroke();
                     noteTick(1);
@@ -15656,16 +15798,16 @@ function (MGrid) {
                     ctx.save();
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.font = `700 ${Math.max(12, baseFontSize + 2)}px ${fontFamily}`;
+                    ctx.font = `600 ${Math.max(11, baseFontSize)}px ${fontFamily}`;
 
                     const textWidth = ctx.measureText(yearLabel).width;
                     const padding = 8;
-                    const ovalWidth = textWidth + padding * 2;
-                    const ovalHeight = 20;
+                    const pillWidth = textWidth + padding * 2;
+                    const pillHeight = 20;
 
                     applyShadow("panel");
                     ctx.beginPath();
-                    ctx.ellipse(x, YEAR_PILL_Y, ovalWidth / 2, ovalHeight / 2, 0, 0, Math.PI * 2);
+                    ctx.roundRect(x - pillWidth / 2, YEAR_PILL_Y - pillHeight / 2, pillWidth, pillHeight, pillRadius);
                     ctx.fillStyle = (panelOpacity < 1) ? _withAlpha(cPanelBg, panelOpacity) : cPanelBg;
                     ctx.fill();
 
@@ -15688,13 +15830,20 @@ function (MGrid) {
 
                     ctx.save();
                     applyShadow("text");
-                    ctx.font = `${baseFontSize}px ${fontFamily}`;
+                    ctx.font = `${Math.max(10, baseFontSize - 1)}px ${fontFamily}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "top";
-                    ctx.fillStyle = cText;
-                    ctx.translate(x, MONTH_LABEL_Y);
-                    ctx.rotate(-Math.PI / 4);
-                    ctx.fillText(label, 0, 0);
+                    ctx.fillStyle = cMuted;
+                    const monthLabelW = ctx.measureText(label).width;
+                    if (pxPerMonth * monthTickStride >= monthLabelW + 10) {
+                        // Horizontal row: above the year pills, or below them when day labels use the top rows.
+                        const monthRowY = showDaysUnderMonths ? (cymin + 50) : (cymin + 14);
+                        ctx.fillText(label, x, monthRowY);
+                    } else {
+                        ctx.translate(x, MONTH_LABEL_Y);
+                        ctx.rotate(-Math.PI / 4);
+                        ctx.fillText(label, 0, 0);
+                    }
                     ctx.restore();
 
                     noteLabel(1);
@@ -15710,7 +15859,7 @@ function (MGrid) {
                     ctx.font = `${Math.max(10, baseFontSize - 1)}px ${fontFamily}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "top";
-                    ctx.fillStyle = cLine;
+                    ctx.fillStyle = cMuted;
                     ctx.fillText(q, x, QUARTER_Y);
                     ctx.restore();
 
@@ -15726,8 +15875,8 @@ function (MGrid) {
                     ctx.textAlign = "center";
                     ctx.textBaseline = "top";
 
-                    const dayNumColor = isWeekend ? (cArrow || cText) : cText;
-                    const dayAbbrColor = isWeekend ? (cArrow || cLine) : cLine;
+                    const dayNumColor = isWeekend ? cWeekend : cText;
+                    const dayAbbrColor = isWeekend ? cWeekend : cMuted;
 
                     ctx.font = `${Math.max(10, baseFontSize - 1)}px ${fontFamily}`;
                     ctx.fillStyle = dayNumColor;
@@ -15752,7 +15901,7 @@ function (MGrid) {
                     ctx.font = `${Math.max(8, baseFontSize - 3)}px ${fontFamily}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "top";
-                    ctx.fillStyle = cLine;
+                    ctx.fillStyle = cMuted;
                     ctx.fillText(`${h}:00`, x, HOUR_Y);
                     ctx.restore();
 
@@ -15765,7 +15914,7 @@ function (MGrid) {
                     const top = _grid.Y(_grid.ymax);
                     const h = _grid.Y(_grid.ymin) - _grid.Y(_grid.ymax);
                     ctx.save();
-                    ctx.fillStyle = _withAlpha(cPanelBg, 0.10);
+                    ctx.fillStyle = TLC.weekendBand ?? _withAlpha(cPanelBg, 0.10);
                     ctx.fillRect(x0, top, x1 - x0, h);
                     ctx.restore();
                 };
@@ -15893,7 +16042,7 @@ function (MGrid) {
                             }
                         }
 
-                        const weekendStroke = isWeekend ? (cArrow || cText) : null;
+                        const weekendStroke = isWeekend ? cWeekend : null;
                         if (drawTick(x, 5, true, weekendStroke)) {
                             drawDayLabel(x, dCur, isWeekend);
                         }
@@ -15942,7 +16091,7 @@ function (MGrid) {
                     ctx.font = `${Math.max(9, baseFontSize - 2)}px ${fontFamily}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "top";
-                    ctx.fillStyle = cLine;
+                    ctx.fillStyle = cMuted;
 
                     const fallbackY = cymin + 80;
 
@@ -15970,23 +16119,24 @@ function (MGrid) {
                     const padX = 8, pillH = 18;
 
                     ctx.save();
-                    ctx.font = `${baseFontSize}px ${fontFamily}`;
+                    ctx.font = `${Math.max(10, baseFontSize - 1)}px ${fontFamily}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
 
                     const fmtMDY_BCE = (d) => {
-                        const m = d.getUTCMonth() + 1;
+                        const m = monthNames[d.getUTCMonth()];
                         const da = d.getUTCDate();
                         const y = d.getUTCFullYear();
-                        return `${m}/${da}/${_yearLabel(y)}`;
+                        return `${m} ${da}, ${_yearLabel(y)}`;
                     };
 
                     const drawPill = (x, text) => {
                         if (!isXVisible(x)) return;
                         const w = ctx.measureText(text).width + padX * 2;
+                        const px = Math.min(Math.max(x - w / 2, xLeft), xRight - w);
                         applyShadow("panel");
                         ctx.beginPath();
-                        ctx.ellipse(x, labelY, w / 2, pillH / 2, 0, 0, Math.PI * 2);
+                        ctx.roundRect(px, labelY - pillH / 2, w, pillH, pillRadius);
                         ctx.fillStyle = (panelOpacity < 1) ? _withAlpha(cPanelBg, panelOpacity) : cPanelBg;
                         ctx.fill();
                         ctx.lineWidth = 1;
@@ -15994,8 +16144,8 @@ function (MGrid) {
                         ctx.stroke();
 
                         applyShadow("text");
-                        ctx.fillStyle = cText;
-                        ctx.fillText(text, x, labelY);
+                        ctx.fillStyle = cMuted;
+                        ctx.fillText(text, px + w / 2, labelY);
                     };
 
                     drawPill(xStart, fmtMDY_BCE(viewStartDate));

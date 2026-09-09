@@ -28,7 +28,7 @@ Ion params
 param(1): prompt (string with lines or a paragraph)
 param(2): start date constraint (e.g., "2025-01-01", "Jan 1 2025", "1/1/25")
 param(3): end date constraint   (e.g., "2025-12-31", "Dec 31 2025", "12/31/25")
-param(4): model (optional; default "gpt-4o-mini")
+param(4): model (optional; default "claude-haiku-4-5")
 param(5): temperature (optional; default 0.2)
 param(6): density (optional; float in [0,1], default 0.5)
 """
@@ -57,7 +57,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI (for paragraph milestone inference or date window infer if needed) -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -68,8 +68,8 @@ def _get_client() -> OpenAI:
 def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.2, json_mode: bool = True,
                max_tokens: int = 900, tries: int = 3, backoff: float = 2.0) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -87,7 +87,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -680,7 +680,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT milestone inference failed: {e}")
+        works.msg(f"⚠️ Claude milestone inference failed: {e}")
         return []
 
 def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, density: float,
@@ -716,7 +716,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT reference extraction failed: {e}")
+        works.msg(f"⚠️ Claude reference extraction failed: {e}")
         return []
 
 # ===== Business time helpers =====
@@ -916,7 +916,7 @@ def _build_demographic_milestones(
     return out
 
 
-def build_milestones(prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2,
+def build_milestones(prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2,
                      density: float = 0.5, start_dt: Optional[datetime] = None,
                      end_dt: Optional[datetime] = None) -> Dict[str, Any]:
     density = _clamp01(density, 0.5)
@@ -1085,7 +1085,7 @@ def _read_param(i: int) -> Any:
     try: return works.param(i)
     except Exception: return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     prompt = _read_param(1)
     # date window params (inclusive)
     start_dt = _parse_date_param(_read_param(2), prefer_end=False)

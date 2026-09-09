@@ -16,9 +16,7 @@ except Exception:
 
 # ---------- OpenAI client ----------
 # pip install -U openai
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (can be overridden with --grammar-file) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r"""
 grammar TableModel;
 
@@ -163,7 +161,7 @@ def generate_domain_block_and_anchor_hints(
     domain_prompt: str,
     grammar_text: str,
     *,
-    model: str = "gpt-5",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> Tuple[str, str]:
     """
@@ -171,8 +169,8 @@ def generate_domain_block_and_anchor_hints(
       - domain_block: multi-line block injected into the scaffold
       - anchor_hints: short formula-shaped examples aligned to your grammar
     """
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     client = OpenAI()
 
@@ -313,9 +311,9 @@ def getOpenAIModel(
     temperature: float = 0.2,
     return_all: bool = True,
 ) -> dict:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     client = OpenAI(api_key=api_key)
     scaffold_model = scaffold_model or model
@@ -451,7 +449,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Generate a grammar-driven model (tables + formulas) as JSON via OpenAI."
     )
     p.add_argument("prompt", help="Natural language description.")
-    p.add_argument("--model", default="gpt-4o-mini", help="Model ID (default: gpt-4o-mini)")
+    p.add_argument("--model", default="claude-haiku-4-5", help="Model ID (default: gpt-4o-mini)")
     p.add_argument("--out", help="Path to write the JSON output (default: stdout)")
     p.add_argument("--grammar-file", help="Path to a grammar file to override the default", default=None)
     return p
@@ -463,7 +461,7 @@ def _load_grammar(grammar_file: Optional[str]) -> str:
     return GRAMMAR
 
 def main():
-    default_model = "gpt-4o-mini"
+    default_model = "claude-haiku-4-5"
     _main_ion(default_model)
 
 if __name__ == "__main__":

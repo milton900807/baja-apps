@@ -1,4 +1,32 @@
 function (path, config) {
+
+    // ---- global listeners, tracked so the close button can take them away -------------
+    //
+    // This app registers keydown, dragover, drop and paste handlers on the WINDOW and the
+    // DOCUMENT, so they outlive the screen. Until there was a way out that did not matter
+    // much; now that closing returns to the home screen, a keystroke or a dropped file
+    // there would still be handled by an app that is no longer on screen.
+    //
+    // Tracking rather than de-duplicating by type: this app deliberately registers TWO
+    // dragover handlers and TWO drop handlers in different places, and a helper that kept
+    // one per type would silently unregister the first. Every registration is recorded and
+    // every one is removed together.
+    //
+    // Re-entry clears the previous set first, so opening the app twice does not leave two
+    // sets attached. The list lives on window because both cpd editors share it and only
+    // one of them is ever open.
+    try {
+        for (const rec of (window.__bajaCpdListeners || [])) {
+            try { rec[0].removeEventListener(rec[1], rec[2], rec[3]); } catch (e) { }
+        }
+    } catch (e) { }
+    try { window.__bajaCpdListeners = []; } catch (e) { }
+    const __track = (target, type, fn, capture) => {
+        try { window.__bajaCpdListeners.push([target, type, fn, capture]); } catch (e) { }
+        try { target.addEventListener(type, fn, capture); } catch (e) { }
+        return fn;
+    };
+
     if (!config) {
         config = {
             mode: "editor"
@@ -427,7 +455,7 @@ function (path, config) {
                     sequence: sequence,
                 };
             }
-            document.addEventListener('keydown', async (event) => {
+            __track(document, 'keydown', async (event) => {
 
                 if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
                     event.preventDefault();
@@ -567,10 +595,10 @@ function (path, config) {
                 }
             }
 
-            window.addEventListener('dragover', (e) => {
+            __track(window, 'dragover', (e) => {
                 e.preventDefault();
             });
-            window.addEventListener('drop', (e) => {
+            __track(window, 'drop', (e) => {
                 e.preventDefault();
                 const file = e.dataTransfer.files[0];
                 if (file) {
@@ -1275,10 +1303,10 @@ function (path, config) {
             }
             graph.post_graphics_modifications = drawPlateTracks;
 
-            window.addEventListener('dragover', (event) => {
+            __track(window, 'dragover', (event) => {
                 event.preventDefault();
             })
-            window.addEventListener('drop', async (event) => {
+            __track(window, 'drop', async (event) => {
                 event.preventDefault();
 
                 function parseExcelFile(file) {
@@ -1428,7 +1456,7 @@ function (path, config) {
             })
 
 
-            window.addEventListener('keydown', async (event) => {
+            __track(window, 'keydown', async (event) => {
 
 
                 if (pm.plateTrack.isTextActive()) {
@@ -1631,7 +1659,7 @@ function (path, config) {
                 }
             }
 
-            window.addEventListener('paste', async (e) => {
+            __track(window, 'paste', async (e) => {
                 if (e.localName && e.localName.indexOf('text') >= 0) {
                     return;
                 }
@@ -4775,6 +4803,56 @@ function (path, config) {
                 main_layout
             );
             CurrentLayout.stash('mainPanel', genegraph_panel_layout)
+
+            // ---- close ------------------------------------------------------------
+            //
+            // The same fixed ✕ the design editors use: top-right at the 44px offset that
+            // clears the application's navigation bar, off the toolbar which runs from the
+            // left. Confirms first, defaults to staying, and takes the tracked global
+            // listeners with it.
+            try {
+                const __CLOSE_ID = 'baja-project-close';
+                const __prevX = document.getElementById(__CLOSE_ID);
+                if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);
+                const __xb = document.createElement('div');
+                __xb.id = __CLOSE_ID;
+                __xb.title = 'Close this workspace';
+                __xb.setAttribute('role', 'button');
+                __xb.setAttribute('tabindex', '0');
+                __xb.setAttribute('aria-label', 'Close this workspace');
+                __xb.textContent = '\u2715';
+                __xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
+                    + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                    + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
+                    + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
+                __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
+                const __goHome = async () => {
+                    let __leave = true;
+                    try {
+                        __leave = await exec('baja/lib/confirm-leave.js', {
+                            title: 'Close the project workspace?',
+                            message: 'Anything you have not saved will be lost.',
+                            confirmLabel: 'Close without saving'
+                        });
+                    } catch (e) { __leave = false; }
+                    if (!__leave) return;
+                    try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
+                    try {
+                        for (const rec of (window.__bajaCpdListeners || [])) {
+                            try { rec[0].removeEventListener(rec[1], rec[2], rec[3]); } catch (e) { }
+                        }
+                        window.__bajaCpdListeners = [];
+                    } catch (e) { }
+                    try { await exec('baja/init'); }
+                    catch (e) { console.log('[project] returning home failed: ' + e); }
+                };
+                __xb.onclick = __goHome;
+                __xb.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
+                };
+                document.body.appendChild(__xb);
+            } catch (e) { console.log('[project] close button failed: ' + e); }
 
             working.status = 'complete'
             let m = window['env']['theme']

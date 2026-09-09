@@ -11,7 +11,7 @@ function (graph, genegraph_panel_layout, track) {
         if (!sel) {
             // No track chosen — prompt to click one, then re-enter with it.
             graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-            graph.setMouseMode('msg: Click on a track to export its features.');
+            graph.setMouseMode('msg: Click on a track to export its features');
             graph.setMessage(' Click on a track to export its features. ');
             graph.addMouseDownListener((x, y) => {
                 const ti = graph.getTrack(x, y);

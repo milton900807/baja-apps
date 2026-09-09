@@ -14,7 +14,7 @@ What it does
 Ion params
 ----------
 param(1): user prompt (str)
-param(2): model (optional; default "gpt-4o-mini")
+param(2): model (optional; default "claude-haiku-4-5")
 param(3): temperature (optional; default 0.2)
 
 Return shape
@@ -59,9 +59,9 @@ def _chat_call(
     json_mode: bool = True,
     max_tokens: int = 1800
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set (required for non-ΔΔCt fallback mode).")
-    from openai import OpenAI
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set (required for non-ΔΔCt fallback mode).")
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -287,7 +287,7 @@ def build_workbook_from_paragraph(paragraph: str, *, model: str, temperature: fl
     return _llm_generic_workbook(paragraph, model=model, temperature=temperature)
 
 # ---------- Ion entry ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     user_prompt = works.param(1)
     model = works.param(2) or default_model
     try:

@@ -8,7 +8,7 @@ function (graph, genegraph_panel_layout, tracks) {
     // Opened with nothing (a bare menu entry), the runners fall back to the selection, then to
     // asking for a click, exactly as before.
 
-    // ML Models Library — a bookshelf of the predictive models that write their output onto a
+    // Machine Learning Models — a bookshelf of the predictive models that write their output onto a
     // track as a layer.
     //   exec('baja/ml/models-library.js', graph, genegraph_panel_layout)
     //
@@ -33,7 +33,9 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
                 blurb: 'Per-position RBP binding profile across the track.',
-                open: () => exec('baja/bio/rbp/rbp-profile.js', graph, L, __targets()),
+                // The chosen protein comes from the page's picker and is passed straight
+                // through, so the runner does not ask a second time.
+                open: (rbp) => exec('baja/bio/rbp/rbp-profile.js', graph, L, __targets(), null, rbp),
                 docs: {
                     summary: 'Predicts where an RNA-binding protein footprints on the sequence. A '
                         + 'sphere-CNN scores 64-nt windows for 170 RBPs; sliding that window along the '
@@ -42,12 +44,27 @@ function (graph, genegraph_panel_layout, tracks) {
                         + 'external service is called. Trained on CLIP-style binding data.',
                     usage: 'Drawn as a coverage-style layer under the track, the same shape as the '
                         + 'RNASeq layers. Run it with a sequence selected to profile just that range.',
-                    links: [
-                        { title: 'eCLIP / ENCODE RBP resource', url: 'https://www.encodeproject.org/',
-                          note: 'The experimental assay family this class of model is trained against.' },
-                        { title: 'POSTAR / RBP binding atlases', url: 'http://postar.ncrnalab.org/',
-                          note: 'Public catalogues of measured RBP binding sites, for cross-checking a prediction.' }
-                    ]
+                    // WHICH PROTEIN, asked here rather than on a screen of its own after Load.
+                    // Only the proteins the model is actually reliable for are offered -- the
+                    // table is the held-out AUROC >= 0.90 set that ships with the weights, so
+                    // the list is the model's own statement about where it can be trusted.
+                    choice: {
+                        label: 'RNA binding protein',
+                        note: 'Held-out AUROC \u2265 0.90.',
+                        value: 'TARDBP',
+                        empty: 'The reliable-RBP table could not be read on this server.',
+                        options: async () => {
+                            const em = new EngineMonitor(() => { });
+                            const res = await exec(window['env']['apiUrl'] + '/py/bio/rbp/list-rbps.py', em);
+                            const rows = JSON.parse((res && res.rbps) || '[]');
+                            return rows.map((r) => ({
+                                value: r.name,
+                                label: r.name + '   —   AUROC ' + (+r.auroc).toFixed(2),
+                                note: r.note || ''
+                            }));
+                        }
+                    },
+                    links: []
                 }
             },
             {
@@ -112,6 +129,57 @@ function (graph, genegraph_panel_layout, tracks) {
                           note: 'The independent quantification the labels were validated against (r = 0.935).' },
                         { title: 'GTEx Portal', url: 'https://gtexportal.org/home/',
                           note: 'The tissue panel the 54-tissue inclusion levels are computed from.' }
+                    ]
+                }
+            },
+            {
+                title: 'Splicing — cis-regulatory windows', badge: 'BajaSplice', ready: true, group: 'splicing',
+                blurb: 'Which sequence around a splice site supports it, and which suppresses it.',
+                // This one is a CLICK tool, not a whole-track run: it profiles one site, so it
+                // needs the user to say which. Passing the targets still lets a track menu skip
+                // the "click on a track" step.
+                open: () => exec('baja/bio/splicing/cis-attribution.js', graph, L, (__targets()[0] || null)),
+                docs: {
+                    summary: 'Takes ONE donor or acceptor and asks what its neighbourhood is doing for '
+                        + 'it. Each window of nearby sequence is scrambled in turn and the site '
+                        + 'rescored: a fall means the window was holding the site up, a rise means it '
+                        + 'was pushing the site down. Drawn as a diverging layer — bars above the line '
+                        + 'support the site, bars below suppress it.',
+                    provenance: 'BajaSplice (py/bajasplice-lib, bajasplice.cis) on the same ctx-2000 '
+                        + 'splice-site network. Two design points decide whether the number means '
+                        + 'anything, and both are in the implementation rather than left to the user. '
+                        + 'The scramble PRESERVES DINUCLEOTIDE COMPOSITION (Altschul-Erikson): '
+                        + 'replacing a window with N or with random bases would change GC content too, '
+                        + 'and the measured drop would conflate that with the loss of any motif. And '
+                        + 'impact is measured in LOG-ODDS, not probability: a confident site sits at '
+                        + 'p = 0.999, where losing real support moves the probability by 0.001 while '
+                        + 'moving the log-odds by several nats. Measured genome-wide on held-out '
+                        + 'chromosomes, 66.5% of an acceptor\'s total impact lies within ±100 nt and '
+                        + '83.1% within ±200 nt; for a donor, 46.1% and 89.7%. Both peaks fall on the '
+                        + 'EXON side, which is where exonic splicing enhancers act — nothing told the '
+                        + 'model that.',
+                    usage: 'Pick the tool, click a point on a track, then choose the nearest annotated '
+                        + 'acceptor or donor (or the clicked position itself, for an unannotated site). '
+                        + 'Set the window and bin size in the dialog. IMPORTANT: the model physically '
+                        + 'cannot see past ±1000 nt, so a larger window is CLAMPED rather than drawn — '
+                        + 'a flat profile out there would read as "no regulatory content" when it means '
+                        + '"not measurable". Bar opacity carries confidence (how many standard errors '
+                        + 'the effect sits from zero across scrambles); a faint bar is noise, not a '
+                        + 'weak effect. And a window with no measured impact is a LOWER BOUND: it says '
+                        + 'this network does not use that sequence, not that the sequence does nothing. '
+                        + 'Worked case: the UNC13A cryptic donor comes back almost entirely '
+                        + 'SUPPRESSED (z = -2.20 against 40 strength-matched controls), which is what a '
+                        + 'site being held shut looks like from the sequence side. Do not read that as '
+                        + 'the model finding TDP-43: across 6,083 windows in 400 CLIP-covered genes, '
+                        + 'suppressive windows are no more likely to carry neuronal TDP-43 binding than '
+                        + 'supporting ones (odds 1.23, p = 0.35).',
+                    links: [
+                        { title: 'Technical report: BajaSplice', url: 'https://baja.bio/data/BajaSplice-technical-report.pdf',
+                          note: 'The cis-regulatory section gives the distance profile, the receptive-field check and the UNC13A case in full.' },
+                        { title: 'Altschul & Erikson, dinucleotide-preserving shuffle', url: 'https://doi.org/10.1093/oxfordjournals.molbev.a040370',
+                          note: 'The null this tool scrambles against: composition held fixed, arrangement destroyed.' },
+                        { title: 'POSTAR / RBP binding atlases', url: 'http://postar.ncrnalab.org/',
+                          note: 'Measured binding, for checking whether a suppressive window has a protein on it.' }
                     ]
                 }
             },
@@ -243,7 +311,7 @@ function (graph, genegraph_panel_layout, tracks) {
 
         return await exec('baja/lib/shelf.js', {
             id: 'baja-models-library',
-            title: 'ML Models Library',
+            title: 'Machine Learning Models',
             subtitle: BOOKS.length + ' models — each adds its prediction as a layer, over '
                 + scopeNote(),
             books: grouped.concat(ungrouped),

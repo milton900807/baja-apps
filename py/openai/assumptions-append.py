@@ -27,9 +27,7 @@ from urllib.parse import unquote
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- regex & helpers ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 # Matches: Table[i:i][j:j]  -> groups: (table, i, j)
 _KEY_RE = re.compile(r'^\s*([^\[\]]+?)\s*\[(\d+):(\d+)\]\s*\[(\d+):(\d+)\]\s*$')
 
@@ -145,8 +143,8 @@ Rules:
 """
 
 def _chat_json(*, prompt: str, model: str, temperature: float) -> List[Dict[str, Any]]:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -217,7 +215,7 @@ def run_return_new_assumptions(existing_payload: Any, user_prompt: str, *, model
             existing_rows = [{"label": _norm_label(it.get("label","")), "value": str(it.get("value",""))}
                              for it in loaded_existing]
 
-    works.msg("🧠 requesting assumptions from GPT…")
+    works.msg("🧠 requesting assumptions from Claude…")
     incoming_rows = _chat_json(prompt=user_prompt, model=model, temperature=temperature)
 
     works.msg("🧮 computing diff (only new labels)…")
@@ -227,7 +225,7 @@ def run_return_new_assumptions(existing_payload: Any, user_prompt: str, *, model
     return _rows_to_label_value_dict(only_new)
 
 # ---------- Ion entry/exit ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 loading assumptions diff tool (only-new)…")
 
     try:
@@ -268,4 +266,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 # bootstrap
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

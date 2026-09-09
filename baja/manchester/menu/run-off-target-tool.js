@@ -281,6 +281,9 @@ function (graph, genegraph_panel_layout, selectedOnly) {
 
             // Run finished (or was cancelled) — unblock the app.
             __finishRun();
+            // Spent some of the off-target allowance: update the free-plan bar now
+            // rather than leaving it to the next poll.
+            try { if (typeof window.__bajaFreeBarRefresh === 'function') window.__bajaFreeBarRefresh(); } catch (e) { }
             if (__freeLimit) { graph.setResultMessage(' No more free GPU time.  ;-) '); return; }
             if (__cancelled) { graph.setMessage(' Off-target run cancelled. '); return; }
 

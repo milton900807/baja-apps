@@ -38,10 +38,7 @@ import re
 from typing import Any
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- helpers ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 def _to_jsonable(obj):
     try:
         return json.loads(json.dumps(obj, ensure_ascii=False))
@@ -57,8 +54,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -259,7 +256,7 @@ but without using arrowheads or polygons.
 def generate_svg_diagram(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     system = (
@@ -285,7 +282,7 @@ def generate_svg_diagram(
 User description of coordinated effort, roles, and responsibilities:
 {user_prompt}
 """
-    works.msg("🧠 requesting SVG diagram from GPT…")
+    works.msg("🧠 requesting SVG diagram from Claude…")
     content = _chat_call(
         model=model,
         system=system,
@@ -311,7 +308,7 @@ User description of coordinated effort, roles, and responsibilities:
 def run_svg_builder(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> dict[str, Any]:
     works.msg("🔗 SVG responsibility / coordination diagram pipeline starting…")
@@ -324,7 +321,7 @@ def run_svg_builder(
 
 
 # ---------- Ion entry ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading SVG responsibility diagram builder…")
 
     # User prompt in param(1) (required)
@@ -363,4 +360,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 # ---------- Bootstrap ----------
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

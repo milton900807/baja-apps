@@ -32,24 +32,40 @@ return new Promise(async (resolve, reject) => {
     clear();
     showWidget(tu);
 
-    // Close (✕) button pinned to the upper-left → navigates back to the previous screen.
+    // Close (✕), top-right, matching every other full-screen application.
+    //
+    // It used to sit on the LEFT and call history.back(). Two changes, for two reasons.
+    // The position now matches the design editors and the chromosome view, so the way out
+    // is in the same place everywhere. And it goes to the home screen rather than back
+    // through history: arriving here by URL, or from a screen that has since been cleared,
+    // left history.back() with nowhere useful to go.
+    //
+    // NO CONFIRMATION, deliberately. This is a read-only shelf of reference documents.
+    // Nothing here is unsaved, and a dialog warning that work will be lost would be
+    // telling the reader something untrue.
     try {
         const prev = document.getElementById('baja-lib-close');
         if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
         const xb = document.createElement('div');
         xb.id = 'baja-lib-close';
-        xb.title = 'Back';
+        xb.title = 'Close the library';
+        xb.setAttribute('role', 'button');
+        xb.setAttribute('tabindex', '0');
+        xb.setAttribute('aria-label', 'Close the library');
         xb.textContent = '✕';
-        xb.style.cssText = 'position:fixed;top:44px;left:12px;z-index:2147483000;'
-            + 'width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
-            + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;'
+        xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
+            + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+            + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
             + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-        xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.2)'; } catch (e) { } };
+        xb.onmouseenter = () => { try { xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
         xb.onmouseleave = () => { try { xb.style.filter = ''; } catch (e) { } };
-        xb.onclick = () => {
+        const goHome = async () => {
             try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
-            try { window.history.back(); } catch (e) { }
+            try { await exec('baja/init'); }
+            catch (e) { console.log('[library] returning to the home screen failed: ' + e); }
         };
+        xb.onclick = goHome;
+        xb.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } };
         document.body.appendChild(xb);
     } catch (e) { }
 

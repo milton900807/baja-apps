@@ -52,7 +52,7 @@ except Exception as e:
     raise RuntimeError("This script requires the 'requests' package.") from e
 
 # ===== OpenAI =====
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -63,8 +63,8 @@ def _get_client() -> OpenAI:
 def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.2, json_mode: bool = True,
                max_tokens: int = 1000, tries: int = 3, backoff: float = 2.0) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -82,7 +82,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -272,7 +272,7 @@ def expand_prompt_via_gpt(prompt: str, *, model: str, temperature: float, expand
         data["time_window"] = str(data["time_window"]).strip() if data.get("time_window") else None
         return data
     except Exception as e:
-        works.msg(f"⚠️ GPT scope expansion failed: {e}")
+        works.msg(f"⚠️ Claude scope expansion failed: {e}")
         return {"expanded_prompt": sanitized, "keywords": [], "synonyms": [], "entities": [], "time_window": None}
 
 # ===== GPT Judge #1: alignment verdict for borderline cases =====
@@ -319,7 +319,7 @@ def gpt_alignment_judge(expected: Dict[str, Any], candidate: Dict[str, Any],
         raw = _chat_call(model=model, system=sys, user=user, temperature=min(0.4, max(0.0, temperature-0.1)), json_mode=True, max_tokens=400)
         return json.loads(raw)
     except Exception as e:
-        works.msg(f"⚠️ GPT alignment judge failed: {e}")
+        works.msg(f"⚠️ Claude alignment judge failed: {e}")
         return {"verdict":"unsure","confidence":0.0,"reasons":["model_error"]}
 
 # ===== GPT Judge #2: candidate ranking/selection =====
@@ -354,7 +354,7 @@ def gpt_rank_candidates(expected: Dict[str, Any], candidates: List[Dict[str, Any
         raw = _chat_call(model=model, system=sys, user=user, temperature=min(0.4, max(0.0, temperature-0.1)), json_mode=True, max_tokens=600)
         return json.loads(raw)
     except Exception as e:
-        works.msg(f"⚠️ GPT ranker failed: {e}")
+        works.msg(f"⚠️ Claude ranker failed: {e}")
         return {"choice_index": -1, "confidence": 0.0, "reasons":["model_error"]}
 
 # ===== GPT extraction of references (with DOI hardening) =====
@@ -450,7 +450,7 @@ def infer_references_via_gpt(prompt: str, *, model: str, temperature: float, den
         return out
 
     except Exception as e:
-        works.msg(f"⚠️ GPT reference extraction failed: {e}")
+        works.msg(f"⚠️ Claude reference extraction failed: {e}")
         infer_references_via_gpt._last_report = {"invalid_dois": [], "unresolvable_dois": []}  # type: ignore[attr-defined]
         return []
 
@@ -656,7 +656,7 @@ def _citation_text(title: str, date: datetime, authors: List[str], venue: str) -
     if venue: return f"{yr} — {core} ({venue})"
     return f"{yr} — {core}"
 
-def build_publication_milestones(prompt: str, *, model: str = "gpt-4o-mini",
+def build_publication_milestones(prompt: str, *, model: str = "claude-haiku-4-5",
                                  temperature: float = 0.2, density: float = 0.5,
                                  expand_strength: float = 0.6) -> Dict[str, Any]:
     density = _clamp01(density, 0.5)
@@ -742,7 +742,7 @@ def _read_param(i: int) -> Any:
     try: return works.param(i)
     except Exception: return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     prompt = _read_param(1)
     model = _read_param(2) or default_model
     temperature = float(_read_param(3) or 0.2)
@@ -750,7 +750,7 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
     expand_strength = _clamp01(_read_param(5), 0.6)
     if not prompt:
         raise RuntimeError("param(1) required: prompt")
-    works.msg("📍 building publication points (scope expansion → strict IDs → DOI alignment + GPT validation)…")
+    works.msg("📍 building publication points (scope expansion → strict IDs → DOI alignment + Claude validation)…")
     result = build_publication_milestones(str(prompt), model=str(model),
                                           temperature=temperature, density=density,
                                           expand_strength=expand_strength)
@@ -758,5 +758,5 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
     return 0
 
 if __name__ == "__main__":
-    works.msg("🔧 citation scheduler (expand → extract → validate DOI → GPT judge(s))")
+    works.msg("🔧 citation scheduler (expand → extract → validate DOI → Claude judge(s))")
     _main_ion()

@@ -13,7 +13,7 @@ Behavior:
 - Build body rows (y>=1) and per-column distinct sample values (capped).
 - Detect domain (qPCR, ELISA/OD, dose-response, std-curve, CRISPR, time-course, plate/generic).
 - Propose next-step actions **with formulas** (string math/Excel-like / analysis pseudo-formulas).
-- If OPENAI_API_KEY is set, ask GPT (headers+samples) for actions, then **attach local formulas** that match action names.
+- If ANTHROPIC_API_KEY is set, ask GPT (headers+samples) for actions, then **attach local formulas** that match action names.
 
 Output via ion.works.resolve():
 {
@@ -578,11 +578,11 @@ def _enrich_actions_with_formulas(gpt_actions: List[Dict[str, Any]], local_actio
         out.append(enriched)
     return out
 
-def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_name: str, model: str = "gpt-4o-mini") -> Dict[str, Any]:
+def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_name: str, model: str = "claude-haiku-4-5") -> Dict[str, Any]:
     # Always compute local domain + formulas first (used for fallback and enrichment)
     l_dt, l_desc, l_actions, l_notes = local_actions_with_formulas(headers, samples)
 
-    if not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return {
             "status":"ok","source":"local",
             "table_name":table_name,"headers":headers,"samples":samples,
@@ -601,7 +601,7 @@ def classify_with_gpt(headers: List[str], samples: Dict[str, List[str]], table_n
     user_payload = {"table_name": table_name, "headers": headers, "samples": samples}
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
         raw = ""
         try:
@@ -707,7 +707,7 @@ def main() -> int:
 
     samples = build_column_samples(headers, rows, cap=12)
 
-    model = "gpt-4o-mini"
+    model = "claude-haiku-4-5"
     result = classify_with_gpt(headers, samples, table_name, model=model)
 
     result["table_name"] = table_name

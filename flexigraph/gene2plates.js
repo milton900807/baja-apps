@@ -1068,35 +1068,29 @@ function (plateManager, progress) {
 
 
             _drawCursorHint(ctx, text, mx, my) {
-                const paddingX = 8;
+                // Cursor-following hint: a small white card with slate text, matching
+                // the plot title bar, resize handle and window controls.
+                const paddingX = 10;
                 const paddingY = 6;
-                const fontSize = isMobile() ? 12 : 15;
+                const fontSize = isMobile() ? 12 : 13;
                 const radius = 6;
+                const label = String(text ?? '').trim();
+                if (!label) return;
 
                 ctx.save();
+                ctx.font = `500 ${fontSize}px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif`;
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
 
-                ctx.font = `${fontSize}px "Courier New", monospace`;
-                ctx.textBaseline = 'top';
-                ctx.textAlign = 'left'
-
-                const metrics = ctx.measureText(text);
-                const textWidth = metrics.width;
-                const textHeight = Math.ceil(fontSize * 1.2);
-
+                const textWidth = ctx.measureText(label).width;
                 const boxW = Math.ceil(textWidth + paddingX * 2);
-                const boxH = Math.ceil(textHeight + paddingY * 2);
+                const boxH = Math.ceil(fontSize + paddingY * 2 + 2);
 
                 const clampPad = 6;
                 const maxX = ctx.canvas.width - boxW - clampPad;
                 const maxY = ctx.canvas.height - boxH - clampPad;
-
-                let boxX = Math.max(clampPad, Math.min(mx - paddingX, maxX));
-                let boxY = Math.max(clampPad, Math.min(my - paddingY, maxY));
-                const textX = boxX + paddingX;
-                const textY = boxY + paddingY;
-
-                boxY -= 10;
-                const liftedBoxY = Math.max(clampPad, boxY);
+                const boxX = Math.max(clampPad, Math.min(mx - paddingX, maxX));
+                const boxY = Math.max(clampPad, Math.min(my - paddingY - 10, maxY));
 
                 const roundRect = (x, y, w, h, r) => {
                     const rr = Math.min(r, w / 2, h / 2);
@@ -1109,50 +1103,32 @@ function (plateManager, progress) {
                     ctx.closePath();
                 };
 
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-                ctx.shadowBlur = 14;
+                ctx.shadowColor = 'rgba(15, 23, 42, 0.16)';
+                ctx.shadowBlur = 8;
                 ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 6;
-
-                roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.fillStyle = 'rgba(14, 18, 14, 0.92)';
+                ctx.shadowOffsetY = 2;
+                roundRect(boxX, boxY, boxW, boxH, radius);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.97)';
                 ctx.fill();
 
                 ctx.shadowColor = 'transparent';
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
-
-                roundRect(boxX, liftedBoxY, boxW, boxH, radius);
-                ctx.strokeStyle = 'rgba(90, 255, 120, 0.35)';
+                ctx.strokeStyle = 'rgba(15, 23, 42, 0.16)';
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                roundRect(boxX + 1, liftedBoxY + 1, boxW - 2, boxH - 2, radius - 1);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                ctx.shadowColor = 'rgba(60, 255, 120, 0.55)';
-                ctx.shadowBlur = 10;
-                ctx.fillStyle = '#6CFF9A';
-                ctx.fillText(text, textX, liftedBoxY + paddingY);
-
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
+                // Accent bar on the left edge.
                 ctx.save();
-                roundRect(boxX, liftedBoxY, boxW, boxH, radius);
+                roundRect(boxX, boxY, boxW, boxH, radius);
                 ctx.clip();
-                ctx.globalAlpha = 0.07;
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 1;
-                for (let y = liftedBoxY; y < liftedBoxY + boxH; y += 3) {
-                    ctx.beginPath();
-                    ctx.moveTo(boxX, y);
-                    ctx.lineTo(boxX + boxW, y);
-                    ctx.stroke();
-                }
+                ctx.fillStyle = '#2563eb';
+                ctx.fillRect(boxX, boxY, 3, boxH);
                 ctx.restore();
+
+                ctx.fillStyle = '#1f2937';
+                ctx.fillText(label, boxX + paddingX + 2, boxY + boxH / 2 + 0.5);
 
                 ctx.restore();
             }
@@ -1554,7 +1530,21 @@ function (plateManager, progress) {
 
             }
 
+            // WORLD IN, SCREEN OUT.
+            //
+            // Every mouse listener in this file is dispatched with world coordinates --
+            // movel(xwc, ywc), mdl(xwc, ywc) -- and that is what callers hand to getSNPs.
+            // SnpIndel.over() tests against a SCREEN-pixel region covering the whole
+            // lollipop. The two were never converted between, so world numbers were compared
+            // against pixel numbers and the region effectively never matched: clicking a
+            // lollipop head did nothing, and selection fell through to a 12-pixel proximity
+            // test anchored near the track baseline, which is why only the foot of the stem
+            // responded.
+            //
+            // Converting once, here, is what makes the head clickable.
             getSNPs(x, y) {
+                const sx = this.graph.X(x);
+                const sy = this.graph.Y(y);
                 let gwcxs = this.graph.Xwc(0);
                 if (!gwcxs)
                     return;
@@ -1569,7 +1559,7 @@ function (plateManager, progress) {
 
                     for (let snp of snps) {
                         if (snp != null && snp.over != null && this.graph != null) {
-                            if (snp.over(x, y, this.graph, t.tgraph)) {
+                            if (snp.over(sx, sy, this.graph, t.tgraph)) {
                                 s.push(snp);
                             }
                         }

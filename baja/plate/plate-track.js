@@ -15672,8 +15672,8 @@ function (progress) {
                         m,
                         this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
                         this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2),
-                        'rgb(134, 240, 29)',
-                        'black',
+                        'rgba(255,255,255,0.98)',
+                        '#1f2937',
                         cols
                     );
                     return this.setMenu(smenu2);
@@ -15690,7 +15690,7 @@ function (progress) {
                 const cols = 2;
                 this.menu = new Menu(m,
                     this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)
 
                 this.menu.title = title;
                 this.menu_vis = true;

@@ -17,12 +17,12 @@ except Exception:  # pragma: no cover
     works = None
 
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
 
 RNA_COMPLEMENT: Dict[str, str] = {
     "A": "U",
@@ -202,7 +202,7 @@ def nussinov_fold(sequence: str, chemistry: str, min_loop_size: int = 3) -> Fold
 def ask_openai_for_hairpin(sequence: str, chemistry: str, min_loop_size: int = 3) -> Optional[FoldResult]:
     if OpenAI is None:
         return None
-    if not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return None
 
     client = OpenAI()

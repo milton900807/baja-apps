@@ -16,9 +16,7 @@ import os, json, re
 from typing import List, Dict, Any
 
 from ion import works
-from openai import OpenAI
-
-# ---------------- GPT Call ----------------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 SYS = "You are a strict financial modeling assistant. Only output valid JSON."
 
@@ -69,7 +67,7 @@ def build_two_col(table_name: str, rows: List[Dict[str, str]]) -> Dict[str, str]
 # ---------------- Orchestrator ----------------
 
 def run(user_prompt: str, model: str, temperature: float) -> Dict[str, Any]:
-    works.msg("📡 Requesting capital assumptions from GPT…")
+    works.msg("📡 Requesting capital assumptions from Claude…")
 
     data = gpt_call(model, temperature, user_prompt)
     rows = data.get("capital_assumptions", [])
@@ -100,7 +98,7 @@ def _main():
     if not prompt:
         raise RuntimeError("Ion: param(1) required (prompt).")
 
-    model = works.param(3) or "gpt-4o-mini"
+    model = works.param(3) or "claude-haiku-4-5"
     try:
         temperature = float(works.param(4) or 0.2)
     except:

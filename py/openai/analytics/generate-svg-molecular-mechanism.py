@@ -14,13 +14,13 @@ except Exception:  # pragma: no cover
     works = None
 
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 
 SVG_NS = "http://www.w3.org/2000/svg"
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
 
 RNA_COMPLEMENT: Dict[str, str] = {
     "A": "U",
@@ -465,8 +465,8 @@ def _build_json_schema() -> Dict[str, Any]:
 def _ask_openai_for_structure(description: str) -> Dict[str, Any]:
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     client = OpenAI()
     schema = _build_json_schema()

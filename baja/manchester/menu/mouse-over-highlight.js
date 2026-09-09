@@ -1558,6 +1558,21 @@ function (graph, genegraph_panel_layout) {
                 for (let t of graph.track) { for (let s of (t.snpindels || [])) if (s) s.highlight = false; }
                 let hoverSnps = graph.getSNPs(x, y);
                 if (hoverSnps && hoverSnps.length) {
+                    // Hover marks the SAME marker a press would select -- the one whose head
+                    // is nearest -- for the same reason the press does. Highlighting every
+                    // overlapping region instead lit up a column of markers and pointed at
+                    // none of them, and it disagreed with what the click then did.
+                    if (hoverSnps.length > 1) {
+                        const __hx = graph.X(x), __hy = graph.Y(y);
+                        let best = Infinity, pick = hoverSnps[0];
+                        for (const cand of hoverSnps) {
+                            if (!cand) continue;
+                            const d = (typeof cand.headDistance === 'function')
+                                ? cand.headDistance(__hx, __hy) : Infinity;
+                            if (d < best) { best = d; pick = cand; }
+                        }
+                        hoverSnps = [pick];
+                    }
                     let smsg = '';
                     for (let snp of hoverSnps) {
                         if (!snp) continue;
@@ -5067,7 +5082,28 @@ function (graph, genegraph_panel_layout) {
             try {
                 const gs = graph.getSNPs(x, y);
                 if (gs && gs.length) {
+                    // THE ONE UNDER THE POINTER, not the first one enumerated.
+                    //
+                    // A hit region covers the whole lollipop, head and stem, so that the stem
+                    // is clickable too. The consequence is that markers stacked in different
+                    // lanes over the same base have overlapping regions -- a taller one's
+                    // region contains a shorter one's entirely -- and several match one
+                    // press. Taking gs[0] selected whichever the track happened to list
+                    // first, which is how a click on one head selected a different variant.
+                    //
+                    // Ranking by distance to the HEAD picks the lollipop actually aimed at:
+                    // the heads are what is separated in y, the stems are what overlap.
+                    const __sx = graph.X(x), __sy = graph.Y(y);
                     clickSnp = gs[0];
+                    if (gs.length > 1) {
+                        let best = Infinity;
+                        for (const cand of gs) {
+                            if (!cand) continue;
+                            const d = (typeof cand.headDistance === 'function')
+                                ? cand.headDistance(__sx, __sy) : Infinity;
+                            if (d < best) { best = d; clickSnp = cand; }
+                        }
+                    }
                     for (let t of graph.track) { if ((t.snpindels || []).indexOf(clickSnp) >= 0) { clickTrack = t; break; } }
                 }
             } catch (e) { }

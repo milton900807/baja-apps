@@ -35,9 +35,7 @@ _HAS_ION = True
 
 # ---------- OpenAI client ----------
 # pip install -U openai
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (can be overridden with --grammar-file) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r"""
 
 """
@@ -117,11 +115,11 @@ def generate_domain_block_and_anchor_hints(
     domain_prompt: str,
     grammar_text: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
 ) -> Tuple[str, str]:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     sys_msg = (
         "You are a domain pack synthesizer for a grammar-driven modeling system.\n"
@@ -472,7 +470,7 @@ def _summarize_prior_for_prompt(prev: dict) -> str:
 def expand_user_prompt(
     prompt: str,
     *,
-    model: str = "gpt-4o",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.1,
     previous_results: Optional[dict] = None,
 ) -> str:
@@ -481,8 +479,8 @@ def expand_user_prompt(
     describing the intended model (no JSON, no code, no lists).
     If previous_results is provided, include a concise summary to steer refinement.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     sys_msg = (
         "You rewrite brief financial modeling prompts into one concise paragraph that fully describes "
@@ -519,9 +517,9 @@ def getOpenAIModel(
     temperature: float = 0.2,
     return_all: bool = True,
 ) -> dict:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
 
     scaffold_model = scaffold_model or model
 
@@ -714,7 +712,7 @@ def _diagnose_model_payload(final_json: dict) -> str:
 def refine_model_with_chat(
     model_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.01,
 ) -> dict:
     """
@@ -727,7 +725,7 @@ def refine_model_with_chat(
     Returns a valid JSON object with the same four top-level keys.
     """
     try:
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
             # Fail-safe: just return original if no API key present
             return model_json or {}
 
@@ -1186,7 +1184,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Three-stage AssignLang builder with optional prior-results refinement."
     )
     p.add_argument("prompt", help="Natural language description.")
-    p.add_argument("--model", default="gpt-4o-mini", help="Model ID (default: gpt-4o-mini)")
+    p.add_argument("--model", default="claude-haiku-4-5", help="Model ID (default: gpt-4o-mini)")
     p.add_argument("--out", dest="out_path", help="Path to write ONLY the final JSON output (default: stdout)")
     p.add_argument("--outdir", help="Directory to dump expanded prompt and full response bundle")
     p.add_argument("--grammar-file", help="Path to a grammar file to override the default", default=None)
@@ -1260,7 +1258,7 @@ def _maybe_json_or_path(x: Any) -> Optional[dict]:
     with open(s, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     """
     Ion entry:
       param(1): prompt (string)
@@ -1294,4 +1292,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 works.msg ( ' loading model ')
-_main_ion('gpt-4o-mini')
+_main_ion('claude-haiku-4-5')

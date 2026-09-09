@@ -74,6 +74,31 @@ function (graph, genegraph_panel_layout) {
                        ['VastDB', 'https://vastdb.crg.eu/'], ['GTEx', 'https://gtexportal.org/home/']]
             },
             {
+                name: 'BajaSplice · cis-regulatory windows',
+                field: 'Splicing',
+                headline: 'Which sequence around one splice site holds it up, and which pushes it down.',
+                method: 'Each window of nearby sequence is scrambled in turn and the site rescored. The '
+                    + 'scramble PRESERVES DINUCLEOTIDE COMPOSITION, so a drop is attributable to the '
+                    + 'arrangement of bases rather than to GC content having changed, and impact is '
+                    + 'measured in LOG-ODDS, because a confident site sits at p = 0.999 where losing real '
+                    + 'support moves the probability by 0.001 and the log-odds by several nats.',
+                evidence: 'On held-out chromosomes, 66.5% of an acceptor\'s total impact lies within '
+                    + '±100 nt and 83.1% within ±200 nt; for a donor, 46.1% and 89.7%. Both peaks fall on '
+                    + 'the exon side, where exonic splicing enhancers act — nothing told the model that. '
+                    + 'The ±1000 nt receptive field was confirmed by perturbation rather than assumed: a '
+                    + 'change at 1,000 nt moves the score by 0.0000.',
+                limits: 'A window with no measured impact is a LOWER BOUND on what the sequence does — it '
+                    + 'says this network does not use it. Nothing beyond ±1000 nt is measurable at all, so '
+                    + 'a wider request is clamped rather than answered. And a striking single case is not '
+                    + 'a rule: the UNC13A cryptic donor comes back almost entirely suppressed '
+                    + '(z = -2.20 against 40 matched controls) with a neuronal TDP-43 crosslink 28 nt '
+                    + 'away, but across 6,083 windows in 400 CLIP-covered genes suppressive windows are no '
+                    + 'more likely to carry TDP-43 binding than supporting ones (odds 1.23, p = 0.35).',
+                refs: [['Technical report', 'https://baja.bio/data/BajaSplice-technical-report.pdf'],
+                       ['Dinucleotide shuffle', 'https://doi.org/10.1093/oxfordjournals.molbev.a040370'],
+                       ['POSTAR', 'http://postar.ncrnalab.org/']]
+            },
+            {
                 name: 'BajaIR',
                 field: 'Intron retention',
                 headline: 'How retention-prone an intron is, from sequence alone.',

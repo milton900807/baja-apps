@@ -325,7 +325,7 @@ def _main_ion() -> int:
       param(3): ignored
       param(4): ignored
     """
-    works.msg("\tready: plate layout vs measured classifier (no GPT)")
+    works.msg("\tready: plate layout vs measured classifier (no Claude)")
 
     raw1 = works.param(1)
     try:
@@ -354,5 +354,5 @@ def _main_ion() -> int:
 
 
 # Auto-run when loaded by Ion
-works.msg(" loading plate layout classifier (no GPT) ")
+works.msg(" loading plate layout classifier (no Claude) ")
 _main_ion()

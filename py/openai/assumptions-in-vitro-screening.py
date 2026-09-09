@@ -40,7 +40,7 @@ What it does
 Ion params
 ----------
 param(1) = user prompt (required)
-param(2) = model (optional; default "gpt-4o-mini")
+param(2) = model (optional; default "claude-haiku-4-5")
 param(3) = temperature (optional; default 0.2)
 param(4) = use_case hint (optional; free-text hint, e.g.,
            "in vitro RNA-target screen with CRO",
@@ -56,9 +56,7 @@ from typing import Dict, List, Tuple, Optional, Any
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---- Table name constant ----
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 TABLE_NAME = "InVitro_Screen_Assumptions"
 
 # ---------- helpers ----------
@@ -94,8 +92,8 @@ def _chat_call(
     json_mode: bool = False,
     max_tokens: int = 3000
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -640,7 +638,7 @@ def generate_assumptions_from_taxonomy(
         user_prompt=user_prompt.strip() if user_prompt else ""
     )
 
-    works.msg("🔒 requesting JSON operating assumptions from GPT (RNA-target screening)…")
+    works.msg("🔒 requesting JSON operating assumptions from Claude (RNA-target screening)…")
     content = _chat_call(
         model=model,
         system=system,
@@ -986,7 +984,7 @@ def infer_units(table_name: str, rows: List[Dict[str, str]]) -> Dict[str, Dict[s
 def run_assumptions_only(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     use_case_hint: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -1038,7 +1036,7 @@ def run_assumptions_only(
 
 # ---------- Ion entry/exit ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user_prompt = works.param(1)  # required
     except Exception:
@@ -1078,4 +1076,4 @@ if __name__ == "__main__":
         "(generalized, prompt-driven, with qPCR primer–probe design/validation costs, "
         "timing logic, cell-culture setup durations, and screening cost caps)…"
     )
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

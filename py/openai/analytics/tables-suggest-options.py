@@ -268,8 +268,8 @@ def _extract_json_blob(s: str) -> Dict[str, Any]:
 
 
 def _ensure_api_key():
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
 
 
 # --------------------- GPT call #1: suggestions from tables ---------------------
@@ -277,7 +277,7 @@ def _ensure_api_key():
 
 def _call_chatgpt_suggestions_from_tables(
     table_summaries: List[Dict[str, Any]],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
 ) -> Dict[str, Any]:
     """
     Use GPT to propose a list of options/suggestions for what you can do
@@ -320,7 +320,7 @@ def _call_chatgpt_suggestions_from_tables(
     )
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
 
         # Try Responses API first
@@ -387,7 +387,7 @@ def _call_chatgpt_suggestions_from_tables(
 def _call_chatgpt_suggestions_from_notes(
     table_summaries: List[Dict[str, Any]],
     notes: List[str],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
 ) -> Dict[str, Any]:
     """
     Second GPT pass: Use the prior 'notes' as the main prompt
@@ -431,7 +431,7 @@ def _call_chatgpt_suggestions_from_notes(
     )
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
 
         # Try Responses API first
@@ -497,7 +497,7 @@ def _call_chatgpt_suggestions_from_notes(
 def _call_chatgpt_operations_for_suggestions(
     table_summaries: List[Dict[str, Any]],
     suggestions: List[Dict[str, Any]],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
 ) -> Dict[str, Any]:
     """
     Third GPT pass: use the suggestions to design executable operations.
@@ -527,7 +527,7 @@ def _call_chatgpt_operations_for_suggestions(
               "1": "value for param(1) in Ion",
               "2": "value for param(2)",
               "3": "value for param(3) (e.g. 'current_model_json')",
-              "4": "value for param(4) (e.g. 'gpt-4o-mini')"
+              "4": "value for param(4) (e.g. 'claude-haiku-4-5')"
             }
           }
         }
@@ -557,7 +557,7 @@ def _call_chatgpt_operations_for_suggestions(
         "- Prefer snake_case operation_id values.\n"
         "- The 'ion_call' block should describe how to call a script from Ion, e.g.:\n"
         "     'script': 'linker',\n"
-        "     'params': { '1': 'layout', '2': 'ribogreen', '3': 'current_model_json', '4': 'gpt-4o-mini' }\n"
+        "     'params': { '1': 'layout', '2': 'ribogreen', '3': 'current_model_json', '4': 'claude-haiku-4-5' }\n"
         "  If no direct Ion call is obvious, set 'script' to \"\" and params to an empty object.\n"
         "- Use the 'tables' field to list all relevant tables for the operation.\n"
         "- For 'link_tables' operations, also fill 'source_table' and 'target_table'.\n"
@@ -572,7 +572,7 @@ def _call_chatgpt_operations_for_suggestions(
     )
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
 
         # Try Responses API first

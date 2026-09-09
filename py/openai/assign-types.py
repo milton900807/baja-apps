@@ -21,7 +21,7 @@ Indexing model (IMPORTANT, 0-based):
     })
 
 Env:
-  OPENAI_API_KEY must be set to call the LLM. If not set, the script returns the original unchanged.
+  ANTHROPIC_API_KEY must be set to call the LLM. If not set, the script returns the original unchanged.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ except Exception:
 
 # ---------- OpenAI ----------
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None  # type: ignore
 
@@ -243,8 +243,8 @@ def build_user_message(plates: List[Dict[str, Any]]) -> tuple[str, List[Dict[str
 
 
 # ---------------- OpenAI call ----------------
-def ask_openai(user_message: str, model: str = "gpt-4o-mini") -> Dict[str, Any]:
-    if OpenAI is None or not os.getenv("OPENAI_API_KEY"):
+def ask_openai(user_message: str, model: str = "claude-haiku-4-5") -> Dict[str, Any]:
+    if OpenAI is None or not os.getenv("ANTHROPIC_API_KEY"):
         return {"suggested_values": []}
     client = OpenAI()
     resp = client.chat.completions.create(
@@ -403,7 +403,7 @@ def main_ion() -> int:
             })
             return 0
 
-        llm_json = ask_openai(user_msg, os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+        llm_json = ask_openai(user_msg, os.getenv("OPENAI_MODEL", "claude-haiku-4-5"))
         updated, suggestions = apply_suggestions(original, missing_items, llm_json)
         cleaned = cleanup_all_plates(updated)
 
@@ -426,7 +426,7 @@ def main_cli(argv: List[str]) -> int:
     ap.add_argument("--plates", required=True, help="Path to plates.json, a JSON string, or '-' for stdin.")
     ap.add_argument("--out", help="Write updated plates to this path. If omitted, prints to stdout.")
     ap.add_argument("--show-original", action="store_true", help="Also print original JSON (for debugging).")
-    ap.add_argument("--model", default=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    ap.add_argument("--model", default=os.getenv("OPENAI_MODEL", "claude-haiku-4-5"))
     args = ap.parse_args(argv)
 
     src = sys.stdin.read() if args.plates == "-" else args.plates
@@ -469,6 +469,6 @@ if __name__ == "__main__":
     if _HAS_ION:
         sys.exit(main_ion())
     else:
-        if not os.getenv("OPENAI_API_KEY"):
-            print("WARNING: OPENAI_API_KEY not set; no LLM suggestions will be generated.", file=sys.stderr)
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            print("WARNING: ANTHROPIC_API_KEY not set; no LLM suggestions will be generated.", file=sys.stderr)
         sys.exit(main_cli(sys.argv[1:]))

@@ -27,9 +27,7 @@ except Exception:
     _HAS_ION = False
 
 # ---------- OpenAI client ----------
-from openai import OpenAI
-
-# ---------- DEFAULT GRAMMAR (placeholder, unused) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 GRAMMAR = r""""""
 
 # ---------- System prompt helper ----------
@@ -120,9 +118,9 @@ def build_system_scaffold_no_formulas() -> str:
     )
 
 # ---------- Stage 1: Prompt expansion ----------
-def expand_user_prompt(prompt: str, *, model: str = "gpt-4o-mini") -> str:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+def expand_user_prompt(prompt: str, *, model: str = "claude-haiku-4-5") -> str:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
     sys_msg = (
         "Rewrite the brief modeling prompt into one concise paragraph describing "
         "assumptions, KPIs, inputs and outputs (plain English, no lists/JSON/code). "
@@ -137,9 +135,9 @@ def expand_user_prompt(prompt: str, *, model: str = "gpt-4o-mini") -> str:
     return (content or "").strip()
 
 # ---------- Stage 2: JSON build (tables only; formulas forced empty) ----------
-def build_json_no_formulas(expanded_prompt: str, *, model: str = "gpt-4o-mini") -> Dict[str, Any]:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set in the environment.")
+def build_json_no_formulas(expanded_prompt: str, *, model: str = "claude-haiku-4-5") -> Dict[str, Any]:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in the environment.")
     system = SYS_JSON_ONLY + "\n\n" + build_system_scaffold_no_formulas()
     user = expanded_prompt
     content = _chat_call(model=model, system=system, user=user, temperature=0.2, json_mode=True)
@@ -339,7 +337,7 @@ def ensure_inputs_outputs_present(final_json: dict) -> dict:
     return data
 
 # ---------- Runner ----------
-def run_no_formulas(user_prompt: str, *, model: str = "gpt-4o-mini", previous_results: Optional[dict] = None, outdir: Optional[str] = None) -> Dict[str, Any]:
+def run_no_formulas(user_prompt: str, *, model: str = "claude-haiku-4-5", previous_results: Optional[dict] = None, outdir: Optional[str] = None) -> Dict[str, Any]:
     if outdir:
         os.makedirs(outdir, exist_ok=True)
 
@@ -389,7 +387,7 @@ def run_no_formulas(user_prompt: str, *, model: str = "gpt-4o-mini", previous_re
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="AssignLang-style builder without formulas (ensures 'inputs' and 'outputs').")
     p.add_argument("prompt", help="Natural language description.")
-    p.add_argument("--model", default="gpt-4o-mini", help="Model ID (default: gpt-4o-mini)")
+    p.add_argument("--model", default="claude-haiku-4-5", help="Model ID (default: gpt-4o-mini)")
     p.add_argument("--out", dest="out_path", help="Path to write ONLY the final JSON output (default: stdout)")
     p.add_argument("--outdir", help="Directory to dump expanded prompt and final bundle")
     p.add_argument("--prev", dest="prev_input", help="Path to previous results JSON OR inline JSON text", default=None)
@@ -407,7 +405,7 @@ def _load_json_from_path_or_text(s: Optional[str]) -> Optional[dict]:
         return json.load(f)
 
 # ---------- Ion entry ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user_prompt = works.param(1)
     except Exception as e:
@@ -447,7 +445,7 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 if __name__ == "__main__":
     if _HAS_ION:
         works.msg("loading model (no formulas, canonical inputs/outputs)...")
-        _main_ion("gpt-4o-mini")
+        _main_ion("claude-haiku-4-5")
     else:
         parser = build_arg_parser()
         args = parser.parse_args()

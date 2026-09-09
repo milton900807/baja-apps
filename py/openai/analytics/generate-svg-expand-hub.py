@@ -29,10 +29,7 @@ from dataclasses import dataclass, asdict, is_dataclass
 import xml.etree.ElementTree as ET
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- data structures ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 @dataclass
 class svg_text:
@@ -87,8 +84,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -463,7 +460,7 @@ IMPORTANT:
 def generate_svg_groups_from_prompt(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     starting_svg: Optional[str] = None,
 ) -> List[svg_group]:
@@ -595,7 +592,7 @@ def assemble_svg_from_groups(
     user_prompt: str,
     groups: List[svg_group],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     # Ensure overlaps are resolved even if caller skipped
@@ -641,7 +638,7 @@ Return ONLY <svg>...</svg>.
 def run_svg_builder(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
     starting_svg: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -670,7 +667,7 @@ def run_svg_builder(
 
 # ---------- Ion entry ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading two-stage SVG diagram builder (expand from starting SVG; no overlap)…")
 
     # param(1): required prompt
@@ -721,4 +718,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

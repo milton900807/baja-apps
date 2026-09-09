@@ -1,14 +1,22 @@
 function (graph) {
     // Annotation tool: a citation/reference box (e.g. paste a PubMed URL in the comment).
     // a comment dialog commits it, then the mouse returns to navigate + mouse-over.
+    // The shape class is loaded UP FRONT, not awaited inside mousedown. An await there
+    // leaves a yield between the press and the state it sets: a quick click can land its
+    // mouseup BEFORE the class resolves, so mouseup sees no shape and skips its cleanup,
+    // and the late mousedown then builds a shape that the still-live move listener stretches
+    // to follow the cursor forever. That is the "keeps drawing after mouse up" behaviour.
+    let Citation = null;
+    exec('flexigraph/shapes/citation.js').then((k) => { Citation = k && k.Citation; });
+
     graph.clearMouseListeners();
-    graph.setMouseMode("msg:Click and drag to add a citation");
+    graph.setMouseMode("msg: Click and drag to add a citation");
     graph.selectOff();
     let md = false;
-    graph.addMouseDownListener(async (x, y) => {
-        let cz = await exec('flexigraph/shapes/citation.js');
+    graph.addMouseDownListener((x, y) => {
+        if (!Citation) return;   // class not loaded yet
         md = true;
-        graph.currentShape = new cz.Citation('test', x, y);
+        graph.currentShape = new Citation('test', x, y);
     });
     graph.addMouseMoveListener((x, y) => {
         if (!md) { graph.currentShape = null; }

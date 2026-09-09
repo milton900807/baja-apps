@@ -9,7 +9,7 @@ Params
 ------
 param(1): phrase (duration only; e.g., "2 hours", "1d 4h 30m", "3 weeks")
 param(2): start_iso (e.g., "2025-10-10T14:05:00")
-param(3): model (optional; default "gpt-4o-mini")
+param(3): model (optional; default "claude-haiku-4-5")
 param(4): temperature (optional; default 0.0)
 
 Output (works.resolve)
@@ -43,7 +43,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI chat wrapper -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -55,8 +55,8 @@ def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.0, json_mode: bool = True,
                max_tokens: int = 300, tries: int = 3, backoff: float = 2.0) -> str:
     import os
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system},
@@ -75,7 +75,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -139,7 +139,7 @@ def _read_param(i: int):
     except Exception:
         return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     phrase = _read_param(1) or ""
     start_iso = _read_param(2)
     model = _read_param(3) or default_model

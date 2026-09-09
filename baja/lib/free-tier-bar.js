@@ -63,10 +63,30 @@ return (async () => {
         return false;
     }
 
-    const lim = quota.limit || 5;
-    const aiLeft = (quota.aiRemaining != null) ? quota.aiRemaining : lim;
-    const otLeft = (quota.offtargetRemaining != null) ? quota.offtargetRemaining : lim;
-    const resetsOn = quota.resetsOn || '';
+    // PER-METRIC limits. `limit` is the server's legacy single figure and equals the DESIGN
+    // allowance, so using it for both showed off-targets out of 5 when the real cap is 100 --
+    // "70 off-target left" against a limit of 5. designLimit / offtargetLimit are the real
+    // ones; the legacy field is only a fallback for an older server.
+    const readQuota = (q) => {
+        q = q || {};
+        const dLim = (q.designLimit != null) ? q.designLimit : (q.limit || 5);
+        const oLim = (q.offtargetLimit != null) ? q.offtargetLimit : (q.limit || 5);
+        const dLeft = (q.designRemaining != null) ? q.designRemaining
+            : ((q.aiRemaining != null) ? q.aiRemaining : dLim);
+        const oLeft = (q.offtargetRemaining != null) ? q.offtargetRemaining : oLim;
+        return {
+            dLim: dLim, oLim: oLim,
+            // -1 is the server's "subscribed, unmetered" marker.
+            dLeft: (dLeft < 0) ? dLim : dLeft,
+            oLeft: (oLeft < 0) ? oLim : oLeft,
+            resetsOn: q.resetsOn || '', period: q.period || ''
+        };
+    };
+    let Q = readQuota(quota);
+    const lim = Q.dLim;
+    const aiLeft = Q.dLeft;
+    const otLeft = Q.oLeft;
+    const resetsOn = Q.resetsOn;
     // The collapse is remembered against the billing period, not a plain boolean, so a new
     // month's allowance announces itself again instead of staying hidden forever.
     const period = quota.period || '';
@@ -89,11 +109,11 @@ return (async () => {
             + '<span style="flex:0 0 auto;background:#22c55e;color:#04210f;border-radius:999px;'
             + 'padding:3px 10px;font:700 11.5px Arial;">FREE PLAN</span>'
             + '<span style="flex:1 1 auto;min-width:0;">'
-            + '<b>Editing is unlimited</b> — load, edit, save and design as much as you like. '
-            + 'Some features are metered: <b>AI requests</b> and <b>off-target searches</b>, '
-            + '<b>' + lim + ' each per month</b>'
+            + '<b>Editing is unlimited</b> — load, edit, save and draw as much as you like. '
+            + 'Two things are metered: <b>designs</b> and <b>off-target searches</b>'
             + (resetsOn ? (' (resets ' + resetsOn + ')') : '') + '. '
-            + 'You have <b>' + aiLeft + '</b> AI and <b>' + otLeft + '</b> off-target left.'
+            + '<span id="baja-free-counts">You have <b>' + aiLeft + '</b> of ' + Q.dLim
+            + ' designs and <b>' + otLeft + '</b> of ' + Q.oLim + ' off-target left.</span>'
             + '</span>'
             + '<a href="/subscribe" style="flex:0 0 auto;color:#04210f;background:#22c55e;'
             + 'border-radius:8px;padding:7px 14px;font:700 12.5px Arial;text-decoration:none;">'
@@ -112,8 +132,8 @@ return (async () => {
             + 'background:rgba(11,37,69,0.94);color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);'
             + 'border-radius:10px;padding:8px 12px;font:600 12px Arial;'
             + 'box-shadow:0 8px 26px rgba(0,0,0,0.35);';
-        tab.innerHTML = '<span>Free plan · AI ' + aiLeft + '/' + lim
-            + ' · off-targets ' + otLeft + '/' + lim + '</span>'
+        tab.innerHTML = '<span id="baja-free-tabcounts">Free plan · designs ' + aiLeft + '/' + Q.dLim
+            + ' · off-targets ' + otLeft + '/' + Q.oLim + '</span>'
             + '<span style="color:#04210f;background:#22c55e;border-radius:7px;'
             + 'padding:4px 9px;font:700 11.5px Arial;">Subscribe</span>';
         document.body.appendChild(tab);
@@ -140,6 +160,58 @@ return (async () => {
         try { console.error('free-tier-bar: could not render the free-plan bar', e); } catch (e2) { }
         return false;
     }
+
+    // LIVE COUNTS.
+    //
+    // The bar read window.__bajaFreeQuota -- a snapshot free/editor.js had already fetched --
+    // and rendered once. Nothing ever re-read it, so the numbers were whatever they had been
+    // when the editor started and stayed there all session, however many designs were run.
+    //
+    // Refresh re-fetches with cache:'no-store' and rewrites the two count spans in place
+    // rather than rebuilding the bar, so it cannot fight the collapse state or the watchdog.
+    // The server caches /free-quota briefly for exactly this polling, so 20s is the interval
+    // it expects.
+    try {
+        const host = () => (window['env'] && window['env']['apiUrl']) || window.location.origin;
+        const refresh = async () => {
+            let q = null;
+            try {
+                const user = (typeof getUser === 'function') ? (getUser() || '') : '';
+                q = await GETJSON(host() + '/free-quota?user=' + encodeURIComponent(user)
+                    + '&t=' + Date.now());
+            } catch (e) { return false; }
+            if (!q || q.error) return false;
+            try { window.__bajaFreeQuota = q; } catch (e) { }
+            // Became a subscriber mid-session: take the bar away rather than show a stale one.
+            if (q.subscribed) { drop(ID_BAR); drop(ID_TAB); return true; }
+            const n = readQuota(q);
+            try {
+                const c = document.getElementById('baja-free-counts');
+                if (c) {
+                    c.innerHTML = 'You have <b>' + n.dLeft + '</b> of ' + n.dLim
+                        + ' designs and <b>' + n.oLeft + '</b> of ' + n.oLim + ' off-target left.';
+                }
+                const t = document.getElementById('baja-free-tabcounts');
+                if (t) {
+                    t.textContent = 'Free plan · designs ' + n.dLeft + '/' + n.dLim
+                        + ' · off-targets ' + n.oLeft + '/' + n.oLim;
+                }
+            } catch (e) { }
+            return true;
+        };
+        // Anything that spends an allowance calls this for an immediate update, instead of
+        // the user waiting out the poll to see a number they just changed.
+        window.__bajaFreeBarRefresh = refresh;
+        if (!window.__bajaFreeBarPoll) {
+            window.__bajaFreeBarPoll = setInterval(() => {
+                try {
+                    // Stop once the bar is gone for good (subscribed, or the editor closed).
+                    if (!document.getElementById(ID_BAR) && !document.getElementById(ID_TAB)) return;
+                    refresh();
+                } catch (e) { }
+            }, 20000);
+        }
+    } catch (e) { }
 
     // Watchdog: put the bar back if something removes it.
     //

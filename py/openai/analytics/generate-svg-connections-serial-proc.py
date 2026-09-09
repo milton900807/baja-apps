@@ -36,10 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict, is_dataclass
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- data structures ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 @dataclass
 class svg_text:
@@ -85,8 +82,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -315,10 +312,10 @@ IMPORTANT:
 def generate_serial_groups_from_prompt(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> List[svg_group]:
-    works.msg("🧱 Stage 1: requesting ordered serial steps (nodes) from GPT…")
+    works.msg("🧱 Stage 1: requesting ordered serial steps (nodes) from Claude…")
     content = _chat_call(
         model=model,
         system=SERIAL_NODE_EXTRACTION_SYSTEM,
@@ -442,13 +439,13 @@ def assemble_serial_svg_from_groups(
     user_prompt: str,
     groups: List[svg_group],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     groups = _apply_serial_layout(groups)
     steps_json = _serialize_groups_for_gpt(groups)
 
-    works.msg("🧩 Stage 2: requesting assembled SERIAL SVG (one chain) from GPT…")
+    works.msg("🧩 Stage 2: requesting assembled SERIAL SVG (one chain) from Claude…")
     content = _chat_call(
         model=model,
         system=SERIAL_SVG_ASSEMBLY_SYSTEM,
@@ -486,7 +483,7 @@ Return ONLY the <svg>...</svg>.
 def run_serial_svg_builder(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> dict[str, Any]:
     works.msg("🔗 SERIAL procedure SVG pipeline starting…")
@@ -503,7 +500,7 @@ def run_serial_svg_builder(
 
 # ---------- Ion entry ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading two-stage SERIAL procedure diagram builder…")
 
     try:
@@ -538,4 +535,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

@@ -352,7 +352,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
             let __all = false;
             try { __all = !!window.__bajaApplyAllTracks; window.__bajaApplyAllTracks = false; } catch (e) { }
             if (__all) { try { graph.setMouseMode('navigate'); } catch (e) { } restoreEditor(); runAllTracks(mode); return; }
-            graph.setMouseMode('msg: Click on a track to build a splicing sashimi plot.');
+            graph.setMouseMode('msg: Click on a track to build a splicing sashimi plot');
             restoreEditor();
             // Launched from the Selected Sequence menu — track and range already known.
             // Run on the existing selection when there is one -- see pickedTrack above.

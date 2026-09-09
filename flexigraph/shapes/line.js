@@ -13,9 +13,15 @@ function () {
             h = 0;
             comment = '';
             hl = false;
-            arrowDirect = 'start';
+            arrowDirect = 'end';        // the head goes where you DRAGGED TO
             linewidth = 3;
-            displayThreshold = 25;
+            // Was displayThreshold = 25, which SKIPPED THE WHOLE DRAW when the arrow was
+            // under 25px in both axes -- so a short arrow, or any arrow once the view was
+            // zoomed out, silently disappeared and came back on zoom in. An annotation that
+            // vanishes is worse than a small one: the user cannot tell it from a lost edit.
+            // Now only a degenerate arrow is skipped.
+            minScreenPx = 2;
+            hitTolerance = 8;           // px either side of the shaft that count as a click
 
             constructor(name, x, y) {
                 this.name = name;
@@ -75,19 +81,32 @@ function () {
                 this.hl = v;
             }
 
-            isIn(x, y) {
-                const minX = Math.min(this.x, this.xf);
-                const maxX = Math.max(this.x, this.xf);
-                const minY = Math.min(this.y, this.yf);
-                const maxY = Math.max(this.y, this.yf);
+            // Distance from a point to the SEGMENT, in the shape's own units.
+            distanceTo(x, y) {
+                const dx = this.xf - this.x, dy = this.yf - this.y;
+                const len2 = dx * dx + dy * dy;
+                if (!(len2 > 0)) return Math.hypot(x - this.x, y - this.y);
+                // Clamped projection, so the nearest point is on the segment rather than on
+                // the infinite line through it.
+                let t = ((x - this.x) * dx + (y - this.y) * dy) / len2;
+                t = Math.max(0, Math.min(1, t));
+                return Math.hypot(x - (this.x + t * dx), y - (this.y + t * dy));
+            }
 
-                if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                    this.hl = true;
-                    return true;
-                }
-
-                this.hl = false;
-                return false;
+            // A click within `tol` of the SHAFT selects it.
+            //
+            // This used to be a bounding-box test, which for a diagonal arrow claimed the whole
+            // rectangle it spans -- a click nowhere near the line selected it, and on a busy
+            // canvas the arrow stole clicks from everything underneath. A near-horizontal
+            // arrow had the opposite problem: a box a couple of pixels tall, impossible to hit.
+            //
+            // `tol` is in the shape's units and is supplied by the caller when it knows the
+            // scale; the fallback is used when it does not.
+            isIn(x, y, tol) {
+                const t = (tol != null && isFinite(tol)) ? tol : this.hitTolerance;
+                const hit = this.distanceTo(x, y) <= t;
+                this.hl = hit;
+                return hit;
             }
 
             angle(cx, cy, ex, ey) {
@@ -146,20 +165,74 @@ function () {
                 ctx.restore();
             }
 
-            drawComment(ctx, x, y, text, color = 'blue') {
+            // The comment as a CHIP, not bare text.
+            //
+            // It was drawn as plain blue 14px straight onto the canvas: unreadable over a dark
+            // track or a coloured layer, running off the edge when the arrow ended near one,
+            // and with no bound on length so a sentence ran across the whole view. A filled
+            // rounded box with a leader keeps it legible over anything and keeps it on screen.
+            drawComment(ctx, x, y, text) {
                 if (!ctx || !text) return;
-
-                const offsetX = 20;
-                const offsetY = -20;
-                const tx = x + offsetX;
-                const ty = y + offsetY;
-
-                this.drawLine(ctx, x, y, tx, ty, 'gray', 1, 'butt');
+                const label = ('' + text).replace(/\s+/g, ' ').trim();
+                if (!label) return;
 
                 ctx.save();
-                ctx.fillStyle = color;
-                ctx.font = '14px sans-serif';
-                ctx.fillText(text, tx + 4, ty - 4);
+                ctx.font = '12px system-ui, -apple-system, Roboto, Arial, sans-serif';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+
+                // One line, ellipsised. A comment is a label here; the full text lives on the
+                // shape and in the annotation panel.
+                const MAX_W = 260;
+                let shown = label;
+                if (ctx.measureText(shown).width > MAX_W) {
+                    while (shown.length > 1 && ctx.measureText(shown + '\u2026').width > MAX_W) {
+                        shown = shown.slice(0, -1);
+                    }
+                    shown += '\u2026';
+                }
+                const padX = 7, padY = 5;
+                const tw = ctx.measureText(shown).width;
+                const bw = tw + padX * 2, bh = 12 + padY * 2;
+
+                // Placed up and to the right of the head, then CLAMPED into the canvas so an
+                // arrow drawn near an edge still shows its label.
+                let bx = x + 16, by = y - 16 - bh;
+                try {
+                    const cw = ctx.canvas ? ctx.canvas.width : 0;
+                    const ch = ctx.canvas ? ctx.canvas.height : 0;
+                    if (cw) bx = Math.max(4, Math.min(bx, cw - bw - 4));
+                    if (ch) by = Math.max(4, Math.min(by, ch - bh - 4));
+                } catch (e) { }
+
+                // Leader from the arrow head to the chip, so a clamped chip still reads as
+                // belonging to this arrow rather than floating.
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(bx + Math.min(bw / 2, 14), by + bh);
+                ctx.strokeStyle = 'rgba(120,140,160,0.85)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                const r = 6;
+                ctx.beginPath();
+                if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, r); }
+                else {
+                    ctx.moveTo(bx + r, by);
+                    ctx.lineTo(bx + bw - r, by); ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+                    ctx.lineTo(bx + bw, by + bh - r); ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+                    ctx.lineTo(bx + r, by + bh); ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+                    ctx.lineTo(bx, by + r); ctx.quadraticCurveTo(bx, by, bx + r, by);
+                }
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(255,255,255,0.96)';
+                ctx.fill();
+                ctx.strokeStyle = this.hl ? 'rgba(200,40,40,0.9)' : 'rgba(16,24,40,0.28)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.fillStyle = '#16202c';
+                ctx.fillText(shown, bx + padX, by + bh / 2);
                 ctx.restore();
             }
 
@@ -174,52 +247,71 @@ function () {
                 const xf = graph.X(this.xf);
                 const yf = graph.Y(this.yf);
 
-                const screenWidth = Math.abs(xf - xi);
-                const screenHeight = Math.abs(yf - yi);
+                const dx = xf - xi, dy = yf - yi;
+                const len = Math.hypot(dx, dy);
+                // Only a DEGENERATE arrow is skipped. The old test hid anything under 25px in
+                // both axes, which made short arrows disappear and every arrow disappear when
+                // the view was zoomed out.
+                if (!(len > this.minScreenPx)) return;
 
-                if (
-                    screenHeight < this.displayThreshold &&
-                    screenWidth < this.displayThreshold
-                ) {
-                    return;
+                const strokeColor = this.hl ? '#d33a2c' : this.color;
+                const lw = Math.max(1, this.linewidth);
+                // The head scales with the stroke, so a thick arrow does not end in a pinhead
+                // and a thin one is not swamped. Capped against the arrow's own length so a
+                // short arrow is not all head.
+                const headLen = Math.max(8, Math.min(lw * 5.5, len * 0.42));
+                const headW = Math.max(6, headLen * 0.62);
+
+                const ux = dx / len, uy = dy / len;
+                const heads = (this.arrowDirect === 'both')
+                    ? ['start', 'end']
+                    : [(this.arrowDirect === 'start') ? 'start' : 'end'];
+
+                // THE SHAFT STOPS SHORT OF EACH HEAD. Drawn to the exact endpoint it pokes
+                // through the tip of the triangle and out the other side, which is what made
+                // the arrow look hand-drawn at any real line width.
+                const backOff = headLen * 0.85;
+                let sx = xi, sy = yi, ex = xf, ey = yf;
+                if (heads.indexOf('start') >= 0) { sx += ux * backOff; sy += uy * backOff; }
+                if (heads.indexOf('end') >= 0) { ex -= ux * backOff; ey -= uy * backOff; }
+
+                this.drawLine(ctx, sx, sy, ex, ey, strokeColor, lw, 'round',
+                    useShadow ? { blur: 6, color: 'rgba(16,24,40,0.30)', offsetX: 1, offsetY: 2 } : null);
+
+                // A HEAD POINTS AWAY FROM THE OTHER END.
+                //
+                // drawArrowhead puts the TIP at (x,y) and extends the body along the direction
+                // of `angle` -- it draws to local x = -length and then rotates by angle + PI,
+                // which maps local -x onto +angle. So the angle passed is where the BODY goes,
+                // not where the tip points, and a head at the end therefore takes the
+                // end -> start direction. Passing the direction of travel puts the triangle
+                // beyond the endpoint with its tip aimed back down the shaft.
+                const towardEnd = Math.atan2(dy, dx);         // start -> end
+                const towardStart = Math.atan2(-dy, -dx);     // end -> start
+                for (const h of heads) {
+                    // body back along the shaft, tip outward, at whichever end carries it
+                    if (h === 'start') this.drawArrowhead(ctx, xi, yi, towardEnd, headW, headLen, strokeColor);
+                    else this.drawArrowhead(ctx, xf, yf, towardStart, headW, headLen, strokeColor);
                 }
 
-                const strokeColor = this.hl ? 'red' : this.color;
-
-                this.drawLine(
-                    ctx,
-                    xi,
-                    yi,
-                    xf,
-                    yf,
-                    strokeColor,
-                    this.linewidth,
-                    'round',
-                    useShadow
-                        ? {
-                            blur: 6,
-                            color: 'rgba(16,24,40,0.30)',
-                            offsetX: 1,
-                            offsetY: 2
-                        }
-                        : null
-                );
-
-                const forwardAngle = Math.atan2(yf - yi, xf - xi);
-
-                const backwardAngle = Math.atan2(yi - yf, xi - xf);
-
-                if (this.arrowDirect === 'start') {
-                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 11, 18, strokeColor);
-                } else if (this.arrowDirect === 'end') {
-                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 11, 18, strokeColor);
-                } else if (this.arrowDirect === 'both') {
-                    this.drawArrowhead(ctx, xi, yi, forwardAngle, 11, 18, strokeColor);
-                    this.drawArrowhead(ctx, xf, yf, backwardAngle, 11, 18, strokeColor);
+                // A selected arrow gets a soft halo rather than only a colour change, so it is
+                // findable on a canvas that already has red on it.
+                if (this.hl) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(xi, yi); ctx.lineTo(xf, yf);
+                    ctx.strokeStyle = 'rgba(211,58,44,0.22)';
+                    ctx.lineWidth = lw + 8;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                    ctx.restore();
                 }
 
                 if (this.comment) {
-                    this.drawComment(ctx, xf, yf, this.comment);
+                    // Anchored on the head the arrow actually points with.
+                    const tipX = (heads[heads.length - 1] === 'start') ? xi : xf;
+                    const tipY = (heads[heads.length - 1] === 'start') ? yi : yf;
+                    this.drawComment(ctx, tipX, tipY, this.comment);
                 }
             }
         }

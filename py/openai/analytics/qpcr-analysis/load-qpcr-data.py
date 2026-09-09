@@ -33,7 +33,7 @@ from ion import works  # type: ignore
 
 # Optional OpenAI (can be disabled by model="none"/"off")
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None  # type: ignore
 
@@ -355,7 +355,7 @@ def _qpcr_syn_table() -> str:
         lines.append(f"- {k}: " + ", ".join(vs))
     return "\n".join(lines)
 
-def _chat_gpt_map(source_profile, dest_profile, *, model="gpt-4o-mini", temperature=0.0) -> dict:
+def _chat_gpt_map(source_profile, dest_profile, *, model="claude-haiku-4-5", temperature=0.0) -> dict:
     if model and str(model).lower() in {"none", "off"}:
         # Explicitly disabled
         return {"mapping": []}
@@ -363,8 +363,8 @@ def _chat_gpt_map(source_profile, dest_profile, *, model="gpt-4o-mini", temperat
     if OpenAI is None:
         raise RuntimeError("OpenAI client not available; set model='none' to disable GPT.")
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     client = OpenAI()
     system = (
@@ -462,7 +462,7 @@ def main_ion() -> int:
         works.resolve({"status":"❌ error","error":"Missing required parameters: destination plates JSON and source table text"})
         return 1
 
-    model = (works.param(3) or "gpt-4o-mini")
+    model = (works.param(3) or "claude-haiku-4-5")
     try:
         temperature = float(works.param(4) or 0.0)
     except Exception:

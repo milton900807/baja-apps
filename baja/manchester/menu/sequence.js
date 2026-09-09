@@ -15,7 +15,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
 
 
 
-    graph.setMouseMode("msg:Click and drag on a track")
+    graph.setMouseMode("msg: Click and drag on a track")
     for (let t of graph.track) {
         if (t.markend > t.markstart) {
             track = t;
@@ -554,7 +554,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                 x: 0, y: 0, label: '← Set',
                 ionFunction: createIonFunction(() => {
                     graph.clearMouseListeners();
-                    graph.setMouseMode("msg: Click to expand selected sequence in ← direction.")
+                    graph.setMouseMode("msg: Click to expand selected sequence in ← direction")
                     expandLeft();
                 }),
                 mouseOver: createIonFunction(() => {
@@ -565,7 +565,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
                 x: 1, y: 0, label: 'Set →',
                 ionFunction: createIonFunction(() => {
                     graph.clearMouseListeners();
-                    graph.setMouseMode("msg: Click to expand selected sequence in → direction.")
+                    graph.setMouseMode("msg: Click to expand selected sequence in → direction")
 
                     expandRight();
                 }),
@@ -850,7 +850,7 @@ function (graph, genegraph_panel_layout, showMenuOptions) {
             try { graph.showSideMenu(null); } catch (e) { }
             graph.side_menu = null;
             graph.clearMouseListeners();
-            graph.setMouseMode('msg: click and drag on track')
+            graph.setMouseMode('msg: Click and drag on a track')
             graph.addMouseDownListener(async (x, y) => {
                 md = true;
                 graph.mouse_message = null;

@@ -11,7 +11,7 @@ function (graph, genegraph_panel_layout) {
     };
 
     graph.clearMouseListeners();
-    graph.setMouseMode('msg: Click on a track to load IP data.');
+    graph.setMouseMode('msg: Click on a track to load IP data');
     CurrentLayout.clearComponent('mainPanel');
     CurrentLayout.setComponent('mainPanel', genegraph_panel_layout);
 

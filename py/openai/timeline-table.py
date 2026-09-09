@@ -32,9 +32,7 @@ from typing import Dict, List, Optional, Any
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- helpers ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 _KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\[(\d+):\d+\]\[(\d+):\d+\]$')
 
 def _key(table: str, i: int, j: int) -> str:
@@ -59,8 +57,8 @@ def _chat_call(
     json_mode: bool = False,
     max_tokens: int = 1600,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -103,13 +101,13 @@ Rules:
 """
 
 
-def generate_ops_timeline(user_prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2) -> List[Dict[str, str]]:
+def generate_ops_timeline(user_prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2) -> List[Dict[str, str]]:
     system = (
         "You are a careful operations planning assistant. You STRICTLY follow output schemas and return valid JSON only."
     )
     user = f"{OPS_JSON_INSTRUCTIONS}\n\nUser prompt:\n{(user_prompt or '').strip()}"
 
-    works.msg("🧮 requesting operations & times from GPT…")
+    works.msg("🧮 requesting operations & times from Claude…")
     content = _chat_call(
         model=model,
         system=system,
@@ -173,7 +171,7 @@ def build_artifact(rows: List[Dict[str, str]], table_name: str = _DEF_TABLE_NAME
 
 # ---------- Orchestrator ----------
 
-def run_ops_timeline(user_prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2) -> Dict[str, Any]:
+def run_ops_timeline(user_prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2) -> Dict[str, Any]:
     works.msg("🧠 operations-timeline pipeline starting…")
     rows = generate_ops_timeline(user_prompt, model=model, temperature=temperature)
     if not rows:
@@ -184,7 +182,7 @@ def run_ops_timeline(user_prompt: str, *, model: str = "gpt-4o-mini", temperatur
 
 # ---------- Ion entry/exit ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     model = works.param(2) or default_model
     try:
         temperature = float(works.param(3) or 0.2)
@@ -212,4 +210,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 # bootstrap
 if __name__ == "__main__":
     works.msg("🔧 loading operations timeline builder…")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

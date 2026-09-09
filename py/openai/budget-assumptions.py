@@ -26,10 +26,7 @@ import datetime
 from typing import Dict, List, Any
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- helpers ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 def _key(table: str, i: int, j: int) -> str:
     return f"{table}[{i}:{i}][{j}:{j}]"
 
@@ -42,8 +39,8 @@ def _to_jsonable(obj):
 
 
 def _chat_call(*, model: str, system: str, user: str, temperature: float = 0.2, json_mode: bool = False, max_tokens: int = 1500) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -109,7 +106,7 @@ Additional rules:
 """
 
 
-def generate_assumptions(user_prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2) -> List[Dict[str, str]]:
+def generate_assumptions(user_prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2) -> List[Dict[str, str]]:
     system = "You are a careful financial modeling assistant. You STRICTLY follow output schemas."
 
     # --- Default start_date if none provided ---
@@ -137,7 +134,7 @@ def generate_assumptions(user_prompt: str, *, model: str = "gpt-4o-mini", temper
     # --- Compose GPT message ---
     user = f"{llm_instructions}\n\nUser prompt:\n{augmented_prompt}"
 
-    works.msg("🔒 requesting JSON assumptions from GPT…")
+    works.msg("🔒 requesting JSON assumptions from Claude…")
     content = _chat_call(
         model=model,
         system=system,
@@ -204,7 +201,7 @@ def infer_units(name: str, rows: List[Dict[str, str]]) -> Dict[str, Dict[str, st
 
 
 # ---------- Orchestrator ----------
-def run_assumptions_only(user_prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2) -> Dict[str, Any]:
+def run_assumptions_only(user_prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2) -> Dict[str, Any]:
     works.msg("🧠 assumptions-only pipeline starting…")
     rows = generate_assumptions(user_prompt, model=model, temperature=temperature)
     if not rows:
@@ -221,7 +218,7 @@ def run_assumptions_only(user_prompt: str, *, model: str = "gpt-4o-mini", temper
 
 
 # ---------- Ion entry ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading project/campaign budget assumption builder…")
     try:
         user_prompt = works.param(1)
@@ -252,4 +249,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 # ---------- Bootstrap ----------
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

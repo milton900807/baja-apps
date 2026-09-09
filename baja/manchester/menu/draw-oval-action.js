@@ -13,7 +13,7 @@ function (graph) {
         const Oval = await exec('flexigraph/shapes/sketch-oval.js');
 
         graph.clearMouseListeners();
-        graph.setMouseMode("msg:Click and drag on canvas");
+        graph.setMouseMode("msg: Click and drag on the canvas");
         graph.selectOff();
 
         let md = false;

@@ -47,10 +47,7 @@ from dataclasses import dataclass, asdict, is_dataclass
 import xml.etree.ElementTree as ET
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- data structures ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 @dataclass
 class svg_text:
@@ -107,8 +104,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -1015,7 +1012,7 @@ def expand_selected_from_prompt(
     user_prompt: str,
     starting_svg: str,
     selected_center: Tuple[float, float],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> Tuple[List[svg_group], List[Dict[str, str]]]:
     existing_nodes = _parse_starting_svg_nodes(starting_svg)
@@ -1270,7 +1267,7 @@ def run_svg_expander(
     *,
     starting_svg: str,
     selected_svg_object: Any,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> Dict[str, Any]:
     works.msg("🔗 SVG expand-selected pipeline starting…")
@@ -1346,7 +1343,7 @@ def run_svg_expander(
 
 # ---------- Ion entry ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading SVG expand-selected builder…")
 
     def _maybe_unquote(x, rounds: int = 2):
@@ -1425,4 +1422,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

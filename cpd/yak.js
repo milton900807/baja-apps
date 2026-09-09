@@ -398,7 +398,11 @@ function (path, filebrowserplease) {
                         user: getUser(),
                         root: '/' + getUser(),
                         columns: 3,
-                        filetype: 'baja',
+                        // Karyotypes alongside screens. Both are documents this application
+                        // saves and reopens, and listing only one of them meant the other was
+                        // invisible from the place you go to find your work. '.karyotype.json'
+                        // is what these were saved as before the extension settled.
+                        filetype: 'baja,karyotype,karyotype.json',
                         showSearch: true,
                         "ionfunction.cmd": createIonFunction((element) => {
                             commands.go(path_j, element.cmd);
@@ -432,29 +436,32 @@ function (path, filebrowserplease) {
                                                             buttons: [
                                                                 {
                                                                     label: 'Yes', ionFunction: createIonFunction(async () => {
+                                                                        // AWAITED. The rm was fired off and the listing
+                                                                        // refreshed in the same breath, so the get-folder
+                                                                        // raced the delete and came back with the file
+                                                                        // still in it -- it reappeared, and the delete
+                                                                        // looked like it had done nothing.
                                                                         mode = 'loading'
                                                                         let host_ = window['env']['apiUrl']
-                                                                        console.log(`Removing file: ${element.path}`);
-                                                                        console.log(`rm ${element.path}`);
-
                                                                         let jsonobj = {
                                                                             'path': element.path,
                                                                             'key': 'user',
                                                                             'user': getUser()
                                                                         }
-
-                                                                        POSTJSON(jsonobj, host_ + '/rm').then(r => {
-                                                                            console.log(r)
-
-                                                                        })
-                                                                        userFiles_panel.refresh();
-                                                                        mode = 'loading'
                                                                         hideAllModal();
+                                                                        try {
+                                                                            await POSTJSON(jsonobj, host_ + '/rm');
+                                                                        } catch (e) {
+                                                                            console.log('rm failed', e);
+                                                                        }
+                                                                        await userFiles_panel.refresh();
                                                                     })
                                                                 },
                                                                 {
                                                                     label: 'Cancel', ionFunction: createIonFunction(() => {
-
+                                                                        // Disarm, so a cancelled delete does not leave
+                                                                        // the next click asking to delete as well.
+                                                                        mode = 'loading'
                                                                         userFiles_panel.refresh();
 
                                                                         hideAllModal();
@@ -480,6 +487,17 @@ function (path, filebrowserplease) {
                                     }
                                     exec('manchester/editor', element.path, config, `/app/manchester/editor`)
                                 }
+                                else if (/\.karyotype(\.json)?$/i.test(element.path)) {
+                                    // A karyotype opens in the karyotype editor, not the
+                                    // screen editor -- it is a different document with a
+                                    // different reader. replaceState-shaped URL so a reload
+                                    // comes back to the file, the same as a screen does.
+                                    const kpath = element.path;
+                                    clear();
+                                    window.history.pushState({ 'karyotype': kpath }, 'karyotype',
+                                        `/app/manchester/karyotype?path=${kpath}`);
+                                    exec('manchester/karyotype', kpath);
+                                }
                                 else if (element.path.endsWith(".baja")) {
 
                                     const path = element.path;
@@ -493,7 +511,7 @@ function (path, filebrowserplease) {
                                         user: getUser(),
                                         mode: 'editor'
                                     }
-                                    exec('cpd/ptx-project', element.path, config, `/app/cpd/ptx-project`)
+                                    exec('cpd/baja-analytics', element.path, config, `/app/cpd/baja-analytics`)
                                 }
                                 else {
                                     if (element.path.endsWith('.share')) {
@@ -728,11 +746,24 @@ function (path, filebrowserplease) {
                     wid: 'menu',
                     data: {
                         menus: [
+
+
+
                             {
                                 label: 'Apps',
                                 items: [
+
                                     {
-                                        'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
+                                        'label': 'Karyotype Viewer', 'ionfunction': createIonFunction(async () => {
+                                            clear();
+                                            await exec('manchester/karyotype');
+
+                                        })
+                                    },
+
+
+                                    {
+                                        'label': 'Oligo Designer', 'ionfunction': createIonFunction(async () => {
                                             await exec('manchester/editor');
 
                                         })
@@ -745,39 +776,51 @@ function (path, filebrowserplease) {
 
                                     {
                                         label: 'New folder',
-                                        ionfunction: createIonFunction(() => {
-
-                                            showModal({
-                                                wid: 'input-param-items',
-                                                data: {
-                                                    input_labels: ['Folder name'],
-                                                    buttons: [{
-                                                        'label': 'Create', 'function': createIonFunction(async (button_label, input_params) => {
-                                                            let host_ = window['env']['apiUrl']
-                                                            let foldername = input_params['Folder name']
-                                                            if (foldername != undefined && foldername != null && foldername.length > 0) {
-                                                                let directory = userFiles_panel.currentPath;
-                                                                if (!directory) {
-                                                                    directory = '/'
-                                                                }
-                                                                let jsonobj = {
-                                                                    "key": "user",
-                                                                    "user": getUser(),
-                                                                    "spath": directory + '/' + foldername
-                                                                }
-                                                                let rs = await POSTJSON(jsonobj, host_ + '/save-user-dir');
-                                                                if (userFiles_panel) {
-                                                                    await userFiles_panel.refresh();
-                                                                    await userFiles_panel.navigateToFolderNamed(foldername);
-                                                                }
-                                                            }
-                                                            hideAllModal();
-                                                        })
-                                                    }]
-                                                }
-                                            })
-
-                                        })
+                                        ionfunction: createIonFunction(async () => {
+                                                         // The navy dialog, not a bare input-param-items widget handed to showModal. That
+                                                         // had no title saying what was being asked, no cancel, and an unstyled input
+                                                         // rendered against the modal's own background, which is where the unreadable
+                                                         // boxes came from. baja/lib/prompt-name.js is the shared one.
+                                                         let directory = (userFiles_panel && userFiles_panel.currentPath) || '/';
+                                                         const where = ('' + directory).split('/').filter(Boolean).pop();
+                                                         const foldername = await exec('baja/lib/prompt-name.js', {
+                                                             title: 'New folder',
+                                                             message: where ? ('It will be created in ' + where + '.')
+                                                                 : 'It will be created in your files.',
+                                                             label: 'Folder name',
+                                                             placeholder: 'e.g. KRAS screens',
+                                                             confirmLabel: 'Create',
+                                                             // A path segment on the server, so a slash would create something other than
+                                                             // what was typed.
+                                                             validate: (v) => {
+                                                                 if (v.indexOf('/') >= 0) return 'A folder name cannot contain a slash.';
+                                                                 if (v === '.' || v === '..') return 'Choose a different name.';
+                                                                 if (v.charAt(0) === '.') return 'A name starting with a dot is hidden.';
+                                                                 return '';
+                                                             }
+                                                         });
+                                                         if (!foldername) return;
+                                                     
+                                                         const host_ = window['env']['apiUrl'];
+                                                         try {
+                                                             const rs = await POSTJSON({
+                                                                 "key": "user",
+                                                                 "user": getUser(),
+                                                                 "spath": directory + '/' + foldername
+                                                             }, host_ + '/save-user-dir');
+                                                             // Refresh first, THEN navigate: navigating into a folder the listing has not
+                                                             // seen yet lands on an empty view that looks like the create failed.
+                                                             if (userFiles_panel) {
+                                                                 await userFiles_panel.refresh();
+                                                                 try { await userFiles_panel.navigateToFolderNamed(foldername); } catch (e) { }
+                                                             }
+                                                             // A create that failed used to say nothing at all.
+                                                             if (rs && rs.error) infoPrompt(' ' + foldername + ' was not created: ' + rs.error + ' ');
+                                                         } catch (e) {
+                                                             infoPrompt(' ' + foldername + ' was not created: '
+                                                                 + (e && e.message ? e.message : e) + ' ');
+                                                         }
+                                                     })
                                     },
                                     {
                                         // 'ljl/ml/...' does not exist anywhere in this repo (no `ljl`
@@ -1046,40 +1089,7 @@ function (path, filebrowserplease) {
                                             showWidget(tu);
                                         })
                                     },
-                                    {
-                                        // Same dead 'ljl/' root as the Files & Folders Upload item
-                                        // above. Note: NOT passing path_j here on purpose -- this
-                                        // item is a sibling of 'Browse library' above, whose own
-                                        // `let path_j` is local to THAT item's own ionfunction
-                                        // closure and out of scope here; reaching for a `path_j`
-                                        // identifier here would silently resolve to the unrelated
-                                        // outer one from the Files & Folders section instead
-                                        // (throws nothing, just uploads to the wrong folder). No
-                                        // path argument uploads to the account root, same as this
-                                        // call already did before this fix, just now against a
-                                        // script that actually exists.
-                                        'label': 'Upload', 'ionfunction': createIonFunction(async () => {
-                                            try {
-                                                // Put the SAME menu straight back into mainPanel when
-                                                // done, instead of jumping to baja/yak, an unrelated
-                                                // file browser.
-                                                let menu = await exec('baja/ml/upload-large-file.js', undefined, () => {
-                                                    CurrentLayout.clearComponent('mainPanel');
-                                                    CurrentLayout.setComponent('mainPanel', main_layout);
-                                                });
-                                            } catch (e) {
-                                                console.error('Upload menu failed:', e);
-                                                infoPrompt(' Could not open Upload: ' + (e && e.message ? e.message : e) + ' ');
-                                            }
-                                        })
-                                    },
-                                    {
-                                        label: 'Delete file',
-                                        ionfunction: createIonFunction(() => {
-                                            mode = 'delete'
 
-                                        })
-                                    },
                                 ]
                             },
 

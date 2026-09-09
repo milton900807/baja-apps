@@ -13,13 +13,13 @@ except Exception:  # pragma: no cover
     works = None
 
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 DEFAULT_WIDTH = int(os.getenv("SVG_DEFAULT_WIDTH", "2048"))
 DEFAULT_HEIGHT = int(os.getenv("SVG_DEFAULT_HEIGHT", "2048"))
@@ -216,9 +216,9 @@ def enforce_no_basic_shape_primitives(svg_text: str) -> str:
 def get_client() -> "OpenAI":
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    return OpenAI(api_key=OPENAI_API_KEY)
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    return OpenAI(api_key=ANTHROPIC_API_KEY)
 
 
 def json_schema_response(

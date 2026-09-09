@@ -28,10 +28,7 @@ from collections import Counter, defaultdict
 from ion import works  # type: ignore
 
 # OpenAI client
-from openai import OpenAI
-
-
-# ---------- Destination expansion (array of plates) ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 def _expand_destination(root: Any) -> List[Dict[str, Any]]:
     out = []
     def is_table(obj: Any) -> bool:
@@ -164,8 +161,8 @@ def _fmt_stats(st: dict) -> str:
     if toks: bits.append("tokens=" + ",".join(t for t,_ in toks[:4]))
     return "; ".join(bits)
 
-def _chat_gpt_map(source_profile, dest_profile, *, model="gpt-4o-mini", temperature=0.0) -> dict:
-    if not os.getenv("OPENAI_API_KEY"): raise RuntimeError("OPENAI_API_KEY is not set")
+def _chat_gpt_map(source_profile, dest_profile, *, model="claude-haiku-4-5", temperature=0.0) -> dict:
+    if not os.getenv("ANTHROPIC_API_KEY"): raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     system = (
         
@@ -241,7 +238,7 @@ def main_ion() -> int:
         works.resolve({"status":"❌ error","error":"Missing required parameters: destination plates JSON and source table text"})
         return 1
 
-    model = (works.param(3) or "gpt-4o-mini")
+    model = (works.param(3) or "claude-haiku-4-5")
     try:
         temperature = float(works.param(4) or 0.0)
     except Exception:

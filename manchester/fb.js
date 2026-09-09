@@ -1,4 +1,8 @@
-function (__path) {
+function (__path, __header) {
+    // __header is an optional widget mounted as the FIRST row of the file browser --
+    // the home screen uses it for the RNA Therapeutics design-module launcher. It is a
+    // parameter rather than something this file builds because the browser is opened from
+    // several places and only one of them wants a launcher above it.
     if (!__path) {
         __path = '/' + getUser()
     }
@@ -23,6 +27,10 @@ function (__path) {
         // same format, still in people's folders.
         const isKaryotype = (el) => /\.karyotype(\.json)?$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
+        // The file's own name, for a message. Escaped, because msgpanel takes HTML and a
+        // file name is whatever the person who saved it typed.
+        const fileLabel = (p) => (('' + (p || '')).split('/').filter(Boolean).pop() || 'the file')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         let userFiles_panel;
         let userFilesRef = createIonFunction((panel) => {
             userFiles_panel = panel;
@@ -42,6 +50,9 @@ function (__path) {
 
                 root: '/' + getUser(),
                 columns: 3,
+                // A .vcf is an input to the tools, not something anyone opens from
+                // here, and one design can drop several of them into a folder.
+                hideExtensions: ['vcf'],
                 showSearch: true,
                 "ionfunction.cmd": createIonFunction((element) => {
                     commands.go(path_j, element.cmd);
@@ -89,26 +100,39 @@ function (__path) {
                                                     buttons: [
                                                         {
                                                             label: 'Yes', ionFunction: createIonFunction(async () => {
+                                                                // AWAITED. The rm used to be fired off and the
+                                                                // listing refreshed in the same breath, so the
+                                                                // get-folder went out alongside the delete and came
+                                                                // back with the file still in it -- the file
+                                                                // reappeared and the delete looked like it had done
+                                                                // nothing. 'Delete this folder' below already awaits;
+                                                                // this is the same order.
                                                                 let host_ = window['env']['apiUrl']
-                                                                console.log(`Removing file: ${element.path}`);
-                                                                console.log(`rm ${element.path}`);
                                                                 let jsonobj = {
                                                                     'path': element.path,
                                                                     'key': 'user',
                                                                     'user': getUser()
                                                                 }
-                                                                POSTJSON(jsonobj, host_ + '/rm').then(r => {
-                                                                    console.log(r)
-
-                                                                })
-                                                                msgpanel.html = `  `
-                                                                userFiles_panel.refresh();
+                                                                // Out of delete mode first, whatever happens next:
+                                                                // it was never cleared, so one delete left the
+                                                                // browser armed and every later click asked to
+                                                                // delete instead of opening the file.
+                                                                mode = 'load'
                                                                 hideAllModal();
+                                                                try {
+                                                                    await POSTJSON(jsonobj, host_ + '/rm');
+                                                                    msgpanel.html = `  `
+                                                                } catch (e) {
+                                                                    // A failed delete said nothing at all before.
+                                                                    msgpanel.html = ` <font color="red"> ${fileLabel(element.path)} could not be deleted. </font> `
+                                                                }
+                                                                await userFiles_panel.refresh();
                                                             })
                                                         },
                                                         {
                                                             label: 'Cancel', ionFunction: createIonFunction(() => {
-
+                                                                mode = 'load'
+                                                                msgpanel.html = ` <hr> `
                                                                 userFiles_panel.refresh();
 
                                                                 hideAllModal();
@@ -124,6 +148,26 @@ function (__path) {
                         showModal(zoom_to)
 
                     } else {
+                        // A .liverpool file is a neoantigen design -- HLA type, mutations,
+                        // chosen epitopes, construct settings -- and liverpool/editor.js is
+                        // what reads it. Put through the track editor it would open an empty
+                        // screen, which reads as a file that failed to load.
+                        if (element.path.endsWith('.liverpool')) {
+                            const lvpath = element.path;
+                            clear();
+                            window.history.pushState({ 'liverpool': lvpath }, 'liverpool', `/app/liverpool/editor?path=${lvpath}`);
+                            exec('liverpool/editor', lvpath);
+                            return;
+                        }
+                        // A .tottenham file is an mRNA design -- architecture, payload,
+                        // half-life choices, replicon parts -- read by tottenham/editor.js.
+                        if (element.path.endsWith('.tottenham')) {
+                            const ttpath = element.path;
+                            clear();
+                            window.history.pushState({ 'tottenham': ttpath }, 'tottenham', `/app/tottenham/editor?path=${ttpath}`);
+                            exec('tottenham/editor', ttpath);
+                            return;
+                        }
                         if (element.path.endsWith('.bjb')) {
                             clear();
                             let config = {
@@ -139,14 +183,6 @@ function (__path) {
                             clear();
                             window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
                             exec('manchester/editor', path, { mode: 'editor' })
-                        } else if (element.path.endsWith('.bjb')) {
-                            clear();
-                            let config = {
-                                silent: true,
-                                user: getUser(),
-                                mode: 'editor'
-                            }
-                            exec('cpd/bajabio-project', element.path, config, `/app/cpd/bajabio-project`)
                         } else {
 
                             if (element.path.endsWith('.share')) {
@@ -302,6 +338,16 @@ function (__path) {
                                 }
                                 CurrentLayout.clearComponent('mainFilePanel')
                                 CurrentLayout.setComponent('bottomPanel', export_sequence);
+                            } else {
+                                // Same fallback as the main browser: a file nothing opens
+                                // gets a menu rather than silence.
+                                await exec('baja/lib/file-actions.js', {
+                                    element: element,
+                                    drive: 'user',
+                                    onChanged: () => {
+                                        try { if (userFiles_panel && userFiles_panel.refresh) userFiles_panel.refresh(); } catch (e) { }
+                                    }
+                                });
                             }
                         }
                     }
@@ -341,6 +387,10 @@ function (__path) {
         let menu_set;
         let fmain_layout;
         let main_layout;
+        // The WHOLE page: header row + browser + folder panel. Declared out here so the
+        // Upload panel's return callback can put the page back, rather than only the
+        // browser card that sits inside it.
+        let usermain_layout;
 
         if (MSGraph.isLoggedIn()) {
 
@@ -432,6 +482,7 @@ function (__path) {
 
                     root: __path,
                     columns: 3,
+                    hideExtensions: ['vcf'],
                     "ionfunction.cmd": createIonFunction(async (element) => {
                         console.log(element.cmd);
 
@@ -469,10 +520,28 @@ function (__path) {
                             return;
                         }
 
-                        clear();
+                        // NO clear() HERE. It used to run before any of the type checks, so a
+                        // click on a file nothing opens wiped the screen and then fell through
+                        // to nothing -- a blank page, and the folder you were browsing gone.
+                        // Every branch below that actually navigates clears for itself.
                         let config = {
                             silent: true,
                             user: getUser()
+                        }
+                        // Same route as the handler above: a neoantigen design opens in the
+                        // Liverpool editor.
+                        if (element.path.endsWith('.liverpool')) {
+                            const lvpath = element.path;
+                            window.history.pushState({ 'liverpool': lvpath }, 'liverpool', `/app/liverpool/editor?path=${lvpath}`);
+                            exec('liverpool/editor', lvpath);
+                            return;
+                        }
+                        // Same route as the handler above.
+                        if (element.path.endsWith('.tottenham')) {
+                            const ttpath = element.path;
+                            window.history.pushState({ 'tottenham': ttpath }, 'tottenham', `/app/tottenham/editor?path=${ttpath}`);
+                            exec('tottenham/editor', ttpath);
+                            return;
                         }
                         if (element.path.endsWith('.bjb')) {
                             clear();
@@ -489,33 +558,24 @@ function (__path) {
                             clear();
                             window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
                             exec('manchester/editor', path, { mode: 'editor' })
-                        } else if (element.path.endsWith('.bjb')) {
-                            clear();
-                            let config = {
-                                silent: true,
-                                user: getUser(),
-                                mode: 'editor'
-                            }
-                            exec('cpd/bajabio-project', element.path, config, `/app/cpd/bajabio-project`)
                         }
-                        let iconlist = [{
-                            x: 7, y: 0, label: element.name, ionFunction: createIonFunction(() => {
-                            }), islabel: true
-                        },
-                        {
-                            x: 0, y: 0, label: 'Open', ionFunction: createIonFunction(async () => {
-                            }),
-                        },
-                        {
-                            x: 1, y: 0, label: 'Open Folder', ionFunction: createIonFunction(async () => {
-                            }),
-                        },
-                        {
-                            x: 2, y: 0, label: 'Download', ionFunction: createIonFunction(async () => {
-                            }),
-                        },
-                        ]
-                        if (!element.name.endsWith('.baja')) {
+                        else {
+                            // NOTHING IN THIS WORKSPACE OPENS THIS FILE.
+                            //
+                            // What stood here was an icon list with Open, Open Folder and
+                            // Download, every one of them wired to an empty function, and the
+                            // list was never rendered. So the click did nothing except the
+                            // clear() above it.
+                            //
+                            // Offer the three things that ARE possible with a file whose
+                            // contents this application does not understand.
+                            await exec('baja/lib/file-actions.js', {
+                                element: element,
+                                drive: 'user',
+                                onChanged: () => {
+                                    try { if (userFiles_panel && userFiles_panel.refresh) userFiles_panel.refresh(); } catch (e) { }
+                                }
+                            });
                         }
                     }),
                     "ionfunction.openfile": createIonFunction(async (file, text) => {
@@ -611,20 +671,31 @@ function (__path) {
 
 
                                 {
-                                    'label': 'Oligodesigner', 'ionfunction': createIonFunction(async () => {
+                                    'label': 'Oligo Designer', 'ionfunction': createIonFunction(async () => {
                                         clear();
                                         await exec('manchester/editor');
 
                                     })
                                 },
+
                                 {
-                                    // No path: opening the editor from the Apps menu is
-                                    // "start a new one", so it asks which species rather than
-                                    // restoring a file. A saved .karyotype opens by being
-                                    // clicked in the browser, which routes it here with its path.
-                                    'label': 'Karyotype', 'ionfunction': createIonFunction(async () => {
+                                    // Liverpool: pick the peptides a tumour's mutations present,
+                                    // then design the mRNA that carries them. Opens blank; a saved
+                                    // .liverpool design opens by clicking the file itself.
+                                    'label': 'Neoantigen Designer', 'ionfunction': createIonFunction(async () => {
                                         clear();
-                                        await exec('manchester/karyotype');
+                                        await exec('liverpool/editor');
+
+                                    })
+                                },
+
+                                {
+                                    // Tottenham: half-life engineering and replicon strategies for
+                                    // the transcript itself.
+                                    'label': 'mRNA Designer', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        await exec('tottenham/editor');
+
                                     })
                                 },
                             ]
@@ -649,11 +720,26 @@ function (__path) {
                                             // script (which redoes the MSGraph login check and could silently
                                             // land somewhere else) or jumping to baja/yak, an unrelated browser.
                                             let menu = await exec('baja/ml/upload-large-file.js', currentPath, () => {
-                                                try { userFiles_panel.refresh(); } catch (e) { }
-
-
-                                                CurrentLayout.clearComponent('mainFilePanel');
-                                                CurrentLayout.setComponent('mainFilePanel', main_layout);
+                                                // WHY THE WHOLE PAGE, NOT ONE SLOT.
+                                                // upload-large-file.js mounts itself with
+                                                // clearComponent('mainPanel'), which empties the
+                                                // container this page was drawn into and takes the
+                                                // browser's own component ref down with it. Refilling
+                                                // 'mainFilePanel' after that writes into a view
+                                                // container that no longer exists, so Close appeared
+                                                // to do nothing at all -- the upload panel just sat
+                                                // there. Redrawing the page is the same pair of calls
+                                                // this file uses to draw itself in the first place,
+                                                // and it cannot land half-mounted.
+                                                try { clear(); } catch (e) { }
+                                                try { showWidget(usermain_layout); } catch (e) { }
+                                                try { CurrentLayout.stash('mainFilePanel1', usermain_layout); } catch (e) { }
+                                                // After the redraw: the panel ref is rebound by the
+                                                // browser's own refCallback, so the listing that gets
+                                                // refreshed is the live one and shows the upload.
+                                                setTimeout(() => {
+                                                    try { if (userFiles_panel) userFiles_panel.refresh(); } catch (e) { }
+                                                }, 0);
                                             });
                                         } catch (e) {
                                             console.error('Upload menu failed:', e);
@@ -663,39 +749,53 @@ function (__path) {
                                 },
                                 {
                                     label: 'New folder',
-                                    ionfunction: createIonFunction(() => {
-
-                                        showModal({
-                                            wid: 'input-param-items',
-                                            data: {
-                                                input_labels: ['Folder name'],
-                                                buttons: [{
-                                                    'label': 'Create', 'function': createIonFunction(async (button_label, input_params) => {
-
-                                                        let host_ = window['env']['apiUrl']
-                                                        let foldername = input_params['Folder name']
-                                                        if (foldername != undefined && foldername != null && foldername.length > 0) {
-                                                            let directory = userFiles_panel.currentPath;
-                                                            if (!directory) {
-                                                                directory = '/'
-                                                            }
-                                                            let jsonobj = {
-                                                                "key": "user",
-                                                                "user": getUser(),
-                                                                "spath": directory + '/' + foldername
-                                                            }
-                                                            let rs = await POSTJSON(jsonobj, host_ + '/save-user-dir');
-                                                            if (userFiles_panel) {
-                                                                await userFiles_panel.refresh();
-                                                                await userFiles_panel.navigateToFolderNamed(foldername);
-                                                            }
-                                                        }
-                                                        hideAllModal();
-                                                    })
-                                                }]
+                                    ionfunction: createIonFunction(async () => {
+                                        // The navy dialog, not a bare input-param-items widget
+                                        // dropped into showModal. That had no title saying what
+                                        // was being asked, no cancel, and an unstyled input
+                                        // rendered against the modal's own background -- the
+                                        // boxes were unreadable.
+                                        let directory = (userFiles_panel && userFiles_panel.currentPath) || '/';
+                                        const where = ('' + directory).split('/').filter(Boolean).pop();
+                                        const foldername = await exec('baja/lib/prompt-name.js', {
+                                            title: 'New folder',
+                                            message: where ? ('It will be created in ' + where + '.')
+                                                : 'It will be created in your files.',
+                                            label: 'Folder name',
+                                            placeholder: 'e.g. KRAS screens',
+                                            confirmLabel: 'Create',
+                                            // The rule lives with the caller: this is a path
+                                            // segment on the server, so a slash would create
+                                            // something other than what was typed.
+                                            validate: (v) => {
+                                                if (v.indexOf('/') >= 0) return 'A folder name cannot contain a slash.';
+                                                if (v === '.' || v === '..') return 'Choose a different name.';
+                                                if (v.charAt(0) === '.') return 'A name starting with a dot is hidden.';
+                                                return '';
                                             }
-                                        })
+                                        });
+                                        if (!foldername) return;
 
+                                        const host_ = window['env']['apiUrl'];
+                                        try {
+                                            const rs = await POSTJSON({
+                                                "key": "user",
+                                                "user": getUser(),
+                                                "spath": directory + '/' + foldername
+                                            }, host_ + '/save-user-dir');
+                                            // Refresh first, THEN navigate: navigating into a
+                                            // folder the listing has not seen yet lands on an
+                                            // empty view that looks like the create failed.
+                                            if (userFiles_panel) {
+                                                await userFiles_panel.refresh();
+                                                try { await userFiles_panel.navigateToFolderNamed(foldername); } catch (e) { }
+                                            }
+                                            // A create that failed used to say nothing at all.
+                                            if (rs && rs.error) infoPrompt(' ' + foldername + ' was not created: ' + rs.error + ' ');
+                                        } catch (e) {
+                                            infoPrompt(' ' + foldername + ' was not created: '
+                                                + (e && e.message ? e.message : e) + ' ');
+                                        }
                                     })
                                 },
                                 {
@@ -790,24 +890,32 @@ function (__path) {
                 }
             }
 
-            let usermain_layout = {
+            // The header, when one was supplied, sits above everything else this file
+            // renders. Built as an array so the no-header case produces exactly the layout
+            // it always did.
+            let usermain_rows = []
+            if (__header) {
+                usermain_rows.push({
+                    'width': '100%',
+                    'component': __header
+                })
+            }
+            usermain_rows.push({
+                'width': '100%',
+                'component': main_layout
+            })
+            usermain_rows.push({
+                'width': '100%',
+                'component': fmain_layout
+            })
+
+            usermain_layout = {
                 wid: 'card',
                 height: '100%',
                 width: '100%',
                 componentRef: 'mainFilePanel1',
                 data: {
-                    cards: [[
-                        {
-                            'width': '100%',
-                            'component': main_layout
-                        },
-
-                        {
-                            'width': '100%',
-                            'component': fmain_layout
-                        },
-                    ]
-                    ]
+                    cards: [usermain_rows]
                 }
             }
 

@@ -47,10 +47,8 @@ from typing import Dict, List, Tuple, Any
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- config ----------
-DEFAULT_MODEL = "gpt-4o-mini"
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
+DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TEMPERATURE = 0.15
 MAX_TOKENS = 4000
 
@@ -261,8 +259,8 @@ def _chat_call(
     temperature: float = DEFAULT_TEMPERATURE,
     max_tokens: int = MAX_TOKENS,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -394,7 +392,7 @@ def generate_budget_and_special_ops(
         + cmc_preview
     )
 
-    works.msg("📊 requesting CMC_Budget + gene-therapy CMC_Special_Ops rows from GPT…")
+    works.msg("📊 requesting CMC_Budget + gene-therapy CMC_Special_Ops rows from Claude…")
     content = _chat_call(
         model=model,
         system=system,

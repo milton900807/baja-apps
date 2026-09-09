@@ -66,8 +66,33 @@ NOTES = {
 }
 
 
-path = (os.environ.get("BAJACLIP_RELIABLE")
-        or os.path.expanduser("~/baja-apps/py/bajaclip-lib/bajaclip/weights/reliable_rbps.tsv"))
+# WHERE THE TABLE IS, wherever this tree happens to be deployed.
+#
+# This was a single hard-coded "~/baja-apps/...", which is only true on a machine where the
+# repo sits in the home directory. In production the tree is /opt/baja-apps and the service
+# runs as a user whose home is somewhere else entirely, so the table was never found: the
+# list came back EMPTY, and the picker in rbp-profile.js reads an empty list as "no list
+# available" and silently defaults to TARDBP. Every run was TARDBP and no choice was ever
+# offered.
+#
+# So it is derived from THIS FILE'S own location first -- py/bio/rbp/list-rbps.py, hence two
+# levels up to py/ -- which is correct by construction however the tree is installed. The
+# rest are fallbacks, and the environment variable still wins.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATES = [
+    os.environ.get("BAJACLIP_RELIABLE"),
+    os.path.join(_HERE, "..", "..", "bajaclip-lib", "bajaclip", "weights", "reliable_rbps.tsv"),
+    "/opt/baja-apps/py/bajaclip-lib/bajaclip/weights/reliable_rbps.tsv",
+    os.path.expanduser("~/baja-apps/py/bajaclip-lib/bajaclip/weights/reliable_rbps.tsv"),
+]
+path = ""
+for _c in _CANDIDATES:
+    if _c and os.path.exists(_c):
+        path = os.path.abspath(_c)
+        break
+if not path:
+    path = os.path.abspath(os.path.join(_HERE, "..", "..", "bajaclip-lib",
+                                        "bajaclip", "weights", "reliable_rbps.tsv"))
 
 rows = []
 err = None

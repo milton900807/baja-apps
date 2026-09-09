@@ -490,7 +490,7 @@ function (MGrid) {
                     },
                 },
                 )
-                smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
 
                 let t = {
                     id: 'plot-export-menu',
@@ -542,8 +542,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = null;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
 
@@ -552,8 +552,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = integerAxis;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
                 ml.push({
@@ -561,8 +561,8 @@ function (MGrid) {
                     click: (xwc, ywc) => {
                         this.formatAxis = dollarAxis;
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
 
                 })
                 ml.push({
@@ -572,8 +572,8 @@ function (MGrid) {
                         this.formatAxis = thousandsAxis;
 
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
                 })
 
                 ml.push({
@@ -583,11 +583,11 @@ function (MGrid) {
                         this.formatAxis = percentAxis;
 
                     },
-                    bg: 'orange',
-                    fg: 'black'
+                    bg: '#eef2f8',
+                    fg: '#1f2937'
                 })
                 let cols = Math.ceil(ml.length / 20);
-                pt.menu = new Menu(ml, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                pt.menu = new Menu(ml, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)
                 pt.menu_vis = true;
             }
 
@@ -2091,7 +2091,7 @@ function (MGrid) {
                         label: `Set axis range`,
                         click: async (scx, scy) => {
                             let options = this.getXAxisMenuOptions(pt)
-                            let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                            let smenu = new Menu(options, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * options.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
 
                             let t = {
                                 id: 'plot-export-menu',
@@ -2806,7 +2806,7 @@ function (MGrid) {
             setExportListeners(bx, by, pt) {
                 let mm = this.getExportMenuList(pt)
                 this.highlight();
-                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 let t = {
                     id: 'plot-export-menu',
                     mouseMoveListener: null,
@@ -2851,7 +2851,7 @@ function (MGrid) {
 
             displayXAxisMenuOptions(bx, by, pt) {
                 let mm = this.getXAxisMenuOptions(pt)
-                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
                 let t = {
                     id: 'plot-export-menu',
                     mouseMoveListener: null,
@@ -3417,7 +3417,7 @@ function (MGrid) {
             async setOptionListeners(bx, by, pt) {
                 let m = this.getOptionsMenuList(pt)
 
-                smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', 2)
+                smenu = new Menu(m, pt.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), pt.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', 2)
 
                 let active = false;
                 let t = {

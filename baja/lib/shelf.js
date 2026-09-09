@@ -17,8 +17,9 @@ function (opts) {
     //
     // Extracted because this is the FOURTH shelf in the app (clinical-library, rnaseq-library,
     // data-resources-library and now the data / ML libraries) and the markup had been copied
-    // each time. A `ready: false` book renders greyed with a "coming soon" note rather than
-    // being hidden, so a catalogue reads as complete instead of silently short.
+    // each time. A `ready: false` book renders greyed with a note rather than being hidden,
+    // so a catalogue reads as complete instead of silently short. `readyNote` replaces the
+    // default "coming soon" for a book that is unavailable for a reason the user can fix.
 
     return (async () => {
         const o = opts || {};
@@ -35,7 +36,31 @@ function (opts) {
         // until the moment something is actually loaded, so "which source, then which class of
         // variant" is two more shelves rather than a shelf that turns into a popup menu.
         // A card with both is treated as a sub-library; put the action on a leaf inside it.
-        const stack = [{ title: o.title || 'Library', subtitle: o.subtitle || '', books: books }];
+        // A STACK THAT SURVIVES THE NEXT LEVEL.
+        //
+        // A sub-library opened from a card's `books` walks in on this stack and the path is
+        // simply its titles. But the selection library does not work that way: each level
+        // closes this shelf with reason 'open' and builds a FRESH one, so its stack was
+        // always one deep and there was nothing to draw a path from -- which is why that
+        // library had to carry its own back cards.
+        //
+        // So the stack is stashed under the shelf's id when it closes to make room for a
+        // continuation, and adopted by the next shelf with that id. A close the user asked
+        // for ('dismiss') clears it: that is the end of the session, and the next open
+        // starts at the top.
+        try { if (!window.__shelfStacks) { window.__shelfStacks = {}; } } catch (e) { }
+        const stashKey = o.id || 'baja-shelf';
+        let carried = [];
+        try {
+            const st = window.__shelfStacks && window.__shelfStacks[stashKey];
+            if (Array.isArray(st)) { carried = st; }
+        } catch (e) { carried = []; }
+        // Re-entering a level already on the path is going BACK to it, not deeper: walking
+        // Selection > Track > SNPs > a variant > Back lands on titles that repeat, and
+        // without this the path would grow every time instead of unwinding.
+        const already = carried.findIndex((l) => l && l.title === (o.title || 'Library'));
+        if (already >= 0) { carried = carried.slice(0, already); }
+        const stack = carried.concat([{ title: o.title || 'Library', subtitle: o.subtitle || '', books: books }]);
         const level = () => stack[stack.length - 1];
         const asBooks = async (b) => {
             const src = (typeof b.books === 'function') ? await b.books() : b.books;
@@ -64,24 +89,18 @@ function (opts) {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;gap:16px;'
             + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
         header.innerHTML = ''
-            // BACK IS A DIFFERENT SHAPE. Every other control in this app is a rounded
-            // rectangle, so Back was one more of them wearing a different word -- and it is
-            // the one control that does not act on anything, it only moves you. A left-
-            // pointing tag says that in the silhouette, before the label is read.
+            // THE PATH, NOT A BACK BUTTON.
             //
-            // clip-path CUTS the border off along the angled edge, so this carries a filled
-            // background instead of an outline; a 1px border would come out sliced.
-            // The yellow outline is four drop-shadows rather than a border, because a border
-            // is drawn on the BOX and clip-path then cuts it off along the angled edge --
-            // which is why this control carries none. A drop-shadow is cast from the
-            // element's alpha, so it traces the clipped silhouette exactly, point included.
-            // Four offsets make a ring; the text sits on opaque fill, so nothing haloes it.
-            + '<button id="shelf-up" style="display:none;cursor:pointer;flex:0 0 auto;'
-            + 'clip-path:polygon(0% 50%, 8px 0%, 100% 0%, 100% 100%, 8px 100%);'
-            + 'border-radius:0 5px 5px 0;padding:4px 9px 4px 14px;font:700 10.5px Arial;border:0;'
-            + 'background:' + BACK_YELLOW + ';color:#3a2d00;">\u2039 Back</button>'
-            + '<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">'
-            + '<div id="shelf-title" style="font:700 19px Arial;">' + esc(o.title || 'Library') + '</div>'
+            // Back says only "one step" and says it in the same place whatever shelf you
+            // are on, so three levels down it tells you neither where you are nor how far
+            // in. The path says both, and every ancestor in it is the way back to that
+            // level -- one click to the top from anywhere, instead of Back three times.
+            //
+            // It lives in the header for the reason the button did: it is navigation, and
+            // navigation among the cards reads as one more thing that acts.
+            + '<div style="display:flex;flex-direction:column;gap:3px;min-width:0;">'
+            + '<div id="shelf-path" style="font:700 19px Arial;display:flex;align-items:baseline;'
+            + 'gap:7px;flex-wrap:wrap;min-width:0;"></div>'
             + '<div id="shelf-sub" style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
             + '</div>'
             + '<input id="shelf-q" placeholder="Search…" style="flex:1;max-width:340px;margin-left:auto;'
@@ -107,8 +126,31 @@ function (opts) {
         //
         // Without it a caller cannot tell the two apart, because both arrive here as a close.
         const close = (reason) => {
+            // 'open' is a continuation -- the shelf is getting out of the way of the level
+            // it just launched -- so the path is handed to whatever opens next. Anything
+            // else ends the session and the path with it.
+            try {
+                if (window.__shelfStacks) {
+                    if (reason === 'open') { window.__shelfStacks[stashKey] = stack.slice(); }
+                    else { delete window.__shelfStacks[stashKey]; }
+                }
+            } catch (e) { }
             try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
             try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) { }
+            // Leaving (not a continuation) ends the Layers button's "will load onto all
+            // tracks" intent: nothing consumed it, so drop the flag and the status line that
+            // was announcing it, or the spinner keeps promising data that is not coming.
+            if (reason !== 'open') {
+                try {
+                    if (window.__bajaApplyAllTracks) {
+                        window.__bajaApplyAllTracks = false;
+                        if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
+                            window.__workStatus = '';
+                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
+                        }
+                    }
+                } catch (e) { }
+            }
             try { if (typeof o.onClose === 'function') o.onClose(reason || 'dismiss'); } catch (e) { }
         };
         // Escape walks OUT one level before it closes: inside a sub-library it is the same
@@ -129,34 +171,68 @@ function (opts) {
         document.addEventListener('keydown', onKey, true);
         header.querySelector('#shelf-x').onclick = () => close('dismiss');
 
+        // The path itself. Ancestors are buttons -- each one walks back to that level -- and
+        // the level you are on is plain text, because a control that goes where you already
+        // are is a control that does nothing.
+        const renderPath = () => {
+            const el = header.querySelector('#shelf-path');
+            if (!el) { return; }
+            el.innerHTML = '';
+            stack.forEach((lv2, i) => {
+                if (i > 0) {
+                    const sep = document.createElement('span');
+                    sep.style.cssText = 'color:#5b7fa6;font:700 15px Arial;flex:0 0 auto;';
+                    sep.textContent = '\u203a';
+                    el.appendChild(sep);
+                }
+                const last = (i === stack.length - 1);
+                const node = document.createElement(last ? 'span' : 'button');
+                node.textContent = lv2.title || 'Library';
+                if (last) {
+                    node.style.cssText = 'font:700 19px Arial;color:#eaf6f9;min-width:0;'
+                        + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                } else {
+                    node.style.cssText = 'cursor:pointer;background:transparent;border:0;padding:0;'
+                        + 'font:600 14px Arial;color:#8ab4ff;max-width:220px;overflow:hidden;'
+                        + 'text-overflow:ellipsis;white-space:nowrap;flex:0 0 auto;';
+                    node.onmouseenter = () => { node.style.textDecoration = 'underline'; };
+                    node.onmouseleave = () => { node.style.textDecoration = 'none'; };
+                    node.onclick = () => { goToLevel(i); };
+                }
+                el.appendChild(node);
+            });
+        };
+        // Walk back to a level on the path. Everything below it is dropped -- clicking an
+        // ancestor means "I am there now", not "remember where I was".
+        const goToLevel = (i) => {
+            if (i < 0 || i >= stack.length - 1) { return; }
+            if (detailBack) { try { detailBack(); } catch (e) { } }
+            stack.length = i + 1;
+            try { q.value = ''; } catch (e) { }
+            render();
+            try { shelf.scrollTop = 0; } catch (e) { }
+        };
+
         const q = header.querySelector('#shelf-q');
         const render = () => {
             const lv = level();
             // The header carries the trail, so a shelf three deep still says where it sits.
-            try { header.querySelector('#shelf-title').textContent = lv.title || 'Library'; } catch (e) { }
-            try {
-                const trail = stack.slice(0, -1).map((l) => l.title).join(' \u203a ');
-                header.querySelector('#shelf-sub').textContent = (trail ? trail + ' \u203a ' : '') + (lv.subtitle || '');
-            } catch (e) { }
-            // Not while a reference view is up: the search box stays live behind it, and a
-            // keystroke there would otherwise put the shelf's Back button back on screen.
-            try { header.querySelector('#shelf-up').style.display = (!detailBack && stack.length > 1 ? '' : 'none'); } catch (e) { }
+            try { renderPath(); } catch (e) { }
+            try { header.querySelector('#shelf-sub').textContent = (lv.subtitle || ''); } catch (e) { }
             const needle = ('' + (q.value || '')).trim().toLowerCase();
             shelf.innerHTML = '';
             let shown = (lv.books || []).filter((b) => !needle
                 || ((b.title || '') + ' ' + (b.blurb || '') + ' ' + (b.badge || '')).toLowerCase().indexOf(needle) >= 0);
-            // BACK LIVES IN THE HEADER, not among the books. A card that navigates sits in the
-            // same grid as the cards that DO something, and reads as one of them; the header
-            // button is the one control that is always in the same place whatever shelf you
-            // are on. So wherever that button is available -- any level with a parent on the
-            // shelf's own stack -- a back card is dropped from the grid.
+            // BACK LIVES IN THE PATH, not among the books. A card that navigates sits in the
+            // same grid as the cards that DO something and reads as one of them, so every
+            // back card is dropped -- the header path is the way out, and it is in the same
+            // place on every shelf.
             //
-            // Not dropped when there is no parent to pop: the selection library rebuilds a
-            // fresh shelf for each level, so its stack is always one deep and its own back
-            // card is the only way back. Filtering that would strand it.
-            if (stack.length > 1) {
-                shown = shown.filter((b) => !(b && b.back));
-            }
+            // Unconditionally now. It used to be kept whenever the shelf had no parent to
+            // pop, because the selection library rebuilds a fresh shelf per level and its
+            // own back card was the only way back; the stack now survives that rebuild (see
+            // the session stash above), so there is always a path to walk instead.
+            shown = shown.filter((b) => !(b && b.back));
             if (!shown.length) {
                 const empty = document.createElement('div');
                 empty.style.cssText = 'grid-column:1/-1;color:#9fb3c8;font:13px Arial;padding:24px;';
@@ -211,7 +287,13 @@ function (opts) {
                         + 'filter:' + BACK_RING + ';'
                         : 'border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px 18px;')
                     + 'display:flex;flex-direction:column;gap:9px;'
-                    + 'box-shadow:0 6px 18px rgba(0,0,0,0.28);' + (ready ? 'cursor:pointer;' : 'opacity:0.55;');
+                    // A DISABLED CARD IS DIMMED PER ELEMENT, NOT WITH opacity ON THE CARD.
+                    // Opacity multiplies through every child, so it faded the very note that
+                    // explains why the card is disabled -- the one thing on it the user needs
+                    // to read. The title and blurb are muted individually below and the note is
+                    // left at full strength.
+                    + 'box-shadow:0 6px 18px rgba(0,0,0,0.28);'
+                    + (ready ? 'cursor:pointer;' : 'background:#0a1c33;border-color:rgba(255,255,255,0.07);');
                 if (ready) {
                     // A clipped card has no border to light up, so it brightens instead.
                     card.onmouseenter = () => {
@@ -248,7 +330,15 @@ function (opts) {
                     // Warm: a TOOL that arms a gesture on the canvas.
                     sunset: ['linear-gradient(160deg,#2b1503 0%,#4a2408 55%,#6b3410 100%)',
                         'rgba(255,163,72,0.55)', '#ffb35c',
-                        'rgba(255,163,72,0.18)', '#ffc98a', '#ffe6c7', '#e0b48a']
+                        'rgba(255,163,72,0.18)', '#ffc98a', '#ffe6c7', '#e0b48a'],
+                    // Clinical: a VARIANT. A mutation in a list beside tracks, oligos and
+                    // annotations is a different kind of thing from all of them -- it is the
+                    // finding rather than the apparatus -- and it should be picked out of that
+                    // list without reading a word. Magenta because that is already what a
+                    // marked variant is drawn in on the karyotype, so the two agree.
+                    variant: ['linear-gradient(160deg,#2a0713 0%,#4a0f24 55%,#6b1636 100%)',
+                        'rgba(244,114,182,0.55)', '#f9a8d4',
+                        'rgba(244,114,182,0.20)', '#f9a8d4', '#ffe4f1', '#e7b9cf']
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so
@@ -262,12 +352,33 @@ function (opts) {
                 const isLeaf = (b.leaf != null) ? !!b.leaf : !b.books;
                 // Back is never accented: it is not a leaf that acts, and giving it the warm
                 // look would say it does something.
-                const A = isBack ? null : (ACCENTS[b.accent] || (isLeaf ? ACCENTS.sunset : null));
+                // EVERY CARD IS SUNSET, node or leaf.
+                //
+                // The warm look used to mark a LEAF -- a card that acts rather than one that
+                // opens another level -- and navy meant "there is more inside". That put two
+                // signals on the same card for the same thing: the colour and the '›' at the
+                // end of the title both said node-or-leaf, so one of them was redundant and the
+                // shelf read as two kinds of place rather than one. The chevron keeps saying it;
+                // the colour is now just the shelf's colour.
+                //
+                // An explicit `accent` still wins. That is a different axis -- what KIND of
+                // thing the card is, like a variant among tracks and oligos -- and it is not
+                // the node/leaf distinction being removed here.
+                const A = isBack ? null : (ACCENTS[b.accent] || ACCENTS.sunset);
                 if (A) {
-                    card.style.background = A[0];
-                    card.style.borderColor = A[1];
-                    card.onmouseenter = () => { card.style.borderColor = A[2]; card.style.transform = 'translateY(-2px)'; };
-                    card.onmouseleave = () => { card.style.borderColor = A[1]; card.style.transform = ''; };
+                    if (ready) {
+                        card.style.background = A[0];
+                        card.style.borderColor = A[1];
+                        card.onmouseenter = () => { card.style.borderColor = A[2]; card.style.transform = 'translateY(-2px)'; };
+                        card.onmouseleave = () => { card.style.borderColor = A[1]; card.style.transform = ''; };
+                    } else {
+                        // A disabled card keeps the family but drops out of it: the same hue,
+                        // darkened and desaturated, so it still belongs to the shelf while
+                        // clearly not being available. Set here rather than left to the
+                        // stylesheet above, which this assignment would otherwise overwrite.
+                        card.style.background = 'linear-gradient(160deg,#1c1208 0%,#2a1a0c 55%,#331f10 100%)';
+                        card.style.borderColor = 'rgba(255,163,72,0.18)';
+                    }
                 }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
@@ -278,13 +389,25 @@ function (opts) {
                     + (b.badge ? ('<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;'
                         + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
                         + 'color:' + (A ? A[4] : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')
-                    + (ready ? '' : '<span style="color:#8fb8c8;font:11.5px Arial;margin-left:auto;">coming soon</span>')
+                    // WHY it is unavailable, when the book says. "coming soon" is right for a
+                    // feature that does not exist yet and wrong for one that is merely missing
+                    // a prerequisite -- the user can act on the second and not on the first.
+                    + (ready ? '' : ('<span style="flex:0 0 auto;margin-left:auto;border-radius:999px;'
+                        + 'padding:3px 10px;font:700 11px Arial;background:rgba(255,176,32,0.16);'
+                        + 'color:#ffb020;border:1px solid rgba(255,176,32,0.45);">'
+                        + esc(b.readyNote || 'coming soon') + '</span>'))
                     + '</div>'
                     // The › marks a card that opens ANOTHER library rather than loading
                     // something, so the difference is visible before the click, not after it.
-                    + '<div style="font:700 15px Arial;color:' + (A ? A[5] : '#eaf6f9') + ';">' + esc(b.title)
-                    + (b.books ? ' <span style="color:#4fd0e6;font:700 15px Arial;">\u203a</span>' : '') + '</div>'
-                    + '<div style="font:12px/1.55 Arial;color:' + (A ? A[6] : '#9fb3c8') + ';">'
+                    + '<div style="font:700 15px Arial;color:'
+                    + (ready ? (A ? A[5] : '#eaf6f9') : '#9b8571') + ';">' + esc(b.title)
+                    + (b.books ? (' <span style="color:'
+                        + (ready ? (A ? A[4] : '#4fd0e6') : '#7a6247')
+                        + ';font:700 15px Arial;">\u203a</span>') : '') + '</div>'
+                    // The blurb of a disabled card carries the instructions for enabling it, so
+                    // it is muted rather than faded: readable, visibly secondary to the note.
+                    + '<div style="font:12px/1.55 Arial;color:'
+                    + (ready ? (A ? A[6] : '#9fb3c8') : '#b39a80') + ';">'
                     + esc(b.blurb || '') + '</div>';
                 if (ready) {
                     card.onclick = async () => {
@@ -332,6 +455,22 @@ function (opts) {
         const showDetail = (b) => {
             const d = b.docs || {};
             const links = Array.isArray(d.links) ? d.links : [];
+            // AN OPTION THE MODEL NEEDS BEFORE IT RUNS.
+            //
+            // Some books cannot act until they know WHICH of something -- which RBP, which
+            // cell line. That used to be asked after Load, in a full-screen list that
+            // replaced the editor, so the page describing the model and the page choosing
+            // what to run it on were two different screens with the canvas unmounted
+            // between them. It belongs on the page you are already reading.
+            //
+            //   docs.choice = { label, note, value, options }
+            //     options : an array, or a function returning one (may be async, so a list
+            //               that costs a server call is fetched when the page opens)
+            //     each    : { value, label, note } -- or a plain string
+            //
+            // The chosen value is handed to open(): open(value). A book with no choice is
+            // called open() with nothing, exactly as before.
+            const choice = (d.choice && typeof d.choice === 'object') ? d.choice : null;
             shelf.style.display = 'none';
             let pane = document.getElementById(id + '-detail');
             if (pane && pane.parentNode) pane.parentNode.removeChild(pane);
@@ -358,6 +497,14 @@ function (opts) {
                         + (l.note ? ('<div style="font:12px/1.5 Arial;color:#9fb3c8;margin-top:3px;">' + esc(l.note) + '</div>') : '')
                         + '<div style="font:11.5px Arial;color:#7f97a6;margin-top:4px;word-break:break-all;">' + esc(l.url) + '</div>'
                         + '</a>').join('')) : '')
+                + (choice ? ('<div style="font:700 12px Arial;color:#4fd0e6;margin:20px 0 8px;">'
+                    + esc(choice.label || 'Choose one') + '</div>'
+                    + '<select id="shelf-choice" style="width:100%;max-width:460px;background:#0b2545;'
+                    + 'color:#eaf6f9;border:1px solid rgba(255,255,255,0.22);border-radius:9px;'
+                    + 'padding:10px 12px;font:13.5px Arial;">'
+                    + '<option>Loading\u2026</option></select>'
+                    + '<div id="shelf-choice-note" style="font:12px/1.55 Arial;color:#9fb3c8;'
+                    + 'margin-top:7px;max-width:640px;"></div>') : '')
                 + '<div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">'
                 + (typeof b.open === 'function' ? ('<button id="shelf-load" style="cursor:pointer;border-radius:9px;'
                     + 'padding:11px 18px;font:700 13.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">'
@@ -377,18 +524,56 @@ function (opts) {
                 shelf.style.display = '';
                 detailBack = null;
                 // The header's Back belongs to the shelf again, and says so.
-                try { header.querySelector('#shelf-up').style.display = (stack.length > 1 ? '' : 'none'); } catch (e) { }
+                try { renderPath(); } catch (e) { }
             };
             detailBack = back;
             // While the reference view is up, the header Back would pop the shelf UNDER it.
-            try { header.querySelector('#shelf-up').style.display = 'none'; } catch (e) { }
+            try { renderPath(); } catch (e) { }
             try { pane.querySelector('#shelf-back').onclick = back; } catch (e) { }
             try { pane.querySelector('#shelf-done').onclick = () => close('dismiss'); } catch (e) { }
+            // Fill the picker. Load is held until the list is in: running with whatever
+            // "Loading…" happens to mean is worse than a button that waits a moment.
+            let chosen = null;
+            const loadBtn = pane.querySelector('#shelf-load');
+            if (choice) {
+                const sel = pane.querySelector('#shelf-choice');
+                const noteEl = pane.querySelector('#shelf-choice-note');
+                if (loadBtn) { loadBtn.disabled = true; loadBtn.style.opacity = '0.55'; }
+                (async () => {
+                    let opts = [];
+                    try {
+                        opts = (typeof choice.options === 'function') ? await choice.options() : choice.options;
+                    } catch (e) { opts = []; }
+                    opts = (Array.isArray(opts) ? opts : []).map((o) =>
+                        (o && typeof o === 'object') ? o : { value: '' + o, label: '' + o });
+                    if (!sel) return;
+                    if (!opts.length) {
+                        // Say so on the page rather than offering an empty menu.
+                        sel.innerHTML = '<option>Nothing to choose from</option>';
+                        sel.disabled = true;
+                        if (noteEl) { noteEl.textContent = choice.empty || 'This list could not be read.'; }
+                        return;
+                    }
+                    sel.innerHTML = opts.map((o) => '<option value="' + esc(o.value) + '">'
+                        + esc(o.label || o.value) + '</option>').join('');
+                    const want = ('' + (choice.value == null ? '' : choice.value));
+                    const at = opts.findIndex((o) => ('' + o.value) === want);
+                    sel.selectedIndex = at >= 0 ? at : 0;
+                    const say = () => {
+                        const o = opts[sel.selectedIndex] || opts[0];
+                        chosen = o ? o.value : null;
+                        if (noteEl) { noteEl.textContent = (o && o.note) ? o.note : (choice.note || ''); }
+                    };
+                    sel.onchange = say;
+                    say();
+                    if (loadBtn) { loadBtn.disabled = false; loadBtn.style.opacity = ''; }
+                })();
+            }
             try {
-                const lb = pane.querySelector('#shelf-load');
-                if (lb) lb.onclick = async () => {
+                if (loadBtn) loadBtn.onclick = async () => {
+                    if (loadBtn.disabled) return;
                     close('open');
-                    try { await b.open(); }
+                    try { await b.open(chosen); }
                     catch (e) {
                         try { if (graph && graph.setMessage) graph.setMessage(' Could not open ' + b.title + ': ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
                     }
@@ -402,7 +587,7 @@ function (opts) {
             if (detailBack) { detailBack(); return; }
             if (stack.length > 1) { stack.pop(); q.value = ''; render(); try { shelf.scrollTop = 0; } catch (e) { } }
         };
-        try { header.querySelector('#shelf-up').onclick = up; } catch (e) { }
+
 
         q.oninput = render;
         render();

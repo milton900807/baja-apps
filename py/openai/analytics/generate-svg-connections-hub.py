@@ -21,10 +21,7 @@ from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict, is_dataclass
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
-# ---------- data structures ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 
 @dataclass
 class svg_text:
@@ -81,8 +78,8 @@ def _chat_call(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -431,7 +428,7 @@ IMPORTANT:
 def generate_svg_groups_from_prompt(
     user_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> List[svg_group]:
     user_msg = f"""
@@ -440,7 +437,7 @@ Natural-language description of roles / responsibilities:
 
 Now extract nodes and return ONLY the JSON object as described.
 """
-    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from GPT…")
+    works.msg("🧱 Stage 1: requesting node svg_groups (visual objects) from Claude…")
     content = _chat_call(
         model=model,
         system=NODE_EXTRACTION_SYSTEM,
@@ -593,7 +590,7 @@ def assemble_svg_from_groups(
     user_prompt: str,
     groups: List[svg_group],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     # Ensure hub + deterministic layout already applied
@@ -621,7 +618,7 @@ Build a COMPLETE hub-and-spoke SVG diagram:
 Return ONLY the <svg>...</svg> markup.
 """
 
-    works.msg("🧩 Stage 2: requesting assembled HUB-AND-SPOKE SVG (star topology) from GPT…")
+    works.msg("🧩 Stage 2: requesting assembled HUB-AND-SPOKE SVG (star topology) from Claude…")
     content = _chat_call(
         model=model,
         system=SVG_ASSEMBLY_SYSTEM,
@@ -649,7 +646,7 @@ Return ONLY the <svg>...</svg> markup.
 def generate_svg_diagram(
     user_prompt: str,
     *largs,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> str:
     groups = generate_svg_groups_from_prompt(user_prompt, model=model, temperature=temperature)
@@ -662,7 +659,7 @@ def generate_svg_diagram(
 def run_svg_builder(
     user_prompt: str,
     *largs,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.2,
 ) -> dict[str, Any]:
     works.msg("🔗 SVG hub-and-spoke responsibility diagram pipeline starting…")
@@ -680,7 +677,7 @@ def run_svg_builder(
 
 # ---------- Ion entry ----------
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     works.msg("🔧 Loading two-stage SVG HUB-AND-SPOKE diagram builder…")
 
     try:
@@ -715,4 +712,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 
 if __name__ == "__main__":
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

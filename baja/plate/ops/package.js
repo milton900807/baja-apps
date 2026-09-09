@@ -44,7 +44,7 @@ function (pt, selectedPlate) {
                                 await pt.addNextAvailableX(jj)
                                 const tablename = j.name;
                                 const graph = CurrentLayout.getStashed('graph')
-                                graph.setMouseMode("msg:Click on canvas to drop the table")
+                                graph.setMouseMode("msg: Click on canvas to drop the table")
                                 let ltable = pt.getTableByName(tablename);
                                 const t = {
                                     id: 'override-droptable',

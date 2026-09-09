@@ -1438,29 +1438,23 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
             return this.grid.worldHeight(h);
         }
 
+        // ZOOM TO A RANGE. Separate from the animated paths on purpose.
+        //
+        // This is an explicit destination -- zoomTo(start, end), the coordinate box, a
+        // menu item that says "go here" -- not a gesture being interpreted. So it sets the
+        // range it was given and nothing else: no aspect clamp, no reshaping, no easing.
+        // animateTo has all of that, and the two views in this application disagree about
+        // which way y is numbered, so a shape rule that suits one distorts the other. A
+        // destination does not need one.
+        //
+        // What was here read this.xmin / this.xmax / this.ymin / this.ymax -- fields the
+        // Graph class does not have; the bounds live on this.grid. So xw and yw were NaN,
+        // `NaN < 10` is false, and the clamp branch could never run: every call has always
+        // fallen through to the plain set below. This is that branch, kept, with the dead
+        // arithmetic and the fields it invented removed.
         zoom = (min, max) => {
-
-            let xw = this.xmax - this.xmin;
-            let yw = this.ymax - this.ymin;
-            let currentAspectRatio = xw / yw;
-            if (currentAspectRatio < 10) {
-                let targetAspectRatio = 10;
-                let new_xw, new_yw;
-                if (currentAspectRatio < targetAspectRatio) {
-                    new_xw = yw * targetAspectRatio;
-                    new_xw = Math.max(new_xw, Math.abs(xw));
-                    this.xmin = (this.xmax + this.xmin) / 2 - new_xw / 2;
-                    this.xmax = this.xmin + new_xw;
-                } else {
-                    new_yw = xw / targetAspectRatio;
-                    new_yw = Math.max(new_yw, Math.abs(yw));
-                    this.ymin = (this.ymax + this.ymin) / 2 - new_yw / 2;
-                    this.ymax = this.ymin + new_yw;
-                }
-            } else {
-                this.grid.setxmin(min);
-                this.grid.setxmax(max);
-            }
+            this.grid.setxmin(min);
+            this.grid.setxmax(max);
             if (this.canvas) {
                 this.grid.setWidth(this.canvas.width)
                 this.grid.setHeight(this.canvas.height)

@@ -1,5 +1,22 @@
 function (graph, genegraph_panel_layout) {
     return new Promise(async (resolve, reject) => {
+
+        // The toolbar button now opens the LIBRARY (baja/manchester/menu/draw-tools-library.js)
+        // rather than a two-level side menu, so drawing tools are catalogued the same way data
+        // and models are: a card per tool with a line saying what it draws, instead of a bare
+        // list of words. Ten call sites reach this file, so the delegation lives here and they
+        // are all unchanged.
+        //
+        // The side menu below stays as the FALLBACK. If the shelf cannot be loaded the button
+        // still opens something, which is the whole point of the change -- a control that does
+        // nothing is the failure mode being designed out.
+        try {
+            await exec('baja/manchester/menu/draw-tools-library.js', graph, genegraph_panel_layout);
+            return resolve();
+        } catch (e) {
+            try { console.log('draw tools library unavailable, using the side menu: ' + e); } catch (e2) { }
+        }
+
         let panel = null;
         let __nameHook = createIonFunction((name) => {
             panel = name;

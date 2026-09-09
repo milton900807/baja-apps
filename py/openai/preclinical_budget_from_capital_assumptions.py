@@ -37,9 +37,7 @@ from typing import Dict, List, Tuple, Any
 from ion import works  # type: ignore
 
 # ---- OpenAI client ----
-from openai import OpenAI
-
-# ---------- utils ----------
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 _KEY_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\[(\d+):\d+\]\[(\d+):\d+\]$')
 _IDENT_LABEL_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
@@ -67,8 +65,8 @@ def _chat_call(
     json_mode: bool = False,
     max_tokens: int = 2000,
 ) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -431,7 +429,7 @@ def generate_pnl_via_gpt(
     user_prompt: str,
     assumptions_rows: List[Tuple[str, Any]],
     capital_rows: List[Tuple[str, Any]],
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15,
 ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, Dict[str, str]], Dict[str, str]]:
     valid_labs = _list_assumption_labels(assumptions_rows)
@@ -449,7 +447,7 @@ def generate_pnl_via_gpt(
         "Reminder: Only reference the labels listed above when using Assumptions[...] or Capital_Assumptions[...]."
     )
 
-    works.msg("🧾 requesting preclinical budget rows + formulas from GPT…")
+    works.msg("🧾 requesting preclinical budget rows + formulas from Claude…")
     content = _chat_call(model=model, system=system, user=user, temperature=temperature, json_mode=True, max_tokens=4000)
     try:
         data = json.loads(content)
@@ -491,7 +489,7 @@ def run_pnl_builder(
     user_prompt: str,
     assumptions_json: dict,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15
 ) -> Dict[str, Any]:
     # Assumption rows for experiment costs
@@ -538,7 +536,7 @@ def run_pnl_builder(
     return artifact
 
 # ---------- Ion entry/exit ----------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user_prompt = works.param(1)
     except Exception as e:
@@ -571,4 +569,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("🔧 loading preclinical budget (capital_assumptions) builder…")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

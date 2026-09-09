@@ -612,7 +612,7 @@ def run_ddct_detector(
     user_prompt: str,
     tables_json: Any,
     *,
-    model: str = "gpt-4o-mini",   # retained for compatibility
+    model: str = "claude-haiku-4-5",   # retained for compatibility
     temperature: float = 0.0,     # retained for compatibility
 ) -> Dict[str, Any]:
     parsed_tables = _extract_tables(tables_json)
@@ -620,7 +620,7 @@ def run_ddct_detector(
 
 
 # ---------------- ion entrypoint ----------------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user_prompt = works.param(1)
     except Exception as e:
@@ -661,4 +661,4 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
 
 if __name__ == "__main__":
     works.msg("🔎 loading ddCt feasibility detector…")
-    _main_ion("gpt-4o-mini")
+    _main_ion("claude-haiku-4-5")

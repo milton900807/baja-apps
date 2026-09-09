@@ -15,7 +15,7 @@ Behavior:
 - Chooses exactly one option for each item; on uncertainty, sets "Default" (even if not present in options).
 - Forces JSON output via function-call tools.
 - Batches items to control prompt size.
-- Requires OPENAI_API_KEY in env.
+- Requires ANTHROPIC_API_KEY in env.
 
 Output (works.resolve): a JSON array of items with `wtype` filled in.
 """
@@ -38,7 +38,7 @@ except Exception:  # pragma: no cover
     _HAS_ION = False
 
 # ---------- OpenAI client ----------
-from openai import OpenAI
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 
 def _get_client() -> OpenAI:
@@ -198,9 +198,9 @@ def _classify_one_batch(*, model: str, options: List[str], items_payload: List[D
         out.append({"id": d.get("id"), "chosen_option": d.get("chosen_option"), "reason": d.get("reason", "")})
     return out
 
-def _classify_items_with_chat(items: List[Dict[str, Any]], options: List[str], model: str = "gpt-4o-mini", batch_size: int = 80) -> List[Dict[str, Any]]:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY must be set.")
+def _classify_items_with_chat(items: List[Dict[str, Any]], options: List[str], model: str = "claude-haiku-4-5", batch_size: int = 80) -> List[Dict[str, Any]]:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY must be set.")
 
     lite: List[Dict[str, Any]] = []
     for it in items or []:
@@ -242,7 +242,7 @@ def _run_ion() -> int:
     if not isinstance(options, list) or not all(isinstance(s, str) for s in options):
         raise RuntimeError("options must be a JSON list of strings.")
 
-    model = model_p or "gpt-4o-mini"
+    model = model_p or "claude-haiku-4-5"
     works.msg(f"Ion: Item classification starting… model={model}, items={len(items)}, options={len(options)}")
 
     result_list = _classify_items_with_chat(items, options, model=model)

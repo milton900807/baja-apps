@@ -10,7 +10,7 @@ Param(1): table dict
 
 Behavior:
 - Extract headers & rows with resilient logic (unchanged).
-- If OPENAI_API_KEY is present, send a compact JSON of headers + rows to ChatGPT
+- If ANTHROPIC_API_KEY is present, send a compact JSON of headers + rows to ChatGPT
   with explicit instructions and a strict output schema to identify:
     • housekeeping gene rows
     • target gene rows
@@ -353,8 +353,8 @@ def _extract_json(s: str) -> Dict[str, Any]:
             start = s.find("{", start+1)
     return {}
 
-def _call_chatgpt(headers: List[str], rows: List[List[str]], model: str = "gpt-4o-mini") -> Optional[Dict[str, Any]]:
-    if not os.getenv("OPENAI_API_KEY"):
+def _call_chatgpt(headers: List[str], rows: List[List[str]], model: str = "claude-haiku-4-5") -> Optional[Dict[str, Any]]:
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return None
 
     payload = _build_compact_payload(headers, rows, max_rows=800)
@@ -394,7 +394,7 @@ def _call_chatgpt(headers: List[str], rows: List[List[str]], model: str = "gpt-4
     user = {"context": {"hints": col_hints}, **payload}
 
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
         client = OpenAI()
         raw = ""
         # Prefer Responses API
@@ -504,7 +504,7 @@ def analyze(table: Dict[str, Any]) -> Dict[str, Any]:
             "target_genes": tgt_rows,
             "controls": ctl_rows,
             "standards": standards_meta,
-            "notes": ["Local heuristic fallback used (no OPENAI_API_KEY or model error)."]
+            "notes": ["Local heuristic fallback used (no ANTHROPIC_API_KEY or model error)."]
         }
     else:
         meta = {

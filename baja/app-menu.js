@@ -18,6 +18,26 @@ function () {
 
     })
     myfiles_button.push({
+        label: 'Neoantigen Designer',
+        ionfunction: createIonFunction(async () => {
+            // Liverpool: pick the peptides a tumour's mutations present, then design the
+            // mRNA that carries them. A separate editor from the screening one -- that
+            // designs oligonucleotides against a transcript, this designs a transcript
+            // against an immune system.
+            await exec('liverpool/editor')
+        })
+
+    })
+    myfiles_button.push({
+        label: 'mRNA Designer',
+        ionfunction: createIonFunction(async () => {
+            // Tottenham: half-life engineering and replicon strategies. Designs the
+            // transcript itself, where Liverpool designs what a transcript encodes.
+            await exec('tottenham/editor')
+        })
+
+    })
+    myfiles_button.push({
         label: 'Simple Designer',
         ionfunction: createIonFunction(async () => {
             await exec('manchester/assay-design')

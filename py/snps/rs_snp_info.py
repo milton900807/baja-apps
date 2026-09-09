@@ -70,8 +70,7 @@ from urllib.request import Request, urlopen
 from ion import works  # type: ignore
 
 # ---- OpenAI ----
-from openai import OpenAI
-
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 BASE = "https://api.ncbi.nlm.nih.gov/variation/v0"
 NCBI_SNP_WEB = "https://www.ncbi.nlm.nih.gov/snp"
 _RS_RE = re.compile(r"^rs(\d+)$", re.IGNORECASE)
@@ -944,8 +943,8 @@ def find_associated_diseases(
 # OpenAI helpers
 # -------------------------
 def _chat_call(model: str, system: str, user: str, temperature: float, max_tokens: int = 500) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     r = client.chat.completions.create(
         model=model,
@@ -1364,7 +1363,7 @@ def run(
 # -------------------------
 # Ion entry
 # -------------------------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         payload = works.param(1)
         ensembl_transcript_id = works.param(2) or ""

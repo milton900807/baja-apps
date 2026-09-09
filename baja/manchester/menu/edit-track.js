@@ -2,7 +2,7 @@ function (graph, genegraph_panel_layout) {
     graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
     graph.selectOff();
     // Cursor prompt so it's clear the next click chooses the track to edit.
-    graph.setMouseMode('msg: Click on a track you want to edit.');
+    graph.setMouseMode('msg: Click on a track you want to edit');
     graph.addMouseMoveListener((x, y) => {
         if (graph.menuVisible()) {
             return;

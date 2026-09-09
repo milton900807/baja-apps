@@ -397,6 +397,13 @@ function (pm) {
         const list_of_items = r.map(node => buildRecursiveNode(node)).filter(node => node !== null);
         const t = [
             {
+                label: 'From an image (AI)…',
+                description: ' ...',
+                click: async () => {
+                    await exec('baja/draw/timeline-from-image.js', pm.plateTrack, null);
+                }
+            },
+            {
                 label: 'Today',
                 description: ' ...',
                 click: async () => {

@@ -36,9 +36,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 ASSUMPTIONS_TABLE = "Assumptions"
 DIRECTORY_TABLE = "Component_Directory"
 COST_TABLE = "Product_Costs"
@@ -153,8 +151,8 @@ def _chat_json(
     temperature: float,
     max_tokens: int,
 ) -> Dict[str, Any]:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set.")
     response = OpenAI().chat.completions.create(
         model=model,
         messages=[
@@ -753,7 +751,7 @@ def infer_units(
 def run_product_assumptions_builder(
     product_prompt: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-haiku-4-5",
     temperature: float = 0.15,
     product_hint: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -828,7 +826,7 @@ def run_product_assumptions_builder(
     }
 
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         product_prompt = works.param(1)
     except Exception:

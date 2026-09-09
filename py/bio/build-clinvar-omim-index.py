@@ -136,7 +136,7 @@ for mim, p in pheno.items():
     # Submitters word the same condition slightly differently; the wording most records use
     # is the one to show.
     name = max(p["names"].items(), key=lambda kv: (kv[1], -len(kv[0])))[0] if p["names"] else ""
-    out[mim] = {"name": name or ("OMIM " + mim), "series": p["series"],
+    out[mim] = {"name": name or ("phenotype " + mim), "series": p["series"],
                 "v": p["v"], "s": p["s"], "genes": genes}
 
 doc = {

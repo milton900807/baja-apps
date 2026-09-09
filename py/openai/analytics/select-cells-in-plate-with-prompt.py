@@ -25,7 +25,7 @@ Supports:
 
 Environment
 -----------
-Requires OPENAI_API_KEY for fallback behavior only.
+Requires ANTHROPIC_API_KEY for fallback behavior only.
 Optional:
   OPENAI_MODEL (default: gpt-4.1-mini)
 """
@@ -36,9 +36,7 @@ import re
 from typing import Any, Dict, List, Tuple, Optional, Set
 
 from ion import works  # type: ignore
-from openai import OpenAI
-
-
+from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 def _safe_str(v: Any) -> str:
     return "" if v is None else str(v)
 
@@ -331,11 +329,11 @@ def _select_cells_by_columns(cells: List[Dict[str, Any]], col_indexes: List[int]
 
 
 def _call_openai_for_cell_selection(prompt: str, cells: List[Dict[str, Any]], headers: List[str], row_count: int) -> Dict[str, Any]:
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
     client = OpenAI(api_key=api_key)
 
     compact_payload = {

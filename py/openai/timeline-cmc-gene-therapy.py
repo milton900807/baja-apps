@@ -37,7 +37,7 @@ except Exception:
 
 # ----- Optional GPT client -----
 try:
-    from openai import OpenAI, APITimeoutError  # type: ignore
+    from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None
     APITimeoutError = Exception
@@ -354,7 +354,7 @@ def _get_client():
         _client_singleton = OpenAI(timeout=60, max_retries=3)
     return _client_singleton
 
-def _chat_call(line: str, model="gpt-4o-mini", temperature=0.2):
+def _chat_call(line: str, model="claude-haiku-4-5", temperature=0.2):
     client = _get_client()
     if client is None:
         return None
@@ -378,7 +378,7 @@ def _chat_call(line: str, model="gpt-4o-mini", temperature=0.2):
             )
             return json.loads(resp.choices[0].message.content.strip())
         except Exception as e:
-            works.msg(f"⚠️ GPT error: {e}; retrying...")
+            works.msg(f"⚠️ Claude error: {e}; retrying...")
             time.sleep(2 ** attempt)
     return None
 
@@ -451,7 +451,7 @@ def ensure_unique_names(
     _process(milestones)
 
 
-def build_intervals(prompt: str, model="gpt-4o-mini", temperature=0.2):
+def build_intervals(prompt: str, model="claude-haiku-4-5", temperature=0.2):
     """
     NEW behavior:
       1) If prompt looks like the written Gantt (Months ... headers), parse by month offsets.
@@ -513,7 +513,7 @@ def _read_param(i: int):
 
 def _main_ion():
     prompt = _read_param(1)
-    model = _read_param(2) or "gpt-4o-mini"
+    model = _read_param(2) or "claude-haiku-4-5"
     temperature = float(_read_param(3) or 0.2)
     if not prompt:
         raise RuntimeError("param(1) required: prompt")

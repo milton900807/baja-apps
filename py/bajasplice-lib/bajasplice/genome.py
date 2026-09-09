@@ -11,7 +11,7 @@ from pyfaidx import Fasta
 
 from bajasplice.config import paths, split_of, TEST_CHROMS, VAL_CHROMS, MAIN_CHROMS
 
-__all__ = ["GenomeReader", "one_hot", "codes_to_str", "split_of",
+__all__ = ["GenomeReader", "one_hot", "codes_to_str", "str_to_codes", "split_of",
            "TEST_CHROMS", "VAL_CHROMS", "MAIN_CHROMS"]
 
 _BASE = np.zeros(256, dtype=np.int8)
@@ -28,6 +28,21 @@ _ALPHABET = "NACGT"
 def codes_to_str(codes) -> str:
     """Integer codes back to a sequence string (0 -> N)."""
     return "".join(_ALPHABET[int(c)] for c in codes)
+
+
+def str_to_codes(seq, strand="+"):
+    """Sequence string to integer codes, the inverse of codes_to_str.
+
+    Anything outside ACGT (including U and N) becomes 0, which one_hot maps to
+    an all-zero column, so a track carrying RNA or masked bases is accepted
+    rather than rejected. `strand="-"` reverse-complements, matching
+    GenomeReader.codes so a caller can hand either source to the same model.
+    """
+    raw = str(seq).replace("U", "T").replace("u", "t").encode()
+    out = _BASE[np.frombuffer(raw, dtype=np.uint8)].copy()
+    if strand == "-":
+        out = _COMP[out[::-1]]
+    return out
 
 
 class GenomeReader:

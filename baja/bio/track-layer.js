@@ -874,10 +874,60 @@ return new Promise(async (resolve, reject) => {
             ctx.textAlign = 'left';
         }
 
+
+        // MIGRATION: a cis-regulatory layer saved before the sequence-line fix.
+        //
+        // Eight different code paths rebuild a saved layer, each with its own class
+        // dispatch (load-track.js, gene.js, gene2plates.js, copyLayers, liftLayers...), and
+        // a CisLayer falls through all but two of them into a plain TrackLayer. It then
+        // renders here, with three defects baked into its own JSON:
+        //
+        //   * a symmetric grid, so the loop below anchors its bars at the middle of the
+        //     layer box instead of on the sequence line
+        //   * interval text of '', which makes the label branch substitute the LAYER NAME,
+        //     printing it once per window
+        //   * no labelZoomThreshold, so it labels at any useful zoom
+        //
+        // Repairing it here rather than in each loader means one place to be correct, and
+        // it catches loaders not yet written. Restoring the prototype is what does the real
+        // work: the layer's own painter then draws it properly and fixes the saved grid on
+        // its first frame (syncFallbackGrid). Guarded on the painter being ABSENT, so a
+        // live layer never enters this, and it runs at most once per layer.
+        async __migrateCisLayer() {
+            if (this.type !== 'CisLayer' || typeof this.paint === 'function') return false;
+            if (this.__cisMigrated) return false;
+            this.__cisMigrated = true;
+            try {
+                const CisLayer = await exec('baja/bio/splicing/cis-layer.js');
+                if (!CisLayer || typeof CisLayer.prototype.paint !== 'function') return false;
+                // hydrate() restores the prototype AND the class field defaults. Setting the
+                // prototype alone leaves every field undefined, and the painter throws on the
+                // first one it reads.
+                if (typeof CisLayer.hydrate === 'function') CisLayer.hydrate(this);
+                else Object.setPrototypeOf(this, CisLayer.prototype);
+                this.labelZoomThreshold = 1e9;
+                for (const i of (this.intervals || [])) { if (!i.t) i.t = ' '; }
+                // Very early saves stored no window list. The interval y IS the scaled
+                // impact, so treating it as the impact with peak = amplitude reproduces the
+                // same bars exactly. z and coverage are gone, so those are left at full
+                // confidence rather than invented.
+                if (!Array.isArray(this.windows) || !this.windows.length) {
+                    const amp = this.amplitude || 0.82;
+                    this.windows = (this.intervals || []).map((i) => ({
+                        x0: +i.x1, x1: +i.x2, impact: +i.y, z: 4, covered: 1
+                    }));
+                    this.peak = amp;
+                }
+                return true;
+            } catch (e) { return false; }
+        }
+
         async draw(parentTrack, graph, __track) {
             if (!this.visible) {
                 return;
             }
+            // Re-dispatch once repaired, so the layer's own painter takes it from here.
+            if (await this.__migrateCisLayer()) return this.draw(parentTrack, graph, __track);
             // Rehydrate a plain-object tgraph (e.g. from a JSON clone / reload) back into a
             // real MGrid so rescale()/X()/Y() work — otherwise draw crashes the whole track.
             if (!this.tgraph || typeof this.tgraph.rescale !== 'function') {
@@ -1018,6 +1068,18 @@ return new Promise(async (resolve, reject) => {
                 // the intervals move under pan and zoom, so what collided last frame says
                 // nothing about this one.
                 this.__hlabBoxes = [];
+                // LABELS ARE DRAWN AFTER EVERY BAR, NOT BESIDE THEIR OWN.
+                //
+                // Each interval used to draw its bar and then its own label, so any interval
+                // drawn later painted over the labels already written. On a layer with one or
+                // two lanes that is invisible; on the patents layer, where a locus carries
+                // hundreds of overlapping claims stacked into lanes, almost every name was
+                // buried under a later lane's bars and the layer read as unlabelled.
+                //
+                // Collecting the label work and running it once the bars are down puts the
+                // text ON TOP of the whole layer. Nothing about an individual label changes --
+                // same position, same collision avoidance -- only when it is painted.
+                const __labelJobs = [];
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -1046,7 +1108,7 @@ return new Promise(async (resolve, reject) => {
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) {
+                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
                         let text;
                         if (int.t) {
                             text = int.t;
@@ -1166,8 +1228,10 @@ return new Promise(async (resolve, reject) => {
                             }
                         }
                         ctx.stroke();
-                    }
+                    });  }
                 }
+                // Second pass: the labels, over the finished bars.
+                for (const __j of __labelJobs) { try { __j(); } catch (e) { } }
 
                 if (this.highlight_text.length > 0) {
                     for (let ht of this.highlight_text) {
@@ -1217,6 +1281,7 @@ return new Promise(async (resolve, reject) => {
             if (!this.visible) {
                 return;
             }
+            if (await this.__migrateCisLayer()) return this.drawPlot(ctx, parentTrack, __track);
             if (this.svgs && this.svgs.length > 0 && this.track_layer_imgs.length === 0) {
                 this.reloadSVGs();
             }
@@ -1362,6 +1427,18 @@ return new Promise(async (resolve, reject) => {
                 // the intervals move under pan and zoom, so what collided last frame says
                 // nothing about this one.
                 this.__hlabBoxes = [];
+                // LABELS ARE DRAWN AFTER EVERY BAR, NOT BESIDE THEIR OWN.
+                //
+                // Each interval used to draw its bar and then its own label, so any interval
+                // drawn later painted over the labels already written. On a layer with one or
+                // two lanes that is invisible; on the patents layer, where a locus carries
+                // hundreds of overlapping claims stacked into lanes, almost every name was
+                // buried under a later lane's bars and the layer read as unlabelled.
+                //
+                // Collecting the label work and running it once the bars are down puts the
+                // text ON TOP of the whole layer. Nothing about an individual label changes --
+                // same position, same collision avoidance -- only when it is painted.
+                const __labelJobs = [];
                 for (let int of this.intervals) {
                     ctx.beginPath();
                     ctx.moveTo((this.tgraph.X(int.x1)), (this.tgraph.Y(int.y)));
@@ -1390,7 +1467,7 @@ return new Promise(async (resolve, reject) => {
                     if (this.highlight && Math.abs(drawWidth) < 5) drawWidth = 5;
                     ctx.fillRect(x, y, drawWidth, height);
 
-                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) {
+                    if (screencell > (this.labelZoomThreshold != null ? this.labelZoomThreshold : 0.4)) { __labelJobs.push(() => {
                         let text;
                         if (int.t) {
                             text = int.t;
@@ -1510,8 +1587,10 @@ return new Promise(async (resolve, reject) => {
                             }
                         }
                         ctx.stroke();
-                    }
+                    });  }
                 }
+                // Second pass: the labels, over the finished bars.
+                for (const __j of __labelJobs) { try { __j(); } catch (e) { } }
 
                 if (this.highlight_text.length > 0) {
                     for (let ht of this.highlight_text) {

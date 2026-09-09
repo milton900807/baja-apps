@@ -12,7 +12,7 @@ Adds URL references:
 Ion params
 ----------
 param(1): prompt (string with lines or a paragraph)
-param(2): model (optional; default "gpt-4o-mini")
+param(2): model (optional; default "claude-haiku-4-5")
 param(3): temperature (optional; default 0.2)
 """
 
@@ -39,7 +39,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI (for paragraph milestone inference or date window infer if needed) -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -50,8 +50,8 @@ def _get_client() -> OpenAI:
 def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.2, json_mode: bool = True,
                max_tokens: int = 900, tries: int = 3, backoff: float = 2.0) -> str:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -69,7 +69,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -200,7 +200,7 @@ def infer_milestones_via_gpt(prompt: str, *, model: str, temperature: float) -> 
             out.append({"name": name, "date": dt, "url": url})
         return out
     except Exception as e:
-        works.msg(f"⚠️ GPT milestone inference failed: {e}")
+        works.msg(f"⚠️ Claude milestone inference failed: {e}")
         return []
 
 # ===== Orchestrator bits =====
@@ -252,7 +252,7 @@ def _random_contrasting_color():
     palette = ["#1F2937","#0F766E","#065F46","#7C2D12","#6B21A8","#9D174D","#1D4ED8","#B45309","#14532D","#7F1D1D"]
     return random.choice(palette)
 
-def build_milestones(prompt: str, *, model: str = "gpt-4o-mini", temperature: float = 0.2) -> Dict[str, Any]]:
+def build_milestones(prompt: str, *, model: str = "claude-haiku-4-5", temperature: float = 0.2) -> Dict[str, Any]]:
     # 1) Parse bullets/numbers first
     milestones = parse_milestones_from_lines(prompt)
 
@@ -297,7 +297,7 @@ def _read_param(i: int) -> Any:
     try: return works.param(i)
     except Exception: return None
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     prompt = _read_param(1)
     model = _read_param(2) or default_model
     temperature = float(_read_param(3) or 0.2)

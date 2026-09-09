@@ -8,7 +8,7 @@ NOW returns: window.startDate and window.endDate
 Ion Works:
   param(1): JSON text of dataset (required)
   param(2): years_ahead integer (optional; default 10)
-  param(3): model id (optional; default "gpt-4o-mini")
+  param(3): model id (optional; default "claude-haiku-4-5")
   param(4): temperature float (optional; default 0.15)
 """
 
@@ -36,7 +36,7 @@ except Exception:
 
 # --- OpenAI client (optional; used to propose y(x) strictly) ---
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
     _HAS_OPENAI = True
 except Exception:
     _HAS_OPENAI = False
@@ -187,8 +187,8 @@ def _extract_json_snippet(text: str) -> str:
     return text[s:e+1].strip()
 
 def _chat_call(*, model: str, system: str, user: str, temperature: float = 0.15, json_mode: bool = True, max_tokens: int = 4000) -> dict:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     kwargs = dict(
         model=model,
@@ -350,7 +350,7 @@ def _discover_cash_refs(present: Dict[str, Dict[str, Set[str]]]) -> Dict[str, st
 
 # ----------------- GPT y(x) synthesis -----------------
 def _gpt_point_formula(catalog: Dict[str, Any], model: str, temperature: float) -> Optional[Dict[str, str]]:
-    if not _HAS_OPENAI or not os.getenv("OPENAI_API_KEY"):
+    if not _HAS_OPENAI or not os.getenv("ANTHROPIC_API_KEY"):
         return None
 
     tables_str = []
@@ -606,7 +606,7 @@ def _point_formula_build(catalog: Dict[str, Any], model: str, temperature: float
     return tables_add, formulas_add, point_formula, path
 
 # ----------------- main orchestrator -----------------
-def build_ten_year_view_gpt(src_root: Any, years_ahead: int = 11, model: str = "gpt-4o-mini", temperature: float = 0.15) -> Dict[str, Any]:
+def build_ten_year_view_gpt(src_root: Any, years_ahead: int = 11, model: str = "claude-haiku-4-5", temperature: float = 0.15) -> Dict[str, Any]:
     tables = _normalize_root(src_root)
     start_year = find_start_year_or_now(tables)
     years = list(range(start_year, start_year + years_ahead))
@@ -712,7 +712,7 @@ def build_ten_year_view_gpt(src_root: Any, years_ahead: int = 11, model: str = "
     }
 
 # ----------------- Ion entrypoint -----------------
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     src_json_text = works.param(1)
     try:
         years_ahead = int(works.param(2))

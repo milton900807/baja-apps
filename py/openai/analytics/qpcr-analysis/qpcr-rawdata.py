@@ -6,13 +6,13 @@ Ion Works analyzer (Python, ChatGPT-assisted)
 
 Input (Ion Works):
   1: import_table (string; Excel paste or CSV/TSV text)
-  2: [optional] model name (default: "gpt-4o-mini")
+  2: [optional] model name (default: "claude-haiku-4-5")
 
 Output (works.resolve):
 {
   "status": "ok",
   "source": "chatgpt" | "heuristic",
-  "model": "gpt-4o-mini",
+  "model": "claude-haiku-4-5",
   "delimiter": "\t",
   "headers": ["Well", "Target", "Sample", "Cq", ...],
   "detected": {
@@ -218,11 +218,11 @@ def chatgpt_analyze(header: List[str], body: List[List[str]], delim: str, model:
     Falls back to heuristic if API is unavailable or returns invalid JSON.
     """
     try:
-        from openai import OpenAI  # type: ignore
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
     except Exception:
         return heuristic_analyze(header, body, delim)
 
-    if not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return heuristic_analyze(header, body, delim)
 
     client = OpenAI()
@@ -311,9 +311,9 @@ def main() -> int:
         return 1
 
     try:
-        model = str(works.param(2) or "gpt-4o-mini")
+        model = str(works.param(2) or "claude-haiku-4-5")
     except Exception:
-        model = "gpt-4o-mini"
+        model = "claude-haiku-4-5"
 
     source_text = str(import_table or "")
     header, body, delim = parse_table(source_text)

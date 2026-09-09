@@ -354,7 +354,7 @@ def attempt_numeric_substitution_and_eval(workbook, expr: str):
 # Prompting ChatGPT to propose formulas
 # ------------------------------------------------------------
 
-def propose_formulas_via_gpt(workbook: dict, model: str = "gpt-4.1"):
+def propose_formulas_via_gpt(workbook: dict, model: str = "claude-haiku-4-5"):
     """
     Sends a structured prompt to ChatGPT to propose formula connections.
     Returns a dict: { "formulas": { target_ref: expr, ... }, "notes": "...optional..." }
@@ -476,7 +476,7 @@ def validate_formulas(workbook: dict, formulas: dict):
 # Integration convenience: run proposal + validation + merge
 # ------------------------------------------------------------
 
-def connect_with_gpt_and_validate(workbook_json_or_path, *, model="gpt-4.1", merge_into_workbook=True):
+def connect_with_gpt_and_validate(workbook_json_or_path, *, model="claude-haiku-4-5", merge_into_workbook=True):
     """
     1) Load workbook
     2) Ask GPT to propose formulas
@@ -505,7 +505,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Connect tables using ChatGPT and validate formulas.")
     parser.add_argument("--in", dest="in_path", required=True, help="Path to input JSON workbook")
     parser.add_argument("--out", dest="out_path", help="Write merged workbook (with formulas) to this path")
-    parser.add_argument("--model", default="gpt-4.1", help="OpenAI model name")
+    parser.add_argument("--model", default="claude-haiku-4-5", help="OpenAI model name")
     parser.add_argument("--no-merge", action="store_true", help="Do not merge proposed formulas into workbook")
     args = parser.parse_args()
 

@@ -302,7 +302,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
         // Cursor prompt: click a track, then map its protein domains onto its sequence.
         graph.setMessage(' Select a track to map its protein domains… ');
         try { graph.clearMouseListeners(); } catch (e) { }
-        try { graph.setMouseMode('msg: Click a track to map its protein domains.'); } catch (e) { }
+        try { graph.setMouseMode('msg: Click a track to map its protein domains'); } catch (e) { }
         graph.addMouseDownListener(async (x, y) => {
             const ti = graph.getTrack(x, y);
             if (ti < 0) return;

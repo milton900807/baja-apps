@@ -27,7 +27,7 @@ Behavior
 
 Notes
 -----
-- Requires OPENAI_API_KEY in env (like your duration resolver example).
+- Requires ANTHROPIC_API_KEY in env (like your duration resolver example).
 - Falls back to a heuristic list if the API is inaccessible.
 """
 
@@ -48,7 +48,7 @@ except Exception:
     works = _Shim()  # type: ignore
 
 # ----- OpenAI chat wrapper (same style as your example) -----
-from openai import OpenAI, APITimeoutError
+from claude_chat import Claude as OpenAI, APITimeoutError  # Claude (fastest model) replaces OpenAI
 _client_singleton = None
 def _get_client() -> OpenAI:
     global _client_singleton
@@ -60,8 +60,8 @@ def _chat_call(*, model: str, system: str, user: str,
                temperature: float = 0.0, json_mode: bool = True,
                max_tokens: int = 500, tries: int = 3, backoff: float = 2.0) -> str:
     import os, time
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": system},
@@ -80,7 +80,7 @@ def _chat_call(*, model: str, system: str, user: str,
         except APITimeoutError as e:
             last_err = e
             wait = backoff ** attempt
-            works.msg(f"⚠️ OpenAI timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
+            works.msg(f"⚠️ Claude timeout — retrying in {wait:.1f}s (attempt {attempt+1}/{tries})")
             time.sleep(wait)
     raise last_err
 
@@ -204,7 +204,7 @@ Rules:
 - Output only the 'ordered_labels' array; no commentary.
 """
 
-def _gpt_pick_labels(candidates: List[str], model: str = "gpt-4o-mini",
+def _gpt_pick_labels(candidates: List[str], model: str = "claude-haiku-4-5",
                      temperature: float = 0.0) -> List[str]:
     system = "You are a precise financial analyst. Output strict JSON only."
     # Provide compact candidate list
@@ -231,7 +231,7 @@ Candidate labels (choose ONLY from these; exact strings):
         ordered = [x for x in out if not (x in seen or seen.add(x))]
         return ordered
     except Exception as e:
-        works.msg(f"❕ GPT label parse failed; will use heuristic fallback. ({e})")
+        works.msg(f"❕ Claude label parse failed; will use heuristic fallback. ({e})")
         return []
 
 def _heuristic_labels(candidates: List[str]) -> List[str]:
@@ -270,7 +270,7 @@ def _as_json(obj_like) -> Any:
         return json.loads(s)
     return json.loads(str(obj_like))
 
-def _main_ion(default_model: str = "gpt-4o-mini") -> int:
+def _main_ion(default_model: str = "claude-haiku-4-5") -> int:
     try:
         user = works.param(1)
     
@@ -286,7 +286,7 @@ def _main_ion(default_model: str = "gpt-4o-mini") -> int:
         works.msg(f"🧠 asking ChatGPT to pick ordered waterfall labels from {len(candidates)} candidates…")
         labels = _gpt_pick_labels(candidates, model=default_model, temperature=0.0)
         if not labels:
-            works.msg("ℹ️ using heuristic label ordering (GPT unavailable or returned none)")
+            works.msg("ℹ️ using heuristic label ordering (Claude unavailable or returned none)")
             labels = _heuristic_labels(candidates)
         if not labels:
             raise RuntimeError("No suitable waterfall labels found")

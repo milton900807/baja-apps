@@ -15,12 +15,12 @@ except Exception:
     works = None
 
 try:
-    from openai import OpenAI
+    from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
 except Exception:
     OpenAI = None  # type: ignore
 
 SVG_NS = "http://www.w3.org/2000/svg"
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
 
 RNA_COMPLEMENT: Dict[str, str] = {"A": "U", "U": "A", "G": "C", "C": "G", "T": "A"}
 DNA_COMPLEMENT: Dict[str, str] = {"A": "T", "T": "A", "G": "C", "C": "G", "U": "A"}
@@ -551,8 +551,8 @@ def _parse_mods_regex(description: str, strands_by_source: Dict[int, Strand]) ->
 def _call_openai_json(prompt: str, instructions: str, schema: Dict[str, Any]) -> Dict[str, Any]:
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     client = OpenAI()
     response = client.responses.create(
         model=OPENAI_MODEL,

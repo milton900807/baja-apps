@@ -43,15 +43,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from ion import works  # type: ignore
 
 # ---------- Optional LLM (ChatGPT) ----------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
 
 def call_llm(prompt: str, system: str = "You are a meticulous modeling assistant.") -> Optional[str]:
-    if not OPENAI_API_KEY:
+    if not ANTHROPIC_API_KEY:
         return None
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        from claude_chat import Claude as OpenAI  # Claude (fastest model) replaces OpenAI
+        client = OpenAI(api_key=ANTHROPIC_API_KEY)
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
             temperature=0.2,

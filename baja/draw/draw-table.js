@@ -13,7 +13,7 @@ function (platetrack, type, type_path, _name) {
         }
 
         const graph = CurrentLayout.getStashed('graph')
-        graph.setMouseMode("msg: Click and drag on the canvas... ")
+        graph.setMouseMode("msg: Click and drag on the canvas ")
 
         platetrack.setMessage("Click and drag on the canvas... ")
 
