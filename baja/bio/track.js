@@ -7249,18 +7249,36 @@ return new Promise(async (resolve, reject) => {
             // pair with a line. A warning on each of two compounds says "there is another
             // one of these somewhere"; the line says WHERE, which on a track of forty
             // compounds is the part that takes the searching.
+            //
+            // NON-ENUMERABLE, and this is not optional. The group holds the compound's
+            // partners, and every partner holds the group: a cycle. The autosave and share
+            // serialisers walk the graph with a seen-set and write '[a_c]' for anything met
+            // twice -- so with the group as a plain property, partner B was first met INSIDE
+            // A's group, written there in full, and B's own slot in the oligo list came out
+            // as the string '[a_c]'. On reload that string has no type, and
+            // `a.type.toUpperCase()` in gene.js threw on every saved file with a duplicate.
+            // The per-frame mirror copy (JSON.parse(JSON.stringify(o)) further up this file)
+            // threw outright on the cycle and silently dropped the compound.
+            //
+            // A non-enumerable property is skipped by JSON.stringify, by for-in, by
+            // Object.assign and by spread, which is every copier this codebase uses. It is
+            // render state, recomputed every frame; nothing needs it persisted.
+            const __setGroup = (o, g) => {
+              try { Object.defineProperty(o, '__dupGroup', { value: g, enumerable: false, writable: true, configurable: true }); }
+              catch (e) { }
+            };
             const __seen = {};
             for (const o of this.oligos) {
-              if (!o || o.type === 'amplicon' || (o.left && o.right)) { if (o) { o.__dupSeq = false; o.__dupGroup = null; } continue; }
+              if (!o || o.type === 'amplicon' || (o.left && o.right)) { if (o) { o.__dupSeq = false; __setGroup(o, null); } continue; }
               const k = ('' + ((o.synthesisSequence || o.sequence) || '')).trim().toUpperCase();
               o.__dupSeq = false;
-              o.__dupGroup = null;
+              __setGroup(o, null);
               if (!k) continue;
               (__seen[k] = __seen[k] || []).push(o);
             }
             for (const k of Object.keys(__seen)) {
               if (__seen[k].length < 2) continue;
-              for (const o of __seen[k]) { o.__dupSeq = true; o.__dupGroup = __seen[k]; }
+              for (const o of __seen[k]) { o.__dupSeq = true; __setGroup(o, __seen[k]); }
             }
           } catch (e) { }
 

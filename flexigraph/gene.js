@@ -3881,7 +3881,40 @@ function (progress, options) {
 
                     let o = []
                     if (js.oligos && js.oligos.length > 0 && js.oligos[0]) {
-                        for (let a of js.oligos) {
+                        // Files saved between 2026-09-10 19:14 and the fix carry a serialiser
+                        // artefact: a compound flagged as a duplicate sequence had an enumerable
+                        // __dupGroup array holding its partners, so the seen-set serialiser met a
+                        // partner INSIDE that array first, wrote it there in full, and wrote the
+                        // partner's own slot in this list as the string '[a_c]'. Two repairs:
+                        // a non-object entry is skipped rather than dereferenced (the crash was
+                        // `a.type.toUpperCase()` on that string), and the full copies inside any
+                        // __dupGroup are put back into the list, so nothing that was on the track
+                        // is lost. The group itself is dropped: it is render state, recomputed
+                        // every frame, and must not come back as a plain property.
+                        const __recovered = [];
+                        const __ids = new Set();
+                        const __isCompound = (a) => a && typeof a === 'object' && !Array.isArray(a) && (a.type != null || a.sequence != null || a.synthesisSequence != null);
+                        for (const a of js.oligos) { if (__isCompound(a) && a.id != null) __ids.add('' + a.id); }
+                        for (const a of js.oligos) {
+                            if (!__isCompound(a)) continue;
+                            const g = a.__dupGroup;
+                            if (Array.isArray(g)) {
+                                for (const e of g) {
+                                    if (!__isCompound(e)) continue;
+                                    const id = (e.id != null) ? '' + e.id : null;
+                                    if (id != null && __ids.has(id)) continue;
+                                    if (id != null) __ids.add(id);
+                                    try { delete e.__dupGroup; } catch (e2) { }
+                                    __recovered.push(e);
+                                }
+                            }
+                            try { delete a.__dupGroup; } catch (e2) { }
+                        }
+                        const __list = js.oligos.filter(__isCompound).concat(__recovered);
+                        if (__recovered.length) {
+                            try { console.warn('[state] restored ' + __recovered.length + ' compound(s) displaced by a duplicate-group serialiser artefact.'); } catch (e) { }
+                        }
+                        for (let a of __list) {
                             if (a != null) {
                                 if (a.type === 'amplicon') {
                                     let leftOligo = Object.assign(new Oligo(), a['left'])
@@ -3893,7 +3926,7 @@ function (progress, options) {
                                     ampliconObject.right = rightOligo;
                                     o.push(ampliconObject)
                                 } else
-                                    if (a.type.toUpperCase() === 'SIRNA') {
+                                    if (('' + (a.type || '')).toUpperCase() === 'SIRNA') {
                                         o.push(Object.assign(new SIRNA(), a))
                                     } else
                                         o.push(Object.assign(new Oligo(), a))
