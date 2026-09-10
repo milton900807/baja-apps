@@ -1172,6 +1172,9 @@ function () {
             //   null / unknown -> grey; contains "benign" -> light blue;
             //   contains "pathogenic" -> red (with a red glow).
             clinsigStyle() {
+                // A colour chosen for this variant by a view -- by sample, by haplotype --
+                // wins over the clinical one while it is set. Cleared by the same view.
+                if (this.sampleColor) return { color: this.sampleColor, glow: null };
                 const c = ('' + (this.clinsig || '')).toLowerCase();
                 if (!c) return { color: '#9aa0a6', glow: null };                                  // null -> grey
                 if (/\bpathogenic\b/.test(c)) return { color: '#d1342f', glow: 'rgba(209,52,47,0.9)' }; // pathogenic -> red + glow

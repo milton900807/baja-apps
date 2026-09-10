@@ -739,6 +739,15 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); yeast1011Menu(); })
                                     }] : []),
                                     {
+                                        // WHICH SAMPLE, WHICH HAPLOTYPE, OR WHICH CLASS. A
+                                        // VCF says more than where its variants are, and
+                                        // the colour of a mark is the one channel that can
+                                        // show it across a whole genome at once.
+                                        label: 'Colour', icon: 'palette',
+                                        tooltip: 'Colour the variants by sample, by haplotype, or by ClinVar class',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); colourMenu(); })
+                                    },
+                                    {
                                         label: 'Bookmarks', icon: 'photo_camera',
                                         tooltip: 'Keep this view, or go back to one you kept',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); bookmarkMenu(false); })
@@ -847,6 +856,7 @@ function (path, config) {
                 // The button comes down first. If the home screen fails to build, the user
                 // is out of this view rather than looking at a dead ✕ over a canvas.
                 try { if (xb.parentNode) xb.parentNode.removeChild(xb); } catch (e) { }
+                legendHide();
                 try {
                     if (window.__karyotypePaste) {
                         window.removeEventListener('paste', window.__karyotypePaste, true);
@@ -1336,9 +1346,7 @@ function (path, config) {
                         if (dm && dm.n) {
                             for (let k = 0; k < dm.n; k++) {
                                 const a2 = (dm.pos[k] / c.length) * Math.PI * 2 - Math.PI / 2;
-                                const col = (dm.hl && dm.hl[k] && HL_COLOR[dm.hl[k]])
-                                    || (hlActive ? DIM_COLOR
-                                        : (CLS_COLOR[dm.cls[k]] || CLS_COLOR[0]));
+                                const col = colourOf(dm, k);
                                 ctx.beginPath();
                                 ctx.arc(cxr + Math.cos(a2) * rad, cyr + Math.sin(a2) * rad,
                                     Math.max(1.6, rad * 0.09), 0, Math.PI * 2);
@@ -1902,9 +1910,7 @@ function (path, config) {
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
-                                const col = (d.hl && d.hl[k] && HL_COLOR[d.hl[k]])
-                                    || (hlActive ? DIM_COLOR
-                                        : (CLS_COLOR[d.cls[k]] || CLS_COLOR[0]));
+                                const col = colourOf(d, k);
                                 if (bw > 60) {
                                     ctx.strokeStyle = col;
                                     ctx.globalAlpha = 0.9;
@@ -1969,8 +1975,8 @@ function (path, config) {
                                     // one says which way it goes, which is all that fits.
                                     const brief = (t2) => (t2.length > 6 ? t2.slice(0, 5) + '\u2026' : t2);
                                     const change = brief(ab[0]) + '>' + brief(ab[1]);
-                                    const annot = CLS_SHORT[d.cls[k]]
-                                        || ((d.hl && d.hl[k]) ? HL_NAME[d.hl[k]] : '');
+                                    const annot = ((d.hl && d.hl[k]) ? HL_NAME[d.hl[k]] : '')
+                                        || modeAnnot(d, k) || CLS_SHORT[d.cls[k]];
                                     ctx.font = '600 9.5px ' + FONT;
                                     ctx.textAlign = 'left';
                                     ctx.textBaseline = 'middle';
@@ -2391,6 +2397,11 @@ function (path, config) {
             hist: null,              // Uint32Array(HIST_BINS)
             snps: [],                // SnpIndel or null, parallel to pos while under the cap
             names: [],               // parallel; only kept while under the cap
+            // GENOTYPES, one byte per sample per variant, in SAMPLES order (gtw wide). A
+            // VCF with two samples is two people, or one person twice -- a tumour and its
+            // germline -- and which of them carries a change is the first thing to see.
+            gts: null,               // Uint8Array(n * gtw): GT_* codes
+            gtw: 0,                  // samples known when this chromosome was last built
         }));
         const BCODE = { A: 0, C: 1, G: 2, T: 3, N: 4 };
         const BCHAR = ['A', 'C', 'G', 'T', 'N'];
@@ -2398,6 +2409,146 @@ function (path, config) {
         let vtotal = 0, vobjects = 0;
 
         const CLS_COLOR = ['#ff2d78', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
+
+        // ---- SAMPLES AND PHASE -----------------------------------------------------------
+        //
+        // The columns after FORMAT are the part of a VCF that says WHO has the variant, and
+        // how: 0/1 in the tumour and 0/0 in the germline is a somatic change; 1|0 and 0|1
+        // are the two haplotypes of one person, and which one a change sits on is what an
+        // allele-selective design needs to know. None of it was read before. Sample names
+        // are registered once, across every file loaded, up to GT_MAX of them.
+        const GT_MAX = 8;
+        const SAMPLES = [];                     // names, in slot order
+        const sampleSlot = (name) => {
+            const n = ('' + (name || '')).trim() || ('sample ' + (SAMPLES.length + 1));
+            let i = SAMPLES.indexOf(n);
+            if (i < 0) { if (SAMPLES.length >= GT_MAX) return -1; SAMPLES.push(n); i = SAMPLES.length - 1; }
+            return i;
+        };
+        // One byte per genotype. Codes 2 and up carry the alternate allele.
+        //   0 none   1 0/0   2 0/1 unphased   3 1/1   4 0|1 (alt on hap 2)   5 1|0 (alt on hap 1)
+        //   6 1|1 phased   7 other (a different alt of a multi-allelic site, or a mix)
+        const GT_TEXT = ['', '0/0', '0/1', '1/1', '0|1', '1|0', '1|1', 'other'];
+        const GT_NONE = 0, GT_REF = 1, GT_HET = 2, GT_HOM = 3, GT_HAP2 = 4, GT_HAP1 = 5, GT_HOMP = 6, GT_OTHER = 7;
+        // The code for a genotype string, RELATIVE TO ONE ALT: a multi-allelic row is split
+        // into one record per alt, and 1/2 carries the first alt on one chromosome and the
+        // second on the other, so each record reads its own allele index.
+        const gtCode = (gt, altIdx) => {
+            if (!gt || gt === '.' || gt === './.' || gt === '.|.') return GT_NONE;
+            const phased = gt.indexOf('|') >= 0;
+            const al = gt.split(/[|\/]/);
+            let has = 0, known = 0;
+            for (const a of al) { if (a === '.' || a === '') continue; known++; if (+a === altIdx) has++; }
+            if (!known) return GT_NONE;
+            if (!has) return GT_REF;
+            if (has === known && known === al.length) return phased ? GT_HOMP : GT_HOM;
+            if (has === 1 && al.length === 2) {
+                if (!phased) return GT_HET;
+                return (+al[0] === altIdx) ? GT_HAP1 : GT_HAP2;
+            }
+            return GT_OTHER;
+        };
+        const gtOf = (d, k, si) => (d.gts && si < d.gtw) ? d.gts[k * d.gtw + si] : GT_NONE;
+        // Which samples carry this variant, as a bitmask over slots.
+        const carriersOf = (d, k) => {
+            let m = 0;
+            for (let si = 0; si < d.gtw; si++) if (gtOf(d, k, si) >= GT_HET) m |= (1 << si);
+            return m;
+        };
+        // 'hap1' | 'hap2' | 'hom' | 'het' | 'other' | 'mixed' | '' -- one word for the
+        // phase of a variant, across the samples that carry it.
+        const PHASE_OF_CODE = ['', '', 'het', 'hom', 'hap2', 'hap1', 'hom', 'other'];
+        const phaseOf = (d, k) => {
+            let ph = '';
+            for (let si = 0; si < d.gtw; si++) {
+                const w = PHASE_OF_CODE[gtOf(d, k, si)];
+                if (!w) continue;
+                if (!ph) ph = w; else if (ph !== w) return 'mixed';
+            }
+            return ph;
+        };
+        const PHASE_COLOR = { hap1: '#1d9bf0', hap2: '#ff2d78', hom: '#a855f7', het: '#ffa400', other: '#94a3b8', mixed: '#94a3b8' };
+        const PHASE_NAME = { hap1: 'haplotype 1 (1|0)', hap2: 'haplotype 2 (0|1)', hom: 'homozygous', het: 'heterozygous, unphased', other: 'other allele', mixed: 'differs between samples' };
+        const SAMPLE_COLOR = ['#1d9bf0', '#ff2d78', '#ffa400', '#12c95a', '#a855f7', '#f97316', '#14b8a6', '#e11d48'];
+        const SHARED_COLOR = '#475569';         // carried by more than one sample
+        const ABSENT_COLOR = '#cbd5e1';         // carried by none of them (0/0 everywhere)
+        // HOW THE MARKS ARE COLOURED: by ClinVar class, by which sample carries the change,
+        // or by which haplotype it is on. Picked for the file on load, and switchable.
+        let colourMode = 'class';
+        const colourOf = (d, k) => {
+            if (d.hl && d.hl[k] && HL_COLOR[d.hl[k]]) return HL_COLOR[d.hl[k]];
+            if (hlActive) return DIM_COLOR;
+            if (colourMode === 'sample' && d.gtw) {
+                const m = carriersOf(d, k);
+                if (!m) return ABSENT_COLOR;
+                if (m & (m - 1)) return SHARED_COLOR;
+                return SAMPLE_COLOR[Math.log2(m) | 0] || SHARED_COLOR;
+            }
+            if (colourMode === 'phase' && d.gtw) {
+                return PHASE_COLOR[phaseOf(d, k)] || ABSENT_COLOR;
+            }
+            return CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
+        };
+        // The word that goes inside the bar beside the change, in the current mode.
+        const modeAnnot = (d, k) => {
+            if (colourMode === 'sample' && d.gtw) {
+                const m = carriersOf(d, k);
+                if (!m) return 'in no sample';
+                const who = SAMPLES.filter((_, si) => m & (1 << si));
+                return who.length === SAMPLES.length && who.length > 1 ? 'all samples' : who.join(' + ');
+            }
+            if (colourMode === 'phase' && d.gtw) return phaseOf(d, k);
+            return '';
+        };
+        // The samples and their genotypes for one variant, as [name, code] pairs.
+        const genotypesOf = (d, k) => SAMPLES.slice(0, d.gtw).map((nm, si) => [nm, gtOf(d, k, si)]);
+
+        // THE KEY. A colour is a claim, and a key is what makes it one that can be read: a
+        // small card in the corner naming what each colour means in the mode that is on.
+        // Only shown when there is something to explain -- more than one sample, or a
+        // mode other than the classes the in-bar text already spells out.
+        let legendEl = null;
+        const legendHide = () => { try { if (legendEl && legendEl.parentNode) legendEl.parentNode.removeChild(legendEl); } catch (e) { } legendEl = null; };
+        const legendShow = () => {
+            legendHide();
+            const sw = (col, txt) => '<div style="display:flex;align-items:center;gap:8px;margin-top:5px;">'
+                + '<span style="width:11px;height:11px;border-radius:50%;background:' + col + ';box-shadow:0 0 6px ' + col + ';flex:0 0 auto;"></span>'
+                + '<span>' + esc(txt) + '</span></div>';
+            let title = '', rows = '';
+            if (colourMode === 'sample' && SAMPLES.length) {
+                title = 'Colour by sample';
+                rows = SAMPLES.map((nm, si) => sw(SAMPLE_COLOR[si], nm + ' only')).join('');
+                if (SAMPLES.length > 1) rows += sw(SHARED_COLOR, 'in more than one sample') + sw(ABSENT_COLOR, 'in none (0/0)');
+            } else if (colourMode === 'phase' && SAMPLES.length) {
+                title = 'Colour by phase';
+                rows = ['hap1', 'hap2', 'hom', 'het'].map((w) => sw(PHASE_COLOR[w], PHASE_NAME[w])).join('')
+                    + (SAMPLES.length > 1 ? sw(PHASE_COLOR.mixed, PHASE_NAME.mixed) : '');
+            } else if (SAMPLES.length > 1) {
+                title = 'Colour by ClinVar class';
+                rows = sw(CLS_COLOR[0], 'unclassified') + sw(CLS_COLOR[1], 'pathogenic') + sw(CLS_COLOR[2], 'benign')
+                    + sw(CLS_COLOR[3], 'uncertain') + sw(CLS_COLOR[4], 'conflicting');
+            } else return;
+            try {
+                const el = document.createElement('div');
+                el.id = 'baja-karyo-legend';
+                el.style.cssText = 'position:fixed;left:18px;bottom:26px;z-index:2147481000;'
+                    + 'background:rgba(11,37,69,0.94);color:#e8f0fb;font:12px Arial,Helvetica,sans-serif;'
+                    + 'border-radius:10px;padding:10px 14px 11px;box-shadow:0 10px 30px rgba(0,0,0,0.35);'
+                    + 'border:1px solid rgba(255,255,255,0.14);pointer-events:auto;cursor:pointer;max-width:260px;';
+                el.title = 'Click to change how the variants are coloured';
+                el.innerHTML = '<div style="font:700 12.5px Arial;">' + esc(title) + '</div>' + rows
+                    + (SAMPLES.length ? '<div style="margin-top:7px;color:#9fb3c8;font-size:11px;">'
+                        + esc(SAMPLES.length + ' sample' + (SAMPLES.length === 1 ? '' : 's') + ': ' + SAMPLES.join(', ')) + '</div>' : '');
+                el.onclick = () => { try { colourMenu(); } catch (e) { } };
+                document.body.appendChild(el);
+                legendEl = el;
+            } catch (e) { legendEl = null; }
+        };
+        const setColourMode = (m) => {
+            colourMode = m;
+            legendShow();
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+        };
         // WHAT THIS VARIANT'S CLINICAL SIGNIFICANCE IS, as a string the editor understands.
         //
         // Two sources, and both are needed. A VCF that carries CLNSIG says so itself, and
@@ -2855,9 +3006,10 @@ function (path, config) {
         const newBufs = () => drawn.map(() => ({
             pos: new Float64Array(1024), cls: new Uint8Array(1024),
             ref: new Uint8Array(1024), alt: new Uint8Array(1024),
+            gts: new Uint8Array(1024 * GT_MAX),   // GT_MAX wide while reading; packed in finalise
             cplx: new Map(), n: 0,
         }));
-        const pushInto = (bufs, ci, p2, cl, rs, as) => {
+        const pushInto = (bufs, ci, p2, cl, rs, as, gt) => {
             const b = bufs[ci];
             if (b.n === b.pos.length) {
                 // Doubled rather than pushed: this is the whole reason a genome-sized file
@@ -2866,16 +3018,57 @@ function (path, config) {
                 const nc = new Uint8Array(b.n * 2); nc.set(b.cls); b.cls = nc;
                 const nr = new Uint8Array(b.n * 2); nr.set(b.ref); b.ref = nr;
                 const na = new Uint8Array(b.n * 2); na.set(b.alt); b.alt = na;
+                const ng = new Uint8Array(b.n * 2 * GT_MAX); ng.set(b.gts); b.gts = ng;
             }
             const rc = codeOf(rs), ac = codeOf(as);
             b.pos[b.n] = p2; b.cls[b.n] = cl; b.ref[b.n] = rc; b.alt[b.n] = ac;
             if (rc === 5 || ac === 5) b.cplx.set(b.n, [rs, as]);
+            if (gt) b.gts.set(gt, b.n * GT_MAX);
             b.n++;
+        };
+        // The genotype bytes for one row, for one alt index: null when the row has no
+        // sample columns. `count.cols` maps the row's sample columns to SAMPLES slots and
+        // is set from the #CHROM line, or from the first row when a paste has no header.
+        const gtRow = new Uint8Array(GT_MAX);
+        const genotypesOfRow = (f, count, altIdx) => {
+            if (f.length < 10) return null;
+            if (!count.cols) {
+                count.cols = [];
+                for (let j = 9; j < f.length && j < 9 + GT_MAX; j++) count.cols.push(sampleSlot('sample ' + (j - 8)));
+            }
+            gtRow.fill(0);
+            let any = false, carriers = 0, known = 0, phased = false;
+            for (let j = 0; j < count.cols.length && 9 + j < f.length; j++) {
+                const si = count.cols[j];
+                if (si < 0) continue;
+                const cell = f[9 + j];
+                const colon = cell.indexOf(':');
+                const code = gtCode(colon < 0 ? cell : cell.slice(0, colon), altIdx);
+                gtRow[si] = code;
+                if (code) { any = true; known++; }
+                if (code >= GT_HET) carriers++;
+                if (code === GT_HAP1 || code === GT_HAP2 || code === GT_HOMP) phased = true;
+            }
+            if (!any) return null;
+            // What the file has to show: samples that differ, and phase. These decide the
+            // colour mode the load lands in.
+            if (carriers && carriers < known) count.differ = (count.differ || 0) + 1;
+            if (phased) count.phased = (count.phased || 0) + 1;
+            return gtRow;
         };
         const parseLines = (lines, bufs, namesOf, count) => {
             for (let li = 0; li < lines.length; li++) {
                 const t = lines[li];
-                if (!t || t.charCodeAt(0) === 35 /* # */) continue;
+                if (!t) continue;
+                if (t.charCodeAt(0) === 35 /* # */) {
+                    // The header line names the samples; every column after FORMAT is one.
+                    if (t.indexOf('#CHROM') === 0) {
+                        const h = t.split('\t');
+                        count.cols = [];
+                        for (let j = 9; j < h.length; j++) count.cols.push(sampleSlot(h[j]));
+                    }
+                    continue;
+                }
                 let f = t.split('\t');
                 if (f.length < 5) f = t.trim().split(/\s+/);
                 if (f.length < 5) continue;
@@ -2893,12 +3086,14 @@ function (path, config) {
                 if (alts.indexOf(',') < 0) {
                     if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                    pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase()); count.added++;
+                    pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), genotypesOfRow(f, count, 1)); count.added++;
                 } else {
-                    for (const a of alts.split(',')) {
+                    const each = alts.split(',');
+                    for (let ai = 0; ai < each.length; ai++) {
+                        const a = each[ai];
                         if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
                         if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        pushInto(bufs, ci, pos, cl, refU, a.toUpperCase()); count.added++;
+                        pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), genotypesOfRow(f, count, ai + 1)); count.added++;
                     }
                 }
             }
@@ -2912,32 +3107,41 @@ function (path, config) {
                 const pos = new Float64Array(total), cls = new Uint8Array(total);
                 const rf = new Uint8Array(total), al = new Uint8Array(total);
                 const cx = new Map();
+                // Genotypes are re-packed at today's sample count: a second file can bring
+                // new samples, and the rows already here simply have no call for those.
+                const W = SAMPLES.length;
+                const gts = W ? new Uint8Array(total * W) : null;
                 if (d.n) {
                     pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
                     rf.set(d.ref.subarray(0, d.n)); al.set(d.alt.subarray(0, d.n));
                     if (d.cplx) for (const [k, v] of d.cplx) cx.set(k, v);
+                    if (gts && d.gts) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) gts[k * W + si] = d.gts[k * d.gtw + si];
                 }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
                 rf.set(b.ref.subarray(0, b.n), d.n);
                 al.set(b.alt.subarray(0, b.n), d.n);
                 for (const [k, v] of b.cplx) cx.set(k + d.n, v);
+                if (gts) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) gts[(d.n + k) * W + si] = b.gts[k * GT_MAX + si];
                 // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
                 Array.prototype.sort.call(order, (x, y) => pos[x] - pos[y]);
                 const sp = new Float64Array(total), sc = new Uint8Array(total);
                 const sr = new Uint8Array(total), sa = new Uint8Array(total);
+                const sg = gts ? new Uint8Array(total * W) : null;
                 const scx = new Map();
                 const sn = [];
                 const oldNames = d.names, newNames = namesOf[ci];
                 for (let k = 0; k < total; k++) {
                     const o = order[k];
                     sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o];
+                    if (sg) for (let si = 0; si < W; si++) sg[k * W + si] = gts[o * W + si];
                     if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx;
+                d.gts = sg; d.gtw = sg ? W : 0;
                 d.n = total; d.snps = []; d.names = sn;
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
                 // variants change, rather than something to merge and keep in step.
@@ -2954,12 +3158,24 @@ function (path, config) {
             }
             vtotal += count.added;
             vobjects = Math.min(vtotal, OBJECT_CAP);
+            // THE FILE DECIDES HOW IT IS FIRST SEEN. Samples that differ on some rows is
+            // the tumour-and-germline shape, and which sample has the change is the
+            // question; failing that, phased calls are shown by haplotype. A file with
+            // neither keeps whatever mode is on.
+            let modeNote = '';
+            if (count.cols && count.cols.length) {
+                if (SAMPLES.length > 1 && count.differ) { setColourMode('sample'); modeNote = ' Coloured by sample.'; }
+                else if (count.phased) { setColourMode('phase'); modeNote = ' Coloured by haplotype.'; }
+                else legendShow();
+            }
             if (graph.wake) graph.wake();
             const onChroms = vdata.filter((d) => d.n).length;
             graph.setMessage(' ' + count.added.toLocaleString() + ' variant'
                 + (count.added === 1 ? '' : 's') + (what ? ' from ' + what : '')
                 + ' placed on ' + onChroms + ' chromosome' + (onChroms === 1 ? '' : 's')
                 + (vtotal !== count.added ? ' (' + vtotal.toLocaleString() + ' in total)' : '')
+                + (count.cols && count.cols.length ? ' · ' + count.cols.length + ' sample' + (count.cols.length === 1 ? '' : 's')
+                    + (count.phased ? ', ' + count.phased.toLocaleString() + ' phased' : '') + modeNote : '')
                 + (count.offGenome ? ' · ' + count.offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
                 + (count.skipped ? ' · ' + count.skipped.toLocaleString() + ' symbolic or malformed' : '')
                 + '. ');
@@ -4605,6 +4821,12 @@ function (path, config) {
                 + row('Change', '<b>' + esc(ab[0]) + ' &rarr; ' + esc(ab[1]) + '</b>')
                 + row('Name', esc(nm))
                 + row('ClinVar', esc(sig))
+                + row('Samples', genotypesOf(d, k).filter((g) => g[1]).map((g, si) =>
+                    '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:'
+                    + (g[1] >= GT_HET ? (PHASE_COLOR[PHASE_OF_CODE[g[1]]] || SHARED_COLOR) : ABSENT_COLOR) + ';"></span>'
+                    + esc(g[0]) + ' <b>' + esc(GT_TEXT[g[1]]) + '</b>'
+                    + (g[1] >= GT_HET ? ' <span style="color:#5b6b7a;">' + esc(PHASE_NAME[PHASE_OF_CODE[g[1]]] || '') + '</span>' : '')
+                ).join('<br>'))
                 + row('Marked', mark ? '<span style="color:' + (HL_COLOR[d.hl[k]] || '#0f172a')
                     + ';font-weight:700;">' + esc(mark) + '</span>' : '')
                 + row('Gene', geneHtml)
@@ -5287,6 +5509,24 @@ function (path, config) {
             });
         };
 
+        const colourMenu = () => {
+            if (!vtotal) { graph.setMessage(' Load a VCF first: there are no variants to colour. '); return; }
+            const on = (m) => (colourMode === m ? '\u25cf ' : '\u25cb ');
+            const nS = SAMPLES.length;
+            const rows = [
+                menuAct(on('class') + 'By ClinVar class — pathogenic, benign, uncertain', async () => setColourMode('class')),
+            ];
+            if (nS) {
+                rows.push(menuAct(on('sample') + 'By sample — which of ' + (nS === 1 ? 'the one sample' : nS + ' samples')
+                    + ' carries the change' + (nS > 1 ? ' (' + SAMPLES.join(', ') + ')' : ''), async () => setColourMode('sample')));
+                rows.push(menuAct(on('phase') + 'By phase — haplotype 1, haplotype 2, homozygous, unphased', async () => setColourMode('phase')));
+            }
+            menuPanel('Colour the variants',
+                nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
+                    : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
+                rows);
+        };
+
         const filesMenu = () => {
             menuPanel('Karyotype files',
                 'This karyotype, and the ones already in My Files.',
@@ -5726,11 +5966,26 @@ function (path, config) {
                         if (seenV.has(vk)) continue;      // overlapping regions share variants
                         seenV.add(vk);
                         const ab = allelesAt(reg.i, k);
+                        // WHO CARRIES IT GOES ALONG. The editor cannot compare samples it
+                        // was never told about: the names, each genotype, and the phase
+                        // word travel as annotation fields the track's variant tools read.
+                        const gl = genotypesOf(d, k);
+                        const annots = [];
+                        if (gl.length) {
+                            annots.push('SAMPLES=' + gl.map((g) => g[0]).join(','));
+                            annots.push('GT=' + gl.map((g) => GT_TEXT[g[1]] || './.').join(','));
+                            const ph = phaseOf(d, k);
+                            if (ph) annots.push('PHASE=' + ph);
+                        }
                         inRange.push({
                             chr: bare2, pos: d.pos[k], ref: ab[0], alt: ab[1],
                             name: (d.names[k] || (c2.name + ':' + d.pos[k])),
                             sig: sigOf(d, k),
                             source: 'VCF',
+                            samples: gl.map((g) => g[0]),
+                            genotypes: gl.map((g) => GT_TEXT[g[1]] || './.'),
+                            phase: gl.length ? phaseOf(d, k) : '',
+                            annotations: annots,
                         });
                     }
                 }

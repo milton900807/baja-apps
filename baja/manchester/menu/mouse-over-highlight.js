@@ -3763,6 +3763,15 @@ function (graph, genegraph_panel_layout) {
                                             }
                                         });
                                     }
+                                    // WHICH SAMPLE HAS WHICH CHANGE. Variants that arrived
+                                    // from a multi-sample VCF carry their genotypes; the
+                                    // strip under the track lays them out sample by sample.
+                                    if ((tr.snpindels || []).some((s) => s && (s.samples || (s.annotations || []).some((a) => ('' + a).indexOf('SAMPLES=') === 0)))) {
+                                        __items.push({
+                                            label: (tr.__sampleStrip ? '\u2713 ' : '') + 'Samples ▸', move: () => { },
+                                            click: () => { exec('baja/manchester/menu/sample-compare.js', graph, tr); }
+                                        });
+                                    }
                                     __items.push(
                                         { label: 'ClinVar ▸', move: () => { }, click: () => { openClinVar(); } },
                                         { label: 'dbSNP', move: () => { }, click: () => { loadFrom('dbsnp', 'dbSNP'); } },

@@ -4077,6 +4077,15 @@ function (plateManager, progress) {
                     if (this.highlightmethod) {
                         this.highlightmethod(ctx, this);
                     }
+                    // OVERLAYS THAT STAY. highlightmethod is one slot and its users clear it
+                    // on a timer; a view that is switched on -- the sample strip under a
+                    // track -- needs a place that survives the next highlight. Keyed by
+                    // name so switching one on twice does not draw it twice.
+                    if (this.__overlays) {
+                        for (const k in this.__overlays) {
+                            try { this.__overlays[k](ctx, this); } catch (e) { }
+                        }
+                    }
 
                     if (this.message) {
                         ctx.shadowBlur = 0;

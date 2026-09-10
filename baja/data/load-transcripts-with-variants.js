@@ -58,10 +58,21 @@ function (server, graph, genegraph_panel_layout, ids, variants) {
                     let placeXi = wx;
                     if (type === 'del' && track.strand !== -1) placeXi = wx + 1;
                     try {
-                        const snp = new SnpIndel(type, placeXi, ref, alt, 0, track.strand,
+                        // PHASE IS THE SIDE OF THE BASELINE. The editor has always drawn
+                        // haplotype 1 above the track and everything else below; a change
+                        // the VCF phased onto haplotype 1 goes where that convention puts it.
+                        const phase = (v.phase === 'hap1') ? 1 : 0;
+                        const snp = new SnpIndel(type, placeXi, ref, alt, phase, track.strand,
                             v.name || (v.chr + ':' + v.pos), null, colorFor(v.sig));
                         snp.name = v.name || (v.chr + ':' + v.pos);
                         snp.source = v.source || 'VCF';
+                        // Who carries it, kept as fields the sample strip and the variant
+                        // tools can read without re-parsing the annotation.
+                        if (Array.isArray(v.samples) && v.samples.length) {
+                            snp.samples = v.samples.slice();
+                            snp.genotypes = (v.genotypes || []).slice();
+                            snp.phaseWord = v.phase || '';
+                        }
                         if (Array.isArray(v.annotations) && v.annotations.length) {
                             try { snp.setAnnotation(v.annotations); } catch (e) { }
                         }
