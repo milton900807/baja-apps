@@ -3,6 +3,15 @@ function (graph, opts) {
     // A QUICK TOUR OF THE EDITOR, pointed at the real controls.
     //
     //   await exec('baja/manchester/menu/ui-tour.js', graph, { onClose });
+    //   await exec('baja/manchester/menu/ui-tour.js', graph, { steps: [...], onClose });
+    //
+    // Without `steps` it walks the oligo editor's toolbar, the steps below. With them it
+    // walks whatever it was given, so the chromosome view (manchester/karyotype.js) and any
+    // other screen built on the same button-menu row can offer the same tour of its own
+    // controls without a second copy of the scrim, the card and the keyboard handling.
+    // A step is { title, text, sel? | byTitle? | byIcon? }; '{stops}' in a text is replaced
+    // by the number of stops after the introduction, so the count stays right when a
+    // screen's toolbar is missing a button and the step for it drops out.
     //
     // A scrim over the app with a hole cut where the thing being described is, and a card
     // beside it. It DESCRIBES rather than drives: nothing here clicks a button, loads a
@@ -22,10 +31,10 @@ function (graph, opts) {
 
         // byTitle is the tooltip; byIcon is the material ligature, used only when a button
         // has no tooltip to match on.
-        const STEPS = [
+        const EDITOR_STEPS = [
             {
                 title: 'A quick tour',
-                text: 'Six stops around the editor, describing what each control is for. '
+                text: '{stops} stops around the editor, describing what each control is for. '
                     + 'Nothing here changes your design — use Next and Back, or press Escape '
                     + 'to leave at any point.',
             },
@@ -88,6 +97,8 @@ function (graph, opts) {
                     + 'tutorials, which cover individual jobs end to end.',
             },
         ];
+
+        const STEPS = (Array.isArray(o.steps) && o.steps.length) ? o.steps : EDITOR_STEPS;
 
         const esc = (s) => ('' + (s == null ? '' : s))
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -240,7 +251,8 @@ function (graph, opts) {
             const s = steps[i];
             root.querySelector('#tour-count').textContent = 'Step ' + (i + 1) + ' of ' + steps.length;
             root.querySelector('#tour-title').textContent = s.title || '';
-            root.querySelector('#tour-text').textContent = s.text || '';
+            root.querySelector('#tour-text').textContent = ('' + (s.text || ''))
+                .replace(/\{stops\}/g, String(Math.max(1, steps.length - 1)));
             const back = root.querySelector('#tour-back');
             back.style.visibility = i === 0 ? 'hidden' : 'visible';
             root.querySelector('#tour-next').textContent = (i === steps.length - 1) ? 'Done' : 'Next';

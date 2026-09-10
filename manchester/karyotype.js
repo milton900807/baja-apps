@@ -3262,10 +3262,18 @@ function (path, config) {
 
         // What to do with a file, by what it turns out to be. Returns one line for the
         // outcome message, or '' when it has already said what went wrong.
+        // What went wrong, kept: the save that follows a failed read would otherwise put
+        // "saved to My Files" over the reason, and the reader is left with a success line
+        // for a file that drew nothing.
+        let readFailure = '';
+        const fail = (m) => { readFailure = m; graph.setMessage(' ' + m + ' '); return ''; };
         const readAnyFile = async (file) => {
-            let head = '';
-            try { head = await file.slice(0, Math.min(file.size, FILE_HEAD)).text(); } catch (e) { head = ''; }
-            const gz = head.charCodeAt(0) === 0x1f && head.charCodeAt(1) === 0x8b;
+            readFailure = '';
+            let head = '', gz = false;
+            // The magic is read from the BYTES. Decoded as text, 0x8b is not valid UTF-8 on
+            // its own and comes out as U+FFFD, so a check on the string never matched.
+            try { gz = GZ_MAGIC(new Uint8Array(await file.slice(0, 2).arrayBuffer())); } catch (e) { gz = false; }
+            try { if (!gz) head = await file.slice(0, Math.min(file.size, FILE_HEAD)).text(); } catch (e) { head = ''; }
             // A gzip is sniffed on what is INSIDE it. Most VCFs arrive bgzipped, and a
             // name is no guide to whether one is: ".vcf" files that are gzip bytes are common.
             if (gz) {
@@ -3277,15 +3285,13 @@ function (path, config) {
                 return count.added.toLocaleString() + ' variants drawn';
             }
             if (gz && file.size > FILE_MAX_SEND) {
-                graph.setMessage(' ' + file.name + ' is compressed and large. Decompress it first. ');
-                return '';
+                return fail(file.name + ' is compressed and large. Decompress it first.');
             }
             let blob = file, partial = false;
             if (file.size > FILE_MAX_SEND) {
                 if (!isText) {
-                    graph.setMessage(' ' + file.name + ' is ' + Math.round(file.size / 1048576)
-                        + ' MB, which is more than can be read at once. ');
-                    return '';
+                    return fail(file.name + ' is ' + Math.round(file.size / 1048576)
+                        + ' MB, which is more than can be read at once.');
                 }
                 blob = file.slice(0, FILE_TEXT_HEAD);
                 partial = true;
@@ -3303,10 +3309,9 @@ function (path, config) {
                     timeout
                 ]);
             } finally { clearTimeout(timer); }
-            if (timedOut) { graph.setMessage(' Reading ' + file.name + ' took too long. '); return ''; }
+            if (timedOut) return fail('Reading ' + file.name + ' took too long.');
             if (!res || res.error) {
-                graph.setMessage(' ' + file.name + ' could not be read' + (res && res.error ? ': ' + res.error : '.') + ' ');
-                return '';
+                return fail(file.name + ' could not be read' + (res && res.error ? ': ' + res.error : '.'));
             }
             step('genetic-file: ' + res.kind + ' — ' + res.description);
             const warnings = parseJson(res.warnings, []);
@@ -3318,9 +3323,8 @@ function (path, config) {
             if (res.kind === 'variant_table') {
                 const table = parseJson(res.table, null);
                 if (!table || table.chrom_col < 0 || table.pos_col < 0) {
-                    graph.setMessage(' ' + (res.description || file.name)
-                        + ' — but its chromosome and position columns could not be identified. ');
-                    return '';
+                    return fail((res.description || file.name)
+                        + ' — but its chromosome and position columns could not be identified.');
                 }
                 const count = await addTableFile(file, table);
                 return count.added.toLocaleString() + ' variants drawn from the table' + tail;
@@ -3366,9 +3370,9 @@ function (path, config) {
                             + file.name + ' was not saved: ' + up.error + '. ');
                         step('upload failed: ' + up.error);
                     } else {
-                        graph.setMessage(' ' + (outcome ? outcome + '. ' : '')
-                            + file.name + ' saved to My Files. ');
-                        step('upload ok: ' + file.name);
+                        graph.setMessage(' ' + (outcome ? outcome + '. ' : (readFailure ? readFailure + ' ' : ''))
+                            + file.name + (readFailure ? ' was still saved to My Files. ' : ' saved to My Files. '));
+                        step('upload ok: ' + file.name + (readFailure ? ' (read failed: ' + readFailure + ')' : ''));
                     }
                 };
                 input.click();
