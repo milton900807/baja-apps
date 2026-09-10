@@ -1042,6 +1042,7 @@ function (path, config) {
         // to know is that clearMouseListeners() nulls it, so arm() re-installs it after
         // clearing, every time.
         const paint = (ctx, g) => {
+            if (ctx && ctx.canvas) lastCanvas = ctx.canvas;   // the key watches this canvas
             {
                 if (!ctx || !g) return;
                 ctx.save();
@@ -2523,9 +2524,47 @@ function (path, config) {
         // Only shown when there is something to explain -- more than one sample, or a
         // mode other than the classes the in-bar text already spells out.
         let legendEl = null;
-        const legendHide = () => { try { if (legendEl && legendEl.parentNode) legendEl.parentNode.removeChild(legendEl); } catch (e) { } legendEl = null; };
+        // THE KEY IS ONLY THERE WHILE THE CANVAS IS. It is a fixed element on the page
+        // body, so nothing removes it when the canvas goes -- the editor opened over this
+        // view, a full-screen panel, a modal -- and it would sit over whatever came next.
+        // A watcher checks the canvas it belongs to: attached, laid out, and the thing
+        // actually under its own middle; when that stops being true the key comes down,
+        // and when it is true again the key comes back, in the mode it was in.
+        let lastCanvas = null, legendWanted = false, legendTimer = null;
+        const canvasVisible = () => {
+            const cv = lastCanvas;
+            if (!cv || !document.body.contains(cv)) return false;
+            let r = null;
+            try { r = cv.getBoundingClientRect(); } catch (e) { return false; }
+            if (!r || r.width < 2 || r.height < 2) return false;
+            try {
+                const cx = Math.max(0, Math.min(window.innerWidth - 1, r.left + r.width / 2));
+                const cy = Math.max(0, Math.min(window.innerHeight - 1, r.top + r.height / 2));
+                const top = document.elementFromPoint(cx, cy);
+                if (!top) return false;
+                if (top !== cv && !cv.contains(top) && !(legendEl && legendEl.contains(top))) return false;
+            } catch (e) { }
+            return true;
+        };
+        const legendDetach = () => { try { if (legendEl && legendEl.parentNode) legendEl.parentNode.removeChild(legendEl); } catch (e) { } legendEl = null; };
+        const legendWatch = () => {
+            if (legendTimer) return;
+            legendTimer = setInterval(() => {
+                if (!legendWanted) { clearInterval(legendTimer); legendTimer = null; return; }
+                const vis = canvasVisible();
+                if (!vis && legendEl) legendDetach();
+                else if (vis && !legendEl) legendBuild();
+            }, 400);
+        };
+        const legendHide = () => { legendWanted = false; legendDetach(); if (legendTimer) { clearInterval(legendTimer); legendTimer = null; } };
         const legendShow = () => {
-            legendHide();
+            legendWanted = true;
+            legendWatch();
+            if (!canvasVisible()) { legendDetach(); return; }
+            legendBuild();
+        };
+        const legendBuild = () => {
+            legendDetach();
             const sw = (col, txt) => '<div style="display:flex;align-items:center;gap:8px;margin-top:5px;">'
                 + '<span style="width:11px;height:11px;border-radius:50%;background:' + col + ';box-shadow:0 0 6px ' + col + ';flex:0 0 auto;"></span>'
                 + '<span>' + esc(txt) + '</span></div>';
@@ -2542,7 +2581,7 @@ function (path, config) {
                 title = 'Colour by ClinVar class';
                 rows = sw(CLS_COLOR[0], 'unclassified') + sw(CLS_COLOR[1], 'pathogenic') + sw(CLS_COLOR[2], 'benign')
                     + sw(CLS_COLOR[3], 'uncertain') + sw(CLS_COLOR[4], 'conflicting');
-            } else return;
+            } else { legendWanted = false; return; }
             try {
                 const el = document.createElement('div');
                 el.id = 'baja-karyo-legend';
