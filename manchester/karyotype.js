@@ -5633,17 +5633,49 @@ function (path, config) {
                 rows);
         };
 
+        // FILES IS A LIBRARY TOO, the same shelf Search opens: three cards that say what
+        // they do, under a subtitle that says which file this is and what is on it. The
+        // shelf reports a card that throws, so a save that fails is a message rather
+        // than a dead button.
         const filesMenu = () => {
-            menuPanel('Karyotype files',
-                'This karyotype, and the ones already in My Files.',
-                [
-                    menuAct('Open a saved karyotype', () => { openJson(false); }),
-                    // saveJson is called inside the menu's own try/catch (menuAct), which
-                    // reports rather than swallowing -- the toolbar used to discard what it
-                    // caught here, and a save that threw looked like a dead button.
-                    menuAct('Save this karyotype', () => { saveJson(); }),
-                    menuAct('Remove a saved karyotype', () => { openJson(true); })
-                ]);
+            let cur = '';
+            try { cur = '' + ((window.history.state || {}).karyotype || ''); } catch (e) { cur = ''; }
+            const curName = cur ? cur.split('/').filter(Boolean).pop() : '';
+            const onIt = vtotal
+                ? vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
+                    + (regions.length ? ', ' + regions.length + ' region' + (regions.length === 1 ? '' : 's') + ' selected' : '')
+                : 'no variants loaded';
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-files',
+                    title: 'Karyotype files',
+                    subtitle: (curName ? curName + '  ·  ' : 'Not saved yet  ·  ') + onIt,
+                    books: [
+                        {
+                            title: 'Open a saved karyotype', badge: 'My Files',
+                            blurb: 'Browse My Files and open a karyotype you kept. A .baja file there opens in the editor instead.',
+                            open: () => openJson(false),
+                        },
+                        {
+                            title: curName ? 'Save this karyotype' : 'Save this karyotype as…',
+                            badge: curName ? 'saved as ' + curName : 'unsaved',
+                            blurb: 'Keep this genome, its variants and the selected regions in My Files, to reopen later or share by link.',
+                            open: () => saveJson(),
+                            ready: !!vtotal || !!regions.length,
+                            readyNote: 'nothing to save yet',
+                        },
+                        {
+                            title: 'Remove a saved karyotype', badge: 'My Files',
+                            blurb: 'Browse My Files and delete a karyotype you no longer need. Asked before each one; it is not moved to a bin.',
+                            open: () => openJson(true),
+                        },
+                    ],
+                    graph: graph,
+                });
+            } catch (e) {
+                step('files shelf threw: ' + e);
+                graph.setMessage(' Files could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+            }
         };
 
         // SEARCH IS A LIBRARY, NOT A POPUP. The same shelf the region callouts and the
