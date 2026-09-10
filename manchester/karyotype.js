@@ -5123,7 +5123,55 @@ function (path, config) {
             return true;
         };
 
+        // FIND A GENE IS A LIBRARY OF EVERY GENE, filled as you type. The shelf's own
+        // search box asks /gene-lookup -- the same endpoint the New-track form's typeahead
+        // uses -- and each hit is a card: symbol, id, description. One row per synonym
+        // comes back, so hits are folded by stable id, and a pick goes by that id, which
+        // findGene prefers over a name. The old modal stays below as geneMenuModal in
+        // case a caller wants the typeahead form.
         const geneMenu = () => {
+            const host_ = window['env']['apiUrl'];
+            const hint = { note: true, title: 'Start typing a gene symbol or an old name — SOD1, TARDBP, C9orf72, ALS1 — and pick the gene from the cards.', blurb: '' };
+            const search = async (text) => {
+                const res = await fetch(host_ + '/gene-lookup?key=' + encodeURIComponent(text));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                let rows = await res.json();
+                if (!Array.isArray(rows)) rows = [];
+                const seen = new Map();
+                for (const r0 of rows) {
+                    const id = '' + (r0['Gene stable ID'] || '');
+                    const sym = '' + (r0['Gene name'] || '');
+                    if (!id && !sym) continue;
+                    const key = id || sym;
+                    if (!seen.has(key)) seen.set(key, { id: id, sym: sym, desc: ('' + (r0['Gene description'] || '')).replace(/\s*\[Source:[^\]]*\]\s*$/, ''), syn: [], canonical: r0['Ensembl Canonical'] === '1' });
+                    const s2 = '' + (r0['Gene Synonym'] || '');
+                    if (s2 && seen.get(key).syn.indexOf(s2) < 0 && s2 !== sym) seen.get(key).syn.push(s2);
+                }
+                const hits = Array.from(seen.values());
+                if (!hits.length) return [{ note: true, title: 'No gene matches "' + text + '".', blurb: '' }];
+                return hits.slice(0, 60).map((h) => ({
+                    title: h.sym || h.id,
+                    badge: h.id || 'gene',
+                    blurb: (h.desc || 'no description') + (h.syn.length ? '  ·  also ' + h.syn.slice(0, 4).join(', ') : ''),
+                    open: () => gotoGene(h.id || h.sym),
+                })).concat(hits.length > 60 ? [{ note: true, title: hits.length + ' genes match; the first 60 are shown. Type more to narrow it.', blurb: '' }] : []);
+            };
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-gene',
+                    title: 'Find a gene',
+                    subtitle: 'The gene is framed on its chromosome and added to the selected regions, so Selected regions can then open its transcripts.',
+                    searchPlaceholder: 'Gene symbol, name or description…',
+                    books: [hint],
+                    search: search,
+                    graph: graph,
+                });
+            } catch (e) {
+                step('gene shelf threw: ' + e);
+                graph.setMessage(' Find a gene could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+            }
+        };
+        const geneMenuModal = () => {
             // THE SAME TYPEAHEAD THE NEW-TRACK FORM USES. input-textfield with a
             // typeahead_url queries /gene-lookup on every keystroke and offers the rows it
             // returns, joined from the fields named here -- so a half-typed symbol, an old
@@ -5615,22 +5663,45 @@ function (path, config) {
             });
         };
 
+        // COLOUR IS A LIBRARY OF THREE. The same shelf as Search and Files: one card per
+        // mode, the one that is on badged so, the ones the file cannot support greyed
+        // with the reason rather than missing.
         const colourMenu = () => {
             if (!vtotal) { graph.setMessage(' Load a VCF first: there are no variants to colour. '); return; }
-            const on = (m) => (colourMode === m ? '\u25cf ' : '\u25cb ');
             const nS = SAMPLES.length;
-            const rows = [
-                menuAct(on('class') + 'By ClinVar class — pathogenic, benign, uncertain', async () => setColourMode('class')),
-            ];
-            if (nS) {
-                rows.push(menuAct(on('sample') + 'By sample — which of ' + (nS === 1 ? 'the one sample' : nS + ' samples')
-                    + ' carries the change' + (nS > 1 ? ' (' + SAMPLES.join(', ') + ')' : ''), async () => setColourMode('sample')));
-                rows.push(menuAct(on('phase') + 'By phase — haplotype 1, haplotype 2, homozygous, unphased', async () => setColourMode('phase')));
+            const badge = (m, dflt) => (colourMode === m ? 'on' : dflt);
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-colour',
+                    title: 'Colour the variants',
+                    subtitle: nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
+                        : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
+                    books: [
+                        {
+                            title: 'By ClinVar class', badge: badge('class', 'class'),
+                            blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
+                            open: () => setColourMode('class'),
+                        },
+                        {
+                            title: 'By sample', badge: badge('sample', nS ? nS + ' sample' + (nS === 1 ? '' : 's') : 'sample'),
+                            blurb: 'Which sample carries the change' + (nS > 1 ? ': ' + SAMPLES.join(', ') : '')
+                                + '. Slate where more than one does, pale where none does.',
+                            open: () => setColourMode('sample'),
+                            ready: nS > 0, readyNote: 'no sample columns',
+                        },
+                        {
+                            title: 'By phase', badge: badge('phase', 'haplotype'),
+                            blurb: 'Haplotype 1 blue, haplotype 2 pink, homozygous purple, unphased heterozygous amber.',
+                            open: () => setColourMode('phase'),
+                            ready: nS > 0, readyNote: 'no genotypes to phase',
+                        },
+                    ],
+                    graph: graph,
+                });
+            } catch (e) {
+                step('colour shelf threw: ' + e);
+                graph.setMessage(' Colour could not be opened: ' + (e && e.message ? e.message : e) + ' ');
             }
-            menuPanel('Colour the variants',
-                nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
-                    : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
-                rows);
         };
 
         // FILES IS A LIBRARY TOO, the same shelf Search opens: three cards that say what

@@ -60,7 +60,14 @@ function (opts) {
         // without this the path would grow every time instead of unwinding.
         const already = carried.findIndex((l) => l && l.title === (o.title || 'Library'));
         if (already >= 0) { carried = carried.slice(0, already); }
-        const stack = carried.concat([{ title: o.title || 'Library', subtitle: o.subtitle || '', books: books }]);
+        // A SHELF CAN SEARCH SOMETHING IT DOES NOT HOLD. `search(text)` on the options is
+        // an async function returning books; while it is set on a level, what is typed in
+        // the box is sent to it rather than matched against the cards, and the cards it
+        // returns replace the level's. The books given at open are what an empty box shows.
+        // That is how a lookup with thousands of answers -- every gene of a genome -- fits
+        // the same idiom as a library of eight: type, and the shelf fills with the hits.
+        const stack = carried.concat([{ title: o.title || 'Library', subtitle: o.subtitle || '', books: books,
+            search: (typeof o.search === 'function') ? o.search : null, restBooks: books }]);
         const level = () => stack[stack.length - 1];
         const asBooks = async (b) => {
             const src = (typeof b.books === 'function') ? await b.books() : b.books;
@@ -103,7 +110,7 @@ function (opts) {
             + 'gap:7px;flex-wrap:wrap;min-width:0;"></div>'
             + '<div id="shelf-sub" style="font:12.5px Arial;color:#9fb3c8;">' + esc(o.subtitle || '') + '</div>'
             + '</div>'
-            + '<input id="shelf-q" placeholder="Search…" style="flex:1;max-width:340px;margin-left:auto;'
+            + '<input id="shelf-q" placeholder="' + esc(o.searchPlaceholder || 'Search…') + '" style="flex:1;max-width:340px;margin-left:auto;'
             + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
             + 'padding:9px 16px;font:13px Arial;"/>'
             + '<button id="shelf-x" style="cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 16px;'
@@ -141,13 +148,19 @@ function (opts) {
             // tracks" intent: nothing consumed it, so drop the flag and the status line that
             // was announcing it, or the spinner keeps promising data that is not coming.
             if (reason !== 'open') {
+                    // The MESSAGE is cleared whether or not the flag survives.
+                    //
+                    // This was guarded on __bajaApplyAllTracks still being set, which is only
+                    // true when nothing consumed it. Anything that narrows the intent first --
+                    // the per-track Design menu, a loader that took the flag and then was
+                    // cancelled -- left the flag false and this branch unreached, so the
+                    // status line kept announcing a board-wide load that had been abandoned.
+                    // Clearing the flag again is harmless; leaving the sentence up is not.
                 try {
-                    if (window.__bajaApplyAllTracks) {
-                        window.__bajaApplyAllTracks = false;
-                        if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
-                            window.__workStatus = '';
-                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                        }
+                    window.__bajaApplyAllTracks = false;
+                    if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     }
                 } catch (e) { }
             }
@@ -219,7 +232,8 @@ function (opts) {
             // The header carries the trail, so a shelf three deep still says where it sits.
             try { renderPath(); } catch (e) { }
             try { header.querySelector('#shelf-sub').textContent = (lv.subtitle || ''); } catch (e) { }
-            const needle = ('' + (q.value || '')).trim().toLowerCase();
+            // Hits from a search hook are already matches; only a held library is filtered.
+            const needle = lv.search ? '' : ('' + (q.value || '')).trim().toLowerCase();
             shelf.innerHTML = '';
             let shown = (lv.books || []).filter((b) => !needle
                 || ((b.title || '') + ' ' + (b.blurb || '') + ' ' + (b.badge || '')).toLowerCase().indexOf(needle) >= 0);
@@ -589,7 +603,27 @@ function (opts) {
         };
 
 
-        q.oninput = render;
+        // Typing: a level with a search hook asks it, a little after the last keystroke,
+        // and shows what comes back -- unless the box has moved on by then. An empty box
+        // puts the level's own books back.
+        let searchTimer = null, searchSeq = 0;
+        q.oninput = () => {
+            const lv = level();
+            if (typeof lv.search !== 'function') { render(); return; }
+            const text = ('' + (q.value || '')).trim();
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (!text) { lv.books = lv.restBooks || []; render(); return; }
+            const seq = ++searchSeq;
+            searchTimer = setTimeout(async () => {
+                searchTimer = null;
+                let found = [];
+                try { found = await lv.search(text); }
+                catch (e) { found = [{ note: true, title: 'The search failed: ' + (e && e.message ? e.message : e), blurb: '' }]; }
+                if (seq !== searchSeq || level() !== lv) return;
+                lv.books = Array.isArray(found) ? found : [];
+                render();
+            }, 220);
+        };
         render();
         focusUnlessMobile(q);
         return true;
