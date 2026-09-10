@@ -1,4 +1,7 @@
-function (datapath, server, graph, genegraph_panel_layout) {
+function (datapath, server, graph, genegraph_panel_layout, presetTrack) {
+    // presetTrack: the track this scan is FOR, decided by whoever opened it -- the Design
+    // menu passes its own track. Given, the scan runs on it at once and asks for no click;
+    // without it the click-a-track flow below stands.
     return new Promise(async (resolve, reject) => {
         graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
         graph.setMouseMode('select-track');
@@ -115,6 +118,15 @@ function (datapath, server, graph, genegraph_panel_layout) {
                 return null;
             }
         };
+
+        if (presetTrack) {
+            try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+            const r = await runOffTarget(presetTrack);
+            // runOffTarget resolves this promise itself on success; a null is a refusal it
+            // has already explained on the canvas, and must not leave the caller hanging.
+            if (r == null) resolve(null);
+            return;
+        }
 
         menuList.push({
             label: 'ASO off-target (Levenshtein)',

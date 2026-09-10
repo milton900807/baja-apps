@@ -2186,43 +2186,48 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 // The "selected" variants only exist when something IS selected, exactly as in
                 // baja/manchester/menu/off-target-tools-sub-menu.js -- offering them otherwise
                 // would be a screen of nothing.
+                // On THIS track: the screens below are handed selectedTrack and look no
+                // further, so a selection elsewhere on the canvas would offer a screen of
+                // nothing.
                 let anySelected = false;
                 try {
-                    anySelected = ((graph.track) || []).some((t) =>
-                        ((t && t.oligos) || []).some((o) => o && (o.selected || o.highlight__)));
+                    anySelected = ((selectedTrack && selectedTrack.oligos) || [])
+                        .some((o) => o && (o.selected || o.highlight__));
                 } catch (e) { anySelected = false; }
                 const books = [
                     {
                         title: 'Full antisense sequence', badge: 'Screen',
-                        blurb: 'Screen the whole antisense strand of every compound on the canvas. '
+                        blurb: 'Screen the whole antisense strand of every compound on ' + __trackLabel + '. '
                             + 'The default for an ASO, where the entire length is the binding event.',
-                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout)
+                        // Every screen here is handed selectedTrack: reached by walking Design >
+                        // <track> > Off-targets, it covers that track's compounds and no other.
+                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout, false, selectedTrack)
                     },
                     {
                         title: 'Seed sequence only', badge: 'siRNA',
                         blurb: 'Screen the seed region rather than the full strand — positions 2-8 of '
                             + 'the guide, which is what drives siRNA off-target silencing. Use this for '
                             + 'a duplex, not for a steric-blocking ASO.',
-                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout)
+                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout, false, selectedTrack)
                     },
                     {
                         title: 'Fuzzy match (edit distance)', badge: 'Levenshtein',
                         blurb: 'A tolerant search that finds near-matches as well as exact ones, so a '
                             + 'site differing by a base or two is still reported.',
-                        open: () => exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'], graph, genegraph_panel_layout)
+                        open: () => exec('baja/data/aso-offtarget.js', '', window['env']['apiUrl'], graph, genegraph_panel_layout, selectedTrack)
                     }
                 ];
                 if (anySelected) {
                     books.push({
                         title: 'Full antisense (selected only)', badge: 'Screen',
                         blurb: 'The same full-strand screen, restricted to the compounds currently '
-                            + 'selected on the canvas.',
-                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout, true)
+                            + 'selected on ' + __trackLabel + '.',
+                        open: () => exec('baja/manchester/menu/run-off-target-tool.js', graph, genegraph_panel_layout, true, selectedTrack)
                     });
                     books.push({
                         title: 'Seed sequence (selected only)', badge: 'siRNA',
                         blurb: 'The seed-region screen, restricted to the selected compounds.',
-                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout, true)
+                        open: () => exec('baja/manchester/menu/run-off-target-tool-seed-seq.js', graph, genegraph_panel_layout, true, selectedTrack)
                     });
                 }
                 return books;

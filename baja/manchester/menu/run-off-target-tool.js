@@ -1,4 +1,4 @@
-function (graph, genegraph_panel_layout, selectedOnly) {
+function (graph, genegraph_panel_layout, selectedOnly, presetTracks) {
 
     editDistance = 0;
 
@@ -33,10 +33,17 @@ function (graph, genegraph_panel_layout, selectedOnly) {
             let ot_oligos = []
             let warn = false;
             let seqList = []
+            // The tracks to screen: the ones this run was opened FOR, else the whole canvas.
+            // The Design menu passes its own track, so a screen reached by walking Design >
+            // <track> > Off-targets covers that track's compounds and no other; the toolbar
+            // and the old sub-menu pass nothing and keep sweeping the board.
+            const __preset = (Array.isArray(presetTracks) ? presetTracks.filter(Boolean) : (presetTracks ? [presetTracks] : []));
+            const __screenTracks = __preset.length ? __preset : ((graph && graph.track) || []);
             let Biopolymer = await exec('baja/chem/biopolymer.js');
             returnMode = 'editdistance'
 
-            for (let t of graph.track) {
+            for (let t of __screenTracks) {
+                if (!t) continue;
                 t.showOfftargets = true;
                 let range = t.gitVisibleTrackRange(graph);
                 let oligos = t.getOligosInRange(range.start, range.end);
