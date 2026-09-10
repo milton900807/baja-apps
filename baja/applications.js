@@ -73,7 +73,7 @@ function (options) {
                 blurb: 'Reference material and the genome it all sits on.',
                 apps: [
                     {
-                        label: 'Chromosomes',
+                        label: 'Genome Viewer',
                         description: 'Every chromosome of a genome at one true scale. Load a VCF, filter genome-wide, then open a region as tracks in the editor.',
                         icon: 'icons/svg/chromosomes',
                         path: 'manchester/karyotype'

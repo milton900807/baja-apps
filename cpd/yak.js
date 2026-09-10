@@ -754,7 +754,7 @@ function (path, filebrowserplease) {
                                 items: [
 
                                     {
-                                        'label': 'Karyotype Viewer', 'ionfunction': createIonFunction(async () => {
+                                        'label': 'Genome Viewer', 'ionfunction': createIonFunction(async () => {
                                             clear();
                                             await exec('manchester/karyotype');
 

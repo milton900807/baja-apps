@@ -9,7 +9,7 @@ function () {
         })
     }]
     myfiles_button.push({
-        label: 'Chromosomes',
+        label: 'Genome Viewer',
         ionfunction: createIonFunction(async () => {
             // The whole genome at one scale, smallest chromosome first. Drag down one to
             // pick a region; it zooms in the same world coordinates the editor uses.
