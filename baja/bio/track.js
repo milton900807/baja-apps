@@ -4235,6 +4235,90 @@ return new Promise(async (resolve, reject) => {
     // silently when it was designed across a whole transcript, and which modality that hit
     // depended only on how far out you happened to be working. Painted from the track, every
     // modality gets it at every zoom.
+    // Join each pair of duplicate-sequence compounds with a dashed arch, in the colour of
+    // the "duplicate sequence" warning they both carry. The arch springs from the top of
+    // one warning label, clears the labels, and lands on the top of the other, so the eye
+    // can follow it from a flagged compound to the compound it repeats without reading
+    // sequences.
+    //
+    // Screen space, like the labels: the arch's height is a matter of pixels, not bases,
+    // and it should look the same at every zoom the labels appear at. A group of three or
+    // more is joined in x order, one arch per neighbouring pair, rather than every pair to
+    // every other -- three compounds already make three arches, and it grows fast.
+    //
+    // Runs from the same draw pass and over the same list as the flag itself, and only
+    // at the zoom the label draws at (screencell > 1 in oligo.js): an arch to a warning
+    // that is not there would be a line pointing at nothing.
+    __drawDupLinks(graph, visOligos, screencell) {
+      try {
+        if (!(screencell > 1) || !visOligos || !visOligos.length) return;
+        const ctx = graph.canvas && graph.canvas.getCTX && graph.canvas.getCTX();
+        if (!ctx) return;
+        const W = (ctx.canvas && ctx.canvas.width) || 1e9;
+        const H = (ctx.canvas && ctx.canvas.height) || 1e9;
+        const MGN = 140;   // same off-canvas margin oligo.js uses before it skips a compound
+
+        // Where the arch meets a compound: the top of its warning label. oligo.js sets the
+        // label 40 px above the body (58 when an amplicon warning sits under it) and the
+        // oval is 10 px tall around that centre.
+        const anchor = (o) => {
+          const x = (graph.X(this.tgraph.X(o.xi)) + graph.X(this.tgraph.X(o.xf))) / 2;
+          const y = graph.Y(this.tgraph.Y(o.y)) - (o.__overlapsAmplicon ? 58 : 40) - 10;
+          return (isFinite(x) && isFinite(y)) ? { x, y } : null;
+        };
+
+        // Each group once, even though every member points at it, and only groups with a
+        // member on screen -- the partner may be off to one side, and the arch still draws
+        // toward it, which is exactly the hint that says which way to scroll.
+        const done = new Set();
+        const INK = '#a1121f';
+        ctx.save();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = INK;
+        ctx.fillStyle = INK;
+        ctx.globalAlpha = 0.85;
+        ctx.setLineDash([5, 4]);
+        for (const v of visOligos) {
+          const g = v && v.__dupGroup;
+          if (!g || g.length < 2 || done.has(g)) continue;
+          done.add(g);
+          const pts = g.map((o) => ({ o, p: anchor(o) })).filter((e) => e.p);
+          if (pts.length < 2) continue;
+          pts.sort((a, b) => (a.p.x - b.p.x) || (a.p.y - b.p.y));
+          for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1].p, b = pts[i].p;
+            // Both ends off the same edge: nothing of the arch would show.
+            if ((a.x < -MGN && b.x < -MGN) || (a.x > W + MGN && b.x > W + MGN)) continue;
+            if ((a.y < -MGN && b.y < -MGN) || (a.y > H + MGN && b.y > H + MGN)) continue;
+            const dx = Math.abs(b.x - a.x);
+            ctx.beginPath();
+            if (dx < 2) {
+              // Same x, stacked on different rows: a straight tie, an arch has nowhere to go.
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+            } else {
+              // Rise clears the labels and grows gently with the span, so a far pair reads
+              // as one bow rather than a flat line skimming across everything between.
+              const rise = Math.max(12, Math.min(40, 8 + dx * 0.06));
+              const top = Math.min(a.y, b.y) - rise;
+              ctx.moveTo(a.x, a.y);
+              ctx.bezierCurveTo(a.x, top, b.x, top, b.x, b.y);
+            }
+            ctx.stroke();
+            // A dot at each foot: says the line ENDS here, at this compound, rather than
+            // passing through on its way somewhere else.
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.arc(a.x, a.y, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(b.x, b.y, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.setLineDash([5, 4]);
+          }
+        }
+        ctx.restore();
+      } catch (e) { }
+    }
+
     __drawLandingBurst(graph, o) {
       try {
         if (!o || !o.__burstT0) return;
@@ -7159,17 +7243,24 @@ return new Promise(async (resolve, reject) => {
             //
             // Amplicons are excluded: a composite has no synthesis sequence of its own, and
             // its primers are not on this list.
+            //
+            // Each flagged compound also keeps its GROUP -- the list of every compound on
+            // the track with the same key -- so the draw pass can join the redundant
+            // pair with a line. A warning on each of two compounds says "there is another
+            // one of these somewhere"; the line says WHERE, which on a track of forty
+            // compounds is the part that takes the searching.
             const __seen = {};
             for (const o of this.oligos) {
-              if (!o || o.type === 'amplicon' || (o.left && o.right)) { if (o) o.__dupSeq = false; continue; }
+              if (!o || o.type === 'amplicon' || (o.left && o.right)) { if (o) { o.__dupSeq = false; o.__dupGroup = null; } continue; }
               const k = ('' + ((o.synthesisSequence || o.sequence) || '')).trim().toUpperCase();
               o.__dupSeq = false;
+              o.__dupGroup = null;
               if (!k) continue;
               (__seen[k] = __seen[k] || []).push(o);
             }
             for (const k of Object.keys(__seen)) {
               if (__seen[k].length < 2) continue;
-              for (const o of __seen[k]) o.__dupSeq = true;
+              for (const o of __seen[k]) { o.__dupSeq = true; o.__dupGroup = __seen[k]; }
             }
           } catch (e) { }
 
@@ -7204,6 +7295,9 @@ return new Promise(async (resolve, reject) => {
                 } catch (e2) { }
               }
             }
+            // AFTER every compound has drawn, so the link sits on top of the bodies and
+            // labels it joins rather than under them.
+            this.__drawDupLinks(graph, visOligos, screencell);
           } else {
             for (let o of visOligos) {
               if (o.highlight__) {
