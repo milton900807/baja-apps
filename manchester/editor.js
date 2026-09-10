@@ -2837,19 +2837,6 @@ function (path, config) {
                                                             return;
                                                         }
                                                         const __shareHome = () => { try { graph.clearMouseListeners && graph.clearMouseListeners(); graph.setMouseMode && graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
-                                                        // The public link needs a deliberate step past a warning that names the
-                                                        // real risk: a view-only link needs no login, so anyone it reaches can see
-                                                        // the sequences and variants on the canvas. shareScreen() then publishes and
-                                                        // copies the link.
-                                                        const __sharePublic = async () => {
-                                                            try {
-                                                                const c = await exec('baja/lib/confirm.js',
-                                                                    'Create a PUBLIC view-only link? Anyone with the link can view this design with no login — including the genetic sequences and variants on it. Do not share a public link for identifiable or sensitive genetic data.',
-                                                                    () => { shareScreen(); },
-                                                                    'Create public link');
-                                                                showModal(c);
-                                                            } catch (e) { shareScreen(); }
-                                                        };
                                                         await exec('baja/lib/shelf.js', {
                                                             id: 'baja-share-library',
                                                             title: 'Share',
@@ -2865,9 +2852,21 @@ function (path, config) {
                                                                 },
                                                                 {
                                                                     title: 'Public view-only link', badge: 'Anyone', ready: true,
-                                                                    blurb: 'A link anyone can open, no login, read-only. Warns first: a public link '
-                                                                        + 'exposes the genetic data on this canvas to whoever has the link.',
-                                                                    leaf: true, open: () => { __sharePublic(); }
+                                                                    blurb: 'A link anyone can open, no login, read-only. Walk in to read the '
+                                                                        + 'warning and create it.',
+                                                                    books: () => [
+                                                                        {
+                                                                            note: true,
+                                                                            title: 'A public link needs no login: anyone who has it can VIEW this design, '
+                                                                                + 'including the genetic sequences and variants on the canvas. Do not create a '
+                                                                                + 'public link for identifiable or sensitive genetic data.'
+                                                                        },
+                                                                        {
+                                                                            title: 'Create the public link', badge: 'Confirm', ready: true, leaf: true,
+                                                                            blurb: 'Publish this design as a read-only public link and copy it to your clipboard.',
+                                                                            open: () => { try { shareScreen(); } catch (e) { try { graph.setError('Could not create the link: ' + e, 8); } catch (e2) { } } }
+                                                                        }
+                                                                    ]
                                                                 }
                                                             ]
                                                         });
