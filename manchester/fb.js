@@ -50,9 +50,10 @@ function (__path, __header) {
 
                 root: '/' + getUser(),
                 columns: 3,
-                // A .vcf is an input to the tools, not something anyone opens from
-                // here, and one design can drop several of them into a folder.
-                hideExtensions: ['vcf'],
+                // VCF and BED are inputs to the tools, not things anyone opens from here,
+                // and one design can drop several of them into a folder. Gzipped ones too:
+                // matched as a suffix, because the last dot in variants.vcf.gz says 'gz'.
+                hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz'],
                 showSearch: true,
                 "ionfunction.cmd": createIonFunction((element) => {
                     commands.go(path_j, element.cmd);
@@ -482,7 +483,7 @@ function (__path, __header) {
 
                     root: __path,
                     columns: 3,
-                    hideExtensions: ['vcf'],
+                    hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz'],
                     "ionfunction.cmd": createIonFunction(async (element) => {
                         console.log(element.cmd);
 

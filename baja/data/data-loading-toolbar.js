@@ -43,7 +43,20 @@ function (graph, genegraph_panel_layout) {
         label: asoBase.label + ' (' + y.year + ')',
     });
 
+    // The genomic twin sits beside the transcript set rather than replacing it: the
+    // transcript file still holds junction-spanning hits that cannot align to the
+    // genome end to end, and the genomic file holds the intronic ones. Neither is a
+    // superset of the other.
+    const asoGenomic = SETS.aso_sirna_gt_genomic;
+
     const ipItems = [
+        {
+            'label': asoGenomic.label, 'ionfunction': go(async () => {
+                graph.clearMouseListeners();
+                graph.setMouseMode('navigate');
+                await exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, asoGenomic);
+            })
+        },
         {
             'label': asoBase.label, 'ionfunction': go(async () => {
                 graph.clearMouseListeners();

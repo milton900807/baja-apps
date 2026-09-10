@@ -35,6 +35,53 @@ GFF = {
     "mouse": "reference_data/mouse.annotation.gff3.bgz",
 }
 BED_DIRS = ["/home/ubuntu/baja-bd", "bd", "../baja-bd"]
+# A GENOMIC hit file, where one exists, replaces BOTH the annotation lookup and the
+# full scan below: the window can be asked of a tabix index directly, and the answer
+# carries each hit's real position rather than the span of the transcript it fell in.
+# It also contains the intronic hits a cDNA-keyed file cannot represent.
+GENOMIC_SETS = {
+    "aso_sirna_gt": "aso_sirna_gt_grch38_primary_hits.bed.gz",
+}
+
+
+def genomic_index(name):
+    """The tabix-indexed copy the app builds beside the BED, if it is there."""
+    if not name:
+        return ""
+    base = name[:-7] if name.endswith(".bed.gz") else name
+    for d in BED_DIRS:
+        p = os.path.join(d, "cache", "tabix", base + ".sorted.bed.gz")
+        if os.path.exists(p) and os.path.exists(p + ".tbi"):
+            return p
+    return ""
+
+
+def genomic_rows(idx, chrom, start, end):
+    """Rows over a window, pysam first and the tabix binary as a fallback."""
+    cands = [chrom, "chr" + chrom.replace("chr", "")]
+    for c in dict.fromkeys(cands):
+        try:
+            import pysam
+            tb = pysam.TabixFile(idx)
+            if c not in tb.contigs:
+                continue
+            return [str(r).split("\t") for r in
+                    tb.fetch(c, max(0, start), end, parser=pysam.asTuple())]
+        except Exception:
+            pass
+        tabix = shutil.which("tabix")
+        if tabix:
+            try:
+                pr = subprocess.run([tabix, idx, "%s:%d-%d" % (c, max(1, start), end)],
+                                    capture_output=True, text=True, timeout=60)
+                rows = [ln.split("\t") for ln in pr.stdout.splitlines() if ln]
+                if rows:
+                    return rows
+            except Exception:
+                pass
+    return []
+
+
 SETS = {
     "aso_sirna_gt": ("aso_sirna_gt_hg38_transcript_hits.bed.gz", "aso_sirna_gt_meta.tsv"),
     "lipid_patents": ("lipid_patents_hg38_transcript_hits.bed.gz", "lipid_patents_assignees.tsv"),
@@ -131,14 +178,47 @@ gff = first_existing(GFF.get(species) or GFF["human"])
 bed_name, tsv_name = SETS.get(key) or SETS["aso_sirna_gt"]
 bed = find_file(bed_name)
 tsv = find_file(tsv_name)
+# Resolved before the dispatch below: when this is present the window can be read
+# straight from a tabix index and neither the annotation nor the transcript file is
+# touched.
+gidx = genomic_index(GENOMIC_SETS.get(key) or "")
 out["nameable"] = bool(tsv_name)
 
 if not chrom or end < start:
     out["error"] = "a chromosome and a range are needed"
 elif not gff or not os.path.exists(gff):
     out["error"] = "the %s annotation is not on this server" % species
-elif not bed:
+elif not bed and not gidx:
     out["error"] = "the %s hit file is not on this server" % key
+elif gidx:
+    # GENOMIC PATH. One indexed window read, no annotation and no full scan: the old
+    # route had to find every transcript overlapping the window and then read the
+    # whole hit file to see which rows belonged to them.
+    works.msg("Reading the patent hits in that window…")
+    by_pat = {}
+    tx_by_pat = {}
+    span_by_pat = {}
+    hits = 0
+    for f in genomic_rows(gidx, chrom, start, end):
+        if len(f) < 4:
+            continue
+        pid = f[3].split("|")[0].strip()
+        if not pid:
+            continue
+        try:
+            a, b = int(f[1]), int(f[2])
+        except Exception:
+            continue
+        by_pat[pid] = by_pat.get(pid, 0) + 1
+        # The SPAN is now the extent of the hits themselves, not of the transcripts
+        # they landed in, so a patent no longer appears to cover a whole gene on the
+        # strength of one 20-mer inside it.
+        cur = span_by_pat.get(pid)
+        span_by_pat[pid] = (min(cur[0], a), max(cur[1], b)) if cur else (a, b)
+        hits += 1
+    out["hits"] = hits
+    out["transcripts"] = 0
+    out["ok"] = True
 else:
     tspan = transcripts_in(gff, chrom, start, end)
     tids = set(tspan.keys())

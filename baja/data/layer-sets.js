@@ -34,6 +34,22 @@ function () {
             labelZoomThreshold: 0.4,
             noun: 'miRNA site',
         },
+        // Genomic twin of the set below. Same patents, aligned to GRCh38 instead of the
+        // transcriptome, so intronic and pre-mRNA hits are visible -- which is most of
+        // what a splice-switching ASO targets, and none of which a cDNA index can hold.
+        aso_sirna_gt_genomic: {
+            key: 'aso_sirna_gt_genomic',
+            label: 'ASO / siRNA / gene therapy (genomic)',
+            bed: '/bd/aso_sirna_gt_grch38_primary_hits.bed.gz',
+            assignees: '/bd/aso_sirna_gt_meta.tsv',
+            fields: ['Patent', 'Title', 'Filed', 'Granted', 'Assignee'],
+            genomic: true,
+            color: 'rgba(200,110,60,0.26)',
+            verticalLabels: false,
+            avoidLabelOverlap: true,
+            labelZoomThreshold: 0.4,
+            noun: 'genomic ASO/siRNA/gene-therapy hit',
+        },
         aso_sirna_gt: {
             key: 'aso_sirna_gt',
             label: 'ASO / siRNA / gene therapy',

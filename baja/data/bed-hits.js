@@ -25,6 +25,12 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
     const cfg = (patentSet && typeof patentSet === 'object') ? patentSet : {};
     const BED = cfg.bed;
     const ASSIGNEES = cfg.assignees || cfg.meta || '';
+    // GENOMIC set: the BED is keyed by chromosome with genomic coordinates, so the
+    // window is asked for by locus and every row is already where it belongs on the
+    // x-axis. The transcript route has to ask by transcript id and then fold each
+    // hit back through the track's exons -- which also means it can only ever show
+    // hits that fall inside a mature transcript. A genomic set shows intronic ones.
+    const GENOMIC = !!cfg.genomic;
     const LAYER_LABEL = cfg.label || 'Patents';
     const LAYER_COLOR = cfg.color || 'rgba(150,90,60,0.55)';
     const NOUN = cfg.noun || 'patent hit';
@@ -65,11 +71,28 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             }
             const strand = '' + (track.strand != null ? track.strand : 1);
 
-            graph.setMessage(' Looking up ' + LAYER_LABEL + ' for ' + tid + '… ');
+            // A genomic set is asked for by LOCUS. The track's x-axis is already genomic,
+            // so its own extent is the window, and a selection narrows it directly.
+            let qName = '' + tid, qFrom = t0, qTo = t1;
+            if (GENOMIC) {
+                const chrName = (track.chr != null && ('' + track.chr).length)
+                    ? ('chr' + ('' + track.chr).replace(/^chr/, '')) : '';
+                if (!chrName) {
+                    graph.setMessage(' ' + LAYER_LABEL + ' needs a chromosome on the track. ');
+                    return 0;
+                }
+                const g = track.tgraph || {};
+                let a = Math.min(track.xi, track.xf), b = Math.max(track.xi, track.xf);
+                const __sel = (track.selectedRange && track.selectedRange()) || null;
+                if (__sel) { a = Math.min(__sel.start, __sel.end); b = Math.max(__sel.start, __sel.end); }
+                qName = chrName; qFrom = Math.max(0, Math.floor(a)); qTo = Math.ceil(b);
+            }
+
+            graph.setMessage(' Looking up ' + LAYER_LABEL + ' for ' + qName + '… ');
             const server = window['env']['apiUrl'];
             let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
             // Reads the region from BIG_DATA (auto-tabix-indexed on first use).
-            const res = await exec(server + '/py/data/read-bed-region.py', em, BED, '' + tid, '' + t0, '' + t1, strand, ASSIGNEES);
+            const res = await exec(server + '/py/data/read-bed-region.py', em, BED, '' + qName, '' + qFrom, '' + qTo, strand, ASSIGNEES);
 
             let rv = [];
             try { rv = JSON.parse((res && res.values) || '[]'); } catch (e) { rv = []; }
@@ -111,7 +134,10 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             const spliced = (track.isSplicedTranscript ? track.isSplicedTranscript() : (exons.length > 0));
             const hasExons = spliced && exons.length > 0;
 
-            const segsFor = (s, e) => {
+            // Genomic rows are already on the x-axis: no exon folding, and no splitting
+            // at intron boundaries, because an intronic hit IS the thing being shown.
+            const segsForGenomic = (s, e) => [[s, e]];
+            const segsForTx = (s, e) => {
                 if (!hasExons) return [[track.xi + s, track.xi + e]];   // pre-mRNA: linear
                 let cum = 0;
                 const segs = [];
@@ -133,7 +159,7 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             const hits = [];
             for (const v of rv) {
                 if (!v) continue;
-                const segs = segsFor(+v[0], +v[1]);
+                const segs = (GENOMIC ? segsForGenomic : segsForTx)(+v[0], +v[1]);
                 if (!segs.length) continue;
                 let lo = Infinity, hi = -Infinity;
                 for (const g of segs) { lo = Math.min(lo, g[0]); hi = Math.max(hi, g[1]); }

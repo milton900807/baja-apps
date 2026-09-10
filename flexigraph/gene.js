@@ -12767,7 +12767,7 @@ pattern, GGGG | Required`
                         this.drawSelectSeqButton(ctx);
                         this.drawContractHorizontalButton(ctx);
                         this.drawInfoButton(ctx);
-                        this.drawControlHelp(ctx);
+                        // this.drawControlHelp(ctx);
                         this.drawContractVerticalButton(ctx);
                         this.drawExpandHorizontalButton(ctx);
                         this.drawExpandVerticalButton(ctx);

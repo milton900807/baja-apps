@@ -42,6 +42,18 @@ GFF = {
 }
 # The hit files live beside the other big-data BEDs the editor reads.
 BED_DIRS = ["/home/ubuntu/baja-bd", "bd", "../baja-bd"]
+# A GENOMIC hit file, where one exists, is preferred over the transcript one.
+#
+# The transcript path has to carry each transcript's whole count to a single bin at
+# that transcript's MIDPOINT, because a transcript-relative coordinate says nothing
+# about where along the locus the hit fell. A 200 kb gene therefore piles every hit
+# into one 100 kb bin in its middle. Binning genomic coordinates directly puts each
+# hit where it actually is, needs no annotation to place it, and includes the
+# intronic hits that cannot exist in a cDNA index at all.
+GENOMIC_BEDS = {
+    "aso_sirna_gt": "aso_sirna_gt_grch38_primary_hits.bed.gz",
+}
+
 BEDS = {
     # The ASO/siRNA set is the default: its column 4 carries a REAL patent number, so a
     # click on the strip can say which patents are there. The 2020-2025 index is larger but
@@ -89,6 +101,37 @@ def attrs(col):
             k, v = kv.split("=", 1)
             d[k.strip()] = v.strip()
     return d
+
+
+def build_genomic(bed_path):
+    """Bin every hit at its own position. No annotation needed."""
+    works.msg("Counting patent hits (first time only)…")
+    chroms = {}
+    n_rows = 0
+    with gzip.open(bed_path, "rt") as fh:
+        for line in fh:
+            f = line.split("\t", 3)
+            if len(f) < 3:
+                continue
+            try:
+                mid = (int(f[1]) + int(f[2])) // 2
+            except Exception:
+                continue
+            d = chroms.setdefault(f[0], {})
+            b = mid // BIN
+            d[b] = d.get(b, 0) + 1
+            n_rows += 1
+            if (n_rows % 4000000) == 0:
+                works.msg("Counting patent hits — %d million…" % (n_rows // 1000000))
+    packed = {}
+    for c, d in chroms.items():
+        ks = sorted(d.keys())
+        packed[c] = {"i": ks, "n": [d[k] for k in ks]}
+    works.msg("%d hits placed across %d chromosomes." % (n_rows, len(packed)))
+    # `transcripts` is reported as 0: nothing here is per transcript, and inventing a
+    # number would misreport what was measured.
+    return {"bin": BIN, "hits": n_rows, "transcripts": 0,
+            "unplaced": 0, "chroms": packed}
 
 
 def build(bed_path, gff_path):
@@ -158,13 +201,24 @@ def build(bed_path, gff_path):
 
 
 gff = first_existing(GFF.get(species) or GFF["human"])
-bed = find_bed(BEDS.get(key) or BEDS["aso_sirna_gt"])
-cache = os.path.join(os.path.dirname(gff) or ".",
-                     "%s.%s.density.%d.json" % (species, key, BIN)) if gff else ""
+
+# Prefer a genomic hit file when this set has one AND it is actually on this server;
+# otherwise fall back to the transcript file projected through the annotation, which
+# is what every other set still uses.
+gen_bed = find_bed(GENOMIC_BEDS.get(key) or "") if GENOMIC_BEDS.get(key) else ""
+bed = gen_bed or find_bed(BEDS.get(key) or BEDS["aso_sirna_gt"])
+genomic = bool(gen_bed)
+
+# The two paths produce DIFFERENT numbers for the same key, so they cannot share a
+# cache file: a stale transcript-derived cache would otherwise be served as though it
+# were the genomic one.
+cache_dir = os.path.dirname(gff) or "."
+cache = os.path.join(cache_dir, "%s.%s%s.density.%d.json"
+                     % (species, key, ".genomic" if genomic else "", BIN)) if gff else ""
 
 if not bed:
     out["error"] = "the %s hit file is not on this server" % key
-elif not gff or not os.path.exists(gff):
+elif not genomic and (not gff or not os.path.exists(gff)):
     out["error"] = "the %s annotation is not on this server" % species
 else:
     data = None
@@ -176,7 +230,7 @@ else:
         data = None
     if data is None:
         try:
-            data = build(bed, gff)
+            data = build_genomic(bed) if genomic else build(bed, gff)
             out["built"] = True
             # Written through a temporary name so a reader racing the build sees either no
             # cache or a complete one, never half a file.
