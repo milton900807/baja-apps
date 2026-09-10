@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import multiprocessing
 import os
 import re
 import shutil
@@ -486,6 +487,19 @@ def primer3_global_settings(
     allow_probe: bool,
     relax: bool,
 ) -> Dict[str, object]:
+    # PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT=0, and it is the difference between a design
+    # that finishes and one that does not. With it on (primer3's default) and a probe
+    # requested, primer3 runs its thermodynamic hairpin / dimer model over every internal
+    # oligo it considers -- thousands per window -- and on one measured 260 nt window that
+    # took 135 s and still returned no pair; typical windows took 3-6 s, and a 3.3 kb
+    # transcript could not finish inside the server's 15 minute cap. With it off the same
+    # windows take a few milliseconds each and return pairs.
+    #
+    # What is given up is primer3's thermodynamic self-structure PENALTY, not the check:
+    # the sequence-alignment check (PRIMER_MAX_SELF_ANY / _END, the pre-2.3 behaviour)
+    # still applies. And primer3's own scores are not what ranks a design here -- djPrimer
+    # does, and the whitepaper's finding is that those scores predict assay success at
+    # chance -- so a coarser primer3 penalty costs the ranking nothing.
     if not relax:
         return dict(
             PRIMER_NUM_RETURN=1,
@@ -503,6 +517,7 @@ def primer3_global_settings(
             PRIMER_MAX_POLY_X=5,
             PRIMER_PRODUCT_SIZE_RANGE=[[product_min, product_max]],
             PRIMER_EXPLAIN_FLAG=1,
+            PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT=0,
             PRIMER_INTERNAL_OPT_SIZE=22,
             PRIMER_INTERNAL_MIN_SIZE=18,
             PRIMER_INTERNAL_MAX_SIZE=30,
@@ -526,6 +541,7 @@ def primer3_global_settings(
         PRIMER_MAX_POLY_X=8,
         PRIMER_PRODUCT_SIZE_RANGE=[[product_min, product_max]],
         PRIMER_EXPLAIN_FLAG=1,
+        PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT=0,
         PRIMER_INTERNAL_OPT_SIZE=22,
         PRIMER_INTERNAL_MIN_SIZE=16,
         PRIMER_INTERNAL_MAX_SIZE=35,
@@ -578,6 +594,103 @@ def _probe_span(res, *, probe_seq: str, window_start: int, amp_start: int, ampli
     return (-1, -1)
 
 
+# -----------------------------------------------------------------------------
+# Windowed primer3 design, in PARALLEL
+# -----------------------------------------------------------------------------
+# One primer3 call on one window. Module-level so a forked pool can pick it up, and it
+# never touches `works`: progress is the parent's to report. Returns
+# (window_start, candidate-or-None, explain-or-None).
+def _design_one_window(task):
+    window_start, window, global_args, debug = task
+    seq_args = {"SEQUENCE_ID": f"win_{window_start}", "SEQUENCE_TEMPLATE": window}
+    try:
+        res = p3b.design_primers(seq_args, global_args)
+    except Exception:
+        return (window_start, None, None)
+
+    if res.get("PRIMER_PAIR_NUM_RETURNED", 0) < 1:
+        explain = ""
+        if debug:
+            explain = res.get("PRIMER_PAIR_EXPLAIN", "") or res.get("PRIMER_EXPLAIN", "")
+        return (window_start, None, (str(explain) or None))
+
+    left_seq = res.get("PRIMER_LEFT_0_SEQUENCE", "")
+    right_seq = res.get("PRIMER_RIGHT_0_SEQUENCE", "")
+    if not left_seq or not right_seq:
+        return (window_start, None, None)
+
+    left_pos, left_len = res.get("PRIMER_LEFT_0", [None, None])
+    right_pos, right_len = res.get("PRIMER_RIGHT_0", [None, None])
+    if left_pos is None or left_len is None or right_pos is None or right_len is None:
+        return (window_start, None, None)
+
+    amp_start_local = int(left_pos)
+    amp_end_local = int(right_pos) + int(right_len)
+    if not (0 <= amp_start_local < amp_end_local <= len(window)):
+        return (window_start, None, None)
+
+    amplicon = window[amp_start_local:amp_end_local]
+    probe_seq = res.get("PRIMER_INTERNAL_0_SEQUENCE", "") or ""
+
+    amp_start = window_start + amp_start_local
+    amp_end = window_start + amp_end_local
+
+    probe_start, probe_end = _probe_span(
+        res, probe_seq=probe_seq, window_start=window_start,
+        amp_start=amp_start, amplicon=amplicon,
+    )
+
+    cand = dict(
+        amp_start=int(amp_start),
+        amp_end=int(amp_end),
+        amp_len=int(len(amplicon)),
+        forward_primer=str(left_seq),
+        reverse_primer=str(right_seq),
+        probe=str(probe_seq),
+        probe_start=int(probe_start),
+        probe_end=int(probe_end),
+        probe_len=int(len(probe_seq)),
+        # primer3's nearest-neighbour Tm, kept alongside the sequence. The canvas
+        # was re-deriving Tm from a Marmur/Wallace approximation on every redraw,
+        # which is a couple of degrees out -- tolerable for a primer, not for a
+        # probe, whose whole design constraint is sitting 8-10 deg C above them.
+        left_tm=_p3_num(res, "PRIMER_LEFT_0_TM"),
+        right_tm=_p3_num(res, "PRIMER_RIGHT_0_TM"),
+        probe_tm=_p3_num(res, "PRIMER_INTERNAL_0_TM"),
+        left_gc=_p3_num(res, "PRIMER_LEFT_0_GC_PERCENT"),
+        right_gc=_p3_num(res, "PRIMER_RIGHT_0_GC_PERCENT"),
+        probe_gc=_p3_num(res, "PRIMER_INTERNAL_0_GC_PERCENT"),
+        amplicon=str(amplicon),
+        p3_pair_penalty=float(res.get("PRIMER_PAIR_0_PENALTY", 0.0) or 0.0),
+        window_start=int(window_start),
+        window_size=int(len(window)),
+    )
+    return (window_start, cand, None)
+
+
+def _design_workers(n_windows: int) -> int:
+    """How many primer3 windows to run at once.
+
+    One primer3 call with a probe on a 260 nt window takes about 3 s, and the calls are
+    independent, so they spread across cores with no loss. One core is left for the
+    server that launched us. DJPRIMER_WORKERS overrides. A handful of windows is not
+    worth a pool.
+    """
+    try:
+        env = os.environ.get("DJPRIMER_WORKERS", "").strip()
+        if env:
+            return max(1, int(env))
+    except Exception:
+        pass
+    if n_windows < 4 or not hasattr(os, "fork"):
+        return 1
+    try:
+        cpus = os.cpu_count() or 1
+    except Exception:
+        cpus = 1
+    return max(1, min(cpus - 1, 4))
+
+
 def design_candidates_windowed(
     template: str,
     *,
@@ -590,6 +703,19 @@ def design_candidates_windowed(
     relax: bool,
     debug: bool,
 ) -> List[Dict[str, object]]:
+    # THE TIME BUDGET, because this is where a design "never finishes".
+    #
+    # primer3 takes about 3 s per window when a probe is asked for. With step 10 a 3.3 kb
+    # transcript was 328 windows -- 17 minutes on one core -- while the server kills a
+    # python job at 15 and the editor stops listening at about 6.5. So the run could not
+    # complete for a transcript of ordinary length, and the message sat on "window 0"
+    # while it ground away, since progress was only reported every 16 windows.
+    #
+    # The cost itself is gone -- see PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT in
+    # primer3_global_settings, which is what made a window take seconds to minutes. On
+    # top of that the windows run in parallel (see _design_workers), so a long pre-mRNA
+    # with thousands of windows still lands in under a minute, and progress is reported
+    # as each window completes rather than every sixteenth.
     n = len(template)
     candidates: List[Dict[str, object]] = []
     global_args = primer3_global_settings(
@@ -602,84 +728,51 @@ def design_candidates_windowed(
     window_size = max(int(window_size), int(product_max) + 60)
     starts = list(range(0, max(1, n - product_min), int(step)))
 
-    for idx, window_start in enumerate(starts):
-        if len(candidates) >= max_designs:
-            break
-
-        if idx % max(1, len(starts) // 20) == 0:
-            _progress(10 + 40 * (idx / max(1, len(starts))), f"Design 1/2 - primer3 proposing candidates, window {idx} of {len(starts)}...")
-
-        window = template[window_start : window_start + window_size]
+    tasks = []
+    for window_start in starts:
+        window = template[window_start: window_start + window_size]
         if len(window) < product_min + 20:
             break
+        tasks.append((window_start, window, global_args, bool(debug)))
+    total = len(tasks)
+    if not total:
+        return candidates
 
-        seq_args = {"SEQUENCE_ID": f"win_{window_start}", "SEQUENCE_TEMPLATE": window}
+    workers = _design_workers(total)
+    _progress(10, f"Design 1/2 - primer3 proposing candidates, {total} windows on {workers} core{'' if workers == 1 else 's'}...")
 
+    # Every window's result goes through here, in window order (imap keeps order).
+    every = max(1, total // 40)
+    def _take(result, done):
+        window_start, cand, explain = result
+        if cand is not None:
+            candidates.append(cand)
+        elif explain:
+            _msg(f"[primer3 fail @ {window_start}] {explain}")
+        if done % every == 0 or done == total:
+            _progress(10 + 40 * (done / total), f"Design 1/2 - primer3 proposing candidates, window {done} of {total}...")
+
+    if workers > 1:
         try:
-            res = p3b.design_primers(seq_args, global_args)
-        except Exception:
-            continue
+            ctx = multiprocessing.get_context("fork")
+            with ctx.Pool(processes=workers) as pool:
+                for done, result in enumerate(pool.imap(_design_one_window, tasks, chunksize=1), 1):
+                    _take(result, done)
+                    if len(candidates) >= max_designs:
+                        pool.terminate()
+                        break
+            return candidates
+        except Exception as e:
+            # A pool that cannot start is not a reason to return nothing: fall through to
+            # the one-core path with whatever was collected so far.
+            _msg("Parallel design unavailable (" + str(e) + "); continuing on one core.")
+            done_starts = {c["window_start"] for c in candidates}
+            tasks = [t for t in tasks if t[0] not in done_starts]
 
-        if res.get("PRIMER_PAIR_NUM_RETURNED", 0) < 1:
-            if debug:
-                explain = res.get("PRIMER_PAIR_EXPLAIN", "") or res.get("PRIMER_EXPLAIN", "")
-                if explain:
-                    _msg(f"[primer3 fail @ {window_start}] {explain}")
-            continue
-
-        left_seq = res.get("PRIMER_LEFT_0_SEQUENCE", "")
-        right_seq = res.get("PRIMER_RIGHT_0_SEQUENCE", "")
-        if not left_seq or not right_seq:
-            continue
-
-        left_pos, left_len = res.get("PRIMER_LEFT_0", [None, None])
-        right_pos, right_len = res.get("PRIMER_RIGHT_0", [None, None])
-        if left_pos is None or left_len is None or right_pos is None or right_len is None:
-            continue
-
-        amp_start_local = int(left_pos)
-        amp_end_local = int(right_pos) + int(right_len)
-        if not (0 <= amp_start_local < amp_end_local <= len(window)):
-            continue
-
-        amplicon = window[amp_start_local:amp_end_local]
-        probe_seq = res.get("PRIMER_INTERNAL_0_SEQUENCE", "") or ""
-
-        amp_start = window_start + amp_start_local
-        amp_end = window_start + amp_end_local
-
-        probe_start, probe_end = _probe_span(
-            res, probe_seq=probe_seq, window_start=window_start,
-            amp_start=amp_start, amplicon=amplicon,
-        )
-
-        candidates.append(
-            dict(
-                amp_start=int(amp_start),
-                amp_end=int(amp_end),
-                amp_len=int(len(amplicon)),
-                forward_primer=str(left_seq),
-                reverse_primer=str(right_seq),
-                probe=str(probe_seq),
-                probe_start=int(probe_start),
-                probe_end=int(probe_end),
-                probe_len=int(len(probe_seq)),
-                # primer3's nearest-neighbour Tm, kept alongside the sequence. The canvas
-                # was re-deriving Tm from a Marmur/Wallace approximation on every redraw,
-                # which is a couple of degrees out -- tolerable for a primer, not for a
-                # probe, whose whole design constraint is sitting 8-10 deg C above them.
-                left_tm=_p3_num(res, "PRIMER_LEFT_0_TM"),
-                right_tm=_p3_num(res, "PRIMER_RIGHT_0_TM"),
-                probe_tm=_p3_num(res, "PRIMER_INTERNAL_0_TM"),
-                left_gc=_p3_num(res, "PRIMER_LEFT_0_GC_PERCENT"),
-                right_gc=_p3_num(res, "PRIMER_RIGHT_0_GC_PERCENT"),
-                probe_gc=_p3_num(res, "PRIMER_INTERNAL_0_GC_PERCENT"),
-                amplicon=str(amplicon),
-                p3_pair_penalty=float(res.get("PRIMER_PAIR_0_PENALTY", 0.0) or 0.0),
-                window_start=int(window_start),
-                window_size=int(len(window)),
-            )
-        )
+    for i, task in enumerate(tasks, 1):
+        _take(_design_one_window(task), i)
+        if len(candidates) >= max_designs:
+            break
 
     return candidates
 
