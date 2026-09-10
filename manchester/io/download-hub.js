@@ -305,14 +305,14 @@ function (graph, layout) {
             // cards for every compound sit at the top level, and a detailed ASO report beside
             // them. The whole-workbench-including-tracks-and-variants download stays available
             // as its own card below.
-            topBooks.push({ title: 'Download all compounds', section: true, note: true });
+            topBooks.push({ title: 'Download all compounds', note: true });
             formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(b));
             topBooks.push({ title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
             topBooks.push({ title: 'Everything (all tracks, variants, annotations)', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: true, blurb: 'The whole canvas in one file, not just the compounds.', books: () => formatBooks(scopeWorkbench()) });
         } else {
             topBooks.push({ title: 'Whole workbench', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: ts.length > 0, readyNote: 'Load a track first.', blurb: 'Everything on the canvas — all tracks and all their elements — in one file.', books: () => formatBooks(scopeWorkbench()) });
         }
-        if (ts.length) topBooks.push({ title: 'By track', section: true, note: true });
+        if (ts.length) topBooks.push({ title: 'By track', note: true });
         ts.forEach((t, i) => topBooks.push({
             title: (t.name || ('track ' + (i + 1))), badge: (t.track_type || 'Track'), ready: true,
             blurb: (t.geneID || t.description || t.transcriptID || '') + '  ·  '
