@@ -3171,6 +3171,58 @@ function (path, config) {
                                                     })
                                                 },
                                                 {
+                                                    // Share sits beside Download: both are ways
+                                                    // of sending work out. A LIBRARY, not a menu --
+                                                    // two shelves, one for naming people and one
+                                                    // for a public link. The public shelf warns,
+                                                    // before it does anything, that a public link
+                                                    // exposes genetic data to anyone who has it.
+                                                    label: 'Share', icon: 'share',
+                                                    tooltip: 'Share this design with named people, or as a public view-only link',
+                                                    ionFunction: createIonFunction(async () => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ");
+                                                            return;
+                                                        }
+                                                        const __shareHome = () => { try { graph.clearMouseListeners && graph.clearMouseListeners(); graph.setMouseMode && graph.setMouseMode('navigate'); exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
+                                                        // The public link needs a deliberate step past a warning that names the
+                                                        // real risk: a view-only link needs no login, so anyone it reaches can see
+                                                        // the sequences and variants on the canvas. shareScreen() then publishes and
+                                                        // copies the link.
+                                                        const __sharePublic = async () => {
+                                                            try {
+                                                                const c = await exec('baja/lib/confirm.js',
+                                                                    'Create a PUBLIC view-only link? Anyone with the link can view this design with no login — including the genetic sequences and variants on it. Do not share a public link for identifiable or sensitive genetic data.',
+                                                                    () => { shareScreen(); },
+                                                                    'Create public link');
+                                                                showModal(c);
+                                                            } catch (e) { shareScreen(); }
+                                                        };
+                                                        await exec('baja/lib/shelf.js', {
+                                                            id: 'baja-share-library',
+                                                            title: 'Share',
+                                                            subtitle: 'Share this design with named people, or as a public view-only link',
+                                                            graph: graph,
+                                                            onClose: () => { __shareHome(); },
+                                                            books: [
+                                                                {
+                                                                    title: 'Share with people', badge: 'By email', ready: true,
+                                                                    blurb: 'Name one or more email addresses. Each person gets a private link that '
+                                                                        + 'opens this design in their own editor once they sign in — free if they have no account.',
+                                                                    leaf: true, open: () => { try { shareWithPerson(); } catch (e) { try { graph.setError('Could not open sharing: ' + e, 8); } catch (e2) { } } }
+                                                                },
+                                                                {
+                                                                    title: 'Public view-only link', badge: 'Anyone', ready: true,
+                                                                    blurb: 'A link anyone can open, no login, read-only. Warns first: a public link '
+                                                                        + 'exposes the genetic data on this canvas to whoever has the link.',
+                                                                    leaf: true, open: () => { __sharePublic(); }
+                                                                }
+                                                            ]
+                                                        });
+                                                    })
+                                                },
+                                                {
                                                     // LAST in the row on purpose: help is not
                                                     // something you do to a design, so it sits
                                                     // after the things that are.
@@ -3225,7 +3277,7 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'download' };
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'download', Share: 'share' };
                     // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
                     // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
                     const __symbolIcons = { Track: 'genetics' };
