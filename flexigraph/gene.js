@@ -11817,6 +11817,52 @@ pattern, GGGG | Required`
                         } catch (e) { this.setMessage(' XLSX export failed: ' + e + ' '); }
                     };
 
+                    // Filter the selection by SEQUENCE. Two actions a designer reaches for after a
+                    // lasso: drop the compounds that repeat a sequence already in the set, and drop
+                    // the ones whose sequence is low-value -- a homopolymer run, a short tandem
+                    // repeat, or a sequence dominated by one base. Both push onto history, so an
+                    // over-eager filter is one Undo away.
+                    const __seqOf = (e) => ('' + (synthSeqOf(e) || '')).toUpperCase().replace(/[^ACGTU]/g, '');
+                    const __isHighRepeat = (seq) => {
+                        if (!seq || seq.length < 4) return false;
+                        if (/([ACGTU])\1{4,}/.test(seq)) return true;              // homopolymer run of 5+
+                        if (/([ACGTU]{2,3})\1{3,}/.test(seq)) return true;         // di/tri repeat, 4+ units
+                        const counts = {}; for (const c of seq) counts[c] = (counts[c] || 0) + 1;
+                        const max = Math.max.apply(null, Object.keys(counts).map((k) => counts[k]));
+                        return (max / seq.length) > 0.6;                            // >60% one base
+                    };
+                    const __removeThese = (targets, what) => {
+                        if (!targets.length) { this.setMessage(' No ' + what + ' to remove. '); return; }
+                        try { this.pushOntoHistory(); } catch (e) { }
+                        let n = 0; for (const e of targets) { try { removeObject(e.entry); n++; } catch (er) { } }
+                        try { for (const e of targets) { const i = items.indexOf(e); if (i >= 0) items.splice(i, 1); } } catch (e) { }
+                        try { if (this.wake) this.wake(); } catch (e) { }
+                        this.setMessage(' Removed ' + n + ' ' + what + '. Undo restores them. ');
+                    };
+                    const __duplicates = () => {
+                        const seen = {}; const dups = [];
+                        for (const e of items) { const q = __seqOf(e); if (!q) continue; if (seen[q]) dups.push(e); else seen[q] = true; }
+                        return dups;
+                    };
+                    const openFilter = () => {
+                        const dups = __duplicates();
+                        const hi = items.filter((e) => __isHighRepeat(__seqOf(e)));
+                        const ask = (msg, yes, run) => { try { Promise.resolve(exec('baja/lib/confirm.js', msg, run, yes)).then((c) => { try { showModal(c); } catch (e) { } }); } catch (e) { run(); } };
+                        const fpage = [
+                            {
+                                label: 'Remove duplicate sequences (' + dups.length + ')',
+                                click: () => { close(); ask('Remove ' + dups.length + ' duplicate compound' + (dups.length === 1 ? '' : 's') + '? The first of each identical sequence is kept.', 'Remove duplicates', () => { __removeThese(dups, dups.length === 1 ? 'duplicate' : 'duplicates'); }); },
+                                move: () => { }
+                            },
+                            {
+                                label: 'Remove high-repeat sequences (' + hi.length + ')',
+                                click: () => { close(); ask('Remove ' + hi.length + ' high-repeat compound' + (hi.length === 1 ? '' : 's') + '? These are homopolymer runs, short tandem repeats, or a sequence more than 60% one base.', 'Remove high-repeat', () => { __removeThese(hi, hi.length === 1 ? 'high-repeat sequence' : 'high-repeat sequences'); }); },
+                                move: () => { }
+                            },
+                            { label: '\u2039 Back', click: () => { show(page, 'Compounds \u25b8'); }, move: () => { } }
+                        ];
+                        show(fpage, 'Filter \u25b8');
+                    };
                     const L = this.genegraph_panel_layout;
                     const page = [
                         // { label: 'Compounds  (' + items.length + ')', header: true, click: () => { }, move: () => { } },
@@ -11875,6 +11921,7 @@ pattern, GGGG | Required`
                         { label: 'Copy target sequences', click: () => { close(); copySeqs('target'); }, move: () => { } },
                         { label: 'Copy synthesis sequences', click: () => { close(); copySeqs('synthesis'); }, move: () => { } },
                         { label: 'Download XLSX', click: () => { close(); downloadXlsx(); }, move: () => { } },
+                        { label: 'Filter \u25b8', click: () => { openFilter(); }, move: () => { } },
                         {
                             label: 'Delete (' + items.length + ')', click: async () => {
                                 // Deleting designs is the one destructive action in this menu, so
