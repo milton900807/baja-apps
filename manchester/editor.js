@@ -3166,6 +3166,20 @@ function (path, config) {
                                                     ]
                                                 },
                                                 {
+                                                    // Bookmarks sits right after Navigate: the saved
+                                                    // camera views belong with moving around. The
+                                                    // button TOGGLES the lower-left navigator window --
+                                                    // press once to show it, again to hide it. Saving
+                                                    // and editing views is in Navigate ▸ Bookmarks.
+                                                    label: 'Bookmarks', icon: 'bookmarks',
+                                                    tooltip: 'Show or hide the bookmarks window',
+                                                    ionFunction: createIonFunction(() => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        try { exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setError('Could not open bookmarks: ' + e, 8); } catch (e2) { } }
+                                                    })
+                                                },
+                                                {
                                                     // Download sits right after Navigate: once you
                                                     // have found and framed something, the next
                                                     // thing you may want is to take it away. It is
@@ -3173,7 +3187,7 @@ function (path, config) {
                                                     // as Navigate -- walking from the whole
                                                     // workbench down to a single oligo or variant,
                                                     // each level ending in a choice of format.
-                                                    label: 'Download', icon: 'download',
+                                                    label: 'Download', icon: 'file_download',
                                                     tooltip: 'Download tracks and their elements as BED, JSON, CSV, XLSX or PDF',
                                                     ionFunction: createIonFunction(async () => {
                                                         try { graph.hideMenu(); } catch (e) { }
@@ -3292,7 +3306,7 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'download', Share: 'share' };
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'file_download', Share: 'share', Bookmarks: 'bookmarks' };
                     // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
                     // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
                     const __symbolIcons = { Track: 'genetics' };
