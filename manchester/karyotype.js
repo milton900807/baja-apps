@@ -5646,16 +5646,89 @@ function (path, config) {
                 ]);
         };
 
+        // SEARCH IS A LIBRARY, NOT A POPUP. The same shelf the region callouts and the
+        // uploads open: a titled grid of cards, each saying what it does before it is
+        // pressed, with the region actions and the highlights one level in rather than
+        // twelve buttons in a column. What the selection currently is goes in the
+        // subtitle, and the cards that need a selection say so instead of hiding.
         const searchMenu = () => {
             const n = regions.length;
-            menuPanel('Search',
-                n ? (n + ' region' + (n === 1 ? '' : 's') + ' selected.')
-                  : 'Nothing selected yet. Find a gene, or drag out a range, to select one.',
-                [
-                    menuAct('Find a gene by symbol', () => { geneMenu(); }),
-                    menuAct('What to do with the selected regions', () => { regionMenu(); }),
-                    menuAct('Show where patented sequences fall', () => { patLoad(); })
-                ]);
+            const span = regions.reduce((t, x) => t + (x.hi - x.lo), 0);
+            const needRegion = { ready: n > 0, readyNote: 'select a region first' };
+            const regionBooks = () => [
+                Object.assign({
+                    title: 'Open in the oligo editor', badge: 'transcripts',
+                    blurb: 'List the transcripts in the selected region' + (n === 1 ? '' : 's') + ', tick the ones you '
+                        + 'want, and load them into the editor with the variants that fall inside them.',
+                    open: () => openRegions(regions.slice()),
+                }, needRegion),
+                Object.assign({
+                    title: 'Delete the variants in the selected regions', badge: 'variants',
+                    blurb: 'Drop every variant inside the selection and keep the rest of the genome.',
+                    open: () => rebuildKeeping((ci, p) => !inRegion(ci, p), 'Deleted the selected regions'),
+                }, needRegion),
+                Object.assign({
+                    title: 'Keep only the selected regions', badge: 'variants',
+                    blurb: 'Drop every variant outside the selection; what is inside stays exactly as it is.',
+                    open: () => rebuildKeeping((ci, p) => inRegion(ci, p), 'Kept only the selected regions'),
+                }, needRegion),
+                Object.assign({
+                    title: 'Clear the selection', badge: 'regions',
+                    blurb: 'Deselect every region. No variant is touched.',
+                    open: () => {
+                        regions = [];
+                        geneCache.clear();
+                        activeRegion = null;
+                        if (graph.wake) graph.wake();
+                        graph.setMessage(' Regions cleared. ');
+                    },
+                }, needRegion),
+            ];
+            const highlightBooks = () => [
+                { title: 'Protein coding', badge: 'highlight', blurb: 'Mark the variants that fall in coding sequence, across the whole genome.', open: () => applyFilter('coding', 1) },
+                { title: 'Intronic', badge: 'highlight', blurb: 'Mark the variants that fall in introns.', open: () => applyFilter('intronic', 2) },
+                { title: "3' UTR", badge: 'highlight', blurb: "Mark the variants in 3' untranslated regions.", open: () => applyFilter('three_utr', 3) },
+                { title: "5' UTR", badge: 'highlight', blurb: "Mark the variants in 5' untranslated regions.", open: () => applyFilter('five_utr', 4) },
+                { title: 'Pathogenic / likely pathogenic', badge: 'ClinVar', blurb: 'Mark the variants ClinVar classifies as pathogenic or likely pathogenic.', open: () => applyFilter('pathogenic', HL_PATHOGENIC) },
+                { title: 'Clear highlights', badge: 'highlight', blurb: 'Take every mark off and draw the variants in their own colours again.', open: () => clearHighlights(), ready: !!hlActive, readyNote: 'nothing highlighted' },
+            ];
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-search',
+                    title: 'Search',
+                    subtitle: n
+                        ? (n + ' region' + (n === 1 ? '' : 's') + ' selected, ' + (Math.round(span / 1e4) / 100) + ' Mb in total')
+                        : 'Nothing selected yet. Find a gene, or drag out a range, to select a region.',
+                    books: [
+                        {
+                            title: 'Find a gene', badge: 'gene',
+                            blurb: 'Type a symbol, an old name or a description and pick the gene from the list; '
+                                + 'the view goes there and selects it.',
+                            open: () => geneMenu(),
+                        },
+                        {
+                            title: 'Selected regions', badge: n ? (n + ' selected') : 'none selected',
+                            blurb: 'Open them in the oligo editor, or delete and keep variants by where they fall.',
+                            books: regionBooks,
+                        },
+                        {
+                            title: 'Highlight', badge: hlActive ? HL_NAME[hlActive] : 'genome-wide',
+                            blurb: 'Mark the variants of one kind across the whole genome: coding, intronic, '
+                                + 'UTR, or pathogenic. The rest are dimmed behind them.',
+                            books: highlightBooks,
+                        },
+                        {
+                            title: 'Patents', badge: patOn ? 'shown' : 'genome-wide',
+                            blurb: 'Show where patented sequences fall down every chromosome; open again to hide the strip.',
+                            open: () => patLoad(),
+                        },
+                    ],
+                    graph: graph,
+                });
+            } catch (e) {
+                step('search shelf threw: ' + e);
+                graph.setMessage(' Search could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+            }
         };
 
         const saveJson = () => {
