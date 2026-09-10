@@ -83,6 +83,28 @@ function () {
                             },
                         },
                         {
+                            // Where the subscription fee goes, stated at the point of paying
+                            // rather than buried in a footer: it is part of what the buyer is
+                            // deciding. The link is the campaign itself so the claim can be
+                            // checked rather than taken on trust. "A child with ALS" rather
+                            // than a cause or an organisation, because the link goes to one
+                            // family's campaign and the sentence should match where it lands.
+                            //
+                            // NET proceeds, not gross: payment-processor fees and taxes come
+                            // off the top before the donation, and promising 100% of the
+                            // subscription price would commit money that never arrives.
+                            'width': '100%',
+                            'component': {
+                                wid: 'html', data: `<center style="padding:6px 14px 14px;font:13px Arial;color:#334155;line-height:1.5;">
+                                    <div><b>100% of net proceeds go to a child with ALS.</b></div>
+                                    <div style="margin-top:4px;">
+                                        <a href="https://gofund.me/1d004e7b0" target="_blank" rel="noopener noreferrer"
+                                           style="color:#0b6bcb;text-decoration:underline;">See the campaign</a>
+                                    </div>
+                                </center>`
+                            },
+                        },
+                        {
                             'width': '100%',
                             'component': {
                                 wid: 'carousel',
