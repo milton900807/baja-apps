@@ -448,6 +448,9 @@ function (path, config) {
                             await graph.update(rs);
                             graph.file = p;
                             graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
+                            // Bookmarks travel with the design: update() restores the whitelist,
+                            // so carry the saved camera views across explicitly.
+                            try { if (rs && Array.isArray(rs.cameraBookmarks)) graph.cameraBookmarks = rs.cameraBookmarks; } catch (e) { }
                         }
                     } else {
                         let jsonobj = {
@@ -477,6 +480,9 @@ function (path, config) {
                             await graph.update(rs);
                             graph.file = p;
                             graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
+                            // Bookmarks travel with the design: update() restores the whitelist,
+                            // so carry the saved camera views across explicitly.
+                            try { if (rs && Array.isArray(rs.cameraBookmarks)) graph.cameraBookmarks = rs.cameraBookmarks; } catch (e) { }
                         }
                     }
 
@@ -503,6 +509,10 @@ function (path, config) {
                                     }, 560, 240);
                                 }
                             }
+                            // A shared design that carries camera bookmarks opens with a small
+                            // navigator in the lower-left, so a recipient can step through the
+                            // views the sharer saved without hunting for the menu.
+                            try { if (Array.isArray(graph.cameraBookmarks) && graph.cameraBookmarks.length) exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
                         } catch (e) { }
                     }, 1500);
                 }

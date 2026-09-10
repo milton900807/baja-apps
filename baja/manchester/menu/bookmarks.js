@@ -4,9 +4,10 @@ function (graph, layout) {
     // return to it later; rename or delete the ones you have. Reached from Navigate ▸
     // Bookmarks. Rendered as a shelf (baja/lib/shelf.js), the same idiom Navigate itself uses.
     //
-    // Bookmarks live on the graph for the session and in localStorage keyed by the design, so
-    // they survive a reload without changing the saved .baja format. Four numbers and a name
-    // each -- a camera position, not the data.
+    // Bookmarks live on graph.cameraBookmarks, which getState() serializes with the design, so
+    // they TRAVEL WITH THE FILE: everyone who opens it (or a share of it) gets the same views.
+    // A localStorage copy keyed by the design is kept as a same-device fallback for a session
+    // that has not been saved yet. Four numbers and a name each -- a camera position, not data.
 
     return (async () => {
         // The grid that owns the camera. Same resolution view-history.js uses.
@@ -49,14 +50,14 @@ function (graph, layout) {
             return 'baja.camera.bookmarks.v1:' + who + ':' + where;
         })();
         const load = () => {
-            if (Array.isArray(graph.__cameraBookmarks)) return graph.__cameraBookmarks;
+            if (Array.isArray(graph.cameraBookmarks)) return graph.cameraBookmarks;
             let arr = [];
             try { const raw = localStorage.getItem(key); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) arr = p; } } catch (e) { arr = []; }
-            graph.__cameraBookmarks = arr;
+            graph.cameraBookmarks = arr;
             return arr;
         };
         const persist = () => {
-            try { localStorage.setItem(key, JSON.stringify(graph.__cameraBookmarks || [])); } catch (e) { }
+            try { localStorage.setItem(key, JSON.stringify(graph.cameraBookmarks || [])); } catch (e) { }
         };
 
         const fmtCoord = (n) => {
@@ -96,7 +97,7 @@ function (graph, layout) {
                     const existing = list.find((b) => ('' + b.name).toLowerCase() === ('' + name).trim().toLowerCase());
                     if (existing) { existing.xmin = st.xmin; existing.xmax = st.xmax; existing.ymin = st.ymin; existing.ymax = st.ymax; existing.at = Date.now(); }
                     else { list.push({ name: ('' + name).trim(), xmin: st.xmin, xmax: st.xmax, ymin: st.ymin, ymax: st.ymax, at: Date.now() }); }
-                    graph.__cameraBookmarks = list; persist();
+                    graph.cameraBookmarks = list; persist();
                     try { graph.setMessage(' Bookmark "' + ('' + name).trim() + '" saved. '); } catch (e) { }
                     open();
                 }
@@ -125,7 +126,7 @@ function (graph, layout) {
                         open: () => {
                             const list = load();
                             const idx = list.indexOf(b);
-                            if (idx >= 0) { list.splice(idx, 1); graph.__cameraBookmarks = list; persist(); }
+                            if (idx >= 0) { list.splice(idx, 1); graph.cameraBookmarks = list; persist(); }
                             try { graph.setMessage(' Bookmark deleted. '); } catch (e) { }
                             open();
                         }
