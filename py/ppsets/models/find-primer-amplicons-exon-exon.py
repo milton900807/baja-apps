@@ -607,7 +607,7 @@ def design_candidates_windowed(
             break
 
         if idx % max(1, len(starts) // 20) == 0:
-            _progress(10 + 40 * (idx / max(1, len(starts))), f"Design 1/2 -  candidates, window {idx} of {len(starts)}...")
+            _progress(10 + 40 * (idx / max(1, len(starts))), f"Design 1/2 - primer3 proposing candidates, window {idx} of {len(starts)}...")
 
         window = template[window_start : window_start + window_size]
         if len(window) < product_min + 20:
@@ -837,7 +837,7 @@ def ion_main() -> None:
 
     allow_probe = not no_probe
 
-    _progress(10, "Design 1/2 -  proposing candidates across the transcript...")
+    _progress(10, "Design 1/2 - primer3 proposing candidates across the transcript...")
     cands = design_candidates_windowed(
         template,
         product_min=product_min,
