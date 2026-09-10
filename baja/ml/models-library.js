@@ -29,46 +29,48 @@ function (graph, genegraph_panel_layout, tracks) {
         // Normalised once: a single track, an array, or nothing.
         const __targets = () => (Array.isArray(tracks) ? tracks.filter(Boolean) : (tracks ? [tracks] : []));
 
-        // djPrimer designs against the track its leaf sits UNDER, and no other.
+        // Every model runs against the track its leaf sits UNDER, and no other.
         //
         // Opened from a track's menu the track IS the parent and comes in as `tracks`. Opened
-        // from the library menu nothing does, and the runner fell through to
+        // from the library menu nothing does, and each runner fell through to
         // baja/lib/for-each-track.js, which honours the board-wide flag the Layers button sets
-        // on its way in -- so a click on one card designed primer probes on every track on
-        // the canvas, one python call each. The Design Library already answers this by
-        // putting the tracks in as a level to walk through; this is the same idiom, so the
-        // track is a node on the path above the leaf rather than a flag set elsewhere.
+        // on its way in -- so a click on one card ran the model on every track on the canvas,
+        // one python call each. The Design Library already answers this by putting the tracks
+        // in as a level to walk through; this is the same idiom, so the track is a node on the
+        // path above the leaf rather than a flag set elsewhere.
         //
         // The flag is consumed here, before anything downstream can read it. It was a
-        // statement of intent for a LOADER; a design run that fans out to tracks the user
-        // never named is not what "apply to the board" was pressed for.
-        const __runDjprimerOn = (list) => exec('baja/manchester/ppsets/run-djprimer.js', graph, L, list);
-        const __openDjprimer = async () => {
+        // statement of intent for a LOADER; a model run that fans out to tracks the user never
+        // named is not what "apply to the board" was pressed for.
+        //
+        // `run(list)` is the model itself, handed the tracks to run on. `title` names the
+        // level of track cards, so the path reads "Machine Learning Models > BajaCLIP > MALAT1".
+        const __onParentTrack = async (title, run) => {
             try { window.__bajaApplyAllTracks = false; } catch (e) { }
             const explicit = __targets();
-            if (explicit.length) return __runDjprimerOn(explicit);
+            if (explicit.length) return run(explicit);
             const all = ((graph && graph.track) || []).filter(Boolean);
             if (!all.length) {
-                const msg = ' Load a track first — djPrimer designs against one. ';
+                const msg = ' Load a track first — ' + title + ' runs against one. ';
                 try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
                 return false;
             }
             // One track: it is the only possible parent, and a level holding a single card is
             // a click that asks nothing.
-            if (all.length === 1) return __runDjprimerOn([all[0]]);
+            if (all.length === 1) return run([all[0]]);
             return exec('baja/lib/shelf.js', {
-                id: 'baja-models-library-djprimer-tracks',
-                title: 'Primer design — djPrimer',
-                subtitle: 'Pick the track to design against — primer probes go on that track only',
+                id: 'baja-models-library-tracks',
+                title: title,
+                subtitle: 'Pick the track to run against — the layer goes on that track only',
                 graph: graph,
                 onClose: restoreHover,
                 books: all.map((t, i) => ({
                     title: t.name || ('track ' + (i + 1)),
                     badge: (t.track_type || 'Track'),
-                    blurb: 'Design primer probes on ' + (t.name || 'this track')
+                    blurb: 'Run ' + title + ' on ' + (t.name || 'this track')
                         + ((() => { try { return (t.selectedRange && t.selectedRange()) ? ', over its selected sequence' : ''; } catch (e) { return ''; } })())
                         + '.',
-                    open: () => __runDjprimerOn([t])
+                    open: () => run([t])
                 }))
             });
         };
@@ -79,7 +81,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 blurb: 'Per-position RBP binding profile across the track.',
                 // The chosen protein comes from the page's picker and is passed straight
                 // through, so the runner does not ask a second time.
-                open: (rbp) => exec('baja/bio/rbp/rbp-profile.js', graph, L, __targets(), null, rbp),
+                open: (rbp) => __onParentTrack('BajaCLIP', (list) => exec('baja/bio/rbp/rbp-profile.js', graph, L, list, null, rbp)),
                 docs: {
                     summary: 'Predicts where an RNA-binding protein footprints on the sequence. A '
                         + 'sphere-CNN scores 64-nt windows for 170 RBPs; sliding that window along the '
@@ -116,7 +118,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 blurb: 'Donor / acceptor splice-site strength at every position.',
                 // The mode is this entry's identity, so pass it: the profile then arms the run
                 // directly instead of asking again in its own centre menu.
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets(), null, 'sites'),
+                open: () => __onParentTrack('BajaSplice splice sites', (list) => exec('baja/bio/splicing/splicing-profile.js', graph, L, list, null, 'sites')),
                 docs: {
                     summary: 'A dilated residual CNN over 2,000 nt of context predicts donor, acceptor '
                         + 'or neither at EVERY position of a pre-mRNA — so it scores sites de novo '
@@ -148,7 +150,7 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Splicing — PSI', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Percent-spliced-in for cassette exons, across 54 tissues.',
-                open: () => exec('baja/bio/splicing/splicing-profile.js', graph, L, __targets(), null, 'psi'),
+                open: () => __onParentTrack('BajaSplice exon inclusion', (list) => exec('baja/bio/splicing/splicing-profile.js', graph, L, list, null, 'psi')),
                 docs: {
                     summary: 'Given the four splice-site windows of a cassette event and its geometry, '
                         + 'predicts inclusion in each of 54 tissues — how often the exon is kept rather '
@@ -182,7 +184,8 @@ function (graph, genegraph_panel_layout, tracks) {
                 // This one is a CLICK tool, not a whole-track run: it profiles one site, so it
                 // needs the user to say which. Passing the targets still lets a track menu skip
                 // the "click on a track" step.
-                open: () => exec('baja/bio/splicing/cis-attribution.js', graph, L, (__targets()[0] || null)),
+                // cis-attribution takes ONE track; the first of the list is the one picked.
+                open: () => __onParentTrack('Cis-attribution', (list) => exec('baja/bio/splicing/cis-attribution.js', graph, L, (list[0] || null))),
                 docs: {
                     summary: 'Takes ONE donor or acceptor and asks what its neighbourhood is doing for '
                         + 'it. Each window of nearby sequence is scrambled in turn and the site '
@@ -230,7 +233,7 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 title: 'Intron retention', badge: 'BajaIR', ready: true, group: 'splicing',
                 blurb: 'How retention-prone each intron is, from sequence alone.',
-                open: () => exec('baja/bio/splicing/intron-retention.js', graph, L, __targets()),
+                open: () => __onParentTrack('BajaIR intron retention', (list) => exec('baja/bio/splicing/intron-retention.js', graph, L, list)),
                 docs: {
                     summary: 'Scores how retention-prone each intron is from sequence alone — no reads '
                         + 'and no expression data. Twenty features: fifteen describing intron geometry '
@@ -263,8 +266,8 @@ function (graph, genegraph_panel_layout, tracks) {
                 // first track on the canvas whatever list this library was handed. Then it passed
                 // __targets() like every other book, which from the library menu is nothing, and
                 // nothing meant the whole board. Now it runs on the track above it on the path --
-                // see __openDjprimer.
-                open: () => __openDjprimer(),
+                // see __onParentTrack.
+                open: () => __onParentTrack('djPrimer', (list) => exec('baja/manchester/ppsets/run-djprimer.js', graph, L, list)),
                 docs: {
                     summary: 'Designs primer pairs with primer3, then ranks them by how likely each '
                         + 'assay is to actually WORK at the bench. The distinction matters: a design '
