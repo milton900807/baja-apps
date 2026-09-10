@@ -1592,6 +1592,147 @@ function (path, config) {
                 //
                 // The threshold is a count, not a zoom level, because that is the thing that
                 // actually decides whether individual marks are readable or a smear.
+                // ---- PATENTS, IN A PASS OF THEIR OWN ---------------------------------
+                //
+                // NOT INSIDE THE VARIANT LOOP, which is where both of these used to live.
+                // That loop runs under `if (vtotal)` and skips every chromosome carrying no
+                // variants, and the strip sat in its DENSITY branch besides. So the button
+                // read its twenty-one million hits, set patOn, reported the count -- and drew
+                // nothing whatsoever until a VCF had been loaded, then lost the strip again
+                // the moment the zoom went deep enough to draw individual marks. It looked
+                // like a dead button because the only thing it changed was a number in the
+                // status line.
+                //
+                // patAt(), which takes the clicks, never had that condition: it answers on
+                // `patOn && patHist` alone. The strip was therefore clickable in a gutter
+                // with nothing painted in it, which is the same disagreement seen from the
+                // other side.
+                //
+                // Patents are a fact about the genome, not about the file someone happens to
+                // have opened, so this pass is gated on patent state and nothing else.
+                if (patOn && patHist) {
+                    ctx.save();
+                    for (let ci = 0; ci < drawn.length; ci++) {
+                        const c = drawn[ci];
+                        if (c.circular) continue;   // drawn on the ring, with the ring
+                        const bx0 = g.X(barLeft(ci)), bx1 = g.X(barRight(ci));
+                        if (bx1 < -30 || bx0 > ctx.canvas.width + 120) continue;
+                        const bw = bx1 - bx0;
+
+                        // The visible window of THIS chromosome, in bases -- the same
+                        // derivation the variant pass uses, so the two line up.
+                        const vA = -g.Ywc(0) * MB, vB = -g.Ywc(ctx.canvas.height) * MB;
+                        const lo = Math.max(0, Math.min(c.length, Math.min(vA, vB)));
+                        const hi = Math.min(c.length, Math.max(0, Math.max(vA, vB)));
+                        if (hi <= lo) continue;
+
+                        // The strip is binned on the variant histogram's geometry so the two
+                        // gutters are read the same way, whether or not any variants exist.
+                        const scale = HIST_BINS / c.length;
+                        const b0 = Math.max(0, Math.floor(lo * scale));
+                        const b1 = Math.min(HIST_BINS - 1, Math.ceil(hi * scale));
+                        const maxW = Math.max(6, Math.min(26, bw * 0.55));
+
+                        // THE NAMES, INSIDE THE BAR, once it is wide enough to hold them
+                        // and the window is small enough to ask about.
+                        //
+                        // GUARDED, because this is a decoration and the frame it sits in
+                        // is not. paint() builds the click targets -- the callout cards'
+                        // rectangles are pushed near the END of it -- so anything that
+                        // throws here takes the rest of the frame with it and leaves
+                        // calloutHits empty while the previous frame's cards are still on
+                        // screen: the cards look present and stop answering the mouse.
+                        // The failure is reported once rather than silently swallowed.
+                        try {
+                        if (bw >= PAT_LABEL_MIN_W) {
+                            const wlo = Math.max(1, Math.floor(lo));
+                            const whi = Math.min(c.length, Math.ceil(hi));
+                            // Rounded to a stable window so panning by a pixel does not
+                            // ask the server a new question every frame.
+                            const STEP = 250000;
+                            const qlo = Math.max(1, Math.floor(wlo / STEP) * STEP);
+                            const qhi = Math.min(c.length, Math.ceil(whi / STEP) * STEP);
+                            if (qhi > qlo && (qhi - qlo) <= 20000000) {
+                                const kk = patLabelKey(ci, qlo, qhi);
+                                const rec = patLabels.get(kk);
+                                if (!rec) { patLabelsAsk(ci, qlo, qhi); }
+                                else if (rec.state === 'done' && rec.list.length) {
+                                    ctx.save();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'middle';
+                                    ctx.font = '600 10px ' + FONT;
+                                    let lastY = -1e9;
+                                    for (const q2 of rec.list) {
+                                        const mid = ((+q2.start) + (+q2.end)) / 2;
+                                        const ly = g.Y(wy(mid));
+                                        if (ly < 6 || ly > ctx.canvas.height - 6) continue;
+                                        if (ly - lastY < PAT_LABEL_PX) continue;
+                                        // MEASURED against the bar it has to sit in.
+                                        let txt = '' + (q2.label || q2.id || '');
+                                        if (ctx.measureText(txt).width > bw - 8) {
+                                            // The publication number alone, which is the
+                                            // half that identifies it.
+                                            txt = txt.split(' ')[0];
+                                            if (ctx.measureText(txt).width > bw - 8) continue;
+                                        }
+                                        lastY = ly;
+                                        const tw = ctx.measureText(txt).width;
+                                        const lx0 = (bx0 + bx1) / 2 - tw / 2 - 2;
+                                        ctx.fillStyle = 'rgba(255,255,255,0.82)';
+                                        ctx.fillRect(lx0, ly - 6, tw + 4, 12);
+                                        ctx.fillStyle = '#7c2d12';
+                                        ctx.fillText(txt, (bx0 + bx1) / 2, ly);
+                                        // A hairline under it: on a canvas there is no
+                                        // cursor to say a word can be followed, and this
+                                        // is the one mark that reads as a link without
+                                        // taking a second row of space.
+                                        ctx.fillRect(lx0 + 2, ly + 6, tw, 0.8);
+                                        patLabelHits.push({
+                                            x: lx0, y: ly - 6, w: tw + 4, h: 12,
+                                            id: '' + (q2.id || ''), label: '' + (q2.label || ''),
+                                        });
+                                    }
+                                    ctx.restore();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'top';
+                                }
+                            }
+                        }
+
+                        } catch (e) {
+                            if (!patLabelFailed) {
+                                patLabelFailed = true;
+                                step('patent labels threw, drawing without them: '
+                                    + (e && e.message ? e.message : e)
+                                    + (e && e.stack ? ' | ' + e.stack.split('\n')[1] : ''));
+                            }
+                        }
+
+                        // PATENTS, DOWN THE LEFT. Log-scaled on the same rule as the
+                        // variant strip opposite -- the busiest bin in the genome is the
+                        // full width -- so the two sides are read the same way. Its own
+                        // colour, because it is a different fact about the same place.
+                        if (patHist[ci] && patMax > 0) {
+                            const ph = patHist[ci];
+                            const plp = Math.log(patMax + 1) || 1;
+                            ctx.fillStyle = 'rgba(180,83,9,0.75)';
+                            for (let b = b0; b <= b1; b++) {
+                                const n2 = ph[b];
+                                if (!n2) continue;
+                                const yA3 = g.Y(wy(b / scale));
+                                const yB3 = g.Y(wy((b + 1) / scale));
+                                if (yB3 < -4 || yA3 > ctx.canvas.height + 4) continue;
+                                const h4 = Math.max(1, yB3 - yA3);
+                                const w4 = 2 + maxW * (Math.log(n2 + 1) / plp);
+                                ctx.fillRect(bx0 - 2 - w4, yA3, w4, h4);
+                            }
+                        }
+                    }
+                    ctx.restore();
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                }
+
                 if (vtotal) {
                     ctx.save();
                     for (let ci = 0; ci < drawn.length; ci++) {
@@ -1684,100 +1825,6 @@ function (path, config) {
                             const maxW = Math.max(6, Math.min(26, bw * 0.55));
                             ctx.globalAlpha = 1;
 
-                            // THE NAMES, INSIDE THE BAR, once it is wide enough to hold them
-                            // and the window is small enough to ask about.
-                            //
-                            // GUARDED, because this is a decoration and the frame it sits in
-                            // is not. paint() builds the click targets -- the callout cards'
-                            // rectangles are pushed near the END of it -- so anything that
-                            // throws here takes the rest of the frame with it and leaves
-                            // calloutHits empty while the previous frame's cards are still on
-                            // screen: the cards look present and stop answering the mouse.
-                            // The failure is reported once rather than silently swallowed.
-                            try {
-                            if (patOn && bw >= PAT_LABEL_MIN_W) {
-                                const wlo = Math.max(1, Math.floor(lo));
-                                const whi = Math.min(c.length, Math.ceil(hi));
-                                // Rounded to a stable window so panning by a pixel does not
-                                // ask the server a new question every frame.
-                                const STEP = 250000;
-                                const qlo = Math.max(1, Math.floor(wlo / STEP) * STEP);
-                                const qhi = Math.min(c.length, Math.ceil(whi / STEP) * STEP);
-                                if (qhi > qlo && (qhi - qlo) <= 20000000) {
-                                    const kk = patLabelKey(ci, qlo, qhi);
-                                    const rec = patLabels.get(kk);
-                                    if (!rec) { patLabelsAsk(ci, qlo, qhi); }
-                                    else if (rec.state === 'done' && rec.list.length) {
-                                        ctx.save();
-                                        ctx.textAlign = 'center';
-                                        ctx.textBaseline = 'middle';
-                                        ctx.font = '600 10px ' + FONT;
-                                        let lastY = -1e9;
-                                        for (const q2 of rec.list) {
-                                            const mid = ((+q2.start) + (+q2.end)) / 2;
-                                            const ly = g.Y(wy(mid));
-                                            if (ly < 6 || ly > ctx.canvas.height - 6) continue;
-                                            if (ly - lastY < PAT_LABEL_PX) continue;
-                                            // MEASURED against the bar it has to sit in.
-                                            let txt = '' + (q2.label || q2.id || '');
-                                            if (ctx.measureText(txt).width > bw - 8) {
-                                                // The publication number alone, which is the
-                                                // half that identifies it.
-                                                txt = txt.split(' ')[0];
-                                                if (ctx.measureText(txt).width > bw - 8) continue;
-                                            }
-                                            lastY = ly;
-                                            const tw = ctx.measureText(txt).width;
-                                            const lx0 = (bx0 + bx1) / 2 - tw / 2 - 2;
-                                            ctx.fillStyle = 'rgba(255,255,255,0.82)';
-                                            ctx.fillRect(lx0, ly - 6, tw + 4, 12);
-                                            ctx.fillStyle = '#7c2d12';
-                                            ctx.fillText(txt, (bx0 + bx1) / 2, ly);
-                                            // A hairline under it: on a canvas there is no
-                                            // cursor to say a word can be followed, and this
-                                            // is the one mark that reads as a link without
-                                            // taking a second row of space.
-                                            ctx.fillRect(lx0 + 2, ly + 6, tw, 0.8);
-                                            patLabelHits.push({
-                                                x: lx0, y: ly - 6, w: tw + 4, h: 12,
-                                                id: '' + (q2.id || ''), label: '' + (q2.label || ''),
-                                            });
-                                        }
-                                        ctx.restore();
-                                        ctx.textAlign = 'center';
-                                        ctx.textBaseline = 'top';
-                                    }
-                                }
-                            }
-
-                            } catch (e) {
-                                if (!patLabelFailed) {
-                                    patLabelFailed = true;
-                                    step('patent labels threw, drawing without them: '
-                                        + (e && e.message ? e.message : e)
-                                        + (e && e.stack ? ' | ' + e.stack.split('\n')[1] : ''));
-                                }
-                            }
-
-                            // PATENTS, DOWN THE LEFT. Log-scaled on the same rule as the
-                            // variant strip opposite -- the busiest bin in the genome is the
-                            // full width -- so the two sides are read the same way. Its own
-                            // colour, because it is a different fact about the same place.
-                            if (patOn && patHist && patHist[ci] && patMax > 0) {
-                                const ph = patHist[ci];
-                                const plp = Math.log(patMax + 1) || 1;
-                                ctx.fillStyle = 'rgba(180,83,9,0.75)';
-                                for (let b = b0; b <= b1; b++) {
-                                    const n2 = ph[b];
-                                    if (!n2) continue;
-                                    const yA3 = g.Y(wy(b / scale));
-                                    const yB3 = g.Y(wy((b + 1) / scale));
-                                    if (yB3 < -4 || yA3 > ctx.canvas.height + 4) continue;
-                                    const h4 = Math.max(1, yB3 - yA3);
-                                    const w4 = 2 + maxW * (Math.log(n2 + 1) / plp);
-                                    ctx.fillRect(bx0 - 2 - w4, yA3, w4, h4);
-                                }
-                            }
                             for (let b = b0; b <= b1; b++) {
                                 const n = d.hist[b];
                                 if (!n) continue;
