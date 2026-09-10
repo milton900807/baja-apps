@@ -182,13 +182,19 @@ function (graph, genegraph_panel_layout) {
             // nothing consumes it and the spinner sits there saying data is about to arrive when it is
             // not. Leaving a library is the end of that intent, so both go here.
             const dismiss = () => {
+                    // The MESSAGE is cleared whether or not the flag survives.
+                    //
+                    // This was guarded on __bajaApplyAllTracks still being set, which is only
+                    // true when nothing consumed it. Anything that narrows the intent first --
+                    // the per-track Design menu, a loader that took the flag and then was
+                    // cancelled -- left the flag false and this branch unreached, so the
+                    // status line kept announcing a board-wide load that had been abandoned.
+                    // Clearing the flag again is harmless; leaving the sentence up is not.
                 try {
-                    if (window.__bajaApplyAllTracks) {
-                        window.__bajaApplyAllTracks = false;
-                        if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
-                            window.__workStatus = '';
-                            if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
-                        }
+                    window.__bajaApplyAllTracks = false;
+                    if (/will load onto all/i.test('' + (window.__workStatus || ''))) {
+                        window.__workStatus = '';
+                        if (typeof window.__bajaWorkRefresh === 'function') window.__bajaWorkRefresh();
                     }
                 } catch (e) { }
                 close(); restoreHover();

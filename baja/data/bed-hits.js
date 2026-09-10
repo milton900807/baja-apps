@@ -65,7 +65,7 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             }
             const strand = '' + (track.strand != null ? track.strand : 1);
 
-            graph.setMessage(' Loading ' + LAYER_LABEL + ' for ' + tid + '… ');
+            graph.setMessage(' Looking up ' + LAYER_LABEL + ' for ' + tid + '… ');
             const server = window['env']['apiUrl'];
             let em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
             // Reads the region from BIG_DATA (auto-tabix-indexed on first use).
@@ -78,6 +78,14 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
                 return 0;
             }
 
+            // rv, not hits: the rows are parsed here and `hits` is not declared until
+            // after the exon mapping below, so naming it at this point is a temporal dead
+            // zone -- a ReferenceError the surrounding try would swallow, leaving no message
+            // at all, which is the opposite of the point.
+            try {
+                graph.setMessage(' ' + rv.length + ' ' + NOUN
+                    + (rv.length === 1 ? '' : 's') + ' found — drawing… ');
+            } catch (e) { }
             const TrackLayer = await exec('baja/bio/track-layer.js');
             const tg = track.tgraph;
             const layer = new TrackLayer((track.name || 'track') + '_' + (cfg.key || 'patents'), tg.xmin, 0, tg.xmax, 1);
@@ -198,7 +206,29 @@ function (graph, genegraph_panel_layout, patentSet, targetTrack) {
             // so overlapping hits stay visually separable. With many hits, keep the
             // compact stacked lanes so they don't swamp the track.
             const boost = hits.length < 50;
+
+            // DRAWING IS THE SLOW PART, not the query.
+            //
+            // The server answers in well under a second (tabix + the metadata join). What
+            // takes the time is turning thousands of rows into intervals here: each one
+            // builds a multi-line label, gets lane-packed and is split across exons. Done in
+            // one synchronous pass the canvas freezes and the status line still says
+            // "Loading…", so a slow load is indistinguishable from a hung one.
+            //
+            // Yielding every CHUNK hits lets the browser paint and lets the message advance,
+            // which costs a few ms in total and makes the wait legible.
+            const CHUNK = 400;
+            let drawn = 0;
+            const yieldToUI = () => new Promise((r) => setTimeout(r, 0));
             for (const p of hits) {
+                if (drawn && (drawn % CHUNK) === 0) {
+                    try {
+                        graph.setMessage(' Drawing ' + LAYER_LABEL + ' — '
+                            + drawn + ' of ' + hits.length + '… ');
+                    } catch (e) { }
+                    await yieldToUI();
+                }
+                drawn++;
                 const lane = laneFor(p.lo, p.hi);
                 let yv = 0.03125 + (0.03125 * lane);
                 if (boost) yv = Math.min(0.98, 0.5 + (0.03125 * lane));
