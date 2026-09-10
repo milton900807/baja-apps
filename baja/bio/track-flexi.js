@@ -78,21 +78,29 @@ return new Promise(async (resolve, reject) => {
     //
     // Fixed pixel sizes, not the zoom-scaled track font: this is chrome describing the track,
     // and chrome that grows and shrinks with the data underneath it reads as part of the data.
-    function drawTrackTab(ctx, primary, secondary, x, yBottom, theme) {
+    function drawTrackTab(ctx, primary, secondary, x, yBottom, theme, selected) {
         if (!primary && !secondary) return;
         const T = theme || {};
         ctx.save();
-        const BOLD = '700 11px Arial, Helvetica, sans-serif';
+        // THE NAME IS THE HEADLINE, and it is meant to be read at a glance across a board of
+        // tracks -- 14px bold against the 11px detail beside it. It used to be drawn twice by
+        // drawString instead: once in pale lightBlue a hundred pixels off the track's left
+        // edge, floating in the margin with nothing to attach it to, and again in flat blue
+        // ACROSS THE TRACK ITSELF when selected, on top of the sequence. Neither was a label
+        // you could find a track by.
+        const NAME = '700 16px Arial, Helvetica, sans-serif';
         const PLAIN = '11px Arial, Helvetica, sans-serif';
-        const padX = 8, gap = 7, h = 16, r = 5;
+        const padX = 12, gap = 10, h = 26, r = 6;
 
-        ctx.font = BOLD;
+        ctx.font = NAME;
         const wP = primary ? ctx.measureText(primary).width : 0;
         ctx.font = PLAIN;
         const wS = secondary ? ctx.measureText(secondary).width : 0;
         const w = wP + (wP && wS ? gap : 0) + wS + padX * 2;
         const yTop = yBottom - h;
 
+        // A FILING TAB: square where it meets the track so it reads as attached to it, rounded
+        // on the two top corners, and the sheet it is filed against is the track below.
         ctx.beginPath();
         ctx.moveTo(x, yBottom);
         ctx.lineTo(x, yTop + r);
@@ -101,10 +109,28 @@ return new Promise(async (resolve, reject) => {
         ctx.quadraticCurveTo(x + w, yTop, x + w, yTop + r);
         ctx.lineTo(x + w, yBottom);
         ctx.closePath();
-        ctx.fillStyle = T.tabBg || 'rgba(238,243,249,0.96)';
+
+        // SELECTED IS THE TAB INVERTED, not a tint added to it. A selected track is the one
+        // thing being worked on and its tab has to be findable without hunting: the ground and
+        // the lettering swap, which reads at any zoom and in any theme, where a wash over a
+        // pale tab is a shade that some themes barely show.
+        const ink = T.tabText || '#0b2545';
+        const ground = T.tabBg || 'rgba(238,243,249,0.96)';
+        // A soft drop shadow, so the tab reads as sitting ON the board rather than being
+        // drawn into it. Without one, a pale tab over a pale region of the canvas has only its
+        // hairline border to separate it, which is what made the name hard to pick out even at
+        // a larger size. Cleared immediately afterwards -- the shared context is handed on to
+        // the text below and a shadow left set would smear every glyph.
+        ctx.shadowColor = 'rgba(0,0,0,0.28)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 1;
+        ctx.fillStyle = selected ? ink : ground;
         ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = T.tabLine || 'rgba(11,37,69,0.30)';
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.lineWidth = selected ? 2 : 1;
+        ctx.strokeStyle = selected ? ink : (T.tabLine || 'rgba(11,37,69,0.30)');
         ctx.stroke();
 
         ctx.textAlign = 'left';
@@ -112,14 +138,17 @@ return new Promise(async (resolve, reject) => {
         const ty = yTop + h / 2;
         let tx = x + padX;
         if (primary) {
-            ctx.font = BOLD;
-            ctx.fillStyle = T.tabText || '#0b2545';
+            ctx.font = NAME;
+            ctx.fillStyle = selected ? ground : ink;
             ctx.fillText(primary, tx, ty);
             tx += wP + gap;
         }
         if (secondary) {
             ctx.font = PLAIN;
-            ctx.fillStyle = T.tabSub || '#5b6b7d';   // quieter than the species: the detail, not the label
+            // Quieter than the name: the detail, not the label. Inverted it has to lift off
+            // the dark ground, so it borrows the ground colour at reduced strength rather
+            // than the tabSub grey, which would disappear into it.
+            ctx.fillStyle = selected ? 'rgba(255,255,255,0.78)' : (T.tabSub || '#5b6b7d');
             ctx.fillText(secondary, tx, ty);
         }
         ctx.restore();
@@ -5333,51 +5362,53 @@ return new Promise(async (resolve, reject) => {
                 }
             }
 
-            if (this.showName && screencell > 0.05) {
-                drawString(
+            // ---- THE TRACK'S TAB ----------------------------------------------------------
+            //
+            // Drawn for EVERY track, not only the selected one. The name used to be drawn
+            // twice and never as a label you could find a track by: once in pale lightBlue a
+            // hundred pixels off the track's left edge, out in the margin with nothing to
+            // attach it to, and again in flat blue ACROSS THE MIDDLE OF THE TRACK when
+            // selected, on top of the sequence. Both are gone; this is the one place a track
+            // says what it is.
+            //
+            // The NAME leads, at 14px bold -- it is what the reader is scanning for. The
+            // species, locus, size and description follow at 11px, because they answer the
+            // second question, not the first. Selection inverts the tab (see drawTrackTab),
+            // so the track being worked on is findable at a glance.
+            // DOWN TO A FAR LOWER ZOOM THAN THE DATA NEEDS. This was gated at the same
+            // 0.05 px/base as the per-base drawing, so on a whole-gene view -- 27 kb across a
+            // 1500px canvas is 0.055, and a second track or a slightly wider window puts it
+            // under -- the track's only label vanished exactly when a board full of tracks
+            // most needed labelling. The tab describes the track; it is not part of the data
+            // and does not thin out with it.
+            if (screencell > 0.0005) {
+                if (!this.description) {
+                    this.description = '';
+                }
+                const __bits = [];
+                if (this.species) __bits.push(this.species);
+                // A track with no chromosome still has a name worth showing, so the locus is
+                // a part of the detail rather than a condition on drawing the tab at all.
+                if (this.chr) {
+                    __bits.push('chr' + this.chr + ':' + this.xi + '-' + this.xf);
+                    __bits.push(this.getKB() + ' KB');
+                }
+                let __desc = ('' + (this.description == null ? '' : this.description)).trim();
+                // Long gene/transcript descriptions would run the tab off the canvas.
+                if (__desc.length > 48) __desc = __desc.slice(0, 47) + '…';
+                if (__desc) __bits.push(__desc);
+                drawTrackTab(
                     ctx,
-                    this.name,
-                    graph.X((this.grid.xi - 100)),
-                    graph.Y(this.grid.Y(0.1)),
-                    'lightBlue',
-                    this.detail_ffont7
+                    ('' + (this.name == null ? '' : this.name)).trim(),
+                    __bits.join('  ·  '),
+                    graph.X((this.grid.xi)),
+                    graph.Y(this.grid.Y(this.grid.ymax)),
+                    this.themeColors(),
+                    !!this.showResizeBar
                 );
             }
 
             if (this.showResizeBar) {
-                if (!this.description) {
-                    this.description = '';
-                }
-
-                drawString(
-                    ctx,
-                    this.name,
-                    graph.X(this.grid.X(0)),
-                    graph.Y(this.grid.Y(this.grid.ymax - (this.grid.ymax - this.grid.ymin) / 2)),
-                    'blue',
-                    this.detail_ffont7
-                );
-
-                if (screencell > 0.05 && this.chr) {
-                    // Species leads in bold; the locus and description follow, quieter. A track
-                    // whose organism could not be read from its id simply has no species part
-                    // rather than a guessed one -- see speciesFromTranscriptId in lib/core.js.
-                    let __detail = 'chr' + this.chr + ':' + this.xi + '-' + this.xf
-                        + '  ·  ' + this.getKB() + ' KB';
-                    let __desc = ('' + (this.description == null ? '' : this.description)).trim();
-                    // Long gene/transcript descriptions would run the tab off the canvas.
-                    if (__desc.length > 48) __desc = __desc.slice(0, 47) + '…';
-                    if (__desc) __detail += '  ·  ' + __desc;
-                    drawTrackTab(
-                        ctx,
-                        this.species || '',
-                        __detail,
-                        graph.X((this.grid.xi)),
-                        graph.Y(this.grid.Y(this.grid.ymax)),
-                        this.themeColors()
-                    );
-                }
-
                 fillTranslucentRect(
                     ctx,
                     graph.X(this.grid.xi),

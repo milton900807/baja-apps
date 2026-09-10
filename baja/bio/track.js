@@ -8242,67 +8242,120 @@ return new Promise(async (resolve, reject) => {
           }
         }
 
-        const nameX = this.tgraph.xi + this.tgraph.width;
-        const nameY = this.tgraph.Y(this.tgraph.ymax - (this.tgraph.ymax - this.tgraph.ymin) / 2);
-
-        graph.drawString(this.name, nameX, nameY, GX_T.ink, this.detail_ffont7);
-
-        // Persistent track-name watermark: a faint label pinned to the LEFT edge of the visible
-        // track at its vertical centre, drawn in SCREEN space so it stays on screen no matter how
-        // far you pan / zoom into a feature — as long as the track is in view, its name is too.
+        // ---- THE TRACK'S TAB ------------------------------------------------------------
+        //
+        // ONE label, where there were three, none of which you could read a track by:
+        //
+        //   * the name, drawn at the track's far RIGHT edge in the 9px detail font -- the
+        //     opposite end from where anyone looks for a label, and the first thing to leave
+        //     the screen when you pan into a feature
+        //   * a "watermark" copy of the name at rgba(10,37,64,0.14) -- fourteen per cent
+        //     opacity, which on the default theme is pale navy over a dark navy track and is
+        //     essentially invisible
+        //   * the species/locus header, drawn at the top-left through drawString in the 11px
+        //     font. It measured the text and computed padX, padY and a background height for
+        //     a box -- and then never drew one; the three constants were dead and the header
+        //     was bare small text over whatever the track had already painted
+        //
+        // What replaces them is a filing tab: the NAME at 16px bold, the species and locus
+        // beside it at 11px, on a solid ground with a border and a drop shadow. Square where
+        // it meets the track so it reads as attached to it, rounded on the top corners.
+        //
+        // PINNED IN SCREEN SPACE, which is the one good idea the watermark had. The tab
+        // follows the visible left edge of the track rather than its start, so panning into
+        // the middle of a gene does not leave the track unlabelled -- while it is on screen,
+        // its name is too.
+        //
+        // The colours come from the track's own ink/paper pair, so it reads on every theme:
+        // those two are already guaranteed to contrast (they are the track's text and its
+        // background), where a fixed navy-on-white tab would vanish on Blueprint or Midnight.
         try {
-          const _wctx = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
-          if (_wctx && this.name) {
-            const _cw = _wctx.canvas.width, _ch = _wctx.canvas.height;
+          const _c = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
+          if (_c && (this.name || this.chr)) {
+            const _cw = _c.canvas.width, _ch = _c.canvas.height;
             const _l = graph.grid.X(this.tgraph.X(this.xi));
             const _r = graph.grid.X(this.tgraph.X(this.xf));
             const _lo = Math.min(_l, _r), _hi = Math.max(_l, _r);
-            const _scy = graph.grid.Y(nameY);
-            // Only when the track band is on screen (vertically) and any of it is visible (horizontally).
-            if (_scy > -30 && _scy < _ch + 30 && _hi > 0 && _lo < _cw) {
-              _wctx.save();
-              _wctx.shadowColor = 'transparent'; _wctx.shadowBlur = 0;
-              _wctx.font = 'bold 20px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
-              _wctx.textAlign = 'left';
-              _wctx.textBaseline = 'middle';
-              const _tw = _wctx.measureText(this.name).width;
-              // Pin to the left edge of the VISIBLE portion of the track (canvas margin if the
-              // track's start is off-screen left), but never let it run past the track's right end.
-              let _nx = Math.max(8, _lo);
-              _nx = Math.min(_nx, Math.max(8, _hi - _tw - 8));
-              _wctx.fillStyle = 'rgba(10,37,64,0.14)';   // faint navy watermark
-              _wctx.fillText(this.name, _nx, _scy);
-              _wctx.restore();
+            const _yBottom = graph.grid.Y(this.tgraph.Y(this.tgraph.ymax));
+
+            // Only while the track is actually on screen.
+            if (_yBottom > -60 && _yBottom < _ch + 60 && _hi > 0 && _lo < _cw) {
+              const _name = ('' + (this.name == null ? '' : this.name)).trim();
+              const _bits = [];
+              if (this.species) _bits.push(this.species);
+              if (this.chr) {
+                _bits.push('chr' + this.chr + ':' + this.xi + '-' + this.xf);
+                _bits.push(this.getKB() + ' KB');
+              }
+              let _d = ('' + (this.description == null ? '' : this.description)).trim();
+              if (_d.length > 48) _d = _d.slice(0, 47) + '…';
+              if (_d) _bits.push(_d);
+              const _detail = _bits.join('  ·  ');
+
+              const NAMEF = '700 16px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+              const DETF = '11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+              const _padX = 12, _gap = 10, _h = 26, _r2 = 6;
+
+              _c.save();
+              _c.font = NAMEF;
+              const _wN = _name ? _c.measureText(_name).width : 0;
+              _c.font = DETF;
+              const _wD = _detail ? _c.measureText(_detail).width : 0;
+              const _w = _wN + (_wN && _wD ? _gap : 0) + _wD + _padX * 2;
+
+              // Follow the visible left edge, but never run past the track's own right end.
+              let _x = Math.max(4, _lo);
+              _x = Math.min(_x, Math.max(4, _hi - _w));
+              const _yTop = _yBottom - _h;
+
+              const _sel = !!this.showResizeBar;
+              const _ink = GX_T.ink || '#0a2540';
+              const _paper = GX_T.paper || '#ffffff';
+
+              _c.beginPath();
+              _c.moveTo(_x, _yBottom);
+              _c.lineTo(_x, _yTop + _r2);
+              _c.quadraticCurveTo(_x, _yTop, _x + _r2, _yTop);
+              _c.lineTo(_x + _w - _r2, _yTop);
+              _c.quadraticCurveTo(_x + _w, _yTop, _x + _w, _yTop + _r2);
+              _c.lineTo(_x + _w, _yBottom);
+              _c.closePath();
+
+              // A shadow so the tab sits ON the board instead of being drawn into it, cleared
+              // straight afterwards -- a shadow left set would smear every glyph below.
+              _c.shadowColor = 'rgba(0,0,0,0.35)';
+              _c.shadowBlur = 7;
+              _c.shadowOffsetY = 1;
+              _c.fillStyle = _sel ? _ink : _paper;
+              _c.fill();
+              _c.shadowColor = 'transparent'; _c.shadowBlur = 0; _c.shadowOffsetY = 0;
+              _c.lineWidth = _sel ? 2 : 1;
+              _c.strokeStyle = _ink;
+              _c.stroke();
+
+              _c.textAlign = 'left';
+              _c.textBaseline = 'middle';
+              const _ty = _yTop + _h / 2;
+              let _tx = _x + _padX;
+              if (_name) {
+                _c.font = NAMEF;
+                _c.fillStyle = _sel ? _paper : _ink;      // selection inverts the tab
+                _c.fillText(_name, _tx, _ty);
+                _tx += _wN + _gap;
+              }
+              if (_detail) {
+                _c.font = DETF;
+                // Quieter than the name, but still on the tab's own ground rather than a
+                // fixed grey that could match it.
+                _c.globalAlpha = 0.72;
+                _c.fillStyle = _sel ? _paper : _ink;
+                _c.fillText(_detail, _tx, _ty);
+                _c.globalAlpha = 1;
+              }
+              _c.restore();
             }
           }
         } catch (e) { }
-
-        let headerText;
-
-        if (this.chr && this.species) {
-          headerText = this.species + " chr" + this.chr + ":" + this.xi + "-" + this.xf + "(" + this.getKB() + "KB) " + this.description;
-        } else if (this.chr) {
-          headerText = "chr" + this.chr + ":" + this.xi + "-" + this.xf + " " + this.description;
-        }
-
-        if (headerText) {
-          const textX = this.tgraph.xi;
-          const textY = this.tgraph.Y(this.tgraph.ymax);
-
-          ctx.save();
-          ctx.font = this.detail_ffont7;
-          const m = ctx.measureText(headerText);
-          ctx.restore();
-
-          const textHeight = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-
-          const padX = 10;
-          const padY = 6;
-
-          const bgH = textHeight + padY * 2;
-
-          graph.drawString(headerText, textX, textY, GX_T.ink, this.detail_ffont6);
-        }
 
         for (let icon of this.icons) {
           try {
