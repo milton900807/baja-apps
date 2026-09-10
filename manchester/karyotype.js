@@ -1780,7 +1780,20 @@ function (path, config) {
                             const STEP = 250000;
                             const qlo = Math.max(1, Math.floor(wlo / STEP) * STEP);
                             const qhi = Math.min(c.length, Math.ceil(whi / STEP) * STEP);
-                            if (qhi > qlo && (qhi - qlo) <= 20000000) {
+                            // HOW MUCH OF A CHROMOSOME MAY BE ASKED ABOUT AT ONCE. This was
+                            // 20 Mb, which is a quarter of chr17 and a twelfth of chr1 -- so
+                            // zooming onto a chromosome to look at its patents, the obvious
+                            // way to use this, asked for nothing and drew nothing, with the
+                            // strip visible beside it the whole time. The cap is now the
+                            // longest chromosome there is, so a whole one always qualifies.
+                            //
+                            // Measured before raising it: chr17 end to end is 3.6 s on the
+                            // server, 14,739 transcripts and 416 patents, and the answer is
+                            // cached per rounded window and asked for once. What bounds the
+                            // number of these in flight is the bar width above -- a genome-
+                            // wide view has bars far too narrow to hold a label, so nothing
+                            // is asked at all until the view is down to a few chromosomes.
+                            if (qhi > qlo && (qhi - qlo) <= 260000000) {
                                 const kk = patLabelKey(ci, qlo, qhi);
                                 const rec = patLabels.get(kk);
                                 if (!rec) { patLabelsAsk(ci, qlo, qhi); }
@@ -2458,7 +2471,15 @@ function (path, config) {
         // three gigabytes of object headers to draw a heat strip nobody can click.
         const HIST_BINS = 2048;      // per chromosome: chr1 is ~122 kb a bin
         const EXACT_MAX = 400;       // visible variants drawn one at a time; above this, density
-        const VAR_META_MIN_W = 54;   // a bar narrower than this holds no metadata worth reading
+        // A bar narrower than this cannot hold even the shortest change ("A>T" is 16 px of
+        // text plus the 5 px of clear either side), so there is nothing to try. It is
+        // deliberately the FLOOR and not a judgement about how wide a bar ought to be:
+        // whether a particular string fits a particular bar is measured below, against that
+        // bar. Set at 54 to begin with, which quietly refused the commonest view there is --
+        // the whole genome across the screen puts a bar at about 34 px, so someone who
+        // zoomed into position far enough to see individual variants, without also zooming
+        // horizontally onto one chromosome, was told nothing at all.
+        const VAR_META_MIN_W = 28;
         const VAR_META_PX = 13;      // two metadata rows closer than this would touch
         // The significance a variant is carrying, in the width a chromosome bar has.
         // CLS_SIG's own wording is what the editor needs and is far too long to put inside a
@@ -2976,13 +2997,39 @@ function (path, config) {
         // Only when the text FITS. A label clipped at the bar edge, or one drawn over its
         // neighbour, is worse than the strip alone: it looks like information and cannot be
         // read. Measured, never estimated.
-        const PAT_LABEL_MIN_W = 90;     // a bar narrower than this holds no useful label
+        // THE FLOOR, not a judgement about how wide a bar ought to be. The shortest thing
+        // a patent label ever shrinks to is its publication number alone -- "US12406749",
+        // about 56 px at 10 px bold -- and the 8 px of clear either side makes 64. Whether a
+        // PARTICULAR label fits a PARTICULAR bar is measured below, against that bar, and
+        // the full "US12406749 President and Fellows of Harvard College" needs a far wider
+        // one. Set at 90 to begin with, which refused bars that could have carried the
+        // number perfectly well.
+        const PAT_LABEL_MIN_W = 64;
         const PAT_LABEL_PX = 11;        // and rows closer than this collide
         const patLabels = new Map();    // 'ci:lo:hi' -> {state, list}
         const patLabelKey = (ci, lo, hi) => ci + ':' + lo + ':' + hi;
+        // HOW MANY OF THESE MAY BE IN THE AIR AT ONCE.
+        //
+        // paint() asks per VISIBLE CHROMOSOME, so a view holding a dozen of them wide enough
+        // to label asks a dozen questions in one frame, and each is a scan of every patent
+        // hit over every transcript in the window -- 3.6 s and 14,739 transcripts for a whole
+        // chr17. The server runs six python jobs at a time across the whole site, so twelve
+        // of these take all six slots and queue the rest: the labels do not arrive, and
+        // neither does anything else anyone is doing, because every other tool is behind them
+        // in the same queue. Seen on production doing exactly that -- six active, twenty-three
+        // queued, all of them this script.
+        //
+        // Two at a time, and a refusal is NOT recorded as pending, so the frame after asks
+        // again and the rest arrive in their own time. Labels appearing chromosome by
+        // chromosome over a few seconds is the correct behaviour for a question this
+        // expensive; taking the server down to answer it faster is not.
+        const PAT_ASK_MAX = 2;
+        let patAsking = 0;
         const patLabelsAsk = async (ci, lo, hi) => {
             const k = patLabelKey(ci, lo, hi);
             if (patLabels.has(k)) return;
+            if (patAsking >= PAT_ASK_MAX) return;   // deliberately not marked pending
+            patAsking++;
             patLabels.set(k, { state: 'pending', list: [] });
             if (patLabels.size > 60) {
                 for (const kk of Array.from(patLabels.keys()).slice(0, 30)) patLabels.delete(kk);
@@ -2995,6 +3042,7 @@ function (path, config) {
                     PAT_NAME_KEY, (r.species || 'human'), '40');
                 if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; } }
             } catch (e) { list = []; }
+            finally { patAsking = Math.max(0, patAsking - 1); }
             list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
             list.sort((a, b) => (+a.start) - (+b.start));
             patLabels.set(k, { state: 'done', list: list });
