@@ -726,7 +726,7 @@ function (path, config) {
                                         label: 'Upload', icon: 'upload_file',
                                         tooltip: 'Read a VCF, a genetic report, or any file carrying genetic '
                                             + 'information onto the karyotype, and keep it in My Files',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); pickFile(); })
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); uploadMenu(); })
                                     },
                                     // A POPULATION, NOT A FILE. The 1011 yeast genomes are
                                     // one 5.4 GB VCF that no browser should be handed, so the
@@ -3779,10 +3779,13 @@ function (path, config) {
         // The picker. Reading and uploading are separate jobs on the same file and both are
         // worth doing: whatever the file is, it is kept in My Files whether or not the
         // drawing found anything in it.
-        const pickFile = () => {
+        const pickFile = (accept) => {
             try {
                 const input = document.createElement('input');
                 input.type = 'file';
+                // The card that opened this says what kind of file it is for; the picker
+                // filters to that, and the reader still checks the bytes, not the name.
+                if (accept) { try { input.accept = accept; } catch (e) { } }
                 input.style.cssText = 'position:fixed;left:-9999px;';
                 document.body.appendChild(input);
                 input.onchange = async () => {
@@ -5709,6 +5712,57 @@ function (path, config) {
             } catch (e) {
                 step('files shelf threw: ' + e);
                 graph.setMessage(' Files could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+            }
+        };
+
+        // UPLOAD IS A LIBRARY OF THE KINDS OF FILE IT TAKES. The button used to open the
+        // picker straight away, which meant the only place that said what could be
+        // uploaded was the tooltip. One card per kind, each opening the picker filtered
+        // to it, and a card for anything else; the reader still decides from the bytes.
+        const uploadMenu = () => {
+            const n = SAMPLES.length;
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-upload',
+                    title: 'Upload',
+                    subtitle: (vtotal ? vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' on the genome'
+                            + (n ? ' from ' + n + ' sample' + (n === 1 ? '' : 's') : '') + '  \u00b7  '
+                        : '') + 'Whatever is opened is also kept in My Files.',
+                    books: [
+                        {
+                            title: 'A VCF', badge: 'variants',
+                            blurb: 'Plain or bgzipped, any size: it is read in slices here and every variant is drawn. '
+                                + 'Sample and phase columns are read too, and colour the marks.',
+                            open: () => pickFile('.vcf,.vcf.gz,.vcf.bgz,.gz,.bgz,text/vcf'),
+                        },
+                        {
+                            title: 'A genetic report or lab PDF', badge: 'report',
+                            blurb: 'A clinical report, a lab result, a paper, a screenshot of one. The genes and variants it names '
+                                + 'are read out and placed on the genome from the annotation, not guessed.',
+                            open: () => pickFile('.pdf,image/*,.docx,.doc,.rtf'),
+                        },
+                        {
+                            title: 'A table of variants', badge: '23andMe · TSV',
+                            blurb: 'A 23andMe or AncestryDNA export, an annotated spreadsheet, a BED-like list: the chromosome '
+                                + 'and position columns are identified and the rows drawn.',
+                            open: () => pickFile('.txt,.tsv,.csv,.bed,.xlsx,.xls'),
+                        },
+                        {
+                            title: 'A gene list or anything else', badge: 'any file',
+                            blurb: 'A panel, a list of symbols, a document. It is asked what it is, and whatever genetic '
+                                + 'information it carries goes on the genome.',
+                            open: () => pickFile(''),
+                        },
+                        {
+                            note: true, blurb: '', title: 'Rows of a VCF can also be pasted straight onto the chromosomes: '
+                                + 'copy them and press Ctrl+V with this view open.',
+                        },
+                    ],
+                    graph: graph,
+                });
+            } catch (e) {
+                step('upload shelf threw: ' + e);
+                graph.setMessage(' Upload could not be opened: ' + (e && e.message ? e.message : e) + ' ');
             }
         };
 
