@@ -1006,7 +1006,17 @@ return new Promise(async (resolve, reject) => {
                 : [];
 
             t.snpindels = Array.isArray(data.snpindels)
-                ? data.snpindels.map((s) => deepClone(s))
+                ? (function () {
+                    const seen = {}; const out = [];
+                    for (const raw of data.snpindels) {
+                        const c = deepClone(raw);
+                        const ref = (c.ref != null ? c.ref : c.reference);
+                        const alt = (c.alt != null ? c.alt : c.alternate);
+                        const k = [c.xi, c.xf, ref, alt, c.type].join('|');
+                        if (seen[k]) continue; seen[k] = true; out.push(c);
+                    }
+                    return out;
+                })()
                 : [];
 
             t.plots = Array.isArray(data.plots)
@@ -3456,8 +3466,36 @@ return new Promise(async (resolve, reject) => {
                 this.grid.rescale();
             }
         }
+        // Identity of a variant on a track: position and alleles, NOT its id (an inherited
+        // copy carries a different id but is the same variant). Two snpindels with the same
+        // key are the same variant and must appear only once on the track.
+        snpKey(s) {
+            if (!s) return '';
+            const ref = (s.ref != null ? s.ref : s.reference);
+            const alt = (s.alt != null ? s.alt : s.alternate);
+            return [s.xi, s.xf, ref, alt, s.type].join('|');
+        }
+        hasSnpindel(snpindel) {
+            const k = this.snpKey(snpindel);
+            for (const e of (this.snpindels || [])) { if (this.snpKey(e) === k) return true; }
+            return false;
+        }
+        // Collapse any duplicates already on the track to a single copy of each variant.
+        dedupeSnpindels() {
+            const seen = {};
+            const out = [];
+            for (const s of (this.snpindels || [])) {
+                const k = this.snpKey(s);
+                if (seen[k]) continue;
+                seen[k] = true; out.push(s);
+            }
+            this.snpindels = out;
+            return this.snpindels;
+        }
         addsnpindel(snpindel) {
-
+            if (!snpindel) return;
+            // No duplicate variants on a track: the same snp shows only once.
+            if (this.hasSnpindel(snpindel)) return;
             this.snpindels.push(snpindel);
         }
 
@@ -3807,13 +3845,13 @@ return new Promise(async (resolve, reject) => {
 
                             _sid.name = sid.name;
 
-                            this.snpindels.push(_sid);
+                            this.addsnpindel(_sid);
 
                         } else if (this.trackRef.genomeMap.includes(sid.xf)) {
                             let _sid = new SnpIndel(sid.type, mapConverter[sid.xf - sid.reference.length], sid.reference, sid.alternate, sid.phase, sid.transcriptStrand, sid.id + '*');
                             _sid.name = sid.name;
 
-                            this.snpindels.push(_sid);
+                            this.addsnpindel(_sid);
                         }
                     }
                 }
