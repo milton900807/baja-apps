@@ -3151,6 +3151,26 @@ function (path, config) {
                                                     ]
                                                 },
                                                 {
+                                                    // Download sits right after Navigate: once you
+                                                    // have found and framed something, the next
+                                                    // thing you may want is to take it away. It is
+                                                    // a LIBRARY, not a menu -- the same shelf idiom
+                                                    // as Navigate -- walking from the whole
+                                                    // workbench down to a single oligo or variant,
+                                                    // each level ending in a choice of format.
+                                                    label: 'Download', icon: 'download',
+                                                    tooltip: 'Download tracks and their elements as BED, JSON, CSV, XLSX or PDF',
+                                                    ionFunction: createIonFunction(async () => {
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        if (!graph.track || graph.track.length === 0) {
+                                                            graph.setSunsetMessage(" Load a track first ");
+                                                            return;
+                                                        }
+                                                        try { await exec('manchester/io/download-hub.js', graph, genegraph_panel_layout); }
+                                                        catch (e) { try { graph.setError('Could not open Download: ' + e, 8); } catch (e2) { } }
+                                                    })
+                                                },
+                                                {
                                                     // LAST in the row on purpose: help is not
                                                     // something you do to a design, so it sits
                                                     // after the things that are.
@@ -3205,7 +3225,7 @@ function (path, config) {
                 // any button without a mapped icon falls back to its text label.
                 try {
                     const __bm = genegraph_panel_layout.data.cards[0][0].component.data.buttons;
-                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with' };
+                    const __icons = { File: 'folder', Draw: 'gesture', Layers: 'layers', Design: 'biotech', Navigate: 'open_with', Download: 'download' };
                     // Track uses a Material SYMBOLS glyph (DNA double helix) rather than a classic
                     // Material Icons ligature — rendered via b.iconSymbol (see button-menu.component).
                     const __symbolIcons = { Track: 'genetics' };
