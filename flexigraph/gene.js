@@ -11632,6 +11632,40 @@ pattern, GGGG | Required`
                                 }
                             },
                         );
+                        // With more than one variant selected, offer to DEDUP: drop the ones
+                        // that repeat a variant already in the selection -- same track, position
+                        // and alleles. Keep the first of each. Confirms first and is undoable.
+                        if (picks.length > 1) {
+                            sub.splice(2, 0, {
+                                label: 'Remove duplicate variants',
+                                move: () => { },
+                                click: () => {
+                                    const seen = new Set();
+                                    const dups = [];
+                                    for (const x of picks) {
+                                        const sn = x.ref, tr = x.track;
+                                        const key = [(tr && (tr.name || tr.id) || ''), (sn && sn.xi), (sn && sn.xf), (sn && sn.ref), (sn && sn.alt), (sn && sn.type)].join('|');
+                                        if (seen.has(key)) dups.push(x); else seen.add(key);
+                                    }
+                                    if (!dups.length) { try { this.setMessage(' No duplicate variants in the selection. '); } catch (e) { } return; }
+                                    close();
+                                    const run = () => {
+                                        try { if (this.pushOntoHistory) this.pushOntoHistory(); } catch (e) { }
+                                        let n = 0;
+                                        for (const x of dups) { try { if (x.track && x.track.removesnp) { x.track.removesnp(x.ref); n++; } } catch (e) { } }
+                                        try { if (this.wake) this.wake(); } catch (e) { }
+                                        try { if (this.rescale) this.rescale(); } catch (e) { }
+                                        try { this.setResultMessage(' Removed ' + n + ' duplicate variant' + (n === 1 ? '' : 's') + '. Undo restores them. '); } catch (e) { }
+                                    };
+                                    try {
+                                        Promise.resolve(exec('baja/lib/confirm.js',
+                                            'Remove ' + dups.length + ' duplicate variant' + (dups.length === 1 ? '' : 's') + '? The first of each identical variant (same track, position and alleles) is kept.',
+                                            () => { run(); }, 'Remove duplicates'))
+                                            .then((c) => { try { showModal(c); } catch (e) { } });
+                                    } catch (e) { run(); }
+                                }
+                            });
+                        }
                     }
                     sub.push({ label: '‹ Back', click: () => { openMain(); }, move: () => { } });
                     show(sub, menuLabel(k));
