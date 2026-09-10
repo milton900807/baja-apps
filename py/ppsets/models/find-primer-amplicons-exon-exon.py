@@ -55,6 +55,21 @@ except Exception:
 # -----------------------------------------------------------------------------
 # Progress / messaging helpers
 # -----------------------------------------------------------------------------
+# ---- PROGRESS PHASES ---------------------------------------------------------------------
+#
+# This script runs TWO tools that do different jobs, and the progress line used to blur them
+# into one: the whole run was reported under a "djPrimer" heading while the message underneath
+# read "primer3 scanning", which reads as a contradiction to anyone who knows the difference.
+#
+#   primer3   DESIGNS. It proposes candidate primer pairs by thermodynamics, walking the
+#             transcript in windows. Roughly the first half of the run.
+#   djPrimer  RANKS. It cannot propose a primer -- its whole API is scoring -- so it takes
+#             what primer3 designed and predicts each pair's probability of assay success,
+#             which is dominated by the target gene's expression. The second half.
+#
+# So every message below names the tool that is actually working, and the phase it belongs
+# to. The percentages are unchanged; only what they say about themselves is.
+
 def _progress(pct: float, msg: str | None = None) -> None:
     p = int(max(0, min(100, round(pct))))
     if _HAS_ION:
@@ -592,7 +607,7 @@ def design_candidates_windowed(
             break
 
         if idx % max(1, len(starts) // 20) == 0:
-            _progress(10 + 40 * (idx / max(1, len(starts))), f"primer3 scanning... ({idx}/{len(starts)})")
+            _progress(10 + 40 * (idx / max(1, len(starts))), f"Design 1/2 -  candidates, window {idx} of {len(starts)}...")
 
         window = template[window_start : window_start + window_size]
         if len(window) < product_min + 20:
@@ -796,7 +811,7 @@ def ion_main() -> None:
     dedupe = bool(options.get("dedupe", True))
     min_sep = int(options.get("min_sep", 150))
 
-    _progress(1, "Parsing track JSON (sequence + exons)...")
+    _progress(1, "Reading the track's sequence and exons...")
     name, raw_seq, exons = _extract_track_sequence_and_exons(inp)
     template = norm_rna_to_dna(raw_seq)
 
@@ -813,12 +828,16 @@ def ion_main() -> None:
 
     junctions = exon_junction_positions(exons)
 
-    _progress(5, f"Loading model bundle from: {model_path}")
+    # Loaded up front, before any design, so a bundle that cannot be unpickled fails the run
+    # in a second rather than after several minutes of primer3. It is SETUP, not the ranking
+    # phase -- calling it "Rank 2/2" at 5% would say the run was nearly done designing when it
+    # had not started.
+    _progress(5, "Loading the Ct ranking model...")
     bundle = load_modelbundle(model_path)
 
     allow_probe = not no_probe
 
-    _progress(10, "Designing candidates with primer3 (windowed)...")
+    _progress(10, "Design 1/2 -  proposing candidates across the transcript...")
     cands = design_candidates_windowed(
         template,
         product_min=product_min,
@@ -865,20 +884,20 @@ def ion_main() -> None:
         )
         return
 
-    _progress(55, f"Scoring {len(cands)} candidates with Ct model...")
+    _progress(55, f"Rank 2/2 - Ct model scoring {len(cands)} candidates...")
     df = score_candidates(bundle, cands)
 
-    _progress(75, "Ranking candidates...")
+    _progress(75, "Rank 2/2 - ordering by score...")
     df = df.sort_values(
         by=["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"],
         ascending=[False, True, True],
     ).reset_index(drop=True)
 
     if dedupe:
-        _progress(82, "De-duplicating exact amplicons...")
+        _progress(82, "Rank 2/2 - removing duplicate amplicons...")
         df = dedupe_exact(df)
     if min_sep > 0:
-        _progress(88, f"Enforcing min spacing (min_sep={min_sep})...")
+        _progress(88, f"Rank 2/2 - spacing them at least {min_sep} nt apart...")
         df = enforce_spacing(df, min_sep=min_sep)
 
     # ------------------ NEW FILTER: amplicon spans exon junction ------------------

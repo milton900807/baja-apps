@@ -2094,11 +2094,11 @@ function (graph, genegraph_panel_layout) {
                                                     const __em = new EngineMonitor((m) => {
                                                         try {
                                                             const b = ('' + (m == null ? '' : m)).replace(/[.\u2026\s]+$/, '');
-                                                            graph.setMessage(' djPrimer · ' + ((selectedTrack && selectedTrack.name) || 'track')
+                                                            graph.setMessage(' Primer-probe design · ' + ((selectedTrack && selectedTrack.name) || 'track')
                                                                 + (b ? ' · ' + b : '') + '… ');
                                                         } catch (e) { }
                                                     });
-                                                    graph.setMessage(' djPrimer · ' + ((selectedTrack && selectedTrack.name) || 'track') + ' · starting… ');
+                                                    graph.setMessage(' Primer-probe design · ' + ((selectedTrack && selectedTrack.name) || 'track') + ' · starting… ');
                                                     let r = await exec('py/ppsets/models/find-primer-amplicons.py', __em, '' + sequence, '', '', opts);
                                                     selectedTrack.ampliconResults = r;
                                                     await exec('baja/manchester/ppsets/apply-djprimer.js', r, selectedTrack.markstart - selectedTrack.xi, selectedTrack, graph);

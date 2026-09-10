@@ -1915,7 +1915,12 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
             const sequence = __wholeTrackSequence();
             const gene = selectedTrack.geneID || selectedTrack.name || '';
             const opts = JSON.stringify({ scorer: 'djprimer', gene: '' + gene });
-            const em = __designMonitor('djPrimer · ' + (selectedTrack.name || 'track'));
+            // NAMED FOR THE JOB, NOT ONE OF THE TWO TOOLS. This heading read "djPrimer",
+            // which put the label of the RANKER over a line that spends the first half of the
+            // run saying "primer3 proposing candidates" -- a contradiction to anyone who knows
+            // that djPrimer cannot design a primer and primer3 cannot predict assay success.
+            // The heading is the job; the phase underneath names whichever tool is working.
+            const em = __designMonitor('Primer-probe design · ' + (selectedTrack.name || 'track'));
             let r = null;
             const placed = await __placedDuring(async () => {
                 r = await exec('py/ppsets/models/find-primer-amplicons.py', em, '' + sequence, '', '', opts);

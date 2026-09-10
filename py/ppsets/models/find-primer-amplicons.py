@@ -61,6 +61,21 @@ except Exception:
 # -----------------------------------------------------------------------------
 # Progress / messaging helpers
 # -----------------------------------------------------------------------------
+# ---- PROGRESS PHASES ---------------------------------------------------------------------
+#
+# This script runs TWO tools that do different jobs, and the progress line used to blur them
+# into one: the whole run was reported under a "djPrimer" heading while the message underneath
+# read "primer3 scanning", which reads as a contradiction to anyone who knows the difference.
+#
+#   primer3   DESIGNS. It proposes candidate primer pairs by thermodynamics, walking the
+#             transcript in windows. Roughly the first half of the run.
+#   djPrimer  RANKS. It cannot propose a primer -- its whole API is scoring -- so it takes
+#             what primer3 designed and predicts each pair's probability of assay success,
+#             which is dominated by the target gene's expression. The second half.
+#
+# So every message below names the tool that is actually working, and the phase it belongs
+# to. The percentages are unchanged; only what they say about themselves is.
+
 def _progress(pct: float, msg: str | None = None) -> None:
     p = int(max(0, min(100, round(pct))))
     if _HAS_ION:
@@ -609,7 +624,7 @@ def design_candidates_windowed(
             break
 
         if idx % max(1, len(starts) // 20) == 0:
-            _progress(10 + 40 * (idx / max(1, len(starts))), f"primer3 scanning... ({idx}/{len(starts)})")
+            _progress(10 + 40 * (idx / max(1, len(starts))), f"Design 1/2 -  candidates, window {idx} of {len(starts)}...")
 
         window = template[window_start: window_start + window_size]
         if len(window) < product_min + 20:
@@ -988,7 +1003,7 @@ def ion_main() -> None:
     scorer = str(options.get("scorer", "ct")).lower()
     gene = str(options.get("gene", "") or "")
 
-    _progress(1, "Parsing input sequence...")
+    _progress(1, "Reading the target sequence...")
     name, raw_seq = _extract_first_sequence(inp)
     template = norm_rna_to_dna(raw_seq)
 
@@ -1008,7 +1023,7 @@ def ion_main() -> None:
 
     allow_probe = not no_probe
 
-    _progress(10, "Designing candidates with primer3 (windowed)...")
+    _progress(10, "Design 1/2 -  proposing candidates across the transcript...")
     cands = design_candidates_windowed(
         template,
         product_min=product_min,
@@ -1069,7 +1084,7 @@ def ion_main() -> None:
     # versions) — so only load that bundle for the Ct path.
     scorer_used = "ct"
     if scorer == "djprimer":
-        _progress(55, f"Scoring {len(cands)} candidates with djPrimer (assay success)...")
+        _progress(55, f"Rank 2/2 - djPrimer scoring {len(cands)} candidates by predicted assay success...")
         try:
             df = djprimer_score_df(pd.DataFrame(cands), gene or name)
             scorer_used = "djprimer"
@@ -1082,23 +1097,23 @@ def ion_main() -> None:
             sort_by = ["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"]
             sort_asc = [False, True, True]
     else:
-        _progress(50, f"Loading model bundle from: {model_path}")
+        _progress(50, f"Rank 2/2 - loading the Ct model...")
         bundle = load_modelbundle(model_path)
-        _progress(55, f"Scoring {len(cands)} candidates with Ct model...")
+        _progress(55, f"Rank 2/2 - Ct model scoring {len(cands)} candidates...")
         df = score_candidates(bundle, cands)
         sort_by = ["prob_good_ct_lt_threshold", "p3_pair_penalty", "amp_len"]
         sort_asc = [False, True, True]
 
-    _progress(75, "Ranking candidates...")
+    _progress(75, "Rank 2/2 - ordering by score...")
     df = df.sort_values(by=sort_by, ascending=sort_asc).reset_index(drop=True)
 
     # remove duplicates + spacing
     if dedupe:
-        _progress(82, "De-duplicating exact amplicons...")
+        _progress(82, "Rank 2/2 - removing duplicate amplicons...")
         df = dedupe_exact(df)
 
     if min_sep > 0:
-        _progress(88, f"Enforcing min spacing (min_sep={min_sep})...")
+        _progress(88, f"Rank 2/2 - spacing them at least {min_sep} nt apart...")
         df = enforce_spacing(df, min_sep=min_sep)
 
     topn = max(1, topn)

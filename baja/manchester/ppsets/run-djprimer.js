@@ -75,7 +75,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
                 const __em = new EngineMonitor((m) => {
                     try {
                         const b = ('' + (m == null ? '' : m)).replace(/[.\u2026\s]+$/, '');
-                        graph.setMessage(' djPrimer · ' + ((t && t.name) || 'track') + (b ? ' · ' + b : '') + '… ');
+                        graph.setMessage(' Primer-probe design · ' + ((t && t.name) || 'track') + (b ? ' · ' + b : '') + '… ');
                     } catch (e) { }
                 });
                 const r = await exec('py/ppsets/models/find-primer-amplicons.py', __em, '' + sequence, '', '', opts);
@@ -110,7 +110,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
         let done = 0;
         for (let i = 0; i < list.length; i++) {
             const t = list[i];
-            status('djPrimer · ' + ((t && t.name) || ('track ' + (i + 1)))
+            status('Primer-probe design · ' + ((t && t.name) || ('track ' + (i + 1)))
                 + ' · ' + (i + 1) + ' of ' + list.length + '…');
             if (await runOne(t)) done++;
         }
