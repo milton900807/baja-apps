@@ -4807,14 +4807,29 @@ function (path, config) {
         //
         // Tested LAST, after the variants and marks that sit on the same bar: a click on a
         // variant is a click on that variant, not on the region it happens to lie in.
+        // A CLICK TARGET NO SMALLER THAN WHAT IS DRAWN.
+        //
+        // The band is drawn at `Math.max(1.5, ...)` px tall plus a stroke either side, so a
+        // gene always LOOKS clickable. This test had no such floor: it compared base pairs,
+        // and at the framing this view opens in -- the whole genome, ~509,000 bases to the
+        // pixel -- a highlighted BRCA1 is a band 0.25 px tall and TP53 is 0.05 px. Clicking
+        // the thing you can plainly see missed it essentially every time, and since a region
+        // is the last thing the click dispatch tries, the press did nothing at all: no menu,
+        // no editor, no message saying why.
+        //
+        // So the test is padded by the same pixels the drawing rounds up to, converted to
+        // bases through the grid's own scale. Zoomed in, where a region is already hundreds
+        // of pixels tall, the padding is a few hundred bases and changes nothing.
+        const REGION_GRAB_PX = 3;
         const regionAt = (wx, wyy) => {
             const bp = -wyy * MB;
+            const pad = Math.max(0, (basesPerPx() || 0) * REGION_GRAB_PX);
             for (let q = regions.length - 1; q >= 0; q--) {
                 const rg = regions[q];
                 const c = drawn[rg.i];
                 if (!c || c.circular) continue;
                 if (wx < barLeft(rg.i) || wx > barRight(rg.i)) continue;
-                if (bp < rg.lo || bp > rg.hi) continue;
+                if (bp < rg.lo - pad || bp > rg.hi + pad) continue;
                 return rg;
             }
             return null;
@@ -5031,6 +5046,19 @@ function (path, config) {
         const SIG_NAME = ['', 'Pathogenic / likely pathogenic', 'Benign',
             'Uncertain significance', 'Conflicting classifications'];
 
+        // ---- ONE VARIANT, AS A LIBRARY -----------------------------------------
+        //
+        // A click on a mark used to raise a small read-only card: change, name, ClinVar,
+        // gene. Everything it said was worth saying and none of it could be ACTED on, so the
+        // one thing a person wants after reading "BRCA1, pathogenic" -- to open it and work
+        // on it -- meant closing the card, finding the gene again, dragging a region round
+        // it and going through the transcript panel.
+        //
+        // So it is a shelf, in the idiom the rest of this view now uses: what is known about
+        // the variant as notes, and underneath them the things that can be done with it. The
+        // gene is looked up BEFORE the shelf opens rather than filled in after, because it is
+        // a one-base query answering in a fifth of a second and it is what the buttons under
+        // it have to name.
         const showVariant = async (ci, k) => {
             const c = drawn[ci], d = vdata[ci];
             const ab = allelesAt(ci, k);
@@ -5039,60 +5067,127 @@ function (path, config) {
             const nm = (d.names && d.names[k]) || '';
             const sig = SIG_NAME[d.cls[k]] || '';
             const mark = (d.hl && d.hl[k]) ? HL_NAME[d.hl[k]] : '';
-            const row = (label, value) => value
-                ? '<tr><td style="padding:3px 14px 3px 0;color:#5b6b7a;white-space:nowrap;">'
-                + esc(label) + '</td><td style="padding:3px 0;color:#0f172a;">'
-                + value + '</td></tr>' : '';
-            const body = (geneHtml) => '<div style="padding:14px 16px;font:13.5px Arial;">'
-                + '<div style="font:700 15px Arial;margin-bottom:8px;">'
-                + esc(c.name + ':' + pos.toLocaleString()) + '</div>'
-                + '<table style="border-collapse:collapse;">'
-                + row('Change', '<b>' + esc(ab[0]) + ' &rarr; ' + esc(ab[1]) + '</b>')
-                + row('Name', esc(nm))
-                + row('ClinVar', esc(sig))
-                + row('Samples', genotypesOf(d, k).filter((g) => g[1]).map((g, si) =>
-                    '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:'
-                    + (g[1] >= GT_HET ? (PHASE_COLOR[PHASE_OF_CODE[g[1]]] || SHARED_COLOR) : ABSENT_COLOR) + ';"></span>'
-                    + esc(g[0]) + ' <b>' + esc(GT_TEXT[g[1]]) + '</b>'
-                    + (g[1] >= GT_HET ? ' <span style="color:#5b6b7a;">' + esc(PHASE_NAME[PHASE_OF_CODE[g[1]]] || '') + '</span>' : '')
-                ).join('<br>'))
-                + row('Marked', mark ? '<span style="color:' + (HL_COLOR[d.hl[k]] || '#0f172a')
-                    + ';font-weight:700;">' + esc(mark) + '</span>' : '')
-                + row('Gene', geneHtml)
-                + row('Chromosome', esc(c.name + ' — ' + human(c.length) + ' bp'))
-                + '</table></div>';
-            const panel = (geneHtml) => ({
-                wid: 'card',
-                data: {
-                    height: '320px',
-                    cards: [[
-                        { 'title': ' ', 'width': '100%',
-                          'component': { wid: 'html', data: body(geneHtml) } },
-                    ]]
-                }
-            });
-            showModal(panel('<i style="color:#94a3b8;">looking…</i>'));
-            step('variant clicked ' + c.name + ':' + pos);
-            // The gene comes from the same annotation the rest of this view uses. A
-            // window of one base is enough: genes-in-range returns whatever overlaps it.
-            let geneHtml = '<i style="color:#94a3b8;">no gene annotated here</i>';
+            const where = c.name + ':' + human(pos);
+            const change = ab[0] + ' \u2192 ' + ab[1];
+            step('variant clicked ' + where);
+            graph.setMessage(' ' + where + ' — reading the gene there… ');
+
+            let gs = [];
             try {
                 const em4 = new EngineMonitor(() => { });
                 const rs = await exec(server + '/py/bio/genes-in-range.py', em4,
                     bare, '' + pos, '' + pos, (r.species || 'human'), '8');
-                let gs = [];
                 try { gs = JSON.parse((rs && rs.genes) || '[]'); } catch (e) { gs = []; }
-                if (gs.length) {
-                    geneHtml = gs.slice(0, 4).map((gg) => '<b>' + esc(gg.gene || '?') + '</b>'
-                        + (gg.biotype ? ' <span style="color:#5b6b7a;">(' + esc(gg.biotype) + ')</span>' : '')
-                        + (gg.transcript ? ' <span style="color:#94a3b8;">' + esc(gg.transcript) + '</span>' : '')
-                    ).join('<br>');
-                }
             } catch (e) { step('gene lookup threw: ' + e); }
-            // Re-show with the answer: the modal is cheap and this keeps the first
-            // paint immediate rather than waiting on the server to show anything.
-            try { hideAllModal(); } catch (e) { }
-            showModal(panel(geneHtml));
+            const withTx = gs.filter((gn) => gn.transcript);
+            const coding = withTx.filter((gn) => gn.coding);
+            const lead = coding[0] || withTx[0] || gs[0] || null;
+            const geneWord = lead ? (lead.gene || '') : '';
+
+            const books = [];
+            const note = (title, blurb) => { if (blurb) books.push({ section: 'This variant', note: true, title: title, blurb: blurb }); };
+            note('change', 'Change: ' + change + (nm ? '   ·   ' + nm : ''));
+            if (sig) note('significance', 'ClinVar: ' + sig);
+            if (mark) note('marked', 'Marked by the current filter as ' + mark + '.');
+            const gl = genotypesOf(d, k).filter((g) => g[1]);
+            if (gl.length) {
+                note('samples', 'Samples: ' + gl.map((g) => g[0] + ' ' + (GT_TEXT[g[1]] || './.')
+                    + (g[1] >= GT_HET && PHASE_NAME[PHASE_OF_CODE[g[1]]]
+                        ? ' (' + PHASE_NAME[PHASE_OF_CODE[g[1]]] + ')' : '')).join(',   '));
+            }
+            note('gene', gs.length
+                ? ('Gene: ' + gs.slice(0, 4).map((gg) => (gg.gene || '?')
+                    + (gg.biotype ? ' (' + gg.biotype + ')' : '')
+                    + (gg.transcript ? ' ' + gg.transcript : '')).join(',   '))
+                : 'No gene is annotated at this position.');
+            note('place', where + '   ·   ' + c.name + ' is ' + human(c.length) + ' bp');
+
+            // THE THING TO DO WITH IT. Straight through: the transcripts that contain this
+            // base are the answer to "which transcript", so it does not ask. The variants
+            // that come across are the ones inside those genes, not just this one, because a
+            // change is read against its neighbours -- and then the view goes to THIS one.
+            books.push({
+                section: 'Open it',
+                title: 'Open in oligo editor' + (geneWord ? ' — ' + geneWord : ''),
+                badge: coding.length ? 'coding' : (withTx.length ? 'transcript' : 'nothing here'),
+                ready: withTx.length > 0,
+                readyNote: 'Nothing at this position has a transcript in the ' + (r.species || 'human')
+                    + ' annotation, so there is nothing to load.',
+                blurb: withTx.length
+                    ? ('Load ' + (coding.length ? coding.slice(0, 6).map((g) => g.transcript).join(', ')
+                        : withTx.slice(0, 6).map((g) => g.transcript).join(', '))
+                        + ' into the editor with the variants that fall inside '
+                        + (geneWord || 'it') + ', then go straight to this change.')
+                    : '',
+                open: async () => {
+                    await openRange(ci, Math.max(0, pos - 1), Math.min(c.length, pos + 1), pos,
+                        { focus: { chr: bare, pos: pos } });
+                },
+            });
+            books.push({
+                section: 'Open it',
+                title: 'Select this region',
+                badge: 'region',
+                blurb: 'Add the gene around this variant to the selection, so it can be acted '
+                    + 'on with the others rather than on its own.',
+                open: async () => {
+                    const lo2 = lead ? Math.max(0, +lead.start) : Math.max(0, pos - 1000);
+                    const hi2 = lead ? Math.min(c.length, +lead.end) : Math.min(c.length, pos + 1000);
+                    regions.push({ i: ci, lo: lo2, hi: hi2, label: (geneWord || where) + '  ' + change, gene: geneWord });
+                    if (graph.wake) graph.wake();
+                    graph.setMessage(' ' + (geneWord || where) + ' selected — region ' + regions.length + '. ');
+                },
+            });
+            // WHAT IS KNOWN ABOUT IT, asked for only when asked for: it is a model call and
+            // most clicks on a mark are not a request for a dossier.
+            books.push({
+                section: 'Read about it',
+                title: 'What is known about this variant',
+                badge: 'dossier',
+                blurb: 'Ask for a written summary under fixed headings: what the change is, how '
+                    + 'it was classified, the conditions it is seen in, and what is not established.',
+                books: async () => {
+                    graph.setMessage(' Reading up on ' + (nm || where) + '… ');
+                    let out = [];
+                    try {
+                        const em5 = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                        const rs = await exec(server + '/py/bio/variant-dossier.py', em5, JSON.stringify([{
+                            key: where, name: nm || where, gene: geneWord, chr: bare, pos: pos,
+                            ref: ab[0], alt: ab[1],
+                            type: (ab[1].length > ab[0].length ? 'ins' : (ab[0].length > ab[1].length ? 'del' : 'snp')),
+                            rsid: /^rs\d+$/i.test(nm) ? nm : '', clinsig: sig, clindn: '',
+                            consequence: mark || '', transcript: lead ? (lead.transcript || '') : '',
+                            annotations: [],
+                        }]));
+                        let vs = [];
+                        try { vs = JSON.parse((rs && rs.variants) || '[]'); } catch (e) { vs = []; }
+                        const one = vs[0];
+                        if (rs && rs.error) {
+                            out = [{ note: true, title: 'error', blurb: '' + rs.error }];
+                        } else if (one && one.sections && one.sections.length) {
+                            out = one.sections.map((sc) => ({
+                                note: true, title: sc.heading || '',
+                                blurb: (sc.heading ? sc.heading + ': ' : '') + (sc.text || ''),
+                            }));
+                        }
+                    } catch (e) {
+                        out = [{ note: true, title: 'error', blurb: 'That could not be read: ' + (e && e.message ? e.message : e) }];
+                    }
+                    if (!out.length) out = [{ note: true, title: 'nothing', blurb: 'Nothing came back for this variant.' }];
+                    return out;
+                },
+            });
+
+            try {
+                await exec('baja/lib/shelf.js', {
+                    id: 'baja-variant-actions',
+                    title: (nm ? nm + '  ·  ' : '') + where,
+                    subtitle: change + (sig ? '   ·   ' + sig : '')
+                        + (geneWord ? '   ·   ' + geneWord : ''),
+                    graph: graph,
+                    books: books,
+                });
+            } catch (e) { step('variant shelf failed: ' + e); }
         };
 
         // ---- the library of things to do with them ------------------------------
@@ -6331,7 +6426,89 @@ function (path, config) {
         // them together. So the panel takes a LIST, and openRange below is the one-region
         // case of it -- one code path, so the transcript list, the tick boxes and the
         // handover to the editor cannot drift apart between the two ways in.
-        const openRegions = async (list, focusBp) => {
+        // ---- HANDING A SELECTION TO THE OLIGO EDITOR ---------------------------
+        //
+        // Lifted out of the transcript panel's button so that a click on a single variant can
+        // take the same road. The editor is a different app with a different graph, and it
+        // stashes that graph as it boots -- so the wait is for the stash to CHANGE, not merely
+        // to exist: this graph is already in there under the same key.
+        const handToEditor = async (ids, inRange, focus) => {
+            const list = (ids || []).filter(Boolean);
+            if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
+            step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
+            graph.setMessage(' Opening the editor… ');
+            const mine = graph;
+            try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
+            let g2 = null;
+            for (let t2 = 0; t2 < 100 && !g2; t2++) {
+                await new Promise((res) => setTimeout(res, 200));
+                try {
+                    const st = CurrentLayout.getStashed('graph');
+                    if (st && st !== mine) g2 = st;
+                } catch (e) { }
+            }
+            if (!g2) {
+                step('the editor did not report a graph');
+                graph.setMessage(' The editor did not open. ');
+                return false;
+            }
+            try {
+                await exec('baja/data/load-transcripts-with-variants.js', server, g2,
+                    g2.genegraph_panel_layout, list, inRange || []);
+            } catch (e) {
+                step('load failed: ' + (e && e.message ? e.message : e));
+                return false;
+            }
+            if (focus && focus.chr && focus.pos > 0) {
+                // Give the tracks a moment to finish laying themselves out; a zoom computed
+                // against a track that has not sized itself frames nothing.
+                await new Promise((res) => setTimeout(res, 250));
+                await focusInEditor(g2, focus.chr, focus.pos);
+            }
+            return true;
+        };
+
+        // GO TO THE CHANGE, once it is loaded. Landing in the editor on a whole transcript
+        // with the mutation somewhere in it is landing in the right room and being left to
+        // find the thing; the point of arriving from a click on one variant is that variant.
+        //
+        // The same two steps points-of-interest.js uses to tour a mutation: focus-mutation.js
+        // greys the others and lights this one, then the graph is framed on it through the
+        // TRACK's own x-scale, because a variant's position is a track coordinate and not a
+        // world one until tgraph.X has mapped it.
+        const focusInEditor = async (g2, chr, pos) => {
+            try {
+                for (const t of (g2.track || [])) {
+                    let wx = null;
+                    try { wx = t.variantWorldX ? t.variantWorldX(chr, pos) : null; } catch (e) { wx = null; }
+                    if (wx == null) continue;                   // this track does not hold it
+                    // The mutation just placed there, found by where it sits rather than by
+                    // name: the loader names it from the VCF and a track may hold several.
+                    let snp = null;
+                    for (const sp of (t.snpindels || [])) {
+                        if (sp && Math.abs((+sp.xi) - wx) <= 1.5) { snp = sp; break; }
+                    }
+                    try {
+                        if (snp) await exec('baja/manchester/menu/focus-mutation.js', g2, snp, 20000);
+                    } catch (e) { }
+                    const gg = g2.graph, tg = t.tgraph;
+                    if (!gg || !tg || !tg.X) continue;
+                    try { if (gg.rescale) gg.rescale(); } catch (e) { }
+                    const W2 = 30;                              // bases either side of the change
+                    const gi = tg.X(wx - W2), gf = tg.X(wx + W2), pad = 5;
+                    const cy = (tg.yi + (tg.yi + (tg.height || 0))) / 2;
+                    const span = Math.abs(tg.height || 0) || 0.1;
+                    if (g2.zoomRect) await g2.zoomRect(gi - pad, gf + pad, cy + span * 3.6, cy - span * 2.2, 500);
+                    try { if (g2.wake) g2.wake(); } catch (e) { }
+                    step('focused ' + chr + ':' + pos + ' on ' + (t.name || 'a track'));
+                    return true;
+                }
+                step('no loaded track holds ' + chr + ':' + pos);
+            } catch (e) { step('focus failed: ' + (e && e.message ? e.message : e)); }
+            return false;
+        };
+
+        const openRegions = async (list, focusBp, straight) => {
             const regs = (list || []).filter((q) => q && q.i >= 0 && q.i < drawn.length
                 && isFinite(q.lo) && isFinite(q.hi) && q.hi >= q.lo);
             if (!regs.length) { graph.setMessage(' Nothing selected to look up. '); return; }
@@ -6423,6 +6600,21 @@ function (path, config) {
                     + '. ');
                 return;
             }
+            // STRAIGHT THROUGH, for a caller that has already decided what it wants. A click
+            // on one variant is not a browse: the transcripts that contain it are the answer,
+            // and a panel asking which of them to tick is a question with an obvious reply.
+            // Coding ones where there are any -- a variant's consequence is a protein
+            // consequence -- and everything else only when there is nothing coding here.
+            if (straight) {
+                const coding = genes.filter((gn) => gn.transcript && gn.coding);
+                const pick = (coding.length ? coding : genes.filter((gn) => gn.transcript)).slice(0, 6);
+                if (!pick.length) {
+                    graph.setMessage(' Nothing here has a transcript in the annotation to open. ');
+                    return;
+                }
+                await handToEditor(pick.map((gn) => gn.transcript), inRange, straight.focus || null);
+                return;
+            }
             const spanAll = regs.reduce((t, q) => t + (q.hi - q.lo), 0);
             const chrCount = new Set(regs.map((q) => q.i)).size;
             const headTitle = one
@@ -6505,32 +6697,13 @@ function (path, config) {
                     .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
                 if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
                 close2();
-                step('opening ' + ids.length + ' transcript(s) with ' + inRange.length + ' variant(s)');
-                graph.setMessage(' Opening the editor… ');
-                // THE HANDOVER. The editor is a different app with a different graph, and it
-                // stashes that graph as it boots -- so the wait is for the stash to CHANGE,
-                // not merely to exist: this graph is already in there under the same key.
-                const mine = graph;
-                try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
-                let g2 = null;
-                for (let t2 = 0; t2 < 100 && !g2; t2++) {
-                    await new Promise((res) => setTimeout(res, 200));
-                    try {
-                        const st = CurrentLayout.getStashed('graph');
-                        if (st && st !== mine) g2 = st;
-                    } catch (e) { }
-                }
-                if (!g2) { step('the editor did not report a graph'); return; }
-                try {
-                    await exec('baja/data/load-transcripts-with-variants.js', server, g2,
-                        g2.genegraph_panel_layout, ids, inRange);
-                } catch (e) { step('load failed: ' + (e && e.message ? e.message : e)); }
+                await handToEditor(ids, inRange, null);
             };
         };
 
         // The one-region case, which is what a drag and a click on a mark each produce.
-        const openRange = (ci, lo, hi, focusBp) =>
-            openRegions([{ i: ci, lo: lo, hi: hi }], focusBp);
+        const openRange = (ci, lo, hi, focusBp, straight) =>
+            openRegions([{ i: ci, lo: lo, hi: hi }], focusBp, straight);
 
         // ---- frame the whole genome ----------------------------------------------------------
         // WAIT FOR REAL PIXELS. A component mounts asynchronously, and a zoomRect computed
