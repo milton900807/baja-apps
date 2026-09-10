@@ -1301,6 +1301,89 @@ function (path, config) {
                 )
             }
 
+            // ---- the tour -----------------------------------------------------------------
+            //
+            // What Help, at the end of the menubar, walks through. This editor's top row is
+            // the Material menubar rather than the oligo designer's icon row, so the stops
+            // anchor on the title attribute the menubar template gives every trigger -- the
+            // menu's label, or its tooltip when it has one -- scoped to the menubar so a
+            // "Track" elsewhere on the page is not mistaken for the menu. A stop whose
+            // anchor is not on screen drops out of the tour rather than breaking it. See
+            // baja/manchester/menu/ui-tour.js.
+            const TOUR_STEPS = [
+                {
+                    title: 'A quick tour',
+                    text: '{stops} stops around the screening editor, saying what each menu is '
+                        + 'for. Nothing here changes your screen — use Next and Back, or press '
+                        + 'Escape to leave at any point.',
+                },
+                {
+                    title: 'The menubar',
+                    sel: '.menu-wrapper',
+                    text: 'Everything you can do to a screen is under one of these menus. Most '
+                        + 'of them need a track on the canvas first; Track is where one comes '
+                        + 'from.',
+                },
+                {
+                    title: 'Graph — the file',
+                    sel: '.menu-wrapper [title="Graph"]',
+                    text: 'Open and save the screen, copy the whole graph or paste one in, '
+                        + 'import and export — SVG, IDT order sheets, BED — and turn autosave on '
+                        + 'or off.',
+                },
+                {
+                    title: 'Track — start here',
+                    sel: '.menu-wrapper [title="Track"]',
+                    text: 'Put a track on the canvas: a new one from a gene, or one built from a '
+                        + 'sequence you paste. Navigate, measure and get statistics on a track '
+                        + 'from here too.',
+                },
+                {
+                    title: 'Tools — do things to it',
+                    sel: '.menu-wrapper [title="Tools"]',
+                    text: 'ASO and chemistry design, assay design, models, mutations, '
+                        + 'annotations, sequence and protein views, drawing, and the layers on a '
+                        + 'track. The tool acts on the track you have selected.',
+                },
+                {
+                    title: 'Data — lay data over a track',
+                    sel: '.menu-wrapper [title="Data"]',
+                    text: 'The datasets installed on this server, each laid over the current '
+                        + 'track as a layer.',
+                },
+                {
+                    title: 'Select — choose what to act on',
+                    sel: '.menu-wrapper [title="Select"]',
+                    text: 'Pick tracks, a sequence range, compounds, annotations or mutations on '
+                        + 'the canvas. What you select here is what the tools then work on.',
+                },
+                {
+                    title: 'Bookmarks — keep a view',
+                    sel: '.menu-wrapper [title="Bookmarks"]',
+                    text: 'Keep the view you are looking at under a name, and come back to it '
+                        + 'later.',
+                },
+                {
+                    title: 'The navigation buttons',
+                    // The row is drawn onto its own canvas (button-canvas), so the anchor
+                    // is that canvas and not a set of buttons.
+                    sel: 'button-canvas canvas',
+                    text: 'Pan and zoom step by step, box-zoom into a region, and show or hide '
+                        + 'tracks and mapped oligos.',
+                },
+                {
+                    title: 'The canvas',
+                    sel: 'canvas',
+                    text: 'Your tracks are drawn here. Drag to pan, wheel to zoom, and '
+                        + 'right-click something on a track to see what you can do with it.',
+                },
+                {
+                    title: 'That is the tour',
+                    sel: '.menu-wrapper [title="A quick tour of this editor"]',
+                    text: 'Help lives here whenever you want to see this again.',
+                },
+            ];
+
             genegraph_panel_layout = {
                 wid: 'card',
                 componentRef: 'geneGraphPanel',
@@ -1488,6 +1571,26 @@ function (path, config) {
                                                         })
                                                     },
                                                 ]
+                                            },
+                                            {
+                                                // LAST IN THE ROW ON PURPOSE, as in the other
+                                                // editors: help is not something you do to a
+                                                // screen, so it sits after the things that are.
+                                                // A leaf, not a dropdown -- one press and the
+                                                // tour is up. The tour describes and never
+                                                // drives: nothing in it opens a menu or touches
+                                                // the screen, so it can be taken with work open
+                                                // and left at any step.
+                                                label: 'Help', icon: 'help_outline',
+                                                tooltip: 'A quick tour of this editor',
+                                                ionfunction: createIonFunction(() => {
+                                                    try { graph.hideMenu(); } catch (e) { }
+                                                    try { graph.showSideMenu(null); } catch (e) { }
+                                                    Promise.resolve(exec('baja/manchester/menu/ui-tour.js', graph, { steps: TOUR_STEPS }))
+                                                        .catch((e) => {
+                                                            try { graph.setError(' The tour could not start: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                                        });
+                                                })
                                             }
 
                                         ]
