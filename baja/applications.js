@@ -117,7 +117,7 @@ function (options) {
             'component': {
                 wid: 'html',
                 data: '<div style="padding:16px 4px 2px;font-family:Arial,Helvetica,sans-serif;">'
-                    + '<div style="font:600 11px Arial;letter-spacing:.14em;text-transform:uppercase;color:#5b7d86;">RNA Therapeutics</div>'
+                    + '<div style="font:600 11px Arial;letter-spacing:.14em;text-transform:uppercase;color:#5b7d86;">GeneTx</div>'
                     + '<div style="font:700 20px Arial;color:#12242c;margin-top:4px;">Applications</div>'
                     + '<div style="font:13px/1.5 Arial;color:#5b6b7a;margin-top:3px;max-width:74ch;">'
                     + 'Open one to start, or pick up saved work from your files below.</div></div>'

@@ -5,7 +5,7 @@ return new Promise(async (resolve, reject) => {
     let commands = await exec('manchester/controls/cmds')
     let userfiles = {
         wid: 'pdf-bookshelf',
-        title: 'RNA Therapeutics Library',
+        title: 'GeneTx Library',
         width: '100%',
         height: '100%',
         data: {

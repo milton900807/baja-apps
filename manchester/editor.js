@@ -2689,7 +2689,7 @@ function (path, config) {
                                                 // The 'Design' button that opened baja/lib/institute-rna-design.js
                                                 // is gone from the top bar. That shelf is now the Library of
                                                 // Modalities inside baja/lib/library-of-libraries.js, which is
-                                                // itself the Institute for RNA Therapeutics Design -- a top-level
+                                                // itself the Institute for GeneTx Design -- a top-level
                                                 // button labelled Design that led to a roadmap rather than to a
                                                 // designer was reading as the way to design something.
                                                 // The selection library, built above so its badge can be

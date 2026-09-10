@@ -1,6 +1,6 @@
 function (graph, genegraph_panel_layout) {
 
-    // The Institute for RNA Therapeutics Design — a library OF the libraries.
+    // The Institute for GeneTx Design — a library OF the libraries.
     //   exec('baja/lib/library-of-libraries.js', graph, genegraph_panel_layout)
     //
     // The name used to belong to baja/lib/institute-rna-design.js, which is one shelf among
@@ -158,7 +158,7 @@ function (graph, genegraph_panel_layout) {
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
                 + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
             const total = SHELVES.reduce((n, s) => n + s.items.length, 0);
-            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Institute for RNA Therapeutics Design</div>'
+            head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Institute for GeneTx Design</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
                 + total + ' libraries · pick one to open it</div></div>';
             const x = document.createElement('button');
@@ -205,7 +205,7 @@ function (graph, genegraph_panel_layout) {
                 // CLOSED, not hidden.
                 //
                 // This used to hide the root and raise a pill in the bottom-left corner
-                // reading "< Institute for RNA Therapeutics Design", so the shelf you came
+                // reading "< Institute for GeneTx Design", so the shelf you came
                 // from could be got back to. The pill was the problem: it sat in a corner of
                 // an unrelated full-screen library, named a thing rather than an action, and
                 // read as a stray navigation control belonging to whatever was on top of it.
