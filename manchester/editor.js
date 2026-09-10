@@ -13,6 +13,44 @@ function (path, config) {
     // never hang.
     return (async () => {
 
+        // A design shared WITH THIS PERSON. /s/<code> for a per-person share lands on
+        // /app/free/editor?share=<code>. The code is read from the URL rather than from the
+        // arguments because the shell binds query values to `path` and `config` by position.
+        //
+        //   signed out  -> the free sign-in page, the same one the front page offers, with
+        //                  the way back stashed where auth-callback looks for it.
+        //   signed in   -> ask the server what the code stands for. Only the person it was
+        //                  shared with (or the owner) gets the path; the design then loads
+        //                  through the ordinary .baja route below, whose .share check the
+        //                  server has already satisfied for this address.
+        let __shareCode = '';
+        try { __shareCode = ('' + (new URL(window.location.href).searchParams.get('share') || '')).trim(); } catch (e) { }
+        let __sharedOpen = null;
+        if (__shareCode) {
+            const __who = (typeof getUser === 'function') ? ('' + (getUser() || '')).trim() : '';
+            if (!__who) {
+                try { sessionStorage.setItem('oidc.returnTo', window.location.pathname + window.location.search); } catch (e) { }
+                window.location.href = window.location.origin + '/login?free=1';
+                return;
+            }
+            let __r = null;
+            try {
+                __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__shareCode) + '&user=' + encodeURIComponent(__who));
+            } catch (e) { __r = { error: { message: '' + e } }; }
+            // GETJSON resolves on a non-2xx too, with the body nested under .error.
+            const __body = (__r && __r.error && typeof __r.error === 'object') ? __r.error : __r;
+            if (__body && __body.path) {
+                __sharedOpen = __body;
+                path = '' + __body.path;
+                // No config.user: that branch rewrites the first path segment to the signed-in
+                // user, which would point at the recipient's own drive instead of the share.
+                config = null;
+            } else {
+                __sharedOpen = { failed: true, message: (__body && (__body.message || (typeof __body.error === 'string' ? __body.error : ''))) || 'This share link could not be opened.' };
+                path = undefined;
+            }
+        }
+
         // Subscription gate: block the editor unless an active subscription is confirmed.
         // strict=true → if a subscription is not found (or can't be verified) show the paywall.
         //
@@ -445,6 +483,29 @@ function (path, config) {
                 }
                 let Icon = await exec('flexigraph/shapes/icon.js')
                 graph.folder = path;
+                // The share's own message, once the canvas has had a moment to mount.
+                if (__sharedOpen) {
+                    setTimeout(() => {
+                        try {
+                            if (__sharedOpen.failed) {
+                                graph.setError(__sharedOpen.message, 15);
+                            } else if (!__sharedOpen.mine) {
+                                const __label = ('' + (__sharedOpen.name || '')).replace(/\.baja$/i, '');
+                                graph.setMessage(' ' + __sharedOpen.owner + ' shared "' + __label + '" with you. Save keeps a copy in your own files. ');
+                                if (__sharedOpen.message) {
+                                    const __esc = (v) => ('' + v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                    showModal({
+                                        wid: 'html',
+                                        data: '<div style="padding:18px 20px;font-family:system-ui,-apple-system,Arial;max-width:520px;">'
+                                            + '<div style="font-size:15px;font-weight:700;margin-bottom:6px;">' + __esc(__sharedOpen.owner) + ' shared "' + __esc(__label) + '" with you</div>'
+                                            + '<div style="font-size:13px;color:#334155;white-space:pre-wrap;">' + __esc(__sharedOpen.message) + '</div>'
+                                            + '</div>'
+                                    }, 560, 240);
+                                }
+                            }
+                        } catch (e) { }
+                    }, 1500);
+                }
                 function parseFasta(fastaString) {
                     const lines = fastaString.split('\n');
                     let sequence = '';
@@ -1472,29 +1533,35 @@ function (path, config) {
                     showModal(savedScreens);
                 }
                 let saveSaveScreen = async () => {
-                    let savedScreens = await exec('manchester/io/save-obj.js', graph, genegraph_panel_layout, path)
+                    // A design opened from someone else's share saves into the recipient's own
+                    // drive: the share path belongs to the owner and is not a place to save to.
+                    const __savePath = (__sharedOpen && !__sharedOpen.failed && !__sharedOpen.mine) ? '/' : path;
+                    let savedScreens = await exec('manchester/io/save-obj.js', graph, genegraph_panel_layout, __savePath)
                     showModal(savedScreens);
                 }
 
                 // Save the current screen to the user's PUBLIC folder and produce a view-only
                 // link that anyone can open (no login) via manchester/viewer.js.
+                // Serialize the graph for a share (same replacer as the graph's saveState()).
+                const __serializeGraphForShare = () => {
+                    const seen = new WeakSet();
+                    return JSON.stringify(graph, function (key, value) {
+                        if (key === 'canvas') return;
+                        if (typeof value === 'object' && value !== null) {
+                            if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
+                            else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
+                            else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
+                        }
+                        return value;
+                    });
+                };
                 let shareScreen = async () => {
                     try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
                     graph.setMessage(' Creating a view-only share link… ');
                     try {
                         const host_ = window['env']['apiUrl'];
                         const user = getUser();
-                        // Serialize the graph (same replacer as the graph's saveState()).
-                        const seen = new WeakSet();
-                        const gs = JSON.stringify(graph, function (key, value) {
-                            if (key === 'canvas') return;
-                            if (typeof value === 'object' && value !== null) {
-                                if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
-                                else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
-                                else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
-                            }
-                            return value;
-                        });
+                        const gs = __serializeGraphForShare();
                         let base = ('' + (graph.file || 'shared')).replace(/\.baja$/i, '').replace(/[^A-Za-z0-9_\- ]+/g, '_').trim() || 'shared';
                         const name = base + '.baja';
                         // 1. Save the screen into the user's public folder.
@@ -1528,6 +1595,138 @@ function (path, config) {
                 let goHome = async () => {
                     exec('manchester/fb.js', getUser() + '/')
                 }
+
+                // Share the design WITH A PERSON. The server keeps a snapshot only that address
+                // can read and answers with a short link (/s/<code>); it also emails the link
+                // when mail is configured. The recipient opens it in the editor after signing
+                // in -- the free sign-in if they have no account -- and it also appears under
+                // shared_with_me in their files.
+                let shareWithPerson = async () => {
+                    try { if (graph.hideMenu) graph.hideMenu(); } catch (e) { }
+                    const host_ = window['env']['apiUrl'];
+                    const user = ('' + (getUser() || '')).trim();
+                    if (!user) { try { graph.setError('Sign in to share a design.', 8); } catch (e) { } return; }
+                    const designName = ('' + (graph.file || 'untitled')).replace(/\.baja$/i, '') || 'untitled';
+                    const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    const body = (r) => (r && r.error && typeof r.error === 'object') ? r.error : r;
+
+                    try { const old = document.getElementById('baja-share-dialog'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+                    const panel = document.createElement('div');
+                    panel.id = 'baja-share-dialog';
+                    panel.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;'
+                        + 'width:min(560px,94vw);max-height:calc(100vh - 90px);overflow:auto;background:#0b2545;color:#fff;border-radius:12px;'
+                        + 'box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+                    const fieldCss = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:10px;font:13px Arial;';
+                    panel.innerHTML = ''
+                        + '<div style="font:700 16px Arial;margin-bottom:4px;">Share "' + esc(designName) + '" with a person</div>'
+                        + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">They get a short link that opens this design in their editor once they sign in. '
+                        + 'No account yet? The link takes them through the free sign-in first.</div>'
+                        + '<label style="font:12px Arial;color:#9fb3c8;">Email address (one or more, separated by commas)</label>'
+                        + '<input id="sd-to" type="text" autocomplete="off" placeholder="name@example.org" style="' + fieldCss + 'margin:4px 0 10px;">'
+                        + '<label style="font:12px Arial;color:#9fb3c8;">Message (optional)</label>'
+                        + '<textarea id="sd-msg" rows="2" placeholder="A note to go with the design" style="' + fieldCss + 'margin:4px 0 10px;resize:vertical;"></textarea>'
+                        + '<div id="sd-status" style="font:12px Arial;color:#9fb3c8;min-height:16px;margin-bottom:6px;"></div>'
+                        + '<div id="sd-results"></div>'
+                        + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">'
+                        + '<button id="sd-close" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
+                        + '<button id="sd-send" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Share</button>'
+                        + '</div>'
+                        + '<div id="sd-existing" style="margin-top:14px;"></div>';
+                    document.body.appendChild(panel);
+
+                    const $ = (id) => panel.querySelector('#' + id);
+                    let onKey;
+                    const close = () => {
+                        try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+                        try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
+                    };
+                    $('sd-close').onclick = close;
+                    onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+                    document.addEventListener('keydown', onKey, true);
+
+                    const linkRow = (r, withMail) => {
+                        const mail = !withMail ? '' : (r.mailed
+                            ? '<span style="color:#86efac;">Emailed to ' + esc(r.to) + '.</span>'
+                            : '<span style="color:#fcd34d;">Email not sent' + (r.mailError ? ' (' + esc(r.mailError) + ')' : '') + ' &mdash; copy the link and send it yourself.</span>');
+                        return '<div data-code="' + esc(r.code) + '" style="background:#0a1e3a;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 10px;margin:6px 0;font:12px Arial;">'
+                            + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">'
+                            + '<b style="color:#e8f0fb;">' + esc(r.to) + '</b>'
+                            + '<span style="white-space:nowrap;">'
+                            + '<button class="sd-copy" data-link="' + esc(r.url) + '" style="cursor:pointer;border-radius:6px;padding:4px 10px;font:700 12px Arial;border:1px solid #4fd0e6;background:transparent;color:#4fd0e6;margin-right:6px;">Copy link</button>'
+                            + '<button class="sd-revoke" data-code="' + esc(r.code) + '" style="cursor:pointer;border-radius:6px;padding:4px 10px;font:700 12px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fca5a5;">Revoke</button>'
+                            + '</span></div>'
+                            + '<div style="word-break:break-all;margin-top:4px;"><a href="' + esc(r.url) + '" target="_blank" style="color:#4fd0e6;">' + esc(r.url) + '</a></div>'
+                            + (mail ? '<div style="margin-top:4px;">' + mail + '</div>' : '')
+                            + '</div>';
+                    };
+                    const wireRows = (root) => {
+                        root.querySelectorAll('.sd-copy').forEach((b) => {
+                            b.onclick = async () => {
+                                try { await navigator.clipboard.writeText(b.getAttribute('data-link')); b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy link'; }, 1500); }
+                                catch (e) { $('sd-status').textContent = 'Could not copy; select the link and copy it.'; }
+                            };
+                        });
+                        root.querySelectorAll('.sd-revoke').forEach((b) => {
+                            b.onclick = async () => {
+                                const code = b.getAttribute('data-code');
+                                b.disabled = true; b.textContent = 'Revoking…';
+                                const r = body(await POSTJSON({ user: user, code: code }, host_ + '/share-with/revoke'));
+                                if (r && r.revoked) {
+                                    panel.querySelectorAll('[data-code="' + code + '"]').forEach((row) => { if (row.parentNode) row.parentNode.removeChild(row); });
+                                    $('sd-status').textContent = 'Share revoked. The link no longer opens.';
+                                    loadExisting();
+                                } else {
+                                    b.disabled = false; b.textContent = 'Revoke';
+                                    $('sd-status').textContent = (r && (r.error || r.message)) || 'Could not revoke the share.';
+                                }
+                            };
+                        });
+                    };
+                    const loadExisting = async () => {
+                        try {
+                            const r = body(await GETJSON(host_ + '/share-with?user=' + encodeURIComponent(user) + '&name=' + encodeURIComponent(designName)));
+                            const list = (r && r.shares) || [];
+                            const box = $('sd-existing');
+                            if (!list.length) { box.innerHTML = ''; return; }
+                            box.innerHTML = '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:2px;">Already shared with</div>'
+                                + list.map((x) => linkRow(x, false)).join('');
+                            wireRows(box);
+                        } catch (e) { }
+                    };
+                    loadExisting();
+
+                    $('sd-send').onclick = async () => {
+                        const raw = ('' + ($('sd-to').value || '')).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+                        const addrs = Array.from(new Set(raw));
+                        const bad = addrs.filter((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+                        if (!addrs.length) { $('sd-status').textContent = 'Enter at least one email address.'; return; }
+                        if (bad.length) { $('sd-status').textContent = 'Not an email address: ' + bad.join(', '); return; }
+                        const message = ('' + ($('sd-msg').value || '')).trim();
+                        const btn = $('sd-send');
+                        btn.disabled = true; btn.textContent = 'Sharing…';
+                        $('sd-status').textContent = 'Saving a copy of the design for ' + (addrs.length === 1 ? addrs[0] : addrs.length + ' people') + '…';
+                        let value = '';
+                        try { value = __serializeGraphForShare(); } catch (e) { $('sd-status').textContent = 'Could not serialize the design: ' + e; btn.disabled = false; btn.textContent = 'Share'; return; }
+                        const results = $('sd-results');
+                        let firstLink = '';
+                        for (const to of addrs) {
+                            const r = body(await POSTJSON({ user: user, to: to, name: designName, value: value, message: message }, host_ + '/share-with'));
+                            if (r && r.url) {
+                                if (!firstLink) firstLink = r.url;
+                                results.insertAdjacentHTML('beforeend', linkRow(r, true));
+                            } else {
+                                results.insertAdjacentHTML('beforeend', '<div style="font:12px Arial;color:#fca5a5;margin:6px 0;">' + esc(to) + ': ' + esc((r && (r.error || r.message)) || 'sharing failed') + '</div>');
+                            }
+                        }
+                        wireRows(results);
+                        if (firstLink && addrs.length === 1) { try { await navigator.clipboard.writeText(firstLink); } catch (e) { } }
+                        $('sd-status').textContent = firstLink ? ('Shared.' + (addrs.length === 1 ? ' The link is on your clipboard.' : '')) : 'Nothing was shared.';
+                        $('sd-to').value = '';
+                        btn.disabled = false; btn.textContent = 'Share';
+                        loadExisting();
+                    };
+                    try { focusUnlessMobile($('sd-to')); } catch (e) { try { $('sd-to').focus(); } catch (e2) { } }
+                };
 
                 let openSaveScreen = async () => {
                     let savedScreens = await exec('manchester/io/open-obj.js', graph, genegraph_panel_layout)
@@ -2307,6 +2506,10 @@ function (path, config) {
                                                                         showModal(c);
                                                                     } catch (e) { shareScreen(); }
                                                                 }
+                                                            },
+                                                            {
+                                                                label: 'Share with a person…', move: () => { },
+                                                                click: () => { graph.hideMenu(); shareWithPerson(); }
                                                             },
                                                             {
                                                                 // Help ▸ — the reference shelves. 'The Library' and 'Clinical Compound
