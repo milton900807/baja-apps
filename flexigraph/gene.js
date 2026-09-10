@@ -11239,18 +11239,83 @@ pattern, GGGG | Required`
                                 show(m.concat([{ label: '‹ Back', click: () => { openSnpList(); }, move: () => { } }]),
                                     this.snpSelLabel(sn) + ' ▸');
                             };
+                            // The SNP list carries its own filter and bulk-remove actions ABOVE the
+                            // individual variants: filter by a property, remove just the filtered
+                            // subset, or remove them all -- both removes confirm first and are
+                            // undoable. The filter persists while the list is open.
+                            let __snpFilter = null;   // { label, fn }
+                            const __allSnps = () => ((t && t.snpindels) || []).filter(Boolean);
+                            const __shownSnps = () => (__snpFilter ? __allSnps().filter(__snpFilter.fn) : __allSnps());
+                            // Property accessors, each defensive because a variant may not carry the field.
+                            const __snpProps = {
+                                'Clinical significance': (sn) => { try { return ('' + (sn.clinsig || (sn._annotationField && sn._annotationField('CLNSIG')) || '')).trim(); } catch (e) { return ''; } },
+                                'Consequence': (sn) => { try { return ('' + ((sn._consequence && sn._consequence()) || '')).trim(); } catch (e) { return ''; } },
+                                'Type': (sn) => { try { return ('' + (sn.type || '')).trim(); } catch (e) { return ''; } },
+                                'Gene': (sn) => { try { return ('' + ((sn.geneSymbol && sn.geneSymbol()) || '')).trim(); } catch (e) { return ''; } },
+                            };
+                            const removeSnps = (list, what) => {
+                                const arr = (list || []).slice();
+                                if (!arr.length) { try { this.setMessage(' No variants to remove. '); } catch (e) { } return; }
+                                const where = (t && t.name) ? (' from ' + t.name) : ' from the track';
+                                const run = () => {
+                                    try { if (this.pushOntoHistory) this.pushOntoHistory(); } catch (e) { }
+                                    const set = new Set(arr);
+                                    try { t.snpindels = ((t.snpindels) || []).filter((sn) => !set.has(sn)); } catch (e) { }
+                                    try { if (this.wake) this.wake(); } catch (e) { }
+                                    try { if (this.rescale) this.rescale(); } catch (e) { }
+                                    try { this.setResultMessage(' Removed ' + arr.length + ' variant' + (arr.length === 1 ? '' : 's') + where + '. Undo restores them. '); } catch (e) { }
+                                    if (__allSnps().length) openSnpList(); else { try { this.showSideMenu(null); } catch (e) { } }
+                                };
+                                try {
+                                    Promise.resolve(exec('baja/lib/confirm.js',
+                                        'Remove ' + arr.length + ' ' + (what === 'all' ? '' : (what + ' ')) + 'variant' + (arr.length === 1 ? '' : 's') + where + '? This deletes them from the track.',
+                                        () => { run(); }, 'Remove'))
+                                        .then((c) => { try { showModal(c); } catch (e) { } });
+                                } catch (e) { try { this.setMessage(' Could not open the confirmation: ' + e + ' '); } catch (e2) { } }
+                            };
+                            const openSnpFilterMenu = () => {
+                                const items = [];
+                                if (__snpFilter) items.push({ label: 'Show all (clear filter)', click: () => { __snpFilter = null; openSnpList(); }, move: () => { } });
+                                Object.keys(__snpProps).forEach((pn) => items.push({
+                                    label: pn + ' ▸',
+                                    click: () => {
+                                        const counts = {};
+                                        for (const sn of __allSnps()) { const v = __snpProps[pn](sn) || '(none)'; counts[v] = (counts[v] || 0) + 1; }
+                                        const vals = Object.keys(counts).sort();
+                                        if (!vals.length) { try { this.setMessage(' No values for ' + pn + '. '); } catch (e) { } return; }
+                                        const valItems = vals.map((v) => ({
+                                            label: v + '  (' + counts[v] + ')',
+                                            click: () => { __snpFilter = { label: pn + ' = ' + v, fn: (sn) => (__snpProps[pn](sn) || '(none)') === v }; openSnpList(); },
+                                            move: () => { },
+                                        }));
+                                        valItems.push({ label: '‹ Back', click: () => { openSnpFilterMenu(); }, move: () => { } });
+                                        show(valItems, 'Filter by ' + pn + ' ▸');
+                                    },
+                                    move: () => { },
+                                }));
+                                items.push({ label: '‹ Back', click: () => { openSnpList(); }, move: () => { } });
+                                show(items, 'Filter SNPs ▸');
+                            };
                             const openSnpList = () => {
                                 const lbl = __tn + ' — SNPs ▸';
+                                const shown = __shownSnps();
+                                // Three group actions ABOVE the individual variants: filter by a
+                                // property, remove the filtered subset (only when a filter is on),
+                                // and remove all. Both removes confirm first.
+                                const topItems = [];
+                                topItems.push({ label: (__snpFilter ? ('Filter: ' + __snpFilter.label + '  ▸') : 'Filter by property…  ▸'), click: () => { openSnpFilterMenu(); }, move: () => { } });
+                                if (__snpFilter) topItems.push({ label: 'Remove filtered (' + shown.length + ')…', click: () => { removeSnps(shown, 'filtered'); }, move: () => { } });
+                                topItems.push({ label: 'Remove all (' + __allSnps().length + ')…', click: () => { removeSnps(__allSnps(), 'all'); }, move: () => { } });
                                 // Paginated, because a track loaded from a whole-gene VCF can
                                 // carry hundreds and a shelf of hundreds is not a menu.
-                                const entries = __snps.map((sn) => ({
+                                const entries = shown.map((sn) => ({
                                     label: this.snpSelLabel(sn),
                                     badge: __variantWord(sn),
                                     accent: 'variant',
                                     click: () => { openSnp(sn); },
                                     move: () => { },
                                 }));
-                                show(renderPickPage([], entries, 0,
+                                show(renderPickPage(topItems, entries, 0,
                                     { label: '‹ Back', click: () => { openOne(p); }, move: () => { } }, lbl), lbl);
                             };
                             const snpItem = __snps.length
