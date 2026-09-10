@@ -448,9 +448,6 @@ function (path, config) {
                             await graph.update(rs);
                             graph.file = p;
                             graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
-                            // Bookmarks travel with the design: update() restores the whitelist,
-                            // so carry the saved camera views across explicitly.
-                            try { if (rs && Array.isArray(rs.cameraBookmarks)) graph.cameraBookmarks = rs.cameraBookmarks; } catch (e) { }
                         }
                     } else {
                         let jsonobj = {
@@ -480,9 +477,6 @@ function (path, config) {
                             await graph.update(rs);
                             graph.file = p;
                             graph.__reloadedRs = rs;   // re-applied after canvas mount (reload-path fix)
-                            // Bookmarks travel with the design: update() restores the whitelist,
-                            // so carry the saved camera views across explicitly.
-                            try { if (rs && Array.isArray(rs.cameraBookmarks)) graph.cameraBookmarks = rs.cameraBookmarks; } catch (e) { }
                         }
                     }
 
@@ -512,7 +506,7 @@ function (path, config) {
                             // A shared design that carries camera bookmarks opens with a small
                             // navigator in the lower-left, so a recipient can step through the
                             // views the sharer saved without hunting for the menu.
-                            try { if (Array.isArray(graph.cameraBookmarks) && graph.cameraBookmarks.length) exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
+                            try { if (graph.bookmarks && Object.keys(graph.bookmarks).length) exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
                         } catch (e) { }
                     }, 1500);
                 }
@@ -3236,17 +3230,11 @@ function (path, config) {
                                                     items: [
                                                         {
                                                             label: 'Show/Hide Bookmarks', ionfunction: createIonFunction(async () => {
-                                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                                graph.showBookmarkMenu();
+                                                                try { await exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
                                                             })
                                                         }, {
                                                             label: 'Create Bookmark', ionfunction: createIonFunction(async () => {
-                                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                                let m = await exec('baja/manchester/modal/label-bookmark.js', graph);
-                                                                showModal(m);
-                                                                graph.setMouseMode('navigate')
-
-                                                                graph.showBookmarkMenu();
+                                                                try { await exec('baja/manchester/menu/bookmarks.js', graph, genegraph_panel_layout); } catch (e) { }
                                                             })
                                                         },
                                                     ]

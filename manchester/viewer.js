@@ -108,9 +108,6 @@ function (path, config) {
             try {
                 await graph.update(rs);
                 graph.file = path.substring(path.lastIndexOf('/') + 1);
-                // Bookmarks travel with the design; update() restores the whitelist, so carry
-                // the saved camera views across explicitly.
-                try { if (rs && Array.isArray(rs.cameraBookmarks)) graph.cameraBookmarks = rs.cameraBookmarks; } catch (e2) { }
             } catch (e) {
                 try { __spin.stop(); } catch (e2) { }
                 await showWidget({ wid: 'html', data: '<hr> Failed to render the shared screen: ' + e });
@@ -178,6 +175,6 @@ function (path, config) {
         try { exec('baja/data/deep-link.js', graph, genegraph_panel_layout, __deep); } catch (e) { }
         // A publicly shared screen that carries camera bookmarks shows the same lower-left
         // navigator a per-person share does, so a viewer can step through the saved views.
-        try { if (Array.isArray(graph.cameraBookmarks) && graph.cameraBookmarks.length) exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
+        try { if (graph.bookmarks && Object.keys(graph.bookmarks).length) exec('baja/manchester/menu/bookmark-nav.js', graph, genegraph_panel_layout); } catch (e) { }
     })();
 }
