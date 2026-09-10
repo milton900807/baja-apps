@@ -29,6 +29,50 @@ function (graph, genegraph_panel_layout, tracks) {
         // Normalised once: a single track, an array, or nothing.
         const __targets = () => (Array.isArray(tracks) ? tracks.filter(Boolean) : (tracks ? [tracks] : []));
 
+        // djPrimer designs against the track its leaf sits UNDER, and no other.
+        //
+        // Opened from a track's menu the track IS the parent and comes in as `tracks`. Opened
+        // from the library menu nothing does, and the runner fell through to
+        // baja/lib/for-each-track.js, which honours the board-wide flag the Layers button sets
+        // on its way in -- so a click on one card designed primer probes on every track on
+        // the canvas, one python call each. The Design Library already answers this by
+        // putting the tracks in as a level to walk through; this is the same idiom, so the
+        // track is a node on the path above the leaf rather than a flag set elsewhere.
+        //
+        // The flag is consumed here, before anything downstream can read it. It was a
+        // statement of intent for a LOADER; a design run that fans out to tracks the user
+        // never named is not what "apply to the board" was pressed for.
+        const __runDjprimerOn = (list) => exec('baja/manchester/ppsets/run-djprimer.js', graph, L, list);
+        const __openDjprimer = async () => {
+            try { window.__bajaApplyAllTracks = false; } catch (e) { }
+            const explicit = __targets();
+            if (explicit.length) return __runDjprimerOn(explicit);
+            const all = ((graph && graph.track) || []).filter(Boolean);
+            if (!all.length) {
+                const msg = ' Load a track first — djPrimer designs against one. ';
+                try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+                return false;
+            }
+            // One track: it is the only possible parent, and a level holding a single card is
+            // a click that asks nothing.
+            if (all.length === 1) return __runDjprimerOn([all[0]]);
+            return exec('baja/lib/shelf.js', {
+                id: 'baja-models-library-djprimer-tracks',
+                title: 'Primer design — djPrimer',
+                subtitle: 'Pick the track to design against — primer probes go on that track only',
+                graph: graph,
+                onClose: restoreHover,
+                books: all.map((t, i) => ({
+                    title: t.name || ('track ' + (i + 1)),
+                    badge: (t.track_type || 'Track'),
+                    blurb: 'Design primer probes on ' + (t.name || 'this track')
+                        + ((() => { try { return (t.selectedRange && t.selectedRange()) ? ', over its selected sequence' : ''; } catch (e) { return ''; } })())
+                        + '.',
+                    open: () => __runDjprimerOn([t])
+                }))
+            });
+        };
+
         const BOOKS = [
             {
                 title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
@@ -216,9 +260,11 @@ function (graph, genegraph_panel_layout, tracks) {
                 title: 'Primer design — djPrimer', badge: 'djPrimer', ready: true,
                 blurb: 'primer3 designs ranked by predicted assay success, not by design score.',
                 // Was track-design-menu.js on graph.track[0]: the Design MENU, opened against the
-                // first track on the canvas whatever list this library was handed. Every other book
-                // here passes __targets(); this one now runs djPrimer over them the same way.
-                open: () => exec('baja/manchester/ppsets/run-djprimer.js', graph, L, __targets()),
+                // first track on the canvas whatever list this library was handed. Then it passed
+                // __targets() like every other book, which from the library menu is nothing, and
+                // nothing meant the whole board. Now it runs on the track above it on the path --
+                // see __openDjprimer.
+                open: () => __openDjprimer(),
                 docs: {
                     summary: 'Designs primer pairs with primer3, then ranks them by how likely each '
                         + 'assay is to actually WORK at the bench. The distinction matters: a design '
