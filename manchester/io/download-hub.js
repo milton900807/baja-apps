@@ -237,9 +237,81 @@ function (graph, layout) {
             return kids;
         };
 
+        // ---- compounds-only scope, and a detailed ASO report ----------------------------
+        const allOligos = () => { const r = []; for (const t of tracks()) for (const o of (t.oligos || [])) r.push({ t: t, o: o }); return r; };
+        const hasCompounds = () => tracks().some((t) => (t.oligos || []).length);
+        const designBase = () => safe(('' + (graph.file || 'workbench')).replace(/\.baja$/i, ''));
+
+        const scopeAllCompounds = () => ({
+            base: designBase() + '_compounds',
+            title: 'All compounds',
+            hasCoords: true,
+            json: () => allOligos().map((e) => oligoRow(e.t, e.o)),
+            rows: () => allOligos().map((e) => oligoRow(e.t, e.o)),
+            bed: () => allOligos().map((e) => oligoBed(e.t, e.o)),
+            sheets: () => [{ name: 'Compounds', rows: allOligos().map((e) => oligoRow(e.t, e.o)) }]
+        });
+
+        // Off-target, summarised for a report cell. `offtarget` is an array of hits (its length
+        // is the count), a raw count string for very large hit sets, or null; `offtargetsymbols`
+        // names the genes hit; `offtargetsRun` says a search was actually done.
+        const offSummary = (o) => {
+            try {
+                if (o.offtarget == null) return o.offtargetsRun ? 'run — 0 hits' : 'not run';
+                if (Array.isArray(o.offtarget)) {
+                    const syms = Array.isArray(o.offtargetsymbols) ? o.offtargetsymbols.filter(Boolean) : [];
+                    const shown = syms.slice(0, 12).join(', ');
+                    return o.offtarget.length + ' hit' + (o.offtarget.length === 1 ? '' : 's')
+                        + (shown ? (' — ' + shown + (syms.length > 12 ? ', …' : '')) : '');
+                }
+                return '' + o.offtarget + ' hits';
+            } catch (e) { return ''; }
+        };
+        const oligoAnnots = (o) => {
+            try { return Array.isArray(o.annotations) ? o.annotations.map((a) => a && (a.name || a.type)).filter(Boolean).join('; ') : ''; }
+            catch (e) { return ''; }
+        };
+        // One detailed row per ASO/compound, with everything a report wants to show.
+        const asoReportRow = (t, o) => ({
+            track: t.name || '', id: o.id != null ? o.id : '', name: o.name != null ? o.name : '',
+            type: o.type || '', chrom: trackChrom(t), strand: trackStrandSym(t),
+            start: num(o.xi), end: num(o.xf) !== '' ? num(o.xf) + 1 : '',
+            length: (o.sequence || '').length || (num(o.xf) !== '' && num(o.xi) !== '' ? Math.abs(num(o.xf) - num(o.xi)) + 1 : ''),
+            target_sequence: o.sequence != null ? o.sequence : '',
+            synthesis_sequence: o.synthesisSequence != null ? o.synthesisSequence : '',
+            chemistry: o.structure != null ? o.structure : '',
+            off_target: offSummary(o),
+            mismatches: (Array.isArray(o.mismatch) && o.mismatch.length) ? o.mismatch.join(', ') : '',
+            annotations: oligoAnnots(o)
+        });
+        const downloadAsoReport = async () => {
+            const rows = allOligos().map((e) => asoReportRow(e.t, e.o));
+            if (!rows.length) { try { graph.setError('There are no compounds to report.', 6); } catch (e) { } return; }
+            try { graph.setMessage(' Building the ASO report… '); } catch (e) { }
+            const base = designBase() + '_ASO_report';
+            const payload = { format: 'pdf', filename: base, title: 'ASO report — ' + designBase() + ' (' + rows.length + ' compound' + (rows.length === 1 ? '' : 's') + ')', sheets: [{ name: 'ASOs', rows: rows }] };
+            try {
+                const r = await POSTJSON(payload, host + '/export-table');
+                const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
+                if (body && body.b64) { saveB64(body.b64, body.filename || (base + '.pdf'), body.mime); try { graph.setMessage(' ASO report downloaded. '); } catch (e) { } }
+                else { try { graph.setError('Could not build the report: ' + ((body && (body.error || body.message)) || 'server error'), 8); } catch (e) { } }
+            } catch (e) { try { graph.setError('Report failed: ' + e, 8); } catch (e2) { } }
+        };
+
         const ts = tracks();
         const topBooks = [];
-        topBooks.push({ title: 'Whole workbench', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: ts.length > 0, readyNote: 'Load a track first.', blurb: 'Everything on the canvas — all tracks and all their elements — in one file.', books: () => formatBooks(scopeWorkbench()) });
+        if (hasCompounds()) {
+            // Compounds are on the workbench, so put the downloads one click away: the format
+            // cards for every compound sit at the top level, and a detailed ASO report beside
+            // them. The whole-workbench-including-tracks-and-variants download stays available
+            // as its own card below.
+            topBooks.push({ title: 'Download all compounds', section: true, note: true });
+            formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(b));
+            topBooks.push({ title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
+            topBooks.push({ title: 'Everything (all tracks, variants, annotations)', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: true, blurb: 'The whole canvas in one file, not just the compounds.', books: () => formatBooks(scopeWorkbench()) });
+        } else {
+            topBooks.push({ title: 'Whole workbench', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: ts.length > 0, readyNote: 'Load a track first.', blurb: 'Everything on the canvas — all tracks and all their elements — in one file.', books: () => formatBooks(scopeWorkbench()) });
+        }
         if (ts.length) topBooks.push({ title: 'By track', section: true, note: true });
         ts.forEach((t, i) => topBooks.push({
             title: (t.name || ('track ' + (i + 1))), badge: (t.track_type || 'Track'), ready: true,
