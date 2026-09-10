@@ -107,20 +107,18 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             try { q('#vp-text').focus(); } catch (e) { }
         });
 
-        // ---- which track --------------------------------------------------------------------
-        const pickTrack = () => new Promise((resolve) => {
-            if (preset.length === 1) return resolve(preset[0]);
+        // ---- which tracks, when constrained to what is open ---------------------------------
+        // The tracks the caller handed in (the menu item was on one of them), else the ones
+        // selected on the graph, else everything open. Every one is tried: a change that one
+        // isoform refuses may be exactly what the next one reads, and the per-track summary
+        // says which took it.
+        const openTracks = () => {
+            if (preset.length) return preset;
             let sel = [];
             try { sel = (graph.track || []).filter((t) => t && t.showResizeBar); } catch (e) { }
-            if (sel.length === 1) return resolve(sel[0]);
-            if ((graph.track || []).length === 1) return resolve(graph.track[0]);
-            // graph.setMouseMode('msg: Click the track the variant belongs to');
-            // graph.addMouseDownListener((x, y) => {
-            //     const ti = graph.getTrack(x, y);
-            //     graph.clearMouseListeners(); graph.setMouseMode('navigate');
-            //     resolve(ti < 0 ? null : graph.track[ti]);
-            // });
-        });
+            if (sel.length) return sel;
+            return (graph.track || []).filter(Boolean);
+        };
 
         // Re-enter with what was typed and why it failed. There is one case where that is the
         // wrong move: a run driven by a caller (the variant-track wizard) has no form behind
@@ -204,13 +202,26 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
         // are no pre-named changes and the description itself is read against every track.
         let plan = [];
         const before = new Set((graph.track || []).map((t) => t));
-        if (pinned && onTracks.length) {
+        // THE TRACKS THAT ARE ALREADY THE ANSWER. A caller pins them; the form's "Constrain
+        // to tracks already loaded" means the same thing said by the user -- "c.772A>G" names
+        // no gene, and the only place it can belong is a transcript that is open. This
+        // branch was lost when the disease path went in, and every constrained request then
+        // went looking for a transcript named "c.772A>G", found none, and gave up.
+        let held = [];
+        if (pinned) held = onTracks;
+        else if (form.constrain) {
+            held = openTracks();
+            if (!held.length) {
+                return again('No track is open to place "' + text + '" on. Load the transcript first, or untick "Constrain to tracks already loaded" and name the gene in the description.', form);
+            }
+        }
+        if (held.length) {
             // Nothing is loaded here: these tracks are on the graph already, chosen for this
             // query. Each is handed the changes the enumeration above named for ITS gene, so
             // the set is fixed before any of it is placed. Where a track's symbol does not
             // match anything enumerated -- an alias, a track named for its id -- it falls
             // back to being asked directly, which is what every track used to do.
-            plan = onTracks.map((t) => {
+            plan = held.map((t) => {
                 const g = geneSymbolOf(t);
                 const given = (byGene && g) ? byGene.get(g.toUpperCase()) : null;
                 return { track: t, given: (given && given.length) ? given : null, gene: g };
@@ -225,11 +236,10 @@ function (server, graph, genegraph_panel_layout, tracks, presetText) {
             }
             const named = plan.reduce((n, p) => n + ((p.given && p.given.length) || 0), 0);
             say(named
-                ? (contextName || pinned) + ' — ' + named + ' change' + (named === 1 ? '' : 's')
+                ? (contextName || text) + ' — ' + named + ' change' + (named === 1 ? '' : 's')
                     + ' named; checking ' + (plan.length === 1 ? 'the transcript' : 'the transcripts')
                     + ' on the graph…'
-                : 'Finding the changes of ' + (plan.length === 1 ? 'this transcript' : 'these transcripts')
-                    + ' linked to "' + pinned + '"…');
+                : 'Reading "' + text + '" against ' + (plan.length === 1 ? 'the open transcript' : plan.length + ' open transcripts') + '…');
         } else if (byGene) {
             const genes = Array.from(byGene.keys());
             const total = Array.from(byGene.values()).reduce((n, a) => n + a.length, 0);
