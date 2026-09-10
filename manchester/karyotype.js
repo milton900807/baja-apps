@@ -2871,27 +2871,119 @@ function (path, config) {
         // fails or takes the tab down with it. This reads 8 MB at a time, keeps the partial
         // last line between slices, and never holds more than one slice plus the typed
         // arrays.
+        //
+        // A COMPRESSED VCF IS UNPACKED HERE, IN THE SAME SLICES. Nearly every VCF a caller
+        // writes is bgzipped -- Mutect2, Clair3, bcftools all emit BGZF -- and the name does
+        // not say so reliably: aso_candidates.vcf was one. Read as text it is gzip bytes, which
+        // parse to nothing; sent to the server to be asked what it is, it is a 27 MB upload
+        // that unpacks past what the classifier will hold. So the bytes are looked at, not the
+        // name, and a gzip is inflated in the browser on the way to the parser.
+        //
+        // BGZF is a run of small gzip members, one per 64 KB block, and the browser's gzip
+        // decoder stops at the end of the first member (Chrome throws on what follows it).
+        // Each block carries its own compressed length in its header, so the file is walked
+        // block by block and every block inflated as the complete gzip it is. A plain gzip
+        // has one member and is streamed whole.
+        const GZ_MAGIC = (b) => b.length > 1 && b[0] === 0x1f && b[1] === 0x8b;
+        const isBgzf = (b) => GZ_MAGIC(b) && b.length >= 18 && (b[3] & 4) && b[12] === 66 /* B */ && b[13] === 67 /* C */;
+        const inflateBlob = async (blob, format) => {
+            const rs = blob.stream().pipeThrough(new DecompressionStream(format));
+            return new Uint8Array(await new Response(rs).arrayBuffer());
+        };
+        // Hand every line of the file to onLines, in order, decoding whatever it is. onLines
+        // may return false to stop early (the sniff wants only the head). Progress is by
+        // bytes of the file consumed, compressed or not.
+        const readLines = async (file, onLines, onProgress) => {
+            let head = new Uint8Array(0);
+            try { head = new Uint8Array(await file.slice(0, 18).arrayBuffer()); } catch (e) { }
+            const dec = new TextDecoder('utf-8');
+            let tail = '', stopped = false;
+            const feed = (bytes, last) => {
+                const lines = (tail + dec.decode(bytes, { stream: !last })).split(/\r?\n/);
+                // The last line of a slice is almost never a whole line.
+                tail = last ? '' : lines.pop();
+                if (onLines(lines) === false) stopped = true;
+            };
+            if (GZ_MAGIC(head)) {
+                if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot unpack a gzip; decompress the file first');
+                if (isBgzf(head)) {
+                    // Block header: 10 fixed bytes, XLEN, then the BC subfield whose BSIZE is
+                    // the whole block's length minus one. Blocks never straddle a slice for
+                    // long: a partial block at the end of a slice is carried into the next.
+                    const CHUNK = 8 * 1024 * 1024;
+                    let offset = 0, carry = new Uint8Array(0);
+                    while (offset < file.size && !stopped) {
+                        const got = new Uint8Array(await file.slice(offset, Math.min(file.size, offset + CHUNK)).arrayBuffer());
+                        offset += CHUNK;
+                        let buf = carry.length ? (() => { const m = new Uint8Array(carry.length + got.length); m.set(carry); m.set(got, carry.length); return m; })() : got;
+                        let at = 0;
+                        const blocks = [];
+                        while (at + 18 <= buf.length) {
+                            if (!GZ_MAGIC(buf.subarray(at))) throw new Error('not a BGZF block at byte ' + (offset - CHUNK + at));
+                            const bsize = (buf[at + 16] | (buf[at + 17] << 8)) + 1;
+                            if (at + bsize > buf.length) break;
+                            blocks.push(buf.subarray(at, at + bsize));
+                            at += bsize;
+                        }
+                        carry = buf.slice(at);
+                        // Inflate a batch at a time so the decoders overlap, then feed in order.
+                        for (let i = 0; i < blocks.length && !stopped; i += 32) {
+                            const outs = await Promise.all(blocks.slice(i, i + 32).map((b) => inflateBlob(new Blob([b]), 'gzip')));
+                            for (const o of outs) { if (o.length) feed(o, false); if (stopped) break; }
+                        }
+                        if (onProgress) onProgress(Math.min(offset, file.size));
+                        await new Promise((r) => setTimeout(r, 0));
+                    }
+                    if (!stopped && carry.length > 28) {
+                        // A last block cut short by the size check above, if any.
+                        try { feed(await inflateBlob(new Blob([carry]), 'gzip'), false); } catch (e) { }
+                    }
+                } else {
+                    const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+                    let seen = 0;
+                    for (; !stopped;) {
+                        let r = null;
+                        // A single-member gzip ends cleanly; anything odd after the member
+                        // is not a reason to lose what was already read.
+                        try { r = await reader.read(); } catch (e) { break; }
+                        if (r.done) break;
+                        feed(r.value, false);
+                        seen += r.value.length;
+                        if (onProgress) onProgress(Math.min(file.size, Math.round(seen / 4)));
+                    }
+                    try { reader.cancel(); } catch (e) { }
+                }
+            } else {
+                const CHUNK = 8 * 1024 * 1024;
+                let offset = 0;
+                while (offset < file.size && !stopped) {
+                    const got = new Uint8Array(await file.slice(offset, Math.min(file.size, offset + CHUNK)).arrayBuffer());
+                    offset += CHUNK;
+                    feed(got, false);
+                    if (onProgress) onProgress(Math.min(offset, file.size));
+                    await new Promise((r) => setTimeout(r, 0));
+                }
+            }
+            if (!stopped) feed(new Uint8Array(0), true);
+        };
+        // The first stretch of the file as text, unpacked if it is compressed: what the sniff
+        // reads. A gzip's head is inflated no further than this needs.
+        const headTextOf = async (file, want) => {
+            let out = '';
+            try {
+                await readLines(file, (lines) => { out += lines.join('\n') + '\n'; return out.length < want; });
+            } catch (e) { }
+            return out.slice(0, want);
+        };
         const addVcfFile = async (file) => {
             if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
-            const CHUNK = 8 * 1024 * 1024;
-            let offset = 0, tail = '';
-            while (offset < file.size) {
-                const slice = file.slice(offset, Math.min(file.size, offset + CHUNK));
-                let txt = '';
-                try { txt = await slice.text(); } catch (e) { break; }
-                offset += CHUNK;
-                const lines = (tail + txt).split(/\r?\n/);
-                // The last line of a slice is almost never a whole line.
-                tail = (offset < file.size) ? lines.pop() : '';
-                parseLines(lines, bufs, namesOf, count);
+            await readLines(file, (lines) => { parseLines(lines, bufs, namesOf, count); }, (done) => {
                 graph.setMessage(' Reading ' + file.name + ' — '
-                    + Math.min(100, Math.round(offset * 100 / file.size)) + '%, '
+                    + Math.min(100, Math.round(done * 100 / file.size)) + '%, '
                     + count.added.toLocaleString() + ' variants… ');
-                await new Promise((r) => setTimeout(r, 0));
-            }
-            if (tail) parseLines([tail], bufs, namesOf, count);
+            });
             finalise(bufs, namesOf, count, file.name);
             return count;
         };
@@ -3014,22 +3106,11 @@ function (path, config) {
                 }
                 return out;
             };
-            const CHUNK = 8 * 1024 * 1024;
-            let offset = 0, tail = '';
-            while (offset < file.size) {
-                const slice = file.slice(offset, Math.min(file.size, offset + CHUNK));
-                let txt = '';
-                try { txt = await slice.text(); } catch (e) { break; }
-                offset += CHUNK;
-                const lines = (tail + txt).split(/\r?\n/);
-                tail = (offset < file.size) ? lines.pop() : '';
-                parseLines(rows(lines), bufs, namesOf, count);
+            await readLines(file, (lines) => { parseLines(rows(lines), bufs, namesOf, count); }, (done) => {
                 graph.setMessage(' Reading ' + file.name + ' — '
-                    + Math.min(100, Math.round(offset * 100 / file.size)) + '%, '
+                    + Math.min(100, Math.round(done * 100 / file.size)) + '%, '
                     + count.added.toLocaleString() + ' variants… ');
-                await new Promise((r2) => setTimeout(r2, 0));
-            }
-            if (tail) parseLines(rows([tail]), bufs, namesOf, count);
+            });
             finalise(bufs, namesOf, count, file.name);
             return count;
         };
@@ -3184,8 +3265,13 @@ function (path, config) {
         const readAnyFile = async (file) => {
             let head = '';
             try { head = await file.slice(0, Math.min(file.size, FILE_HEAD)).text(); } catch (e) { head = ''; }
+            const gz = head.charCodeAt(0) === 0x1f && head.charCodeAt(1) === 0x8b;
+            // A gzip is sniffed on what is INSIDE it. Most VCFs arrive bgzipped, and a
+            // name is no guide to whether one is: ".vcf" files that are gzip bytes are common.
+            if (gz) {
+                try { head = await headTextOf(file, FILE_HEAD); } catch (e) { head = ''; }
+            }
             const isText = looksLikeText(head);
-            const gz = /\.gz$/i.test(file.name) || (head.charCodeAt(0) === 0x1f && head.charCodeAt(1) === 0x8b);
             if (isText && looksLikeVcf(head)) {
                 const count = await addVcfFile(file);
                 return count.added.toLocaleString() + ' variants drawn';
@@ -3269,7 +3355,7 @@ function (path, config) {
                     // a copy is a side effect of that; announcing the copy over the variant
                     // count reports the less interesting half. The outcome line below still
                     // says whether the copy was kept.
-                    const quietSave = /\.vcf$/i.test(file.name);
+                    const quietSave = /\.vcf(\.b?gz)?$/i.test(file.name);
                     if (!quietSave) graph.setMessage(' Saving ' + file.name + ' to My Files… ');
                     const up = await uploadToMyFiles(file, (pct) => {
                         if (quietSave) return;
