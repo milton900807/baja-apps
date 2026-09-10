@@ -603,9 +603,33 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); searchMenu(); })
                                     },
                                     {
-                                        label: 'Upload VCF', icon: 'upload_file',
-                                        tooltip: 'Read a VCF onto the karyotype and keep it in My Files',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); pickVcf(); })
+                                        // PATENTS ARE A GENOME-WIDE QUESTION, so they get a
+                                        // button rather than living two levels down a menu
+                                        // that is otherwise about looking one thing up. The
+                                        // strip is drawn down every chromosome at once, which
+                                        // is the whole point of asking, and the answer is not
+                                        // something you search FOR: you either want the
+                                        // landscape or you do not. Search still offers it, for
+                                        // anyone who learned it there.
+                                        //
+                                        // patLoad() reads the density on the first press and
+                                        // toggles the strip on every press after, so this is
+                                        // one button for show and hide.
+                                        label: 'Patents', icon: 'gavel',
+                                        tooltip: 'Show where patented sequences fall across the whole '
+                                            + 'genome; press again to hide',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); patLoad(); })
+                                    },
+                                    {
+                                        // ANY FILE, NOT ONLY A VCF. A VCF is read directly;
+                                        // anything else -- a genetic report, a lab PDF, a
+                                        // 23andMe export, a gene panel, a screenshot -- is
+                                        // asked about first, and whatever genetic information
+                                        // it carries is placed on the genome.
+                                        label: 'Upload', icon: 'upload_file',
+                                        tooltip: 'Read a VCF, a genetic report, or any file carrying genetic '
+                                            + 'information onto the karyotype, and keep it in My Files',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); pickFile(); })
                                     },
                                     // A POPULATION, NOT A FILE. The 1011 yeast genomes are
                                     // one 5.4 GB VCF that no browser should be handed, so the
