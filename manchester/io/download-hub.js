@@ -305,10 +305,13 @@ function (graph, layout) {
             // cards for every compound sit at the top level, and a detailed ASO report beside
             // them. The whole-workbench-including-tracks-and-variants download stays available
             // as its own card below.
-            topBooks.push({ title: 'Download all compounds', note: true });
-            formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(b));
-            topBooks.push({ title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
-            topBooks.push({ title: 'Everything (all tracks, variants, annotations)', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: true, blurb: 'The whole canvas in one file, not just the compounds.', books: () => formatBooks(scopeWorkbench()) });
+            // A prominent 'Download design' heading and a plain-language note, so it is
+            // unmistakable that these cards download every oligo in the current design.
+            const __nOl = allOligos().length;
+            topBooks.push({ section: 'Download design', note: true, title: 'Every oligo in this design (' + __nOl + ' compound' + (__nOl === 1 ? '' : 's') + '), in one file — pick a format:' });
+            formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Download design' })));
+            topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
+            topBooks.push({ section: 'Or everything on the canvas', title: 'Everything (all tracks, variants, annotations)', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: true, blurb: 'The whole canvas in one file, not just the compounds.', books: () => formatBooks(scopeWorkbench()) });
         } else {
             topBooks.push({ title: 'Whole workbench', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: ts.length > 0, readyNote: 'Load a track first.', blurb: 'Everything on the canvas — all tracks and all their elements — in one file.', books: () => formatBooks(scopeWorkbench()) });
         }
