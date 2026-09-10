@@ -1433,6 +1433,18 @@ function (path, config) {
                                 ctx.textBaseline = 'middle';
                                 const lx = x1 + 15;
                                 let drewG = 0, lastY = -1e9;
+                                // THE REPORT'S OWN WORDS for this region, above the
+                                // annotation's genes -- the same line the callout card
+                                // carries when the region is too small for this. Pinned
+                                // to the top of the canvas once the region's top has
+                                // scrolled off it, so it stays readable at gene zoom.
+                                if (rg.label && rh >= 30) {
+                                    ctx.font = '600 10.5px ' + FONT;
+                                    ctx.fillStyle = '#9d174d';
+                                    const ly0 = Math.max(8, rt + 8);
+                                    ctx.fillText(('' + rg.label).slice(0, 70), lx + 7, ly0);
+                                    lastY = ly0;
+                                }
                                 for (const gn of gc.genes) {
                                     if (drewG >= GENE_MAX_LABELS) break;
                                     const a3 = +gn.start, b3 = +gn.end;
@@ -1911,6 +1923,23 @@ function (path, config) {
                         } else {
                             co.wrapped = ['reading the genes…'];
                         }
+                        // WHAT THE FILE SAID ABOUT IT. A region that came from a report
+                        // carries the report's own words -- the change it named, or why
+                        // it named the gene -- above the annotation's list, in its own ink.
+                        co.labelLines = 0;
+                        if (co.rg.label) {
+                            ctx.font = '600 11px ' + FONT;
+                            const lab = [];
+                            let ln2 = '';
+                            for (const w3 of ('' + co.rg.label).split(/\s+/)) {
+                                const t3 = ln2 ? ln2 + ' ' + w3 : w3;
+                                if (ctx.measureText(t3).width > CW - 20 && ln2) { lab.push(ln2); ln2 = w3; }
+                                else ln2 = t3;
+                            }
+                            if (ln2) lab.push(ln2);
+                            co.labelLines = Math.min(lab.length, 3);
+                            co.wrapped = lab.slice(0, 3).concat(co.wrapped);
+                        }
                         co.h = 9 + line + line + (co.wrapped.length * line) + 9;
                     }
                     // Resolve the stack downward, then lift it back into view if the last
@@ -1997,11 +2026,12 @@ function (path, config) {
                         }
                         if (ctx.measureText(coordTxt).width > CW - 20) coordTxt = spanTxt;
                         ctx.fillText(coordTxt, cardX + 10, co.y + 9 + line);
-                        ctx.fillStyle = co.genes ? '#334155' : '#94a3b8';
-                        ctx.font = '11px ' + FONT;
                         let ly = co.y + 9 + line + line;
-                        for (const w2 of co.wrapped) {
-                            ctx.fillText(w2, cardX + 10, ly);
+                        for (let wi = 0; wi < co.wrapped.length; wi++) {
+                            const isLabel = wi < (co.labelLines || 0);
+                            ctx.fillStyle = isLabel ? '#9d174d' : (co.genes ? '#334155' : '#94a3b8');
+                            ctx.font = (isLabel ? '600 ' : '') + '11px ' + FONT;
+                            ctx.fillText(co.wrapped[wi], cardX + 10, ly);
                             ly += line;
                         }
                     }
@@ -2785,35 +2815,347 @@ function (path, config) {
             return { ok: true };
         };
 
+        // ---- ANY FILE, NOT ONLY A VCF -----------------------------------------------
+        //
+        // The button used to take a VCF and nothing else, and a VCF is one of the shapes
+        // genetic information arrives in. A clinical report is another; so is a lab PDF, a
+        // 23andMe export, a gene panel, a paper, a photo of a result. So the picker takes
+        // anything, and the first question is what it is.
+        //
+        // A VCF IS RECOGNISED HERE, BEFORE ANYTHING IS SENT. The head of the file is read
+        // locally, and a VCF header -- or rows of the five-column shape -- goes straight to
+        // the streaming reader above: a five-million-row file is the case that reader was
+        // built for, and the case nothing should be handed to a model. Everything else goes
+        // to py/bio/genetic-file.py, which asks Claude what the file is and, for a report,
+        // reads out the genes and variants it names and resolves each one to a place on
+        // this genome from the annotation on the server -- deterministically, so nothing is
+        // drawn where a model guessed it goes. What comes back is in the two shapes this
+        // view already draws: VCF rows, and gene symbols.
+        const FILE_SCRIPT = server + '/py/bio/genetic-file.py';
+        const FILE_MAX_SEND = 30 * 1024 * 1024;    // the Messages API reads PDFs to 32 MB
+        const FILE_HEAD = 256 * 1024;              // what is sniffed locally
+        const FILE_TEXT_HEAD = 1024 * 1024;        // the head of a large text file that is sent
+        const FILE_TIMEOUT_MS = 6 * 60 * 1000;
+        const FILE_MAX_REGIONS = 40;               // genes a report can select at once
+
+        const readAsBase64 = (blob) => new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => { const str = '' + fr.result; res(str.slice(str.indexOf(',') + 1)); };
+            fr.onerror = () => rej(fr.error || new Error('read failed'));
+            fr.readAsDataURL(blob);
+        });
+        const looksLikeText = (t) => {
+            // A NUL in the first kilobytes is a binary file; a heap of replacement
+            // characters is one that was decoded as text and is not.
+            const h = t.slice(0, 4096);
+            if (h.indexOf('\u0000') >= 0) return false;
+            let bad = 0;
+            for (let i = 0; i < h.length; i++) if (h.charCodeAt(i) === 0xfffd) bad++;
+            return bad < h.length / 50;
+        };
+        const parseJson = (t, d) => {
+            if (t && typeof t === 'object') return t;
+            try { const v = JSON.parse(t || ''); return v == null ? d : v; } catch (e) { return d; }
+        };
+
+        // A TABLE OF VARIANTS THAT IS NOT A VCF: a 23andMe export, an annotated TSV, a
+        // BED-like list. The model has said which column is which; the rows are read here,
+        // in slices like a VCF, and fed to the same parser as five-column lines.
+        const addTableFile = async (file, table) => {
+            if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            const bufs = newBufs(), namesOf = drawn.map(() => []);
+            const count = { added: 0, offGenome: 0, skipped: 0 };
+            const delim = table.delimiter === 'comma' ? ',' : table.delimiter === 'semicolon' ? ';'
+                : table.delimiter === 'whitespace' ? null : '\t';
+            const cp = table.comment_prefix || '#';
+            let headerLeft = Math.max(0, +table.header_lines || 0);
+            const unq = (x) => ('' + (x == null ? '' : x)).trim().replace(/^"(.*)"$/, '$1');
+            const rows = (lines) => {
+                const out = [];
+                for (const line of lines) {
+                    if (!line) continue;
+                    // The header count includes comment lines -- a 23andMe export's two
+                    // '#' lines ARE its header -- so it is spent first, or those lines
+                    // would be skipped as comments and the first data rows as the header.
+                    if (headerLeft > 0) { headerLeft--; continue; }
+                    if (cp && line.indexOf(cp) === 0) continue;
+                    const f = delim ? line.split(delim) : line.trim().split(/\s+/);
+                    const chrom = unq(f[table.chrom_col]);
+                    const pos = unq(f[table.pos_col]);
+                    if (!chrom || !/^\d+$/.test(pos)) { count.skipped++; continue; }
+                    let ref = table.ref_col >= 0 ? unq(f[table.ref_col]).toUpperCase() : '';
+                    let alt = table.alt_col >= 0 ? unq(f[table.alt_col]).toUpperCase() : '';
+                    const id = table.id_col >= 0 ? unq(f[table.id_col]) : '';
+                    if (!alt && table.genotype_col >= 0) {
+                        // A genotype export gives no reference allele: the call is drawn
+                        // as the first base of the genotype, and a no-call ("--") is not
+                        // a variant.
+                        const gt = unq(f[table.genotype_col]).toUpperCase().replace(/[^ACGTDI]/g, '');
+                        if (!gt) { count.skipped++; continue; }
+                        alt = gt.charAt(0) === 'D' ? 'N' : gt.charAt(0) === 'I' ? 'NN' : gt.charAt(0);
+                        ref = 'N';
+                    }
+                    if (!/^[ACGTN]+$/.test(ref)) ref = 'N';
+                    if (!/^[ACGTN,]+$/.test(alt)) { count.skipped++; continue; }
+                    out.push(chrom + '\t' + pos + '\t' + (id || '.') + '\t' + ref + '\t' + alt);
+                }
+                return out;
+            };
+            const CHUNK = 8 * 1024 * 1024;
+            let offset = 0, tail = '';
+            while (offset < file.size) {
+                const slice = file.slice(offset, Math.min(file.size, offset + CHUNK));
+                let txt = '';
+                try { txt = await slice.text(); } catch (e) { break; }
+                offset += CHUNK;
+                const lines = (tail + txt).split(/\r?\n/);
+                tail = (offset < file.size) ? lines.pop() : '';
+                parseLines(rows(lines), bufs, namesOf, count);
+                graph.setMessage(' Reading ' + file.name + ' — '
+                    + Math.min(100, Math.round(offset * 100 / file.size)) + '%, '
+                    + count.added.toLocaleString() + ' variants… ');
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            if (tail) parseLines(rows([tail]), bufs, namesOf, count);
+            finalise(bufs, namesOf, count, file.name);
+            return count;
+        };
+
+        // Go to one place on one chromosome -- a variant a report named.
+        const gotoPlace = async (chrom, pos) => {
+            const c0 = '' + (chrom || '');
+            let ci = chromIndex[c0];
+            if (ci == null) ci = chromIndex['chr' + c0];
+            if (ci == null) ci = chromIndex[c0.replace(/^chr/i, '')];
+            if (ci == null || !(pos > 0)) return false;
+            return goView({
+                x0: barLeft(ci) - 0.5 * SLOT, x1: barRight(ci) + 0.5 * SLOT,
+                y0: wy(pos + 3000), y1: wy(Math.max(0, pos - 3000))
+            });
+        };
+
+        // A REPORT, READ. The variants arrive as VCF rows and go through addVcf like a
+        // paste; the genes become selected regions, labelled with what the report said
+        // about them; the view frames what was found; and a shelf lists everything --
+        // including what could not be placed and WHY, because a change that is not drawn
+        // has to be explained or its absence reads as the report never mentioning it.
+        const applyReport = async (res, file) => {
+            const genes = parseJson(res.genes, []), placed = parseJson(res.variants, []);
+            const unresolved = parseJson(res.unresolved, []), warnings = parseJson(res.warnings, []);
+            const conditions = parseJson(res.conditions, []);
+            if (res.vcf) await addVcf(res.vcf, file.name);
+            // The genes, as regions. Each is looked up the way the Search button looks a
+            // gene up, so synonyms and old names resolve the same way. The label is what
+            // the report said: the changes it carries, or the reason it was named.
+            const byGene = {};
+            for (const v of placed) if (v.gene) (byGene[v.gene] = byGene[v.gene] || []).push(v);
+            for (const u of unresolved) if (u.gene) (byGene[u.gene] = byGene[u.gene] || []).push(u);
+            const added = [], missing = [];
+            for (const g of genes.slice(0, FILE_MAX_REGIONS)) {
+                graph.setMessage(' Finding ' + g.symbol + '… ');
+                let f = null;
+                try { f = await findGene(g.symbol); } catch (e) { f = null; }
+                if (!f) { missing.push(g.symbol); continue; }
+                const carried = (byGene[g.symbol] || []).map((v) => v.label).filter(Boolean);
+                const label = carried.length
+                    ? carried.slice(0, 3).join('; ') + (carried.length > 3 ? ' +' + (carried.length - 3) : '')
+                    : (g.symbol + (g.why ? ' — ' + g.why : ''));
+                const dup = regions.find((rg) => rg.i === f.ci && rg.lo === f.lo && rg.hi === f.hi);
+                if (dup) { dup.label = label; dup.gene = g.symbol; added.push(dup); continue; }
+                const rg = { i: f.ci, lo: f.lo, hi: f.hi, label: label, gene: g.symbol };
+                regions.push(rg);
+                added.push(rg);
+            }
+            if (genes.length > FILE_MAX_REGIONS) {
+                warnings.push('The report names ' + genes.length + ' genes; the first '
+                    + FILE_MAX_REGIONS + ' were selected.');
+            }
+            if (missing.length) {
+                warnings.push('Not in the ' + (r.species || 'human') + ' annotation: ' + missing.join(', ') + '.');
+            }
+            // Frame it: one gene up close, several genes as the whole genome with their
+            // cards, which is where the eye goes next anyway.
+            if (added.length === 1) {
+                const rg = added[0];
+                const pad = Math.max((rg.hi - rg.lo) * 0.25, 2000) / MB;
+                await goView({
+                    x0: barLeft(rg.i) - 0.5 * SLOT, x1: barRight(rg.i) + 0.5 * SLOT,
+                    y0: wy(rg.hi) - pad, y1: wy(rg.lo) + pad
+                });
+            } else if (added.length > 1) {
+                await fit();
+            }
+            if (graph.wake) graph.wake();
+
+            const sigName = (k) => ({
+                pathogenic: 'pathogenic', likely_pathogenic: 'likely pathogenic', uncertain: 'uncertain',
+                likely_benign: 'likely benign', benign: 'benign', conflicting: 'conflicting',
+                risk_factor: 'risk factor', drug_response: 'drug response', other: 'other', not_stated: ''
+            }[k] || '');
+            const books = [];
+            books.push({ section: 'What the file is', note: true, title: 'summary',
+                blurb: (res.description ? res.description + ' ' : '') + (res.summary || '')
+                    + (res.subject ? ' (' + res.subject + ')' : '') });
+            if (conditions.length) {
+                books.push({ section: 'What the file is', note: true, title: 'conditions',
+                    blurb: 'Conditions: ' + conditions.join(', ') });
+            }
+            for (const w of warnings) books.push({ section: 'What the file is', note: true, title: 'note', blurb: w });
+            if (res.notes) books.push({ section: 'What the file is', note: true, title: 'model notes', blurb: res.notes });
+            if (placed.length) {
+                for (const v of placed) {
+                    books.push({
+                        section: 'Variants placed (' + placed.length + ')',
+                        title: v.label || (v.gene + ' ' + v.chrom + ':' + v.pos),
+                        badge: sigName(v.classification) || 'variant',
+                        blurb: v.chrom + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt
+                            + (v.zygosity ? ' · ' + v.zygosity : '')
+                            + (v.condition ? ' · ' + v.condition : '')
+                            + ' · placed by ' + (v.how || '?')
+                            + (v.note ? ' · ' + v.note : '') + '. Open to go there.',
+                        open: async () => { try { hideAllModal(); } catch (e) { } await gotoPlace(v.chrom, v.pos); }
+                    });
+                }
+            } else {
+                books.push({ section: 'Variants placed (0)', note: true, title: 'none',
+                    blurb: 'The file names no specific change that could be placed.' });
+            }
+            for (const u of unresolved) {
+                books.push({ section: 'Not placed (' + unresolved.length + ')', note: true, title: u.label,
+                    blurb: (u.label || '?') + ' — ' + (u.reason || 'no reason given') });
+            }
+            if (genes.length) {
+                for (const g of genes) {
+                    const lost = missing.indexOf(g.symbol) >= 0;
+                    books.push({
+                        section: 'Genes (' + genes.length + ')',
+                        title: g.symbol, badge: lost ? 'not found' : 'gene',
+                        blurb: (g.why || '') + (g.quoted === false ? ' (inferred, not named in the text)' : '')
+                            + (lost ? '' : ' Open to go there.'),
+                        // The region this report already selected, rather than a second
+                        // copy of it from gotoGene.
+                        open: lost ? undefined
+                            : async () => {
+                                try { hideAllModal(); } catch (e) { }
+                                const rg = added.find((q) => q.gene === g.symbol);
+                                if (!rg) { await gotoGene(g.symbol); return; }
+                                const pad = Math.max((rg.hi - rg.lo) * 0.25, 2000) / MB;
+                                await goView({
+                                    x0: barLeft(rg.i) - 0.5 * SLOT, x1: barRight(rg.i) + 0.5 * SLOT,
+                                    y0: wy(rg.hi) - pad, y1: wy(rg.lo) + pad
+                                });
+                            }
+                    });
+                }
+            }
+            try {
+                await exec('baja/lib/shelf.js', {
+                    id: 'baja-genetic-file',
+                    title: file.name,
+                    subtitle: placed.length + ' variant' + (placed.length === 1 ? '' : 's') + ' placed'
+                        + (unresolved.length ? ', ' + unresolved.length + ' not placed' : '')
+                        + ' · ' + added.length + ' gene' + (added.length === 1 ? '' : 's') + ' selected'
+                        + (res.models ? ' · read by ' + res.models : ''),
+                    books: books
+                });
+            } catch (e) { step('shelf failed: ' + e); }
+            step('report: ' + placed.length + ' placed, ' + unresolved.length + ' unresolved, '
+                + added.length + ' regions, ' + missing.length + ' genes missing');
+            return placed.length + ' variant' + (placed.length === 1 ? '' : 's') + ' placed, '
+                + added.length + ' gene' + (added.length === 1 ? '' : 's') + ' selected'
+                + (unresolved.length ? ', ' + unresolved.length + ' not placed' : '');
+        };
+
+        // What to do with a file, by what it turns out to be. Returns one line for the
+        // outcome message, or '' when it has already said what went wrong.
+        const readAnyFile = async (file) => {
+            let head = '';
+            try { head = await file.slice(0, Math.min(file.size, FILE_HEAD)).text(); } catch (e) { head = ''; }
+            const isText = looksLikeText(head);
+            const gz = /\.gz$/i.test(file.name) || (head.charCodeAt(0) === 0x1f && head.charCodeAt(1) === 0x8b);
+            if (isText && looksLikeVcf(head)) {
+                const count = await addVcfFile(file);
+                return count.added.toLocaleString() + ' variants drawn';
+            }
+            if (gz && file.size > FILE_MAX_SEND) {
+                graph.setMessage(' ' + file.name + ' is compressed and large. Decompress it first. ');
+                return '';
+            }
+            let blob = file, partial = false;
+            if (file.size > FILE_MAX_SEND) {
+                if (!isText) {
+                    graph.setMessage(' ' + file.name + ' is ' + Math.round(file.size / 1048576)
+                        + ' MB, which is more than can be read at once. ');
+                    return '';
+                }
+                blob = file.slice(0, FILE_TEXT_HEAD);
+                partial = true;
+            }
+            graph.setMessage(' Asking what ' + file.name + ' is… ');
+            const b64 = await readAsBase64(blob);
+            const em = new EngineMonitor((m) => { try { log(m); graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            let timer = null, timedOut = false;
+            const timeout = new Promise((r2) => { timer = setTimeout(() => { timedOut = true; r2(null); }, FILE_TIMEOUT_MS); });
+            let res = null;
+            try {
+                res = await Promise.race([
+                    exec(FILE_SCRIPT, em, b64, file.type || '', file.name, r.species || 'human',
+                        String(file.size), partial ? '1' : '0'),
+                    timeout
+                ]);
+            } finally { clearTimeout(timer); }
+            if (timedOut) { graph.setMessage(' Reading ' + file.name + ' took too long. '); return ''; }
+            if (!res || res.error) {
+                graph.setMessage(' ' + file.name + ' could not be read' + (res && res.error ? ': ' + res.error : '.') + ' ');
+                return '';
+            }
+            step('genetic-file: ' + res.kind + ' — ' + res.description);
+            const warnings = parseJson(res.warnings, []);
+            const tail = warnings.length ? ' — ' + warnings.join(' ') : '';
+            if (res.kind === 'vcf') {
+                const count = await addVcfFile(file);
+                return count.added.toLocaleString() + ' variants drawn' + tail;
+            }
+            if (res.kind === 'variant_table') {
+                const table = parseJson(res.table, null);
+                if (!table || table.chrom_col < 0 || table.pos_col < 0) {
+                    graph.setMessage(' ' + (res.description || file.name)
+                        + ' — but its chromosome and position columns could not be identified. ');
+                    return '';
+                }
+                const count = await addTableFile(file, table);
+                return count.added.toLocaleString() + ' variants drawn from the table' + tail;
+            }
+            if (res.kind === 'sequence' || (res.kind === 'other' && !res.genetic_content)) {
+                return (res.description || 'nothing genetic was found in ' + file.name) + tail;
+            }
+            return await applyReport(res, file);
+        };
+
         // The picker. Reading and uploading are separate jobs on the same file and both are
-        // worth doing: the points appear from the local read without waiting for the network,
-        // and the file is kept whether or not the drawing found anything in it.
-        const pickVcf = () => {
+        // worth doing: whatever the file is, it is kept in My Files whether or not the
+        // drawing found anything in it.
+        const pickFile = () => {
             try {
                 const input = document.createElement('input');
                 input.type = 'file';
-                input.accept = '.vcf,.txt,text/plain';
                 input.style.cssText = 'position:fixed;left:-9999px;';
                 document.body.appendChild(input);
                 input.onchange = async () => {
                     const file = input.files && input.files[0];
                     try { document.body.removeChild(input); } catch (e) { }
                     if (!file) return;
-                    if (/\.gz$/i.test(file.name)) {
-                        graph.setMessage(' ' + file.name + ' is compressed. Decompress it first — '
-                            + 'this reads plain VCF text. ');
-                        return;
+                    step('file: ' + file.name + ' ' + file.size + ' bytes ' + (file.type || ''));
+                    let outcome = '';
+                    try { outcome = await readAnyFile(file); }
+                    catch (e) {
+                        graph.setMessage(' ' + file.name + ' could not be read: ' + (e && e.message ? e.message : e) + ' ');
+                        step('read failed: ' + e);
                     }
-                    step('file: ' + file.name + ' ' + file.size + ' bytes');
-                    let count = null;
-                    try { count = await addVcfFile(file); }
-                    catch (e) { graph.setMessage(' ' + file.name + ' could not be read: ' + (e && e.message ? e.message : e) + ' '); }
-                    // A VCF SAVES WITHOUT SAYING SO. The picker also takes .txt, and for
-                    // those the upload is the point -- but a VCF was opened to be drawn,
-                    // and keeping a copy is a side effect of that. Announcing it, twice,
-                    // over the variant count the user was actually reading, reports the
-                    // less interesting half of what just happened. The outcome line below
-                    // still says whether the copy was kept.
+                    // A VCF SAVES WITHOUT SAYING SO. It was opened to be drawn, and keeping
+                    // a copy is a side effect of that; announcing the copy over the variant
+                    // count reports the less interesting half. The outcome line below still
+                    // says whether the copy was kept.
                     const quietSave = /\.vcf$/i.test(file.name);
                     if (!quietSave) graph.setMessage(' Saving ' + file.name + ' to My Files… ');
                     const up = await uploadToMyFiles(file, (pct) => {
@@ -2821,11 +3163,11 @@ function (path, config) {
                         graph.setMessage(' Saving ' + file.name + ' to My Files — ' + Math.round(pct) + '%… ');
                     });
                     if (up && up.error) {
-                        graph.setMessage(' ' + (count ? count.added.toLocaleString() + ' variants drawn, but ' : '')
+                        graph.setMessage(' ' + (outcome ? outcome + ', but ' : '')
                             + file.name + ' was not saved: ' + up.error + '. ');
                         step('upload failed: ' + up.error);
                     } else {
-                        graph.setMessage(' ' + (count ? count.added.toLocaleString() + ' variants drawn. ' : '')
+                        graph.setMessage(' ' + (outcome ? outcome + '. ' : '')
                             + file.name + ' saved to My Files. ');
                         step('upload ok: ' + file.name);
                     }
@@ -4679,7 +5021,7 @@ function (path, config) {
             const note = (vtotal > SAVE_CAP)
                 ? ('Holding ' + vtotal.toLocaleString() + ' variants; the first '
                     + SAVE_CAP.toLocaleString() + ' are written. If the file came in through '
-                    + 'Upload VCF, all of it is already in My Files.')
+                    + 'Upload, all of it is already in My Files.')
                 : (vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + ' will be written' + sizeHint(vtotal) + '.'
                     + (vtotal > 1000000
