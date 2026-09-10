@@ -8,3 +8,9 @@
 *.sdf
 *.screen
 *__pycache__*
+
+# Editor scratch copies: foo.js.bak_before, design.py.bak_prehaplotype.
+# NOT plain *.bak -- py/ppsets/models/model.joblib.bak is tracked on purpose.
+*.bak_*
+*.orig
+*.rej
