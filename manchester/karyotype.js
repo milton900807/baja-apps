@@ -1735,6 +1735,18 @@ function (path, config) {
 
                 if (vtotal) {
                     ctx.save();
+                    // WHAT IS ALREADY WRITTEN INSIDE A BAR this frame: the patent names, laid
+                    // out by the pass above. Both want the middle of the same bar at the same
+                    // zoom, and two labels in one place is worse than one label and a mark, so
+                    // a variant's metadata declines the space rather than printing over them.
+                    const metaClear = (x, y, w, h) => {
+                        for (const l of patLabelHits) {
+                            if (x < l.x + l.w && x + w > l.x && y < l.y + l.h && y + h > l.y) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    };
                     for (let ci = 0; ci < drawn.length; ci++) {
                         const d = vdata[ci];
                         if (!d.n) continue;
@@ -1765,6 +1777,9 @@ function (path, config) {
                             let a = 0, z = d.n;
                             while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < lo) a = m + 1; else z = m; }
                             const r = Math.max(3.4, Math.min(7, bw * 0.16));
+                            // The last row of in-bar metadata, so the next one can refuse to
+                            // overlap it. Per chromosome: they are laid out down a bar.
+                            let lastMetaY = -1e9;
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
@@ -1811,6 +1826,50 @@ function (path, config) {
                                     ctx.fillRect(bx1 + r * 1.6 + 4, my - 7.5, tw3 + 6, 15);
                                     ctx.fillStyle = col;
                                     ctx.fillText(nm, bx1 + r * 1.6 + 7, my);
+                                }
+                                // THE METADATA, INSIDE THE CHROMOSOME.
+                                //
+                                // Zoomed in this far the bar is a wide empty ribbon with a
+                                // hairline across it per variant, and everything that says what
+                                // the variant IS lives outside it: a name to the right, and the
+                                // rest only in the card a click away. The bar is the widest
+                                // clear space on the screen and it is directly on the thing
+                                // being described, so the change and how it was classified go
+                                // in there -- the two facts that decide whether a mark is worth
+                                // clicking at all.
+                                //
+                                // WHEN THE SPACE PERMITS, and measured rather than assumed: the
+                                // text is fitted to the bar, dropping the classification before
+                                // the alleles because A>T with no verdict still says something
+                                // and a verdict with no change does not. Rows that would touch
+                                // are skipped, and so is anything that would land on a patent
+                                // name already written there.
+                                if (bw >= VAR_META_MIN_W && (my - lastMetaY) >= VAR_META_PX) {
+                                    const ab = allelesAt(ci, k);
+                                    // An indel's alleles run to hundreds of bases; the head of
+                                    // one says which way it goes, which is all that fits.
+                                    const brief = (t2) => (t2.length > 6 ? t2.slice(0, 5) + '\u2026' : t2);
+                                    const change = brief(ab[0]) + '>' + brief(ab[1]);
+                                    const annot = CLS_SHORT[d.cls[k]]
+                                        || ((d.hl && d.hl[k]) ? HL_NAME[d.hl[k]] : '');
+                                    ctx.font = '600 9.5px ' + FONT;
+                                    ctx.textAlign = 'left';
+                                    ctx.textBaseline = 'middle';
+                                    let txt = annot ? (change + ' \u00b7 ' + annot) : change;
+                                    if (ctx.measureText(txt).width > bw - 10) txt = change;
+                                    const tw4 = ctx.measureText(txt).width;
+                                    if (tw4 <= bw - 10) {
+                                        const mx = bx0 + 5;
+                                        if (metaClear(mx - 2, my - 6.5, tw4 + 4, 13)) {
+                                            lastMetaY = my;
+                                            // A backing, because a bar is a stained band and
+                                            // the stain is whatever the cytogenetics said.
+                                            ctx.fillStyle = 'rgba(255,255,255,0.86)';
+                                            ctx.fillRect(mx - 2, my - 6.5, tw4 + 4, 13);
+                                            ctx.fillStyle = col;
+                                            ctx.fillText(txt, mx, my);
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -2186,6 +2245,13 @@ function (path, config) {
         // three gigabytes of object headers to draw a heat strip nobody can click.
         const HIST_BINS = 2048;      // per chromosome: chr1 is ~122 kb a bin
         const EXACT_MAX = 400;       // visible variants drawn one at a time; above this, density
+        const VAR_META_MIN_W = 54;   // a bar narrower than this holds no metadata worth reading
+        const VAR_META_PX = 13;      // two metadata rows closer than this would touch
+        // The significance a variant is carrying, in the width a chromosome bar has.
+        // CLS_SIG's own wording is what the editor needs and is far too long to put inside a
+        // bar -- "Conflicting classifications of pathogenicity" is wider than chr1 at any
+        // zoom that still shows a second chromosome.
+        const CLS_SHORT = ['', 'pathogenic', 'benign', 'VUS', 'conflicting'];
         const OBJECT_CAP = 20000;    // SnpIndels built eagerly; beyond this, on demand
 
         let SnpIndel = null;
