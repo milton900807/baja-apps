@@ -569,6 +569,103 @@ function (path, config) {
             }
             return [cx - span / 2, cx + span / 2, cy - ySpan / 2, cy + ySpan / 2];
         };
+        // ---- the tour ---------------------------------------------------------------------
+        //
+        // What the Help button at the end of the toolbar walks through. Every toolbar stop
+        // is anchored by the button's TOOLTIP -- the same string the template puts in the
+        // title attribute, so the name a person hovers to learn is the name the tour matches
+        // on -- with the icon as the fallback. A stop whose button is not on screen drops out
+        // of the tour rather than breaking it: the 1011 genomes button is only offered on a
+        // yeast genome, and its step goes with it. See baja/manchester/menu/ui-tour.js.
+        const TOUR_STEPS = [
+            {
+                title: 'A quick tour',
+                text: '{stops} stops around the chromosome view, saying what each control is '
+                    + 'for. Nothing here changes your karyotype — use Next and Back, or press '
+                    + 'Escape to leave at any point.',
+            },
+            {
+                title: 'The toolbar',
+                sel: '.button-menu__grid',
+                text: 'Everything you can do to a karyotype is in this row. The buttons are '
+                    + 'icons only; hover one to see its name.',
+            },
+            {
+                title: 'Files — open, save, remove',
+                byTitle: 'Open, save or remove a karyotype in My Files',
+                byIcon: 'folder_open',
+                text: 'Keep this karyotype in My Files — the view, the bookmarks and the '
+                    + 'variants you have loaded go with it — reopen one you kept earlier, or '
+                    + 'remove one you no longer need.',
+            },
+            {
+                title: 'Search — look something up',
+                byTitle: 'Find a gene, act on the selected regions, or show patents',
+                byIcon: 'search',
+                text: 'Jump to a gene by name, see the genes inside the regions you have '
+                    + 'selected and open their transcripts in the editor, or show the patents.',
+            },
+            {
+                title: 'Patents — the whole landscape',
+                byTitle: 'Show where patented sequences fall across the whole genome; press again to hide',
+                byIcon: 'gavel',
+                text: 'Draws a strip down every chromosome showing where patented sequences '
+                    + 'fall, so you can see the crowded and the open ground at once. Press it '
+                    + 'again to hide the strip.',
+            },
+            {
+                title: 'Upload — put a file on the genome',
+                byTitle: 'Read a VCF, a genetic report, or any file carrying genetic information onto the karyotype, and keep it in My Files',
+                byIcon: 'upload_file',
+                text: 'A VCF is read directly. Anything else — a genetic report, a lab PDF, a '
+                    + '23andMe export, a gene panel — is read for whatever genetic information '
+                    + 'it carries, and that is placed on the chromosomes. Pasting a VCF onto '
+                    + 'this screen does the same.',
+            },
+            {
+                title: '1011 genomes — a population',
+                byTitle: 'Add variants from the 1011 yeast genomes (Peter et al. 2018)',
+                byIcon: 'biotech',
+                text: 'Adds variants from the 1011 yeast genomes collection by strain, by '
+                    + 'region or by how common they are, without downloading the whole set.',
+            },
+            {
+                title: 'Bookmarks — keep a view',
+                byTitle: 'Keep this view, or go back to one you kept',
+                byIcon: 'photo_camera',
+                text: 'Keep the view you are looking at, and come back to it later from the '
+                    + 'same button.',
+            },
+            {
+                title: 'Fit — see everything again',
+                byTitle: 'Frame the whole genome again',
+                byIcon: 'fit_screen',
+                text: 'Frames the whole genome after you have zoomed in, all chromosomes at '
+                    + 'one scale, smallest on the left.',
+            },
+            {
+                title: 'The chromosomes',
+                sel: 'canvas',
+                text: 'Drag to move and scroll to zoom. To choose a region, press Select '
+                    + 'sequence on the canvas, then drag down a chromosome: the genes in that '
+                    + 'range are looked up and offered as transcripts to open in the editor. '
+                    + 'Variants you have loaded are drawn on the bars, and clicking one says '
+                    + 'what it is.',
+            },
+            {
+                title: 'Leaving',
+                sel: '#baja-karyotype-close',
+                text: 'The cross in the corner closes the chromosome view. Anything you saved '
+                    + 'to My Files is still there; anything you did not is not.',
+            },
+            {
+                title: 'That is the tour',
+                byTitle: 'A quick tour of this screen',
+                byIcon: 'help_outline',
+                text: 'Help lives here whenever you want to see this again.',
+            },
+        ];
+
         // The SAME nesting editor.js uses: a geneGraphPanel card holding the toolbar row and
         // the canvas row, wrapped in a mainPanel card. Flattening the two into one card is
         // the obvious simplification and it is not what the renderer is fed anywhere else, so
@@ -650,6 +747,28 @@ function (path, config) {
                                         label: 'Fit', icon: 'fit_screen',
                                         tooltip: 'Frame the whole genome again',
                                         ionFunction: createIonFunction(async () => { await fit(); pan(); })
+                                    },
+                                    {
+                                        // LAST IN THE ROW ON PURPOSE, as in the editor: help is
+                                        // not something you do to a karyotype, so it sits after
+                                        // the things that are. Straight to the tour rather than
+                                        // through a shelf -- the editor's Help opens a library
+                                        // because it has more than one thing to offer, and this
+                                        // view has one. The tour describes and never drives:
+                                        // nothing in it opens a menu or moves the camera, so it
+                                        // can be taken with a karyotype open and left at any step.
+                                        label: 'Help', icon: 'help_outline',
+                                        tooltip: 'A quick tour of this screen',
+                                        ionFunction: createIonFunction(() => {
+                                            if (armed) pan();
+                                            try { graph.hideMenu(); } catch (e) { }
+                                            try { graph.showSideMenu(null); } catch (e) { }
+                                            try { hideAllModal(); } catch (e) { }
+                                            Promise.resolve(exec('baja/manchester/menu/ui-tour.js', graph, { steps: TOUR_STEPS }))
+                                                .catch((e) => {
+                                                    try { graph.setError(' The tour could not start: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                                });
+                                        })
                                     },
                                 ]
                             }
