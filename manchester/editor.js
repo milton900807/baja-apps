@@ -2951,54 +2951,34 @@ function (path, config) {
                                                     // LAST in the row on purpose: help is not
                                                     // something you do to a design, so it sits
                                                     // after the things that are.
+                                                    //
+                                                    // STRAIGHT TO THE TOUR, as the Genome Viewer's
+                                                    // Help is. It used to open a shelf with two
+                                                    // cards, the tour and the video tutorials,
+                                                    // which put a menu between a person asking for
+                                                    // help and getting any; the videos are now the
+                                                    // tour's last stop, one press away instead of
+                                                    // one press further. The tour describes and
+                                                    // never drives: nothing in it clicks a button
+                                                    // or touches the design, so it can be taken
+                                                    // with work open and left at any step.
                                                     label: 'Help', icon: 'help_outline',
-                                                    tooltip: 'Help and tutorials',
+                                                    tooltip: 'A quick tour of the editor',
                                                     ionFunction: createIonFunction(() => {
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         try { graph.showSideMenu(null); } catch (e) { }
-                                                        // The library idiom, like Tracks and Layers:
-                                                        // a card says what it does before it is
-                                                        // clicked. A leaf's open() runs after the
-                                                        // shelf has closed, so the tour has the
-                                                        // screen to itself.
-                                                        exec('baja/lib/shelf.js', {
-                                                            id: 'baja-help-library',
-                                                            title: 'Help',
-                                                            subtitle: 'Learn your way around the editor.',
-                                                            graph: graph,
-                                                            books: [
-                                                                {
-                                                                    title: 'Quick tour of the editor',
-                                                                    badge: '1 min',
-                                                                    accent: 'sunset',
-                                                                    blurb: 'A guided walk around the toolbar and the '
-                                                                        + 'canvas, pointing at each control and saying '
-                                                                        + 'what it is for. Changes nothing in your design.',
-                                                                    open: async () => {
-                                                                        await exec('baja/manchester/menu/ui-tour.js', graph, {
-                                                                            // Re-arm the default canvas mode the tour
-                                                                            // covered over, the same way the other
-                                                                            // overlays in this editor do on the way out.
-                                                                            onClose: () => {
-                                                                                try {
-                                                                                    exec('baja/manchester/menu/mouse-over-highlight.js',
-                                                                                        graph, genegraph_panel_layout);
-                                                                                } catch (e) { }
-                                                                            }
-                                                                        });
-                                                                    }
-                                                                },
-                                                                {
-                                                                    title: 'Video tutorials',
-                                                                    badge: 'videos',
-                                                                    blurb: 'Short videos covering individual jobs end to '
-                                                                        + 'end — designing allele selective ASOs, running '
-                                                                        + 'off-targets, and more. Opens in a new tab.',
-                                                                    open: () => {
-                                                                        try { window.open('/assets/tutorials.html', '_blank'); } catch (e) { }
-                                                                    }
-                                                                },
-                                                            ]
+                                                        Promise.resolve(exec('baja/manchester/menu/ui-tour.js', graph, {
+                                                            // Re-arm the default canvas mode the tour
+                                                            // covered over, the same way the other
+                                                            // overlays in this editor do on the way out.
+                                                            onClose: () => {
+                                                                try {
+                                                                    exec('baja/manchester/menu/mouse-over-highlight.js',
+                                                                        graph, genegraph_panel_layout);
+                                                                } catch (e) { }
+                                                            }
+                                                        })).catch((e) => {
+                                                            try { graph.setError(' The tour could not start: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
                                                         });
                                                     })
                                                 }

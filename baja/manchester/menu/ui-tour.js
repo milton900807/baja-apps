@@ -9,7 +9,9 @@ function (graph, opts) {
     // walks whatever it was given, so the chromosome view (manchester/karyotype.js) and any
     // other screen built on the same button-menu row can offer the same tour of its own
     // controls without a second copy of the scrim, the card and the keyboard handling.
-    // A step is { title, text, sel? | byTitle? | byIcon? }; '{stops}' in a text is replaced
+    // A step is { title, text, sel? | byTitle? | byIcon?, link?: { label, href } }; a link is
+    // a button on the card that opens its page in a new tab, for the one stop that has more
+    // to offer than a paragraph. '{stops}' in a text is replaced
     // by the number of stops after the introduction, so the count stays right when a
     // screen's toolbar is missing a button and the step for it drops out.
     //
@@ -68,6 +70,14 @@ function (graph, opts) {
                     + 'against what you have marked.',
             },
             {
+                title: 'Selection — what you have picked',
+                byTitle: 'Selected objects, and everything the selection window can do with them',
+                byIcon: 'checklist',
+                text: 'Whatever you have lassoed or clicked on the canvas is listed here, with '
+                    + 'a count on the button, and everything that can be done to the selection '
+                    + 'as a whole is in this window.',
+            },
+            {
                 title: 'Navigate — move around',
                 byTitle: 'Move to a gene, a region or a feature',
                 byIcon: 'explore',
@@ -90,11 +100,19 @@ function (graph, opts) {
                     + 'track to see what you can do with it.',
             },
             {
+                title: 'Leaving',
+                sel: '#baja-editor-close',
+                text: 'The cross in the corner closes the editor. Save first from File if you '
+                    + 'want the design back the way it is now.',
+            },
+            {
                 title: 'That is the tour',
-                byTitle: 'Help and tutorials',
+                byTitle: 'A quick tour of the editor',
                 byIcon: 'help_outline',
-                text: 'Help lives here whenever you want it — this tour, and the video '
-                    + 'tutorials, which cover individual jobs end to end.',
+                text: 'Help lives here whenever you want to see this again. The video '
+                    + 'tutorials cover individual jobs end to end — designing allele selective '
+                    + 'ASOs, running off-targets, and more.',
+                link: { label: 'Video tutorials', href: '/assets/tutorials.html' },
             },
         ];
 
@@ -179,6 +197,9 @@ function (graph, opts) {
             + '<div id="tour-title" style="font:700 16px Arial;margin-top:6px;"></div>'
             + '<div id="tour-text" style="font:13px/1.55 Arial;color:#cfe6ee;margin-top:8px;"></div>'
             + '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;">'
+            + '<button id="tour-link" style="display:none;background:transparent;color:#4fd0e6;'
+            + 'border:1px solid rgba(79,208,230,0.45);border-radius:8px;padding:7px 12px;'
+            + 'font:700 12.5px Arial;cursor:pointer;white-space:nowrap;"></button>'
             + '<button id="tour-skip" style="background:transparent;color:#9fb3c8;border:none;'
             + 'font:12.5px Arial;cursor:pointer;padding:6px 2px;">Skip</button>'
             + '<span style="flex:1 1 auto;"></span>'
@@ -253,6 +274,13 @@ function (graph, opts) {
             root.querySelector('#tour-title').textContent = s.title || '';
             root.querySelector('#tour-text').textContent = ('' + (s.text || ''))
                 .replace(/\{stops\}/g, String(Math.max(1, steps.length - 1)));
+            const link = root.querySelector('#tour-link');
+            if (s.link && s.link.href) {
+                link.textContent = (s.link.label || 'Open') + ' \u2197';
+                link.style.display = 'inline-block';
+            } else {
+                link.style.display = 'none';
+            }
             const back = root.querySelector('#tour-back');
             back.style.visibility = i === 0 ? 'hidden' : 'visible';
             root.querySelector('#tour-next').textContent = (i === steps.length - 1) ? 'Done' : 'Next';
@@ -279,6 +307,11 @@ function (graph, opts) {
         root.querySelector('#tour-next').onclick = () => go(1);
         root.querySelector('#tour-back').onclick = () => go(-1);
         root.querySelector('#tour-skip').onclick = close;
+        // The tour stays up behind the new tab, so a person coming back is where they were.
+        root.querySelector('#tour-link').onclick = () => {
+            const s = steps[i];
+            try { if (s.link && s.link.href) window.open(s.link.href, '_blank'); } catch (e) { }
+        };
         root.querySelector('#tour-scrim').onclick = () => go(1);
         document.addEventListener('keydown', onKey, true);
         window.addEventListener('resize', place);
