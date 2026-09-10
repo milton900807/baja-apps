@@ -286,7 +286,38 @@ function (graph, track, snp) {
                 move: () => {
                 },
             },
+        );
 
+        // Delete this variant from the track. Destructive, so it CONFIRMS first, and pushes
+        // onto the history stack before touching anything so an accepted delete is undoable.
+        menuList.push(
+            {
+                label: "Delete",
+                click: async (scx, scy) => {
+                    const label = ('' + (snp.name || snp.id
+                        || ([snp.ref, snp.alt].filter(Boolean).join('>')) || 'this variant'));
+                    const where = (track && track.name) ? (' from ' + track.name) : ' from the track';
+                    const doDelete = () => {
+                        try { if (graph.pushOntoHistory) graph.pushOntoHistory(); } catch (e) { }
+                        try { track.removesnp(snp); } catch (e) { }
+                        try { graph.showSideMenu(null); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                        try { graph.setMessage(' Deleted ' + label + where + '. Undo restores it. '); } catch (e) { }
+                    };
+                    try {
+                        const c = await exec('baja/lib/confirm.js',
+                            'Delete ' + label + where + '? This removes the variant from the track.',
+                            () => { doDelete(); }, 'Delete');
+                        showModal(c);
+                    } catch (e) {
+                        // No confirmation dialog available: do NOT delete silently.
+                        try { graph.setMessage(' Could not open the confirmation: ' + e + ' '); } catch (e2) { }
+                    }
+                },
+                move: () => {
+                }
+            }
         );
 
         resolve(menuList)
