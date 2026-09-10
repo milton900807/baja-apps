@@ -2019,10 +2019,25 @@ function (path, config) {
                                 const f = Math.log(n + 1) / lp;
                                 // The strips are every variant, matched or not, so under a
                                 // filter they become the background the matches sit on.
-                                ctx.fillStyle = hlActive
-                                    ? 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')'
-                                    : 'rgba(255,45,120,' + (0.45 + 0.55 * f).toFixed(3) + ')';
-                                ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
+                                if (hlActive) {
+                                    ctx.fillStyle = 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')';
+                                    ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
+                                } else {
+                                    // Segments in proportion to the categories in the bin,
+                                    // in category order so the colours stack the same way
+                                    // down the whole chromosome.
+                                    const hb = binsBy(d), pal = modePalette();
+                                    const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
+                                    let x2 = bx1 + 2;
+                                    for (let cat = 0; cat < NCAT; cat++) {
+                                        const cnt = hb[b * NCAT + cat];
+                                        if (!cnt) continue;
+                                        const w2 = wAll * cnt / n;
+                                        ctx.fillStyle = withAlpha(pal[cat] || CLS_COLOR[0], alpha);
+                                        ctx.fillRect(x2, yA, w2, h2);
+                                        x2 += w2;
+                                    }
+                                }
                             }
                             // THE MATCHES, on the same bins and the same scale, so the
                             // magenta reads as "this much of that density" rather than as
@@ -2549,6 +2564,46 @@ function (path, config) {
             legendShow();
             try { if (graph.wake) graph.wake(); } catch (e) { }
         };
+        // THE DENSITY STRIPS CARRY THE COLOURS TOO. Zoomed out, a chromosome shows its
+        // variants as one strip per bin, and a strip that is always magenta says nothing
+        // about who carries what. So each bin is counted per colour category of the mode
+        // that is on, and the strip is drawn as segments in proportion -- a bin that is
+        // two-thirds haplotype 1 is two-thirds blue. Built lazily per chromosome, once
+        // per mode, from the same bytes the exact drawing reads.
+        const NCAT = 10;
+        const PH_ORDER = ['', 'hap1', 'hap2', 'hom', 'het', 'other', 'mixed'];
+        const catOf = (d, k) => {
+            if (colourMode === 'sample' && d.gtw) {
+                const m = carriersOf(d, k);
+                if (!m) return 0;
+                if (m & (m - 1)) return 9;
+                return 1 + (Math.log2(m) | 0);
+            }
+            if (colourMode === 'phase' && d.gtw) return Math.max(0, PH_ORDER.indexOf(phaseOf(d, k)));
+            return d.cls[k] || 0;
+        };
+        const modePalette = () => {
+            if (colourMode === 'sample') return [ABSENT_COLOR].concat(SAMPLE_COLOR, [SHARED_COLOR]);
+            if (colourMode === 'phase') return [ABSENT_COLOR].concat(PH_ORDER.slice(1).map((w) => PHASE_COLOR[w]));
+            return CLS_COLOR;
+        };
+        const binsBy = (d) => {
+            const key = colourMode + ':' + d.gtw + ':' + d.n;
+            if (d.histBy && d.histByKey === key) return d.histBy;
+            const hb = new Uint32Array(HIST_BINS * NCAT);
+            const scale = HIST_BINS / d.__len;
+            for (let k = 0; k < d.n; k++) {
+                let bin = (d.pos[k] * scale) | 0;
+                if (bin >= HIST_BINS) bin = HIST_BINS - 1;
+                hb[bin * NCAT + Math.min(NCAT - 1, catOf(d, k))]++;
+            }
+            d.histBy = hb; d.histByKey = key;
+            return hb;
+        };
+        const withAlpha = (hex, a) => {
+            const v = parseInt(('' + hex).slice(1), 16);
+            return 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a.toFixed(3) + ')';
+        };
         // WHAT THIS VARIANT'S CLINICAL SIGNIFICANCE IS, as a string the editor understands.
         //
         // Two sources, and both are needed. A VCF that carries CLNSIG says so itself, and
@@ -3051,9 +3106,15 @@ function (path, config) {
             }
             if (!any) return null;
             // What the file has to show: samples that differ, and phase. These decide the
-            // colour mode the load lands in.
+            // colour mode the load lands in. The carrier PATTERN is what matters: a file
+            // in which every row is tumour-only differs on every row and still has one
+            // pattern, and colouring it by sample paints everything one colour.
             if (carriers && carriers < known) count.differ = (count.differ || 0) + 1;
             if (phased) count.phased = (count.phased || 0) + 1;
+            let mask = 0;
+            for (let si = 0; si < GT_MAX; si++) if (gtRow[si] >= GT_HET) mask |= (1 << si);
+            if (!count.masks) count.masks = {};
+            if (!count.masks[mask]) { count.masks[mask] = 1; count.maskKinds = (count.maskKinds || 0) + 1; }
             return gtRow;
         };
         const parseLines = (lines, bufs, namesOf, count) => {
@@ -3143,6 +3204,7 @@ function (path, config) {
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx;
                 d.gts = sg; d.gtw = sg ? W : 0;
                 d.n = total; d.snps = []; d.names = sn;
+                d.__len = drawn[ci].length; d.histBy = null; d.histByKey = '';
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
                 // variants change, rather than something to merge and keep in step.
                 d.hl = new Uint8Array(total);
@@ -3164,9 +3226,14 @@ function (path, config) {
             // neither keeps whatever mode is on.
             let modeNote = '';
             if (count.cols && count.cols.length) {
-                if (SAMPLES.length > 1 && count.differ) { setColourMode('sample'); modeNote = ' Coloured by sample.'; }
+                if (SAMPLES.length > 1 && count.maskKinds > 1) { setColourMode('sample'); modeNote = ' Coloured by sample.'; }
                 else if (count.phased) { setColourMode('phase'); modeNote = ' Coloured by haplotype.'; }
                 else legendShow();
+                if (SAMPLES.length > 1 && count.maskKinds === 1) {
+                    const only = +Object.keys(count.masks)[0];
+                    const who = SAMPLES.filter((_, si) => only & (1 << si));
+                    modeNote = ' Every change is in ' + (who.length ? who.join(' + ') + ' only' : 'no sample') + '.' + modeNote;
+                }
             }
             if (graph.wake) graph.wake();
             const onChroms = vdata.filter((d) => d.n).length;
