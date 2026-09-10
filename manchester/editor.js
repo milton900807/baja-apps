@@ -2760,6 +2760,11 @@ function (path, config) {
                                                                     }))
                                                                 },
                                                                 {
+                                                                    title: 'Bookmarks', badge: 'Views', ready: true,
+                                                                    blurb: 'Save the current camera view under a name and return to it later; rename or delete the ones you have.',
+                                                                    open: () => exec('baja/manchester/menu/bookmarks.js', graph, genegraph_panel_layout)
+                                                                },
+                                                                {
                                                                     title: 'Mutations', badge: 'Variants', ready: true,
                                                                     blurb: 'Drill down by track, then by mutation type, to a variant by location.',
                                                                     open: () => exec('baja/manchester/menu/mutations-menu.js', graph, genegraph_panel_layout)
