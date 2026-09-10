@@ -24,6 +24,52 @@ function (graph, genegraph_panel_layout, tracks) {
             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { }
         };
         const host = () => (window['env'] && window['env']['apiUrl']) || window.location.origin;
+        // Normalised once: a single track, an array, or nothing.
+        const __targets = () => (Array.isArray(tracks) ? tracks.filter(Boolean) : (tracks ? [tracks] : []));
+
+        // Every leaf loads onto the track it sits UNDER, and no other.
+        //
+        // Opened from a track's menu the track IS the parent and comes in as `tracks`. Opened
+        // from the library menu nothing does, and each loader fell through to
+        // baja/lib/for-each-track.js, which honours the board-wide flag the Layers button sets
+        // on its way in -- so one click put a dataset on every track on the canvas. The
+        // Design Library and the ML Models library answer this by putting the tracks in as a
+        // level to walk through; this is the same idiom, so the track is a node on the path
+        // above the leaf rather than a flag set elsewhere.
+        //
+        // The flag is consumed here, before anything downstream can read it.
+        //
+        // `run(list)` is the loader itself, handed the tracks to load onto. `title` names the
+        // level of track cards, so the path reads "Data > Variants > ClinVar > MALAT1".
+        const __onParentTrack = async (title, run) => {
+            try { window.__bajaApplyAllTracks = false; } catch (e) { }
+            const explicit = __targets();
+            if (explicit.length) return run(explicit);
+            const all = ((graph && graph.track) || []).filter(Boolean);
+            if (!all.length) {
+                const msg = ' Load a track first — ' + title + ' loads onto one. ';
+                try { graph.setResultMessage(msg); } catch (e) { try { graph.setMessage(msg); } catch (e2) { } }
+                return false;
+            }
+            // One track: it is the only possible parent, and a level holding a single card is
+            // a click that asks nothing.
+            if (all.length === 1) return run([all[0]]);
+            return exec('baja/lib/shelf.js', {
+                id: 'baja-data-resources-tracks',
+                title: title,
+                subtitle: 'Pick the track to load onto — the layer goes on that track only',
+                graph: graph,
+                onClose: restoreHover,
+                books: all.map((t, i) => ({
+                    title: t.name || ('track ' + (i + 1)),
+                    badge: (t.track_type || 'Track'),
+                    blurb: 'Load ' + title + ' onto ' + (t.name || 'this track')
+                        + ((() => { try { return (t.selectedRange && t.selectedRange()) ? ', over its selected sequence' : ''; } catch (e) { return ''; } })())
+                        + '.',
+                    open: () => run([t])
+                }))
+            });
+        };
 
         // ---- Variants: databases, then classes ------------------------------------------
         //
@@ -58,10 +104,11 @@ function (graph, genegraph_panel_layout, tracks) {
         // The classes offered for one database. `open` is the LEAF: this is where loading
         // finally happens, and nothing above it touches a track.
         const variantClasses = (src) => {
-            const load = (f) => exec('baja/data/load-variants.js', host(), graph, genegraph_panel_layout,
-                // autoUseSelection true: on a track carrying a selected sequence the variants are
-                // fetched over that range rather than over the whole track.
-                src.db, src.label, true, tracks, f);
+            const load = (f) => __onParentTrack(src.label + ' variants', (list) =>
+                exec('baja/data/load-variants.js', host(), graph, genegraph_panel_layout,
+                    // autoUseSelection true: on a track carrying a selected sequence the variants are
+                    // fetched over that range rather than over the whole track.
+                    src.db, src.label, true, list, f));
             const books = [
                 {
                     title: 'All variants', badge: 'Everything',
@@ -130,7 +177,7 @@ function (graph, genegraph_panel_layout, tracks) {
             blurb: 'Type a change in words — K27M, p.Arg175His, c.83A>T — and it is placed on the '
                 + 'loaded track as a mutation, at the position the track\'s own coding sequence '
                 + 'says it belongs. Nothing new is loaded.',
-            open: () => exec('baja/data/variant-from-prompt.js', host(), graph, genegraph_panel_layout, tracks)
+            open: () => __onParentTrack('Describe a variant', (list) => exec('baja/data/variant-from-prompt.js', host(), graph, genegraph_panel_layout, list))
         }]);
 
         // ---- microRNA: the two evidence sets, as their own shelf -------------------------
@@ -141,15 +188,13 @@ function (graph, genegraph_panel_layout, tracks) {
                     title: SETS.mirtarbase10_strong.label, badge: 'Strong evidence',
                     blurb: 'Sites confirmed by reporter assay, western blot or qPCR — the smaller, '
                         + 'higher-confidence set.',
-                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                        SETS.mirtarbase10_strong, tracks)
+                    open: () => __onParentTrack(SETS.mirtarbase10_strong.label, (list) => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.mirtarbase10_strong, list))
                 },
                 {
                     title: SETS.mirtarbase10_all.label, badge: 'All reported',
                     blurb: 'Everything reported including CLIP-derived sites. Broader, and much of '
                         + 'it is a binding observation rather than a demonstrated effect.',
-                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                        SETS.mirtarbase10_all, tracks)
+                    open: () => __onParentTrack(SETS.mirtarbase10_all.label, (list) => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.mirtarbase10_all, list))
                 }
             ];
         };
@@ -166,8 +211,7 @@ function (graph, genegraph_panel_layout, tracks) {
                     title: SETS.aso_sirna_gt.label + ' patents', badge: 'Therapeutic IP',
                     blurb: 'The subset whose claims are about oligonucleotide therapeutics — ASO, '
                         + 'siRNA and gene therapy — carrying the assignee behind each hit.',
-                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                        SETS.aso_sirna_gt, tracks)
+                    open: () => __onParentTrack(SETS.aso_sirna_gt.label, (list) => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.aso_sirna_gt, list))
                 },
                 {
                     title: SETS.assay_panel_patents.label, badge: 'Assay IP',
@@ -178,8 +222,7 @@ function (graph, genegraph_panel_layout, tracks) {
                     blurb: 'Primer and probe sequences claimed as diagnostic panels — 8,853 hits '
                         + 'from 12 patents across 6,017 transcripts, each carrying its assignee. '
                         + 'Check here before publishing an assay, not a therapeutic.',
-                    open: () => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout,
-                        SETS.assay_panel_patents, tracks)
+                    open: () => __onParentTrack(SETS.assay_panel_patents.label, (list) => exec('baja/data/bed-hits.js', graph, genegraph_panel_layout, SETS.assay_panel_patents, list))
                 }
             ];
         };
@@ -206,7 +249,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 badge: 'Coverage',
                 blurb: 'Per-base read depth from the RNASeq reference tree, organised by species and tissue. '
                     + 'Choosing a dataset adds it as a coverage layer to every track on the board.',
-                open: async () => { await exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, tracks); }
+                open: () => __onParentTrack('RNASeq', (list) => exec('baja/data/rnaseq-library.js', graph, genegraph_panel_layout, list))
             },
             {
                 title: 'Variants',
@@ -228,7 +271,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 blurb: 'Cross-species conservation score as a coverage layer, for judging whether a '
                     + 'target site is under selective constraint. Coming soon: awaiting the '
                     + 'phyloP / phastCons data.',
-                open: async () => { await exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, tracks); }
+                open: () => __onParentTrack('Conservation', (list) => exec('baja/data/conservation-data.js', graph, genegraph_panel_layout, list))
             },
             {
                 title: 'microRNA target sites',
@@ -260,18 +303,27 @@ function (graph, genegraph_panel_layout, tracks) {
                 title: 'Public data',
                 badge: 'Reference',
                 blurb: 'Shared public reference tracks configured for this deployment.',
-                // NB: public-data.js takes (graph, layout, presetResource) -- it has no tracks
-                // parameter. Passing the array here made presetResource truthy, so the card
-                // skipped its own list and tried to arm the track array as a resource. It
-                // picks its targets up from the all-tracks flag instead, via for-each-track.
-                open: async () => { await exec('baja/data/public-data.js', graph, genegraph_panel_layout); }
+                // NB: public-data.js takes (graph, layout, presetResource, presetTracks). The
+                // track list goes in the FOURTH slot: in the third it made presetResource
+                // truthy, and the card skipped its own list and tried to arm the track array
+                // as a resource.
+                open: () => __onParentTrack('Public data', (list) => exec('baja/data/public-data.js', graph, genegraph_panel_layout, null, list))
             }
         ];
 
         await exec('baja/lib/shelf.js', {
             id: 'baja-data-resources',
             title: 'Data & Operations',
-            subtitle: '...applied to all tracks on the workbench',
+            // Say what a load will land on. It used to promise "all tracks on the workbench",
+            // which is exactly what no longer happens from here.
+            subtitle: (() => {
+                const ts = __targets();
+                let marked = 0;
+                try { marked = ts.filter((t) => t && t.selectedRange && t.selectedRange()).length; } catch (e) { }
+                if (marked) return '...applied to the selected sequence on ' + marked + ' track' + (marked === 1 ? '' : 's');
+                if (ts.length) return '...applied to ' + ts.length + ' track' + (ts.length === 1 ? '' : 's');
+                return '...applied to the track you pick';
+            })(),
             books: RESOURCES,
             graph: graph,
             onClose: restoreHover

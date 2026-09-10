@@ -1,4 +1,8 @@
-function (graph, genegraph_panel_layout, presetResource) {
+function (graph, genegraph_panel_layout, presetResource, presetTracks) {
+    // presetTracks: the track(s) this load is FOR, decided by whoever opened it -- the Data
+    // Resources library passes the track above the card on its path. Given, the load runs on
+    // exactly those and asks for no click; without it the click / all-tracks behaviour below
+    // stands, so the toolbar preset and any older caller are unchanged.
     // Public data resources browser — nested LIBRARIES, the same idiom as the rest of Data
     // Resources: a shelf of public resources, and picking one opens a shelf of the matching
     // bigWig / VCF files in BIG_DATA. Only that file card loads.
@@ -204,7 +208,7 @@ function (graph, genegraph_panel_layout, presetResource) {
 
             // One clicked track, or every track on the canvas when the board-level Layers
             // button asked for it -- see baja/lib/for-each-track.js.
-            await exec('baja/lib/for-each-track.js', graph, 'Click on a track to load data.', async (track) => {
+            const __loadOnto = async (track) => {
                 try {
                     const chr = track.chr || '';
                     // Tracks display in genomic coordinates (local x == genomic), so
@@ -277,7 +281,18 @@ function (graph, genegraph_panel_layout, presetResource) {
                     say(' Could not load ' + name + ': ' + e + ' ');
                     restoreHover();
                 }
-            });
+            };
+
+            const __preset = (Array.isArray(presetTracks) ? presetTracks.filter(Boolean) : (presetTracks ? [presetTracks] : []));
+            if (__preset.length) {
+                // An explicit list is the whole answer: no click, and the board-wide flag is
+                // consumed so it cannot turn the next per-track action into a sweep.
+                try { window.__bajaApplyAllTracks = false; } catch (e) { }
+                try { graph.clearMouseListeners(); graph.setMouseMode('navigate'); } catch (e) { }
+                for (const t of __preset) { try { await __loadOnto(t); } catch (e) { } }
+            } else {
+                await exec('baja/lib/for-each-track.js', graph, 'Click on a track to load data.', __loadOnto);
+            }
 
             status('');
             // Nothing landed anywhere, and nothing is still being chosen: say so plainly.
