@@ -38,9 +38,13 @@ function () {
             key: 'aso_sirna_gt',
             label: 'ASO / siRNA / gene therapy',
             bed: '/bd/aso_sirna_gt_hg38_transcript_hits.bed.gz',
-            // Still the plain 'US<number> <assignee>' label; stage 4 of the patent pipeline
-            // writes the packed number‖title‖date‖assignee‖inventors form.
-            assignees: '/bd/aso_sirna_gt_assignees.tsv',
+            // Packed metadata: US<number>‖title‖filed‖granted‖assignee. read-bed-region.py
+            // joins it, and bed-hits.js expands it into labelled lines on hover, so a hit
+            // says what the patent IS rather than only who owns it. `fields` names the
+            // columns; the default list assumes inventors/abstract, which ODP does not
+            // serve, so it is given explicitly here.
+            assignees: '/bd/aso_sirna_gt_meta.tsv',
+            fields: ['Patent', 'Title', 'Filed', 'Granted', 'Assignee'],
             // Lightened with the other patent layers: these stack into lanes deep enough to
             // hide the track under them, and the label now sits on top of the bar.
             color: 'rgba(160,80,160,0.26)',

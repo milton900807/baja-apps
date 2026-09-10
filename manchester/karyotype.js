@@ -1803,20 +1803,92 @@ function (path, config) {
                                             txt = txt.split(' ')[0];
                                             if (ctx.measureText(txt).width > bw - 8) continue;
                                         }
-                                        lastY = ly;
+                                        // TITLE AND DATES, once there is room for them.
+                                        //
+                                        // The number and assignee alone say who owns
+                                        // something, not what it is. patents-at.py returns
+                                        // the title and the filing/grant dates as separate
+                                        // fields, so when the bar is wide enough to hold a
+                                        // readable title and the next label is far enough
+                                        // down the chromosome, they are drawn under the
+                                        // name. Zoomed out, neither test passes and this is
+                                        // exactly the single line it always was.
+                                        const extra = [];
+                                        if (bw >= 150) {
+                                            const dates = [q2.filed ? ('filed ' + q2.filed) : '',
+                                                           q2.granted ? ('granted ' + q2.granted) : '']
+                                                .filter(Boolean).join('  ·  ');
+                                            let ttl = '' + (q2.title || '');
+                                            if (ttl) {
+                                                // Fit the title to the bar rather than
+                                                // letting it run over the chromosome.
+                                                ctx.font = '500 9px ' + FONT;
+                                                while (ttl.length > 8
+                                                       && ctx.measureText(ttl).width > bw - 10) {
+                                                    ttl = ttl.slice(0, -2);
+                                                }
+                                                if (ttl.length < ('' + q2.title).length) ttl += '…';
+                                                extra.push(ttl);
+                                            }
+                                            if (dates) extra.push(dates);
+                                            ctx.font = '600 10px ' + FONT;
+                                        }
+                                        // Each extra line needs its own vertical room, or the
+                                        // next patent's name lands on top of this one's dates.
+                                        if (extra.length && (ly - lastY) < (PAT_LABEL_PX + extra.length * 10)) {
+                                            extra.length = 0;
+                                        }
+                                        // Near the bottom edge the extra lines would run off
+                                        // the canvas, so drop them rather than clip them.
+                                        if (extra.length
+                                            && ly + 6 + (extra.length * 10) + 4 > ctx.canvas.height) {
+                                            extra.length = 0;
+                                        }
+                                        // ONE height, derived after the tests above, so the box,
+                                        // the underline and the next label's spacing cannot
+                                        // disagree. The +4 is the gap the rule sits in: without
+                                        // it the rule lands on the last line of text.
+                                        const extraH = extra.length ? (extra.length * 10 + 4) : 0;
+                                        const blockH = 12 + extraH;
+                                        lastY = ly + extraH;
                                         const tw = ctx.measureText(txt).width;
-                                        const lx0 = (bx0 + bx1) / 2 - tw / 2 - 2;
+                                        let boxW = tw + 4;
+                                        if (extra.length) {
+                                            ctx.font = '500 9px ' + FONT;
+                                            for (const ln2 of extra) {
+                                                boxW = Math.max(boxW, ctx.measureText(ln2).width + 4);
+                                            }
+                                            ctx.font = '600 10px ' + FONT;
+                                        }
+                                        const lx0 = (bx0 + bx1) / 2 - boxW / 2;
                                         ctx.fillStyle = 'rgba(255,255,255,0.82)';
-                                        ctx.fillRect(lx0, ly - 6, tw + 4, 12);
+                                        ctx.fillRect(lx0, ly - 6, boxW, extra.length ? blockH : 12);
                                         ctx.fillStyle = '#7c2d12';
                                         ctx.fillText(txt, (bx0 + bx1) / 2, ly);
+                                        if (extra.length) {
+                                            ctx.font = '500 9px ' + FONT;
+                                            ctx.fillStyle = '#9a3412';
+                                            let ey = ly + 10;
+                                            for (const ln2 of extra) {
+                                                ctx.fillText(ln2, (bx0 + bx1) / 2, ey);
+                                                ey += 10;
+                                            }
+                                            ctx.font = '600 10px ' + FONT;
+                                            ctx.fillStyle = '#7c2d12';
+                                        }
                                         // A hairline under it: on a canvas there is no
                                         // cursor to say a word can be followed, and this
                                         // is the one mark that reads as a link without
                                         // taking a second row of space.
-                                        ctx.fillRect(lx0 + 2, ly + 6, tw, 0.8);
+                                        // Under the NAME when it stands alone; under the whole
+                                        // block when a title follows, or the rule is drawn
+                                        // straight through the title's first line.
+                                        ctx.fillRect((bx0 + bx1) / 2 - tw / 2,
+                                                     extra.length ? (ly - 6 + blockH - 2) : (ly + 6),
+                                                     tw, 0.8);
                                         patLabelHits.push({
-                                            x: lx0, y: ly - 6, w: tw + 4, h: 12,
+                                            x: lx0, y: ly - 6, w: boxW,
+                                            h: extra.length ? blockH : 12,
                                             id: '' + (q2.id || ''), label: '' + (q2.label || ''),
                                         });
                                     }

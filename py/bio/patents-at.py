@@ -36,7 +36,7 @@ GFF = {
 }
 BED_DIRS = ["/home/ubuntu/baja-bd", "bd", "../baja-bd"]
 SETS = {
-    "aso_sirna_gt": ("aso_sirna_gt_hg38_transcript_hits.bed.gz", "aso_sirna_gt_assignees.tsv"),
+    "aso_sirna_gt": ("aso_sirna_gt_hg38_transcript_hits.bed.gz", "aso_sirna_gt_meta.tsv"),
     "lipid_patents": ("lipid_patents_hg38_transcript_hits.bed.gz", "lipid_patents_assignees.tsv"),
     "patent": ("patent_hg38_transcript_hits.bed.gz", ""),
 }
@@ -176,23 +176,56 @@ else:
                 hits += 1
         out["hits"] = hits
 
+        # The metadata TSVs come in two shapes. The older ones are a flat
+        # 'number -> US<number> <assignee>' label. The newer ones pack the fields as
+        # 'US<number>|title|filed|granted|assignee' (U+2016 as the separator) so the
+        # canvas layer can show them as labelled lines. This endpoint wants ONE readable
+        # string, so a packed label is collapsed back to number + assignee rather than
+        # being emitted with its separators showing.
+        SEP = "\u2016"
         labels = {}
+        meta = {}          # id -> {title, filed, granted, assignee}
         if tsv and os.path.exists(tsv):
             try:
                 with open(tsv, "r") as fh:
                     for ln in fh:
                         p = ln.rstrip("\n").split("\t")
                         if len(p) >= 2 and p[0] and p[0] != "patent_id":
-                            labels[p[0].strip()] = p[1].strip()
+                            key = p[0].strip()
+                            lab = p[1].strip()
+                            if SEP in lab:
+                                f = [x.strip() for x in lab.split(SEP)]
+                                g = lambda i: (f[i] if len(f) > i else "")
+                                num, who = g(0), g(4)
+                                # KEEP THE FIELDS, do not just collapse them.
+                                #
+                                # The karyotype draws the title and the dates once a
+                                # chromosome is zoomed in far enough for them to fit, and
+                                # it can only do that if they arrive separately. Flattening
+                                # to 'number assignee' here is what made that impossible:
+                                # the data was parsed and then thrown away one line later.
+                                meta[key] = {
+                                    "title": g(1), "filed": g(2),
+                                    "granted": g(3), "assignee": who,
+                                }
+                                lab = (num + " " + who).strip() if who else num
+                            labels[key] = lab
             except Exception:
-                labels = {}
+                labels, meta = {}, {}
 
         rows = []
         for pid, n in by_pat.items():
             sp = span_by_pat.get(pid)
+            m = meta.get(pid) or {}
             rows.append({
                 "id": pid,
                 "label": labels.get(pid) or (("US" + pid) if out["nameable"] else ("record " + pid)),
+                # Separate fields so a caller can lay them out; empty when the set has no
+                # metadata TSV, which the karyotype treats as "draw the label only".
+                "title": m.get("title", ""),
+                "filed": m.get("filed", ""),
+                "granted": m.get("granted", ""),
+                "assignee": m.get("assignee", ""),
                 "hits": n,
                 "transcripts": len(tx_by_pat.get(pid) or ()),
                 # Where it sits, so it can be drawn on a chromosome and not only listed.

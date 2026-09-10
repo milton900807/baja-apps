@@ -12,8 +12,15 @@ from ion import works
 _BD = os.environ.get("BIGDATA") or os.environ.get("BIG_DATA") or os.path.expanduser("~/baja-bd")
 news_file = os.path.join(_BD, "news.json")
 
+# Only used to SEED news.json on a host that has none; once the file exists the
+# admin edits that, not this. Kept current anyway, because a fresh install
+# otherwise announces something that already shipped.
 DEFAULT = [
-    "Next week patents from 2020-2026 will be installed",
+    "ASO, siRNA and gene-therapy patents 2016-2026 are now installed: 9,252 patents "
+    "mapped onto 650,131 transcripts. Load them from Layers > Data > Patents > "
+    "ASO / siRNA / gene therapy, then hover a hit for its title, filing and grant dates.",
+    "Patents also draw genome-wide in the karyotype: zoom into a chromosome to read "
+    "the title and dates beside each one.",
     "Sept 29 release of liver RNASeq data",
 ]
 
