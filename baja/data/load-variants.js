@@ -120,7 +120,10 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 restoreHover(); return;
             }
             const species = ('' + (track.species || 'human')).toLowerCase();
-            const chr = ('' + track.chr).replace(/^chr/, '');
+            // `let`, because an alt-contig track is queried against the PRIMARY chromosome its
+        // transcript corresponds to rather than against its own contig -- see below.
+        let chr = ('' + track.chr).replace(/^chr/, '');
+        let altMap = null;
 
             // An alt-contig transcript (SMN2-231 on HSCHR5_1_CTG1_1, an SMN1 copy on a haplotype
             // contig) carries coordinates on that contig, but track.chr was reduced to the
@@ -129,11 +132,35 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             // no mapping for these contigs, so there is nothing to place: say that, and name
             // the way out, instead of "No ClinVar variants found for chr5:274951-302936".
             if (track.altContig || (track.contig && !/^(chr)?([0-9]{1,2}|X|Y|MT?|W|Z)$/i.test('' + track.contig))) {
-                fail(' ' + (track.name || 'This track') + ' is on the alternate contig '
-                    + (track.contig || track.chr) + ', not on chr' + chr + '. ' + label + ' coordinates are on the '
-                    + 'primary assembly and this contig cannot be mapped to it, so no variants can be placed. '
-                    + 'Load the primary-assembly transcript of the gene instead. ');
-                restoreHover(); return;
+                // CROSS TO THE PRIMARY ASSEMBLY, EXON BY EXON, rather than refusing.
+                //
+                // The databases hold nothing on this contig, but the transcript exists on the
+                // primary assembly too -- SMN1-231 on HSCHR5_1_CTG1_1 is the same nine exons
+                // as SMN1-202 on chr5 -- so a variant at a given offset into an exon of one is
+                // at that offset into the corresponding exon of the other. alt-contig-map.js
+                // pairs the exons and refuses to transfer any pair whose lengths differ, so
+                // what cannot be mapped exactly is reported rather than guessed. See the note
+                // there for why a single coordinate shift is wrong.
+                // Progress, so it goes to setMessage: the ellipsis is what raises the shell's
+                // work badge, and this is a couple of round trips to Ensembl.
+                try { graph.setMessage(' Looking for the primary-assembly transcript of ' + (track.name || 'this track') + '… '); } catch (e) { }
+                try {
+                    altMap = await exec('baja/data/alt-contig-map.js', server, track);
+                } catch (e) { altMap = null; }
+                if (!altMap) {
+                    fail(' ' + (track.name || 'This track') + ' is on the alternate contig '
+                        + (track.contig || track.chr) + ', not on chr' + chr + '. ' + label + ' coordinates are on the '
+                        + 'primary assembly, and no primary transcript with this one\'s exon structure could be '
+                        + 'found to map through. Load the primary-assembly transcript of the gene instead. ');
+                    restoreHover(); return;
+                }
+                chr = altMap.chr;
+                say(' ' + altMap.name + ' on chr' + altMap.chr + ' matches ' + (track.name || 'this track')
+                    + ': ' + altMap.exact + ' of ' + altMap.pairs.length + ' exons transfer exactly'
+                    + (altMap.differing
+                        ? (', ' + altMap.differing + (altMap.differing === 1 ? ' differs' : ' differ')
+                            + ' in length and will be left out')
+                        : '') + '. ');
             }
 
             // Region: the selected sequence range (unless forced whole) else the whole track.
@@ -215,7 +242,11 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                 gStart = tlo;
                 gEnd = thi;
             }
-            gStart = Math.floor(gStart); gEnd = Math.ceil(gEnd);
+            // The alt path asks the database about the PRIMARY transcript's span. The exon span
+        // derived above is in the alt contig's own numbers, which is precisely the range the
+        // databases know nothing about.
+        if (altMap) { gStart = altMap.lo; gEnd = altMap.hi; }
+        gStart = Math.floor(gStart); gEnd = Math.ceil(gEnd);
             if (!(gEnd > gStart)) { fail(' Could not determine a region for ' + (track.name || 'track') + '. '); restoreHover(); return; }
 
             const url = server + '/variants/region?species=' + encodeURIComponent(species)
@@ -273,15 +304,22 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
             if (!SnpIndel) { fail(' Variant support unavailable. '); restoreHover(); return; }
 
             const MAX_ALLELE = 50;   // skip structural variants (giant ref/alt)
-            let added = 0, skippedSv = 0, skippedFilter = 0;
+            let added = 0, skippedSv = 0, skippedFilter = 0, skippedUnmapped = 0;
             const __placed = [];   // the SnpIndels made here, for the gene-mechanism pass below
             for (const v of list) {
                 if (!v || v.start == null) continue;
                 if (v.chr && ('' + v.chr).replace(/^chr/, '') !== chr) continue;
                 // Structural variant guard — alleles this large aren't point markers.
                 if (('' + (v.ref || '')).length > MAX_ALLELE || ('' + (v.alt || '')).length > MAX_ALLELE) { skippedSv++; continue; }
-                const wx = track.variantWorldX ? track.variantWorldX(v.chr || chr, v.start) : null;
-                if (wx == null) continue;
+                // Through the exon pairing on the alt path: the track's own variantWorldX
+                // reads its exons' gxi/gxf, which are alt-contig numbers, and a primary
+                // coordinate means nothing to them. A null here is a position in a region
+                // whose two exons differ in length -- untransferable, and counted below
+                // rather than placed somewhere plausible.
+                const wx = altMap
+                    ? altMap.toTrackX(v.start)
+                    : (track.variantWorldX ? track.variantWorldX(v.chr || chr, v.start) : null);
+                if (wx == null) { skippedUnmapped++; continue; }
 
                 let ref = ('' + (v.ref || 'N')).toUpperCase();
                 let alt = ('' + (v.alt || 'N')).toUpperCase();
@@ -407,17 +445,35 @@ function (server, graph, genegraph_panel_layout, db, dbLabel, autoUseSelection, 
                         + '. Try a wider class from the Variants library. ');
                     restoreHover(); return;
                 }
-                // Server returned variants but none mapped onto the track's extent.
-                say(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
-                    + ' returned for chr' + chr + ':' + gStart + '-' + gEnd
-                    + ' but none fall within this track (' + chr + ':' + Math.floor(tlo) + '-' + Math.ceil(thi) + '). ');
+                // Server returned variants but none could be placed. On the alt-contig path
+                // that is a different fact from "not on this track" -- the region was right
+                // and the transfer is what failed -- so it says which.
+                if (altMap) {
+                    say(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
+                        + ' found on ' + altMap.name + ', but none sit in an exon that transfers to '
+                        + (track.name || 'this track') + '. ' + altMap.differing + ' of '
+                        + altMap.pairs.length + ' exons differ in length between the two. ');
+                } else {
+                    say(' ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
+                        + ' returned for chr' + chr + ':' + gStart + '-' + gEnd
+                        + ' but none fall within this track (' + chr + ':' + Math.floor(tlo) + '-' + Math.ceil(thi) + '). ');
+                }
                 restoreHover(); return;
             }
             const capNote = (resp && resp.truncated) ? ' (capped at ' + list.length + (resp.total ? ' of ' + resp.total : '') + ' — select a smaller range for the rest)' : '';
             say(' Loaded ' + added + ' of ' + list.length + ' ' + label + ' variant' + (list.length === 1 ? '' : 's')
                 + filterNote + capNote
                 + (skippedFilter ? ' (' + skippedFilter + ' outside that class)' : '')
-                + ' onto ' + (track.name || 'track') + '. ');
+                + ' onto ' + (track.name || 'track') + '. '
+                // The alt path has one more reason a variant did not land, and it is not a
+                // filter or a class -- it is a stretch of the transcript the two assemblies
+                // disagree about. Saying it plainly is what stops the count looking wrong.
+                + (altMap
+                    ? ('Mapped from ' + altMap.name + ' exon by exon'
+                        + (skippedUnmapped
+                            ? ('; ' + skippedUnmapped + ' fell in a region the two assemblies differ over and were not placed')
+                            : '') + '. ')
+                    : ''));
             restoreHover();
             return added;
         } catch (e) {
