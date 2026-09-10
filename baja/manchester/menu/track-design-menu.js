@@ -345,6 +345,14 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 + ' placed' + where + span
                 + (best != null ? (', best score ' + best.toFixed(2)) : '') + '. ');
 
+            // After a batch design, two identical compounds can end up sharing an id on the
+            // track -- the server's sequence+structure verify assigns an id by content ~1s after
+            // each is added. Once that has settled, check the graph for compounds sharing an id
+            // on a track and, if any are redundant, prompt to delete the extra copies (distinct
+            // compounds that merely clashed on an id are given a fresh one instead). silentIfNone
+            // so a clean design says nothing.
+            try { setTimeout(() => { try { exec('baja/manchester/menu/dedupe-check.js', graph, null, { silentIfNone: true }); } catch (e) { } }, 1600); } catch (e) { }
+
             // The report. The toast above says how many; this says how, and is where the
             // exports and the off-target run live. Every modality reaches it through this one
             // function, so none of them can end without one.

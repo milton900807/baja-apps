@@ -3,10 +3,13 @@ function () {
         let chem_draw = await exec('flexigraph/chem-draw.js')
 
         function createUniqueIntegerId() {
-            let timestamp = Date.now();
-            let randomPart = Math.floor(Math.random() * 1000);
-            let uniqueId = timestamp * 1000 + randomPart;
-            return uniqueId;
+            // uniqueInt() (lib/core.js): a timestamp plus six base-36 random chars (~2e9), the
+            // same generator oligo.js uses. The old Date.now()*1000 + rand(0,999) collided when
+            // a batch designer created many compounds in one millisecond -- two compounds on the
+            // same track with the same id, which must never happen. Fall back only if the global
+            // is somehow unavailable.
+            try { if (typeof uniqueInt === 'function') return uniqueInt(); } catch (e) { }
+            return '' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
         }
 
         let SIRNA = class SIRNA {
