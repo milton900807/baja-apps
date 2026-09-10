@@ -5420,111 +5420,74 @@ function (path, config) {
         // `deleting` swaps what a click on a bookmark does -- go there, or drop it --
         // rather than putting a second control beside every row, which for sixty rows is
         // a hundred and twenty things to read instead of sixty.
-        const bookmarkMenu = (deleting) => {
-            const close = () => { try { hideAllModal(); } catch (e) { } };
+        // BOOKMARKS ARE A LIBRARY OF VIEWS. The same shelf as the rest of the toolbar:
+        // one card to keep the view showing now, then a card per view kept, and Remove
+        // as a sub-library so taking one away is a choice made among the same cards.
+        // The name of a new bookmark is typed in the shelf's own box: the box is wired
+        // as a search, so what is typed does not filter the cards away -- it relabels
+        // the keep card, which saves under that name. Untyped, the view names itself.
+        const bookmarkMenu = () => {
             const here = viewOf();
-            const rows = [];
-            bookmarks.forEach((b, k) => {
-                const label = (deleting ? 'Remove  ' : '') + (b.name || 'view ' + (k + 1))
-                    + '   —   ' + describeView(b);
-                rows.push({
-                    label: label,
-                    ionFunction: createIonFunction(async () => {
-                        close();
-                        if (deleting) {
-                            const gone = bookmarks.splice(k, 1)[0];
-                            graph.setMessage(' Removed ' + (gone && gone.name ? gone.name : 'that bookmark')
-                                + '. Save the file to keep the change. ');
-                            // Straight back into the list, so removing three is three
-                            // clicks and not three round trips through the toolbar.
-                            if (bookmarks.length) bookmarkMenu(true);
-                            return;
-                        }
-                        if (await goView(b)) graph.setMessage(' ' + (b.name || 'Bookmark') + '. ');
-                        else graph.setMessage(' That bookmark could not be restored. ');
-                    })
-                });
-            });
-            if (bookmarks.length) {
-                rows.push({
-                    label: deleting ? 'Done removing' : 'Remove a bookmark…',
-                    ionFunction: createIonFunction(() => { close(); bookmarkMenu(!deleting); })
-                });
-            }
-            const head = bookmarks.length
-                ? (bookmarks.length + ' bookmark' + (bookmarks.length === 1 ? '' : 's')
-                    + (deleting ? ' — click one to remove it'
-                        : ' — click one to go back to it') + '. They are written into the '
-                    + 'file when you Save.')
-                : 'No bookmarks yet. Frame a view on the chromosomes, then name it below; '
-                    + 'it is written into the file when you Save.';
             const suggested = describeView(here);
-            const cards = [
-                {
-                    'title': ' ', 'width': '100%',
-                    'component': {
-                        wid: 'html',
-                        data: '<div style="padding:2px 0 10px;font:14px Arial;">'
-                            + '<b>Bookmarked views</b><div style="color:#5b6b7a;font:12.5px Arial;'
-                            + 'margin-top:4px;">' + head + '</div>'
-                            + '<div style="color:#5b6b7a;font:12.5px Arial;margin-top:6px;">'
-                            + 'Showing now: <b>' + suggested + '</b></div></div>'
+            const when = (b) => { try { return b.at ? new Date(b.at).toLocaleString() : ''; } catch (e) { return ''; } };
+            const keepCard = (name) => ({
+                section: 'Keep this view',
+                title: name ? 'Bookmark this view as \u201c' + name + '\u201d' : 'Bookmark this view',
+                badge: 'showing now',
+                blurb: suggested + (name ? '' : '  \u00b7  type a name in the box above to call it something else') + '. It is written into the file when you Save.',
+                open: () => {
+                    const v = viewOf();
+                    if (!v) { graph.setMessage(' There is no view to bookmark yet. '); return; }
+                    if (bookmarks.length >= BOOKMARK_CAP) {
+                        graph.setMessage(' That is ' + BOOKMARK_CAP + ' bookmarks \u2014 remove one before adding another. ');
+                        return;
                     }
+                    const nm = ('' + (name || '')).trim().replace(/[\r\n]+/g, ' ').slice(0, 80) || describeView(v);
+                    bookmarks.push({ name: nm, x0: v.x0, x1: v.x1, y0: v.y0, y1: v.y1, at: new Date().toISOString() });
+                    graph.setMessage(' Bookmarked \u201c' + nm + '\u201d. Save the file to keep it. ');
                 },
-                {
-                    'title': ' ', 'body': ``, 'width': '92%',
-                    'component': {
-                        wid: 'input-param-items',
-                        width: '100%',
-                        data: {
-                            input_labels: ['Name'],
-                            default_values: { 'Name': suggested },
-                            // 'function', not ionFunction -- this widget hands the button the
-                            // field values, and the typed name is the whole point of the row.
-                            buttons: [{
-                                'label': 'Bookmark this view',
-                                'function': createIonFunction((button_label, input_params) => {
-                                    close();
-                                    const v = viewOf();
-                                    if (!v) { graph.setMessage(' There is no view to bookmark yet. '); return; }
-                                    if (bookmarks.length >= BOOKMARK_CAP) {
-                                        graph.setMessage(' That is ' + BOOKMARK_CAP + ' bookmarks — '
-                                            + 'remove one before adding another. ');
-                                        return;
-                                    }
-                                    const nm = ('' + ((input_params && input_params['Name']) || ''))
-                                        .trim().replace(/[\r\n]+/g, ' ').slice(0, 80)
-                                        || describeView(v);
-                                    bookmarks.push({
-                                        name: nm, x0: v.x0, x1: v.x1, y0: v.y0, y1: v.y1,
-                                        at: new Date().toISOString()
-                                    });
-                                    graph.setMessage(' Bookmarked “' + nm + '”. Save the file to keep it. ');
-                                })
-                            }]
-                        }
-                    }
-                },
-            ];
-            if (rows.length) {
-                cards.push({
-                    'title': ' ', 'width': '100%',
-                    'component': { wid: 'mt-button', data: { buttons: rows } }
-                });
-            }
-            showModal({
-                wid: 'card',
-                // HEIGHT IS NOT OPTIONAL -- without one the card collapses and the modal
-                // opens empty, which is what "the menu does not show up" was last time.
-                data: {
-                    // The same inset the Find a gene panel uses: card_padding holds the
-                    // panel off the modal edge, padding gives the rows their rhythm.
-                    card_padding: '20px 22px',
-                    padding: '7px 0',
-                    height: '560px',
-                    cards: [cards]
-                }
             });
+            const viewCards = () => bookmarks.map((bk, k) => ({
+                section: 'Saved views (' + bookmarks.length + ')',
+                title: bk.name || ('view ' + (k + 1)),
+                badge: 'view ' + (k + 1),
+                blurb: describeView(bk) + (when(bk) ? '  \u00b7  ' + when(bk) : ''),
+                open: async () => {
+                    if (await goView(bk)) graph.setMessage(' ' + (bk.name || 'Bookmark') + '. ');
+                    else graph.setMessage(' That bookmark could not be restored. ');
+                },
+            }));
+            const removeCards = () => bookmarks.map((bk, k) => ({
+                title: 'Remove \u201c' + (bk.name || ('view ' + (k + 1))) + '\u201d',
+                badge: 'remove',
+                blurb: describeView(bk) + '. Gone from this karyotype; save the file to keep the change.',
+                open: () => {
+                    const at = bookmarks.indexOf(bk);
+                    const gone = at >= 0 ? bookmarks.splice(at, 1)[0] : null;
+                    graph.setMessage(' Removed ' + (gone && gone.name ? gone.name : 'that bookmark') + '. Save the file to keep the change. ');
+                },
+            }));
+            const booksFor = (name) => [keepCard(name)].concat(viewCards(), bookmarks.length ? [{
+                section: 'Saved views (' + bookmarks.length + ')',
+                title: 'Remove a bookmark\u2026', badge: bookmarks.length + ' kept',
+                blurb: 'Choose one to take out of this karyotype.',
+                books: removeCards,
+            }] : [{ section: 'Saved views', note: true, title: 'No bookmarks yet. Frame a view on the chromosomes and keep it with the card above.', blurb: '' }]);
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-bookmarks',
+                    title: 'Bookmarked views',
+                    subtitle: (bookmarks.length ? bookmarks.length + ' bookmark' + (bookmarks.length === 1 ? '' : 's') + ' kept  \u00b7  ' : '')
+                        + 'Showing now: ' + suggested,
+                    searchPlaceholder: 'Name for a new bookmark\u2026',
+                    books: booksFor(''),
+                    search: async (text) => booksFor(text),
+                    graph: graph,
+                });
+            } catch (e) {
+                step('bookmark shelf threw: ' + e);
+                graph.setMessage(' Bookmarks could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+            }
         };
 
         const regionMenu = () => {
