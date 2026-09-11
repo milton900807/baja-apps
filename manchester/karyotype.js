@@ -4681,6 +4681,7 @@ function (path, config) {
                 out.lossMatrix = { sample: lossMatrix.sample || '', si: lossMatrix.si, genes: lossMatrix.genes,
                     scanned: lossMatrix.scanned || 0, counts: lossMatrix.counts || {}, notes: lossMatrix.notes || [], at: lossMatrix.at || '' };
             }
+            if (selGenes.size) out.selectedGenes = selectedList();
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
             // this tomorrow cannot reconstruct.
@@ -4858,6 +4859,9 @@ function (path, config) {
                 // The bands came back with the regions above; only the variant marks need
                 // re-deriving, and they come from the saved matrix, not from the server.
                 try { lossMatrix = doc.lossMatrix; applyLossHighlights(false); } catch (e) { }
+            }
+            if (Array.isArray(doc.selectedGenes)) {
+                try { selGenes.clear(); doc.selectedGenes.forEach((g) => { if (g && g.gene) selGenes.set(('' + g.gene).toUpperCase(), g); }); } catch (e) { }
             }
             if (doc.highlight && doc.highlight !== HL_LOF) {
                 const __kmap = { 1: 'coding', 2: 'intronic', 3: 'three_utr', 4: 'five_utr', 5: 'pathogenic' };
@@ -5371,8 +5375,177 @@ function (path, config) {
             return dlToCSV(rows);
         };
 
+        // ---- THE SELECTION, AND THE THIRD-GENE MODEL -------------------------------------
+        //
+        // A loss matrix is a list; the question it exists for is "given THESE losses, what
+        // becomes essential?" So a gene in the matrix is clicked to SELECT it, serially,
+        // and the microscope carries the selection: how many, which, and what can be done
+        // with them -- first of all, run the higher-order synthetic-lethality model
+        // (py/bio/synthetic-lethal-targets.py, the ppset third-gene engine on DepMap) over
+        // every pair of the selected losses to rank candidate therapeutic targets.
+        const selGenes = new Map();     // gene symbol -> the loss-matrix record
+        let slResult = null;            // last ranking: { genes, tissue, targets, backgrounds, lineages, notes, at }
+        let slBusy = false;
+        const SL_MAX_GENES = 12;
+        const SL_TISSUES = ['Breast', 'Lung', 'Pancreas', 'Bowel', 'Skin', 'Ovary/Fallopian Tube', 'Prostate',
+            'Kidney', 'Bladder/Urinary Tract', 'CNS/Brain', 'Lymphoid', 'Myeloid', 'Liver', 'Esophagus/Stomach',
+            'Head and Neck', 'Uterus', 'Bone', 'Soft Tissue', 'Peripheral Nervous System', 'Thyroid', 'Biliary Tract',
+            'Cervix', 'Pleura', 'Testis', 'Eye'];
+        const isSelected = (name) => selGenes.has(('' + name).toUpperCase());
+        const toggleGeneSelect = (g) => {
+            const key = ('' + g.gene).toUpperCase();
+            if (selGenes.has(key)) { selGenes.delete(key); return false; }
+            selGenes.set(key, g);
+            return true;
+        };
+        const selectedList = () => Array.from(selGenes.values());
+        const selWord = () => selGenes.size + ' gene' + (selGenes.size === 1 ? '' : 's');
+        const gotoSymbol = async (sym) => { try { return await gotoGene(sym); } catch (e) { return false; } };
+        const openSymbolInEditor = async (sym) => {
+            const ok = await gotoSymbol(sym);
+            if (!ok || !regions.length) { graph.setMessage(' ' + sym + ' could not be placed on this genome. '); return; }
+            try { await openRegions([regions[regions.length - 1]]); } catch (e) { graph.setMessage(' The editor could not open ' + sym + ': ' + (e && e.message ? e.message : e) + ' '); }
+        };
+        const slInterpColor = (interp) => interp === 'genuine higher-order' ? '#dc2626'
+            : (interp === 'weak' ? '#94a3b8' : '#f97316');
+        const fmtT = (t) => (t == null ? '' : (t < 0 ? '−' : '') + Math.abs(+t).toFixed(1));
+        const fmtP = (p) => (p == null ? '' : (+p < 1e-3 ? (+p).toExponential(0) : (+p).toFixed(3)));
+
+        // RUN THE MODEL over the selection. tissue is an OncotreeLineage or '' for all.
+        const slFindTargets = async (tissue) => {
+            if (slBusy) { graph.setMessage(' The target search is still running. '); return; }
+            const genes = selectedList().map((g) => g.gene);
+            if (!genes.length) { graph.setMessage(' Select genes in the loss matrix first. '); return; }
+            if (genes.length > SL_MAX_GENES) { graph.setMessage(' At most ' + SL_MAX_GENES + ' genes at a time; ' + genes.length + ' are selected. '); return; }
+            slBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                graph.setMessage(' Ranking synthetic-lethal targets for ' + genes.join(', ') + (tissue ? ' in ' + tissue : '') + '… ');
+                const rs = await exec(server + '/py/bio/synthetic-lethal-targets.py', em,
+                    JSON.stringify({ genes: genes, tissue: tissue || '', top: 60 }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not rank the targets');
+                const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
+                slResult = { genes: genes.slice(), tissue: tissue || '', targets: J(rs.targets, '[]'), backgrounds: J(rs.backgrounds, '[]'),
+                    lineages: J(rs.lineages, '[]'), notes: J(rs.notes, '[]'), nModels: +rs.n_models || 0, at: new Date().toISOString() };
+                const scored = slResult.backgrounds.filter((b) => b.status === 'scored').length;
+                graph.setMessage(' ' + slResult.targets.length + ' candidate target' + (slResult.targets.length === 1 ? '' : 's')
+                    + ' across ' + scored + ' scored background' + (scored === 1 ? '' : 's') + '. ');
+                step('sl targets ' + genes.join('+') + ': ' + slResult.targets.length);
+                slBusy = false;
+                slTargetsMenu();
+            } catch (e) {
+                slBusy = false;
+                try { graph.setError(' Targets could not be ranked: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const slTargetsCSV = () => dlToCSV((slResult.targets || []).map((t) => ({
+            target: t.target, interpretation: t.interpretation, n_backgrounds: t.n_backgrounds, n_pairs: t.n_pairs,
+            best_t: t.best_t, min_fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy == null ? '' : t.synergy,
+            eff_in_tissue: t.eff_in_tissue == null ? '' : t.eff_in_tissue, tissue: slResult.tissue || '',
+            backgrounds: (t.backgrounds || []).map((b) => b.genes.join('+') + ' (t ' + b.t + ', ' + b.interpretation + ')').join('; '),
+            losses: slResult.genes.join('+'),
+        })));
+        const selectionCSV = () => dlToCSV(selectedList().map((g) => {
+            const v = (g.variants || [])[0] || {};
+            return { gene: g.gene, chrom: g.chr, gene_start: g.start, gene_end: g.end, effect: v.effect || '', pos: v.pos || '',
+                ref: v.ref || '', alt: v.alt || '', hgvs_p: v.hgvs_p || '', hgvs_c: v.hgvs_c || '', transcript: g.transcript || '',
+                tumour_suppressor: lossIsTsg(g) ? 1 : 0 };
+        }));
+        const tissueBooks = (run) => {
+            const dyn = (slResult && slResult.lineages && slResult.lineages.length)
+                ? slResult.lineages.filter((l) => l.lineage && l.lineage !== '(unknown)').map((l) => ({ name: l.lineage, n: l.n_lines })) : null;
+            const list = dyn || SL_TISSUES.map((t) => ({ name: t, n: null }));
+            const books = [{ section: 'Tissue', note: true, title: 'Rank against every DepMap line (lineage-corrected), or spotlight one tissue: the dependency inside that tissue\'s lines carrying the losses is reported beside the genome-wide score.' }];
+            books.push({ section: 'Tissue', title: 'Any tissue', badge: 'all lines', icon: 'public', ready: true, blurb: 'Lineage-corrected across the whole panel.', open: () => run('') });
+            list.forEach((t) => books.push({ section: 'Tissue', title: t.name, badge: t.n != null ? (t.n + ' line' + (t.n === 1 ? '' : 's')) : 'tissue', ready: true,
+                blurb: 'Spotlight ' + t.name + (t.n != null ? ' — ' + t.n + ' DepMap line' + (t.n === 1 ? '' : 's') + ' carry one of the selected losses.' : '.'), open: () => run(t.name) }));
+            return books;
+        };
+
+        // THE SELECTION as a library: what is selected, the model over it, and each gene.
+        const selectedGenesMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const sel = selectedList();
+            const books = [];
+            books.push({ section: 'Selected genes', note: true, title: sel.length
+                ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumour\'s background.')
+                : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
+            books.push({ section: 'Find targets', title: 'Find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
+                blurb: 'Run the higher-order model: for each selected loss and each pair of them, the third gene that becomes selectively essential in DepMap lines carrying the same losses. Lineage-corrected; each hit labelled genuine three-way or driven by one loss.',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('at most ' + SL_MAX_GENES + ' genes') : 'select genes first',
+                open: () => slFindTargets('') });
+            books.push({ section: 'Find targets', title: 'Find targets in a tissue…', badge: 'choose', icon: 'science',
+                blurb: 'The same ranking, with the dependency inside one tissue of origin shown beside it.',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('at most ' + SL_MAX_GENES + ' genes') : 'select genes first',
+                books: () => tissueBooks((t) => slFindTargets(t)) });
+            if (slResult) {
+                books.push({ section: 'Find targets', title: 'Last result', badge: slResult.targets.length + ' targets', icon: 'list',
+                    blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
+            }
+            books.push({ section: 'Selection', title: 'Download the selection as CSV', badge: 'csv', icon: 'file_download', ready: sel.length > 0, readyNote: 'nothing selected',
+                blurb: 'Gene, locus, consequence and HGVS for each selected gene.',
+                open: () => { try { dlSaveText(selectionCSV(), dlSafe(dlSpecies() + '_selected_genes') + '.csv', 'text/csv'); dlMsg('Selection downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Selection', title: 'Clear the selection', badge: 'clear', icon: 'delete_outline', ready: sel.length > 0, readyNote: 'nothing selected',
+                blurb: 'Deselect every gene; the loss matrix itself is kept.', open: () => { selGenes.clear(); graph.setMessage(' Selection cleared. '); analysisMenu(); } });
+            if (sel.length) books.push({ section: 'Genes', note: true, title: 'Each gene: go to it, or take it out of the selection.' });
+            sel.forEach((g) => {
+                const v = (g.variants || [])[0] || {};
+                const hypo = !g.chr || v.effect === 'hypothetical';
+                books.push({ section: 'Genes', title: g.gene, badge: hypo ? 'hypothetical' : lossWord(v.effect), swatch: hypo ? '#a855f7' : (lossIsTsg(g) ? '#dc2626' : '#f97316'),
+                    blurb: hypo ? 'Added from a target list, not lost in this VCF: a what-if loss.'
+                        : (g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : ''))), ready: true,
+                    books: () => [
+                        { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the karyotype.', open: () => (hypo ? gotoSymbol(g.gene) : gotoLostGene(g)) },
+                        { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + g.gene + ' into the editor with its variants.', open: () => openSymbolInEditor(g.gene) },
+                        { title: 'Deselect', badge: 'remove', icon: 'remove_circle_outline', ready: true, blurb: 'Take ' + g.gene + ' out of the selection.', open: () => { selGenes.delete(('' + g.gene).toUpperCase()); graph.setMessage(' ' + g.gene + ' deselected — ' + selWord() + ' left. '); selectedGenesMenu(); } },
+                    ] });
+            });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Selected genes (' + sel.length + ')',
+                subtitle: 'The losses to reason from — run the model, or edit the set', graph: graph, books: books });
+        };
+
+        // THE RANKED TARGETS as a library, best first.
+        const slTargetsMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!slResult) { selectedGenesMenu(); return; }
+            const R = slResult;
+            const scored = R.backgrounds.filter((b) => b.status === 'scored');
+            const thin = R.backgrounds.filter((b) => b.status !== 'scored');
+            const books = [];
+            books.push({ section: 'Targets', note: true, title: 'Losses ' + R.genes.join(', ') + (R.tissue ? ', spotlighting ' + R.tissue : '') + ': '
+                + R.targets.length + ' candidate target' + (R.targets.length === 1 ? '' : 's') + ' from ' + scored.length + ' scored background' + (scored.length === 1 ? '' : 's')
+                + ' (' + scored.map((b) => b.genes.join('+') + ' ' + b.n_lines + ' lines').join('; ') + ')'
+                + (thin.length ? '. Not scored, too few DepMap lines: ' + thin.map((b) => b.genes.join('+') + ' (' + b.n_lines + ')').join(', ') : '') + '.'
+                + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') });
+            books.push({ section: 'Targets', title: 'Download targets as CSV', badge: 'csv', icon: 'file_download', ready: R.targets.length > 0, readyNote: 'no targets',
+                blurb: 'One row per target with t, FDR, effect, synergy, interpretation and the backgrounds it recurs in.',
+                open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_sl_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
+                blurb: 'Tissues below are the ones whose DepMap lines carry one of these losses.', books: () => tissueBooks((t) => slFindTargets(t)) });
+            books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
+            if (!R.targets.length) books.push({ section: 'Ranked targets', note: true, title: 'No gene passed the threshold (t < 0, effect < −0.4, FDR ≤ 0.25) in any scored background.' });
+            else books.push({ section: 'Ranked targets', note: true, title: 'Genuine three-way hits first, then by how many of this tumour\'s backgrounds a gene recurs in, then by t. Click a target to go to it or open it in the editor.' });
+            R.targets.forEach((t, i) => {
+                const bgs = (t.backgrounds || []);
+                const bgText = bgs.slice(0, 4).map((b) => b.genes.join('+')).join(', ') + (bgs.length > 4 ? ' +' + (bgs.length - 4) : '');
+                books.push({ section: 'Ranked targets', title: (i + 1) + '. ' + t.target, badge: t.interpretation, swatch: slInterpColor(t.interpretation), ready: true,
+                    blurb: 't ' + fmtT(t.best_t) + ' · FDR ' + fmtP(t.min_fdr) + ' · effect ' + fmtT(t.eff_double)
+                        + (t.synergy != null ? ' · synergy ' + fmtT(t.synergy) : '') + (t.eff_in_tissue != null ? ' · in ' + R.tissue + ' ' + fmtT(t.eff_in_tissue) : '')
+                        + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText,
+                    books: () => [
+                        { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
+                        { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
+                        { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumour that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
+                        { note: true, title: 'Per background:' },
+                    ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
+                        + (b.synergy != null ? ', synergy ' + fmtT(b.synergy) : '') + (b.eff_in_tissue != null ? ', in tissue ' + fmtT(b.eff_in_tissue) : '') + ' — ' + b.interpretation }))) });
+            });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic-lethal targets',
+                subtitle: 'Third genes that become essential given the selected losses', graph: graph, books: books });
+        };
+
         // THE MATRIX AS A LIBRARY: one card per lost gene, tumour suppressors first, each
-        // opening on the gene. Download and clear sit at the top where they are found
+        // click SELECTING it. Download and clear sit at the top where they are found
         // without scrolling past a hundred genes.
         const gotoLostGene = async (g) => {
             const ci = chromIndexOf(g.chr);
@@ -5402,6 +5575,12 @@ function (path, config) {
                     + ', from ' + (+lossMatrix.scanned || 0).toLocaleString() + ' exonic variant' + (lossMatrix.scanned === 1 ? '' : 's')
                     + (other ? ' (' + other + ' left in place)' : '') + '.'
                     + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
+            books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
+                blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: find synthetic-lethal targets, download, clear.',
+                ready: true, open: () => selectedGenesMenu() });
+            books.push({ section: 'Loss matrix', title: 'Select all tumour suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
+                blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
+                open: () => { genes.filter(lossIsTsg).forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', icon: 'highlight',
                 blurb: 'Mark every loss-of-function variant in red and band the lost genes' + (genes.length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
                 ready: !!genes.length, readyNote: 'no lost genes to mark',
@@ -5419,10 +5598,11 @@ function (path, config) {
             const card = (g, section) => {
                 const v = g.variants[0] || {};
                 const more = g.variants.length > 1 ? ' +' + (g.variants.length - 1) + ' more' : '';
-                return { section: section, title: g.gene, badge: lossWord(v.effect), swatch: lossIsTsg(g) ? '#dc2626' : '#f97316',
-                    blurb: g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
+                const on = isSelected(g.gene);
+                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : lossWord(v.effect), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'),
+                    blurb: lossWord(v.effect) + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
                         + (g.n_other ? ' · ' + g.n_other + ' other coding' : ''),
-                    ready: true, open: () => { gotoLostGene(g); } };
+                    ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
             };
             const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
             if (tsg.length) { books.push({ section: 'Tumour suppressors lost', note: true, title: 'The two-loss backgrounds the third-gene model screens start here.' }); tsg.forEach((g) => books.push(card(g, 'Tumour suppressors lost'))); }
@@ -5464,6 +5644,14 @@ function (path, config) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
+            }
+            books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : '', icon: 'checklist',
+                blurb: selGenes.size ? ('Act on ' + selectedList().map((g) => g.gene).join(', ') + ': find synthetic-lethal targets, open, download or clear.')
+                    : 'Click genes in the loss matrix to select them, then come back here to run the higher-order model over them.',
+                ready: selGenes.size > 0, readyNote: 'select genes in the loss matrix first', open: () => selectedGenesMenu() });
+            if (slResult) {
+                books.push({ section: 'Loss matrix', title: 'Synthetic-lethal targets', badge: slResult.targets.length + ' targets', icon: 'biotech',
+                    blurb: 'Last ranking, for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
