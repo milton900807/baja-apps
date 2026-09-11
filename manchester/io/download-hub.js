@@ -298,6 +298,34 @@ function (graph, layout) {
             } catch (e) { try { graph.setError('Report failed: ' + e, 8); } catch (e2) { } }
         };
 
+        // ---- primer-probes (amplicons live in t.oligos as type 'amplicon') ---------------
+        const allAmplicons = () => allOligos().filter((e) => e.o && e.o.type === 'amplicon');
+        const hasAmplicons = () => allAmplicons().length > 0;
+        const ampliconRow = (t, a) => ({
+            track: t.name || '', id: a.id != null ? a.id : '', name: a.name != null ? a.name : '',
+            type: 'amplicon', chrom: trackChrom(t), strand: trackStrandSym(t),
+            start: num(a.xi), end: num(a.xf) !== '' ? num(a.xf) + 1 : '',
+            amplicon_length: (num(a.xf) !== '' && num(a.xi) !== '') ? (Math.abs(num(a.xf) - num(a.xi)) + 1) : '',
+            forward_primer: (a.left && (a.left.synthesisSequence || a.left.sequence)) || '',
+            forward_tm: (a.left && a.left.tm != null) ? a.left.tm : '',
+            reverse_primer: (a.right && (a.right.synthesisSequence || a.right.sequence)) || '',
+            reverse_tm: (a.right && a.right.tm != null) ? a.right.tm : '',
+            probe: (a.mid && (a.mid.synthesisSequence || a.mid.sequence)) || ''
+        });
+        const ampliconBed = (t, a) => ({
+            chrom: trackChrom(t), start: num(a.xi), end: num(a.xf) !== '' ? num(a.xf) + 1 : '',
+            name: (a.id != null ? a.id : (a.name || 'amplicon')), score: '.', strand: trackStrandSym(t)
+        });
+        const scopeAmplicons = () => ({
+            base: designBase() + '_primer_probes',
+            title: 'Primer-probes',
+            hasCoords: true,
+            json: () => allAmplicons().map((e) => ampliconRow(e.t, e.o)),
+            rows: () => allAmplicons().map((e) => ampliconRow(e.t, e.o)),
+            bed: () => allAmplicons().map((e) => ampliconBed(e.t, e.o)),
+            sheets: () => [{ name: 'Primer-probes', rows: allAmplicons().map((e) => ampliconRow(e.t, e.o)) }]
+        });
+
         const ts = tracks();
         const topBooks = [];
         if (hasCompounds()) {
@@ -311,6 +339,13 @@ function (graph, layout) {
             topBooks.push({ section: 'Download design', note: true, title: 'Every oligo in this design (' + __nOl + ' compound' + (__nOl === 1 ? '' : 's') + '), in one file — pick a format:' });
             formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Download design' })));
             topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
+            // Primer-probes get their own download with primer/probe columns, before the
+            // whole-canvas option, whenever the design carries any.
+            if (hasAmplicons()) {
+                const __nPP = allAmplicons().length;
+                topBooks.push({ section: 'Primer-probes', note: true, title: 'The ' + __nPP + ' primer-probe set' + (__nPP === 1 ? '' : 's') + ' in this design — forward and reverse primers, probe and Tm — pick a format:' });
+                formatBooks(scopeAmplicons()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Primer-probes' })));
+            }
             topBooks.push({ section: 'Or everything on the canvas', title: 'Everything (all tracks, variants, annotations)', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: true, blurb: 'The whole canvas in one file, not just the compounds.', books: () => formatBooks(scopeWorkbench()) });
         } else {
             topBooks.push({ title: 'Whole workbench', badge: (ts.length + ' track' + (ts.length === 1 ? '' : 's')), ready: ts.length > 0, readyNote: 'Load a track first.', blurb: 'Everything on the canvas — all tracks and all their elements — in one file.', books: () => formatBooks(scopeWorkbench()) });

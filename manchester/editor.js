@@ -491,7 +491,10 @@ function (path, config) {
                                 graph.setError(__sharedOpen.message, 15);
                             } else if (!__sharedOpen.mine) {
                                 const __label = ('' + (__sharedOpen.name || '')).replace(/\.baja$/i, '');
-                                graph.setMessage(' ' + __sharedOpen.owner + ' shared "' + __label + '" with you. Save keeps a copy in your own files. ');
+                                const __bmN = (graph.bookmarks && Object.keys(graph.bookmarks).length) || 0;
+                                graph.setMessage(' ' + __sharedOpen.owner + ' shared "' + __label + '" with you.'
+                                    + (__bmN ? (' ' + __bmN + ' saved view' + (__bmN === 1 ? '' : 's') + ' — see the Bookmarks panel, lower-left.') : '')
+                                    + ' Save keeps a copy in your own files. ');
                                 if (__sharedOpen.message) {
                                     const __esc = (v) => ('' + v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                                     showModal({
