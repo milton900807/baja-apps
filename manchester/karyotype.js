@@ -1918,17 +1918,6 @@ function (path, config) {
                                                         lines.push(ttl);
                                                     }
                                                     if (dates) lines.push(dates);
-                                                    // THE GENES it sits in, when they have arrived.
-                                                    if (glist) {
-                                                        const gsy = genesOver(glist, sBp, eBp, 6);
-                                                        if (gsy.length) {
-                                                            ctx.font = '500 9px ' + FONT;
-                                                            let gl = 'Genes: ' + gsy.join(', ');
-                                                            while (gl.length > 10 && ctx.measureText(gl).width > MAXW) gl = gl.slice(0, -2);
-                                                            if (gl.length < ('Genes: ' + gsy.join(', ')).length) gl += '…';
-                                                            lines.push(gl);
-                                                        }
-                                                    }
                                                     ctx.font = '600 10px ' + FONT;
                                                 }
                                             } else {
@@ -1939,18 +1928,6 @@ function (path, config) {
                                                 numOnly = ('' + (top.label || top.id || '')).split(' ')[0];
                                                 txt = numOnly + '  +' + (cl.members.length - 1) + ' more…';
                                                 if (ctx.measureText(txt).width > MAXW) txt = cl.members.length + ' patents…';
-                                                // Genes across the whole cluster block, when known.
-                                                if (showExtra && glist) {
-                                                    const gsy = genesOver(glist, sBp, eBp, 6);
-                                                    if (gsy.length) {
-                                                        ctx.font = '500 9px ' + FONT;
-                                                        let gl = 'Genes: ' + gsy.join(', ');
-                                                        while (gl.length > 10 && ctx.measureText(gl).width > MAXW) gl = gl.slice(0, -2);
-                                                        if (gl.length < ('Genes: ' + gsy.join(', ')).length) gl += '…';
-                                                        lines.push(gl);
-                                                        ctx.font = '600 10px ' + FONT;
-                                                    }
-                                                }
                                             }
                                             ctx.font = '600 10px ' + FONT;
                                             let boxW = ctx.measureText(txt).width;
@@ -1977,18 +1954,34 @@ function (path, config) {
                                             if (rr.top < TOP_PAD) rr.top = TOP_PAD;
                                             limit = rr.top - GAP;
                                         }
-                                        // HIGHLIGHT THE BLOCK each patent claims: a translucent
-                                        // amber band down the bar over the patent's span, drawn
-                                        // under the labels and leaders. Only when the metadata is
-                                        // showing, so it does not paint the whole genome amber
-                                        // when zoomed out.
-                                        if (showExtra) {
-                                            ctx.save();
-                                            ctx.fillStyle = 'rgba(245,158,11,0.16)';
-                                            ctx.strokeStyle = 'rgba(180,83,9,0.5)';
-                                            ctx.lineWidth = 1;
+                                        // THE GENES AT THEIR OWN LOCI. The patent text is left as
+                                        // it was; instead the genes the patents sit in are drawn
+                                        // where they actually are -- the symbol on its locus and
+                                        // its range banded in green. Collected across the shown
+                                        // patent blocks, deduped, and the symbols decluttered so
+                                        // they do not stack. Only while the metadata is showing.
+                                        // NB: `g` is the graph here, so a gene is `gn`.
+                                        if (showExtra && glist) {
+                                            const seen = new Set();
+                                            const grecs = [];
                                             for (const rr of recs) {
-                                                let yA = g.Y(wy(rr.sBp)), yB = g.Y(wy(rr.eBp));
+                                                for (const gn of glist) {
+                                                    if (+gn.end < rr.sBp) continue;
+                                                    if (+gn.start > rr.eBp) break;
+                                                    const sym = gn.gene;
+                                                    if (!sym || seen.has(sym)) continue;
+                                                    seen.add(sym);
+                                                    grecs.push({ sym: sym, s: +gn.start, e: +gn.end, ay: clampY(g.Y(wy(((+gn.start) + (+gn.end)) / 2))) });
+                                                }
+                                            }
+                                            grecs.sort((a, b) => a.ay - b.ay);
+                                            // Range bands over each gene's extent.
+                                            ctx.save();
+                                            ctx.fillStyle = 'rgba(16,185,129,0.16)';
+                                            ctx.strokeStyle = 'rgba(5,150,105,0.55)';
+                                            ctx.lineWidth = 1;
+                                            for (const gg of grecs) {
+                                                let yA = g.Y(wy(gg.s)), yB = g.Y(wy(gg.e));
                                                 if (yA > yB) { const t = yA; yA = yB; yB = t; }
                                                 yA = Math.max(-2, yA); yB = Math.min(H + 2, yB);
                                                 if (yB < 0 || yA > H) continue;
@@ -1997,6 +1990,36 @@ function (path, config) {
                                                 ctx.strokeRect(bx0 + 0.5, yA + 0.5, Math.max(2, bx1 - bx0) - 1, hgt - 1);
                                             }
                                             ctx.restore();
+                                            // Symbols on their loci, left edge of the bar, decluttered.
+                                            ctx.save();
+                                            ctx.font = '700 10px ' + FONT;
+                                            ctx.textAlign = 'left';
+                                            ctx.textBaseline = 'middle';
+                                            let prevB = -1e9;
+                                            for (const gg of grecs) {
+                                                let sy = Math.max(prevB + 12, gg.ay);
+                                                if (sy > H - 4) break;
+                                                prevB = sy;
+                                                const tw = ctx.measureText(gg.sym).width;
+                                                const sx = bx0 + 4;
+                                                // A tick back to the true locus when the symbol was
+                                                // pushed off it by the declutter.
+                                                if (Math.abs(sy - gg.ay) > 3) {
+                                                    ctx.strokeStyle = 'rgba(5,150,105,0.6)';
+                                                    ctx.lineWidth = 1;
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(sx - 3, sy);
+                                                    ctx.lineTo(bx0 + 1, gg.ay);
+                                                    ctx.stroke();
+                                                }
+                                                ctx.fillStyle = 'rgba(236,253,245,0.9)';
+                                                ctx.fillRect(sx - 2, sy - 6, tw + 4, 12);
+                                                ctx.fillStyle = '#065f46';
+                                                ctx.fillText(gg.sym, sx, sy);
+                                            }
+                                            ctx.restore();
+                                            ctx.textAlign = 'center';
+                                            ctx.textBaseline = 'top';
                                         }
                                         for (const rr of recs) {
                                             const top = rr.top;
