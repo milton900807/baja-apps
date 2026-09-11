@@ -770,7 +770,7 @@ function (path, config) {
                                         // the colour of a mark is the one channel that can
                                         // show it across a whole genome at once.
                                         label: 'Colour', icon: 'palette',
-                                        tooltip: 'Colour the variants by sample, by haplotype, or by ClinVar class',
+                                        tooltip: 'Colour variants by class, sample or haplotype, and toggle annotation highlights',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); colourMenu(); })
                                     },
                                     {
@@ -6180,32 +6180,51 @@ function (path, config) {
         const colourMenu = () => {
             if (!vtotal) { graph.setMessage(' Load a VCF first: there are no variants to colour. '); return; }
             const nS = SAMPLES.length;
-            const badge = (m, dflt) => (colourMode === m ? 'on' : dflt);
+            const modeBadge = (m) => (colourMode === m ? 'on' : 'off');
+            // Choosing a colour scheme; clicking the one already on turns it off (back to the
+            // default ClinVar-class colours). Reopens so the on/off badges refresh.
+            const setMode = (m) => {
+                try { setColourMode((colourMode === m && m !== 'class') ? 'class' : m); } catch (e) { }
+                colourMenu();
+            };
+            // The annotation highlights, now here as on/off toggles as well as under Search.
+            // hlActive holds the one that is on; clicking it again clears it.
+            const hlBadge = (code) => (hlActive === code ? 'on' : 'off');
+            const toggleHl = async (kind, code) => {
+                try { if (hlActive === code) { clearHighlights(); } else { await applyFilter(kind, code); } } catch (e) { }
+                colourMenu();
+            };
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-colour',
-                    title: 'Colour the variants',
+                    title: 'Colour & highlight',
                     subtitle: nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
                         : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
                     books: [
                         {
-                            title: 'By ClinVar class', badge: badge('class', 'class'),
+                            section: 'Colour scheme', title: 'By ClinVar class', badge: modeBadge('class'),
                             blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
-                            open: () => setColourMode('class'),
+                            open: () => setMode('class'),
                         },
                         {
-                            title: 'By sample', badge: badge('sample', nS ? nS + ' sample' + (nS === 1 ? '' : 's') : 'sample'),
+                            section: 'Colour scheme', title: 'By sample', badge: (nS ? modeBadge('sample') : 'off'),
                             blurb: 'Which sample carries the change' + (nS > 1 ? ': ' + SAMPLES.join(', ') : '')
                                 + '. Slate where more than one does, pale where none does.',
-                            open: () => setColourMode('sample'),
-                            ready: nS > 0, readyNote: 'no sample columns',
+                            open: () => setMode('sample'), ready: nS > 0, readyNote: 'no sample columns',
                         },
                         {
-                            title: 'By phase', badge: badge('phase', 'haplotype'),
+                            section: 'Colour scheme', title: 'By phase', badge: (nS ? modeBadge('phase') : 'off'),
                             blurb: 'Haplotype 1 blue, haplotype 2 pink, homozygous purple, unphased heterozygous amber.',
-                            open: () => setColourMode('phase'),
-                            ready: nS > 0, readyNote: 'no genotypes to phase',
+                            open: () => setMode('phase'), ready: nS > 0, readyNote: 'no genotypes to phase',
                         },
+                        // The annotation highlights: each turns on and off, and only one is on at
+                        // a time (a variant shows one mark). The same set the Search window offers.
+                        { section: 'Highlight (annotation)', title: 'Protein coding', badge: hlBadge(1), blurb: 'Mark the variants in coding sequence, genome-wide.', open: () => toggleHl('coding', 1) },
+                        { section: 'Highlight (annotation)', title: 'Intronic', badge: hlBadge(2), blurb: 'Mark the variants that fall in introns.', open: () => toggleHl('intronic', 2) },
+                        { section: 'Highlight (annotation)', title: "3' UTR", badge: hlBadge(3), blurb: "Mark the variants in 3' untranslated regions.", open: () => toggleHl('three_utr', 3) },
+                        { section: 'Highlight (annotation)', title: "5' UTR", badge: hlBadge(4), blurb: "Mark the variants in 5' untranslated regions.", open: () => toggleHl('five_utr', 4) },
+                        { section: 'Highlight (annotation)', title: 'Pathogenic / likely pathogenic', badge: hlBadge(HL_PATHOGENIC), blurb: 'Mark the variants ClinVar calls pathogenic or likely pathogenic.', open: () => toggleHl('pathogenic', HL_PATHOGENIC) },
+                        { section: 'Highlight (annotation)', title: 'Clear highlights', badge: hlActive ? 'on' : '', ready: !!hlActive, readyNote: 'nothing highlighted', blurb: 'Take every mark off and draw the variants in their own colours again.', open: () => { try { clearHighlights(); } catch (e) { } colourMenu(); } },
                     ],
                     graph: graph,
                 });
