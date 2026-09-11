@@ -2184,6 +2184,11 @@ function (path, config) {
                             for (let b = b0; b <= b1; b++) if (histS(b) > peak) peak = histS(b);
                             const lp = Math.log(peak + 1);
                             const maxW = Math.max(6, Math.min(26, bw * 0.55));
+                            // FACING INWARD. The strips hang from a fixed outer edge and grow
+                            // toward the bar, so the busiest bins touch the chromosome and the
+                            // quiet ones stay out at the edge -- the same way the triangles
+                            // point at it. `outer` is that edge, one full strip out from the bar.
+                            const outer = ex + dir * (4 + maxW);
                             ctx.globalAlpha = 1;
 
                             for (let b = b0; b <= b1; b++) {
@@ -2198,22 +2203,22 @@ function (path, config) {
                                 // filter they become the background the matches sit on.
                                 if (hlActive) {
                                     ctx.fillStyle = 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')';
-                                    if (side) ctx.fillRect(ex - 2 - (2 + maxW * f), yA, 2 + maxW * f, h2);
-                                    else ctx.fillRect(ex + 2, yA, 2 + maxW * f, h2);
+                                    const w1 = 2 + maxW * f;
+                                    ctx.fillRect(side ? outer : outer - w1, yA, w1, h2);
                                 } else {
                                     // Segments in proportion to the categories in the bin,
-                                    // in category order so the colors stack the same way
-                                    // down the whole chromosome.
+                                    // in category order from the outer edge in, so the colors
+                                    // stack the same way down the whole chromosome.
                                     const hb = binsBy(d, side), pal = modePalette();
                                     const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
-                                    let x2 = ex + dir * 2;
+                                    let x2 = outer;
                                     for (let cat = 0; cat < NCAT; cat++) {
                                         const cnt = hb[b * NCAT + cat];
                                         if (!cnt) continue;
                                         const w2 = wAll * cnt / n;
                                         ctx.fillStyle = withAlpha(pal[cat] || CLS_COLOR[0], alpha);
-                                        if (side) { ctx.fillRect(x2 - w2, yA, w2, h2); x2 -= w2; }
-                                        else { ctx.fillRect(x2, yA, w2, h2); x2 += w2; }
+                                        if (side) { ctx.fillRect(x2, yA, w2, h2); x2 += w2; }
+                                        else { ctx.fillRect(x2 - w2, yA, w2, h2); x2 -= w2; }
                                     }
                                 }
                             }
@@ -2283,11 +2288,9 @@ function (path, config) {
                                             const f2 = Math.log(nh + 1) / lp;
                                             const w = 2 + maxW * f2;
                                             ctx.globalAlpha = glowA;
-                                            if (side) ctx.fillRect(ex - 2 - w * grow, yA2 - 1, w * grow, h3 + 2);
-                                            else ctx.fillRect(ex + 2, yA2 - 1, w * grow, h3 + 2);
+                                            ctx.fillRect(side ? outer : outer - w * grow, yA2 - 1, w * grow, h3 + 2);
                                             ctx.globalAlpha = 1;
-                                            if (side) ctx.fillRect(ex - 2 - w, yA2, w, h3);
-                                            else ctx.fillRect(ex + 2, yA2, w, h3);
+                                            ctx.fillRect(side ? outer : outer - w, yA2, w, h3);
                                         }
                                         ctx.restore();
                                     }
