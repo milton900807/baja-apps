@@ -250,7 +250,7 @@ function () {
                 step();
             }
 
-            // Start a one-shot expanding "landing burst" centred on the compound (see draw()).
+            // Start a one-shot expanding "landing burst" centerd on the compound (see draw()).
             landingBurst(color) {
                 try { this.__burstT0 = Date.now(); this.__burstColor = color || 'magenta'; this.__burstMs = 950; } catch (e) { }
             }

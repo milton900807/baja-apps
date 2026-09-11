@@ -360,7 +360,7 @@ function () {
                     }
 
                     // The amplicon length is the number a primer pair is judged on, and it was
-                    // nowhere on the drawing. Centred on the body, and only when the body is
+                    // nowhere on the drawing. Centerd on the body, and only when the body is
                     // wide enough to hold the chip without covering the primers.
                     try {
                         const ampBp = Math.abs(Math.round(this.right.xf - this.left.xi));
@@ -388,7 +388,7 @@ function () {
                     // consumed before it can report -- so the difference is computed here
                     // rather than left for the reader to do in their head off two other chips.
                     //
-                    // Below the body, clear of the bp chip, and centred on the probe itself so
+                    // Below the body, clear of the bp chip, and centerd on the probe itself so
                     // it points at what it describes.
                     try {
                         if (hasProbe) {

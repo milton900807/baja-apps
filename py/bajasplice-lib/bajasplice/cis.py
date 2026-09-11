@@ -226,7 +226,7 @@ def cis_profile_sequence(model, context, sequence, site_index, strand, which,
 
 def _profile_from_codes(model, context, codes, which, device, max_dist,
                         bin_size, step, n_shuffle, seed, space):
-    """Shared core: scramble each window of `codes` and rescore the centre."""
+    """Shared core: scramble each window of `codes` and rescore the center."""
     import pandas as pd
 
     rf = receptive_field(context)
@@ -234,22 +234,22 @@ def _profile_from_codes(model, context, codes, which, device, max_dist,
     # two coordinate systems: windows are placed in INPUT space, where the site
     # sits at index c, but the model crops context//2 from each side, so the
     # scored position in OUTPUT space is c - context//2, which is 0 here.
-    centre = c
-    centre_out = c - context // 2
+    center = c
+    center_out = c - context // 2
     ref_mat = one_hot(codes)
-    ref = float(_score_batch(model, [ref_mat], which, device, centre_out, space=space)[0])
-    ref_prob = float(_score_batch(model, [ref_mat], which, device, centre_out, space="prob")[0])
+    ref = float(_score_batch(model, [ref_mat], which, device, center_out, space=space)[0])
+    ref_prob = float(_score_batch(model, [ref_mat], which, device, center_out, space="prob")[0])
 
     rng = np.random.default_rng(seed)
     offsets, mats, owner, covered = [], [], [], []
     for start in range(-max_dist, max_dist - bin_size + 1, step):
-        lo, hi = centre + start, centre + start + bin_size
+        lo, hi = center + start, center + start + bin_size
         if lo < 0 or hi > len(codes):
             continue
         # skip only windows covering the site's own dinucleotide, which would
         # measure the site rather than its context. Windows merely adjacent to
         # it, such as the polypyrimidine tract, are context and are kept.
-        if lo <= centre + 2 and centre - 2 <= hi:
+        if lo <= center + 2 and center - 2 <= hi:
             continue
         offsets.append(start + bin_size // 2)
         # how much of this window is real sequence. A window sitting in the pad
@@ -268,7 +268,7 @@ def _profile_from_codes(model, context, codes, which, device, max_dist,
         return pd.DataFrame(
             columns=["offset", "impact", "sd", "z", "n", "covered", "region"]), ref
 
-    scores = _score_batch(model, mats, which, device, centre_out, space=space)
+    scores = _score_batch(model, mats, which, device, center_out, space=space)
     owner = np.asarray(owner)
     rows = []
     for i, off in enumerate(offsets):
@@ -342,7 +342,7 @@ def profile_to_layer(df, chrom, site, strand, which, ref, name=None):
     Impact is signed: positive means the native sequence supports the site,
     negative means it suppresses it. Points are bucketed by base so the layer
     drops into the same client as the other tracks, using the base at each
-    window's centre.
+    window's center.
     """
     from bajasplice.genome import GenomeReader
     g = GenomeReader()

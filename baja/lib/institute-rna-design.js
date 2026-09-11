@@ -1,6 +1,6 @@
 function (graph, genegraph_panel_layout) {
 
-    // Institute for GeneTx Design — a reading room, in three centres.
+    // Institute for GeneTx Design — a reading room, in three centers.
     //   exec('baja/lib/institute-rna-design.js', graph, genegraph_panel_layout)
     //
     // A map of the design space rather than a tool: what each modality does, what it is for,
@@ -9,7 +9,7 @@ function (graph, genegraph_panel_layout) {
     // to publish a roadmap, since a page of capabilities with no such mark reads as a feature
     // list rather than an intention.
     //
-    // Three centres, matching how the field actually divides:
+    // Three centers, matching how the field actually divides:
     //   1. RNA as the TARGET   — the oligo or molecule acts on a transcript that already exists
     //   2. RNA as the MEDICINE — the RNA is itself the therapeutic payload
     //   3. Cross-modality strategies — design choices that apply across both
@@ -156,10 +156,10 @@ function (graph, genegraph_panel_layout) {
                 + esc(caseText) + '</div>') : '')
             + '</article>';
 
-        const centre = (n, title, sub, inner) => ''
+        const center = (n, title, sub, inner) => ''
             + '<section style="margin:0 0 30px;">'
             + '<div style="display:flex;align-items:baseline;gap:12px;border-bottom:2px solid #14705c;padding-bottom:7px;margin-bottom:14px;">'
-            + '<span style="font:700 11px Arial;letter-spacing:2px;color:#14705c;">CENTRE ' + n + '</span>'
+            + '<span style="font:700 11px Arial;letter-spacing:2px;color:#14705c;">CENTER ' + n + '</span>'
             + '<span style="font:700 21px Georgia,serif;color:#14211f;">' + esc(title) + '</span></div>'
             + '<p style="max-width:76ch;font:14px/1.6 Georgia,serif;color:#4a534f;margin:0 0 14px;">' + esc(sub) + '</p>'
             + inner + '</section>';
@@ -183,7 +183,7 @@ function (graph, genegraph_panel_layout) {
                 + 'background:#14705c;color:#fff;';
             head.innerHTML = '<div style="min-width:0;">'
                 + '<div style="font:700 26px Georgia,\'Times New Roman\',serif;">Institute for GeneTx Design</div>'
-                + '<div style="font:12.5px Arial;opacity:0.92;margin-top:4px;">Three centres · '
+                + '<div style="font:12.5px Arial;opacity:0.92;margin-top:4px;">Three centers · '
                 + (TARGETING.length + MEDICINE.length + STRATEGIES.length) + ' entries · every one in preparation · '
                 + (TARGETING.filter((r) => r[3]).length + MEDICINE.filter((r) => r[3]).length + STRATEGIES.filter((r) => r[1]).length)
                 + ' with a clinical case study</div></div>';
@@ -202,15 +202,15 @@ function (graph, genegraph_panel_layout) {
                 + 'entry is marked accordingly, so this reads as what it is: where the work is going. '
                 + 'The case studies name drugs and trials that already exist in the field. They are precedent, not our work, '
                 + 'and the categories without one have no clinical example to point to yet.</p>'
-                + centre(1, 'RNA as the target',
+                + center(1, 'RNA as the target',
                     'The therapeutic acts on a transcript that already exists — degrading it, blocking a site on it, '
                     + 'editing it, or redirecting how it is processed.',
                     cols(TARGETING.map((r) => card(r[0], r[1], r[2], 'Principal mechanism', 'Typical design objective', r[3], r[4])).join('')))
-                + centre(2, 'RNA as the medicine',
+                + center(2, 'RNA as the medicine',
                     'The RNA is itself the payload — it is delivered to be expressed, translated, or to act directly.',
                     cols(MEDICINE.map((r) => card(r[0], r[1], r[2], 'Function', 'Typical application', r[3], r[4])).join('')))
-                + centre(3, 'Cross-modality targeting strategies',
-                    'Design choices that cut across the centres above: how a target is chosen and scoped, whichever '
+                + center(3, 'Cross-modality targeting strategies',
+                    'Design choices that cut across the centers above: how a target is chosen and scoped, whichever '
                     + 'modality carries it.',
                     cols(STRATEGIES.map((r) => card(r[0], '', '', '', '', r[1], r[2])).join('')));
 

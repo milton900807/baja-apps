@@ -4260,7 +4260,7 @@ return new Promise(async (resolve, reject) => {
 
         // Where the arch meets a compound: the top of its warning label. oligo.js sets the
         // label 40 px above the body (58 when an amplicon warning sits under it) and the
-        // oval is 10 px tall around that centre.
+        // oval is 10 px tall around that center.
         const anchor = (o) => {
           const x = (graph.X(this.tgraph.X(o.xi)) + graph.X(this.tgraph.X(o.xf))) / 2;
           const y = graph.Y(this.tgraph.Y(o.y)) - (o.__overlapsAmplicon ? 58 : 40) - 10;
@@ -5614,7 +5614,7 @@ return new Promise(async (resolve, reject) => {
     // overlap the labels of other annotations that are nearby ALONG THE TRACK'S X AXIS. Lane 0
     // keeps labelY = 0 (the default position); each overlapping neighbour bumps this one up a row.
     // Footprint is genomic (zoom-independent, as required at creation time): the label spans at
-    // least `name.length` bases, centred on the annotation, or the annotation's own width if wider.
+    // least `name.length` bases, centerd on the annotation, or the annotation's own width if wider.
     _assignAnnotationLabelLane(ann) {
       if (!ann) return;
       // Structural / auto-CDS annotations are positioned deliberately — leave their labels alone.
@@ -8265,7 +8265,7 @@ return new Promise(async (resolve, reject) => {
             const w = metrics.width + padX * 2;
             const h = 22;
 
-            // A vertical badge is the same card drawn in a rotated frame centred on (x, y):
+            // A vertical badge is the same card drawn in a rotated frame centerd on (x, y):
             // everything below measures from the origin instead of from x/y. A quarter turn
             // anticlockwise, so it reads bottom-to-top like the interval labels in
             // baja/bio/track-layer.js.
@@ -8324,7 +8324,7 @@ return new Promise(async (resolve, reject) => {
           // selection of a few bases still reads as two distinct coordinates.
           //
           // Anchored half its own length above the arrow, since a vertical badge grows upward
-          // from its centre, and clamped by that half-length so it cannot run off the top.
+          // from its center, and clamped by that half-length so it cannot run off the top.
           // The x clamp uses the badge's rotated half-WIDTH (h/2 = 11) rather than the flat
           // width it no longer has.
           const VBADGE_HALF_W = 11;

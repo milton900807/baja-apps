@@ -119,7 +119,7 @@ function (graph, oligo, genegraph_panel_layout) {
                     panel.style.top = Math.round(r.top) + 'px';
                     panel.style.width = Math.round(r.width) + 'px';
                     panel.style.height = Math.round(r.height) + 'px';
-                } else {   // no canvas found — fall back to a centred sheet
+                } else {   // no canvas found — fall back to a centerd sheet
                     panel.style.left = '50%'; panel.style.top = '60px'; panel.style.transform = 'translateX(-50%)';
                     panel.style.width = 'min(720px,94vw)'; panel.style.height = 'min(80vh,820px)';
                 }

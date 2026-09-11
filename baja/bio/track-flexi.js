@@ -71,8 +71,8 @@ return new Promise(async (resolve, reject) => {
     }
     // The species / coordinate caption above a track, drawn as a TAB rather than loose text.
     //
-    // It used to go through drawString, whose default alignment is centre -- so the caption was
-    // centred on the track's left edge and half of it hung off into the margin, overlapping
+    // It used to go through drawString, whose default alignment is center -- so the caption was
+    // centerd on the track's left edge and half of it hung off into the margin, overlapping
     // whatever sat to the left. A tab anchors it: square where it meets the track so it reads
     // as attached, rounded on its two top corners, and sitting above the track's own graphics.
     //
@@ -2123,7 +2123,7 @@ return new Promise(async (resolve, reject) => {
         // (Oligo.landingBurst / SIRNA.landingBurst set __burstT0, __burstColor, __burstMs).
         // Each class paints this inside its own draw(), which the track stops calling once
         // the view is zoomed out -- precisely the zoom the ring exists for. Painted from the
-        // track so every modality gets it at every zoom. Centre comes from the caller, which
+        // track so every modality gets it at every zoom. Center comes from the caller, which
         // has already mapped the compound to the screen.
         // WHY A COMPOUND IS RED, OUT WHERE draw() NO LONGER RUNS.
         //
@@ -5104,7 +5104,7 @@ return new Promise(async (resolve, reject) => {
                         drawVerticalLine(ctx, graph.X(Math.floor(this.grid.X(idx))), graph.Y(this.grid.Y(0)), graph.screenHeight(this.grid.height), __TH.grid, 1);
 
                     }
-                    // ONE genomic coordinate, centred over the track, rather than a number on
+                    // ONE genomic coordinate, centerd over the track, rather than a number on
                     // every gridline. Four of them repeated the same kind of information at four
                     // positions and crowded the top edge, which is also where the caption tab and
                     // the track's layers sit. One says where you are; the gridlines and the tab's

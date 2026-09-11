@@ -18,7 +18,7 @@ from bajasplice.genome import GenomeReader, one_hot, split_of, TEST_CHROMS
 from bajasplice.models import SpliceNet
 
 from bajasplice.config import paths
-TARGET = 64                 # scored window; only the centre position is used
+TARGET = 64                 # scored window; only the center position is used
 N_DECOY = 20
 DECOY_RADIUS = 3000
 

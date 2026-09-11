@@ -327,11 +327,11 @@ function () {
             // numbers are still large), so every term below is small and sharp at deep zoom.
             const wo = this.worldOffset || 0;
             const lxmin = this.xmin - wo, lxmax = this.xmax - wo;
-            const lcenter = (lxmin + lxmax) / 2;   // exact local view centre; its screen pos is width/2 + xi
+            const lcenter = (lxmin + lxmax) / 2;   // exact local view center; its screen pos is width/2 + xi
             let originScreen = (lcenter - lxmin) * this.xscale + this.xinset + this.xi;
             // Pixel-snap the FRAME ORIGIN only (not each coordinate): the per-element delta is
             // added UNROUNDED, so spacing between elements stays exact (no ±1px pan wiggle),
-            // while the pinned centre keeps content aligned to the whole-pixel grid.
+            // while the pinned center keeps content aligned to the whole-pixel grid.
             if (this.snapPixels) originScreen = Math.round(originScreen);
             return originScreen + ((xwc - wo) - lcenter) * this.xscale;
         }

@@ -117,7 +117,7 @@ function (graph, genegraph_panel_layout, tracks) {
                 title: 'Splicing — site strength', badge: 'BajaSplice', ready: true, group: 'splicing',
                 blurb: 'Donor / acceptor splice-site strength at every position.',
                 // The mode is this entry's identity, so pass it: the profile then arms the run
-                // directly instead of asking again in its own centre menu.
+                // directly instead of asking again in its own center menu.
                 open: () => __onParentTrack('BajaSplice splice sites', (list) => exec('baja/bio/splicing/splicing-profile.js', graph, L, list, null, 'sites')),
                 docs: {
                     summary: 'A dilated residual CNN over 2,000 nt of context predicts donor, acceptor '

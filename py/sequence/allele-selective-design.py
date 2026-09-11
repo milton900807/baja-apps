@@ -285,7 +285,7 @@ def design(cfg):
                     continue
                 w, g_len = wing, gap_len
             else:
-                # The gap is centred in the oligo; wings take the rest.
+                # The gap is centerd in the oligo; wings take the rest.
                 g_len = min(gap_len, max(4, L - 2 * 2))
                 w = max(2, (L - g_len) // 2)
             g_start = w + 1                     # 1-based, inclusive

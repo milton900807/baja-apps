@@ -1,7 +1,7 @@
 """Scan a sequence for RNA-binding-protein footprints.
 
 The model scores a 64-nt window; sliding it across a sequence gives a per-position
-binding profile for each RBP (the score is placed at the window centre). This is
+binding profile for each RBP (the score is placed at the window center). This is
 the analogue of bajasplice.scan for RBP occupancy, so the same track-layer /
 sashimi-style visualisation can be driven from it.
 
@@ -66,7 +66,7 @@ def windows(seq, w, step):
 def scan_sequence(model, seq, cols=None, step=8, batch_size=1024):
     """Per-window RBP scores across a sequence.
 
-    Returns (centers, scores) where centers is an int array of window-centre
+    Returns (centers, scores) where centers is an int array of window-center
     positions (0-based, in the input sequence) and scores is (n_windows, k) for
     the requested RBP columns (all 170 if cols is None).
     """

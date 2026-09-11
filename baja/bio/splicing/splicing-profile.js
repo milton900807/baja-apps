@@ -379,7 +379,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetMode) {
 
         // The magnitude mode is normally decided by whoever launched this: the models library
         // has one entry per model ('sites' for site strength, 'psi' for inclusion) and passes
-        // it as presetMode, so the user is not asked a second time in a centre menu for a
+        // it as presetMode, so the user is not asked a second time in a center menu for a
         // choice they have just made. The menu remains only for a caller that passes nothing.
         const __mode = (typeof presetMode === 'string') ? presetMode.trim().toLowerCase() : '';
         if (__mode === 'sites' || __mode === 'psi') {

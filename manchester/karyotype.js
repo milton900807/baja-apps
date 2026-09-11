@@ -9,7 +9,7 @@ function (path, config) {
     // space as everything else and can be handed straight to the transcript loader.
     //
     // WORLD SPACE.
-    //   x   one unit per chromosome, in ascending size, centred at i + 0.5. Order is the
+    //   x   one unit per chromosome, in ascending size, centerd at i + 0.5. Order is the
     //       whole idea: the eye reads a ramp, and a chromosome that is out of place in a ramp
     //       is visible in a way that one out of place in a numbered row is not.
     //   y   megabases, drawn DOWNWARD from 0, at true scale and shared across every
@@ -1002,7 +1002,7 @@ function (path, config) {
         // THE WORLD MUST BE AT LEAST TEN TIMES WIDER THAN IT IS TALL.
         //
         // animateTo() enforces a minimum aspect ratio of 10:1 on any frame it is given: below
-        // that it widens x to yw * 10 and re-centres. That is right for the tracks this graph
+        // that it widens x to yw * 10 and re-centers. That is right for the tracks this graph
         // was built for, which are long and shallow. A karyotype is the opposite shape, and
         // one chromosome per world unit put 24 units of content beside 294 units of height --
         // an aspect of 0.08, which the rule expanded 118-fold. The chromosomes were still
@@ -1475,7 +1475,7 @@ function (path, config) {
                             for (let bp = bLo; bp <= bHi; bp++) {
                                 const ch = seqBaseAt(c.name, bp);
                                 if (!ch) continue;
-                                // Centred on the base's OWN span. A base occupies [bp-1, bp)
+                                // Centerd on the base's OWN span. A base occupies [bp-1, bp)
                                 // in this mapping, so lettering its edge would put every
                                 // character half a base out of register with the ruler.
                                 const ty = g.Y(wy(bp - 0.5));
@@ -7126,7 +7126,7 @@ function (path, config) {
                     const inp = document.createElement('input');
                     inp.type = 'color';
                     inp.value = SAMPLE_COLOR[si] || '#1d9bf0';
-                    // Anchored to the CENTRE of the screen, not parked off-screen: the OS color
+                    // Anchored to the CENTER of the screen, not parked off-screen: the OS color
                     // dialog opens next to its input, so an input at left:-9999px opened the
                     // picker off the right edge. A 1px, invisible input in the middle puts the
                     // dialog in the middle.

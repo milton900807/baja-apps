@@ -13,7 +13,7 @@ Params (after the EngineMonitor at param(0)):
     param(5) : step (nt between windows, default 8)
 
 Resolves { profile, rbp, n, step, xi, strand, error } where profile is a JSON
-array of [position, score] at window centres (position = xi + centre).
+array of [position, score] at window centers (position = xi + center).
 """
 import os
 import sys

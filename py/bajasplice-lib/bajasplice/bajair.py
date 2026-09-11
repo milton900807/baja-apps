@@ -24,7 +24,7 @@ import numpy as np
 
 __all__ = ["available", "splice_site_features", "introns_for_gene", "score_gene"]
 
-TARGET = 41      # positions scored per site; the centre is the site itself
+TARGET = 41      # positions scored per site; the center is the site itself
 COMPETE = 20     # +/- nt searched for a competing site
 BATCH = 256
 

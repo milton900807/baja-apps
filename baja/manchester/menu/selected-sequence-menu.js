@@ -69,7 +69,7 @@ function (graph, selectedTrack, genegraph_panel_layout) {
             go('Zoom in to read the sequence', async () => {
                 // Sequence letters only render above ~30 screen pixels per base, so framing a
                 // long selection can never show them. Frame what the canvas can actually
-                // resolve, centred on the selection, instead of pretending to zoom to it.
+                // resolve, centerd on the selection, instead of pretending to zoom to it.
                 let cw = 1200;
                 try { cw = (graph.canvas && graph.canvas.width) || (graph.graph && graph.graph.canvas && graph.graph.canvas.width) || cw; } catch (e) { }
                 const fits = Math.max(12, Math.floor(cw / 34));

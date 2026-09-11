@@ -226,7 +226,7 @@ function (graph, genegraph_panel_layout, oligos, options) {
 
             let sp = splitArray(seqList);
             let index = 0;
-            // Progress in the shared status indicator (centred under the canvas buttons), not
+            // Progress in the shared status indicator (centerd under the canvas buttons), not
             // just a transient canvas message. An off-target run is the longest thing in the
             // app: it walks every selected oligo against every chosen index, and without this
             // the only sign it was working was oligos glowing one at a time.

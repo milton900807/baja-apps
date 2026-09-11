@@ -4961,8 +4961,8 @@ function (progress, options) {
                 // together until they read as one smear.
                 this.MIN_TRACK_GAP_PX = 5;
 
-                // Smallest spacing between stacked tracks, in data units (centre to
-                // centre, which stays meaningful when track heights differ or
+                // Smallest spacing between stacked tracks, in data units (center to
+                // center, which stays meaningful when track heights differ or
                 // overlap). Infinity when there is nothing to keep apart.
                 this.minTrackPitchWorld = () => {
                     const ys = [];
@@ -10263,16 +10263,16 @@ pattern, GGGG | Required`
                     // track's actions. Prefer the track's FULL menu (Layers / Variants / Design /
                     // …) stashed when it was interacted with on the canvas; otherwise a compact
                     // fallback built from the standalone per-track modules.
-                    // Opening a track's entry just opens ITS MENU. It used to also centre/zoom the
+                    // Opening a track's entry just opens ITS MENU. It used to also center/zoom the
                     // camera and select the whole track + sequence, so browsing the Tracks list
                     // moved the view and clobbered any selection the user already had — a
-                    // destructive side effect of what reads as pure navigation. Centring is still
+                    // destructive side effect of what reads as pure navigation. Centering is still
                     // available deliberately via the child menu's own "Center on track".
                     const openTrackChild = (t, i) => {
                         const back = { label: '‹ Back', click: () => { openTracks(); }, move: () => { } };
                         let stashed = null;
                         try { const e = (this.__lassoSelection || []).find((s) => s.kind === 'track' && s.ref === t); stashed = e && e.trackMenu; } catch (e) { }
-                        // Centring is now something the user ASKS for, rather than a side effect of
+                        // Centering is now something the user ASKS for, rather than a side effect of
                         // opening the menu. Offered in both child shapes so it is never lost.
                         const centerItem = {
                             label: 'Center on track',
@@ -11366,7 +11366,7 @@ pattern, GGGG | Required`
                             return [
                                 {
                                     // First, because finding it is what you do before doing
-                                    // anything to it. zoomToEntry centres the entry's span on
+                                    // anything to it. zoomToEntry centers the entry's span on
                                     // its own track and pads it, so a short annotation still
                                     // gets a window rather than a single column.
                                     label: 'Zoom to ' + nm,
@@ -11594,7 +11594,7 @@ pattern, GGGG | Required`
                                 click: () => {
                                     close();
                                     // One variant is a place; several are a span. A single
-                                    // marker gets the tour's own framing -- selected, centred,
+                                    // marker gets the tour's own framing -- selected, centerd,
                                     // at a readable zoom -- rather than a rectangle of one base
                                     // that shows nothing around it.
                                     try {
@@ -12688,7 +12688,7 @@ pattern, GGGG | Required`
                             const cardH = padY * 2 + lineH * shown.length;
 
                             let cardX = Math.round((cw - cardW) / 2);
-                            // TOP centre, immediately below the control-button row.
+                            // TOP center, immediately below the control-button row.
                             //
                             // Nothing is drawn at the FOOT of the canvas any more. Two reasons,
                             // and the second is the one that decides it: the free-plan bar is

@@ -132,7 +132,7 @@ function (graph, layout) {
                 else loc = { by: 'path', v: cssPath(chosen), tag: chosen.tagName.toLowerCase() };
             }
             // Always record a screen point as a robust fallback (elementFromPoint on replay). Click
-            // events carry clientX/Y; input/key events don't, so fall back to the field's own centre.
+            // events carry clientX/Y; input/key events don't, so fall back to the field's own center.
             try {
                 let cx, cy;
                 if (ev && Number.isFinite(ev.clientX)) { cx = ev.clientX; cy = ev.clientY; }

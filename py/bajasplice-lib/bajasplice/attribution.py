@@ -26,7 +26,7 @@ _CLASS = {"acceptor": 1, "donor": 2}
 
 
 def _window_input(g, chrom, site, strand, context):
-    """One-hot input centred so the model's single output position is `site`."""
+    """One-hot input centerd so the model's single output position is `site`."""
     c = context // 2
     codes = g.codes(chrom, site - c, site + c, strand)
     return one_hot(codes), codes

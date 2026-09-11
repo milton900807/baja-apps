@@ -149,7 +149,7 @@ else:
 
         half = bin_size // 2
         for row in df.itertuples(index=False):
-            # cis.py reports the window centre; recover the span it scrambled.
+            # cis.py reports the window center; recover the span it scrambled.
             lo, hi = j0 + int(row.offset) - half, j0 + int(row.offset) - half + bin_size
             if minus:
                 # track x runs the other way, so the span's ends swap over.

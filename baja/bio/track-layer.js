@@ -855,7 +855,7 @@ return new Promise(async (resolve, reject) => {
                     ctx.font = 'bold 10px Arial';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    // A vertical label grows upward from its centre, so the centre sits half
+                    // A vertical label grows upward from its center, so the center sits half
                     // its own length above the crest and the number never lies across the arc.
                     const __lw = ctx.measureText(label).width;
                     ctx.translate(midX, topY - 4 - __lw / 2);
@@ -1121,7 +1121,7 @@ return new Promise(async (resolve, reject) => {
 
                         if (this.verticalLabels) {
                             // Rotated a quarter turn, reading bottom-to-top, and written OVER the
-                            // interval bar rather than beside it: centred on the bar's midpoint in
+                            // interval bar rather than beside it: centerd on the bar's midpoint in
                             // x, and on the middle of its height in y. Sites sit close together
                             // along a transcript, so a horizontal name would overlap its neighbours
                             // within a few pixels; turned on its side each name takes almost no
@@ -1144,7 +1144,7 @@ return new Promise(async (resolve, reject) => {
                                 this.__vlabLast = cx;
                                 ctx.save();
                                 ctx.translate(cx, cy);
-                                // Centred both ways about that point: textAlign centres the string
+                                // Centerd both ways about that point: textAlign centers the string
                                 // along its own (now vertical) run, textBaseline across its
                                 // thickness, so the name sits on the bar rather than starting at it.
                                 ctx.rotate(-Math.PI / 2);
@@ -1480,7 +1480,7 @@ return new Promise(async (resolve, reject) => {
 
                         if (this.verticalLabels) {
                             // Rotated a quarter turn, reading bottom-to-top, and written OVER the
-                            // interval bar rather than beside it: centred on the bar's midpoint in
+                            // interval bar rather than beside it: centerd on the bar's midpoint in
                             // x, and on the middle of its height in y. Sites sit close together
                             // along a transcript, so a horizontal name would overlap its neighbours
                             // within a few pixels; turned on its side each name takes almost no
@@ -1503,7 +1503,7 @@ return new Promise(async (resolve, reject) => {
                                 this.__vlabLast = cx;
                                 ctx.save();
                                 ctx.translate(cx, cy);
-                                // Centred both ways about that point: textAlign centres the string
+                                // Centerd both ways about that point: textAlign centers the string
                                 // along its own (now vertical) run, textBaseline across its
                                 // thickness, so the name sits on the bar rather than starting at it.
                                 ctx.rotate(-Math.PI / 2);

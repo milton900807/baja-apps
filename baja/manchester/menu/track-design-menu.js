@@ -31,20 +31,20 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     };
     // A small working spinner badge in the UPPER-RIGHT (opposite the top button row) shown while
     // a design runs. Returns a handle with .stop(). Non-blocking (pointer-events:none).
-    // Design progress goes to the ONE status indicator, centred below the canvas buttons.
+    // Design progress goes to the ONE status indicator, centerd below the canvas buttons.
     //
     // This used to build its own spinner pinned to the top-right corner, so a design run showed
     // its progress somewhere different from every other long operation in the app -- two
     // spinners, two positions, and two bits of code to keep in step. The shared indicator
-    // (io-engine.ts) measures the live button row and centres itself under it, so delegating
+    // (io-engine.ts) measures the live button row and centers itself under it, so delegating
     // means this can never drift out of position again.
     //
     // Same contract as before: returns { stop } and the caller does not care how it is drawn.
-    // Design progress goes to the ONE status indicator, centred below the canvas buttons.
+    // Design progress goes to the ONE status indicator, centerd below the canvas buttons.
     //
     // This used to build its own spinner pinned to the top-right corner, so a design run showed
     // its progress somewhere different from every other long operation in the app. The shared
-    // indicator (io-engine.ts) measures the live button row and centres itself under it.
+    // indicator (io-engine.ts) measures the live button row and centers itself under it.
     //
     // After a minute it also offers a CANCEL button. Read what that does before relying on it:
     // there is no way to stop the work. EngineMonitor has no cancel, the /py bridge has no
@@ -109,7 +109,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 b.id = ID;
                 b.textContent = 'Cancel design';
                 b.title = 'Stop this design. The python job is killed on the server.';
-                // TOP centre, under the status badge -- not at the foot of the window.
+                // TOP center, under the status badge -- not at the foot of the window.
                 //
                 // It sat at bottom:64px, which is where the free-plan bar lives and, on some
                 // devices, off screen entirely: the one control that stops a running job was in
@@ -158,7 +158,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
     // badge under the canvas buttons, prefixed with the modality so the line says WHAT is being
     // designed as well as what stage it is at.
     //
-    // The badge, not setCenterMessage. Centre messages are drawn large across the canvas, over
+    // The badge, not setCenterMessage. Center messages are drawn large across the canvas, over
     // the very track the design is about to land on, and the app already has one place for
     // work-in-progress -- the indicator beside the spinner. Progress that appears somewhere
     // different from every other progress is progress the user has to learn to look for.
@@ -1082,7 +1082,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         const spans = [];
                         for (const w of (__targets || [])) {
                             // Padded by a full oligo length each side, so a compound can sit
-                            // CENTRED on the window rather than only clipping its edge.
+                            // CENTERD on the window rather than only clipping its edge.
                             const lo = Math.max(0, Math.floor(w.x0 - base) - maxLen);
                             const hi = Math.min(seqLen, Math.ceil(w.x1 - base) + maxLen);
                             if (hi - lo < maxLen) continue;   // falls outside the sent sequence

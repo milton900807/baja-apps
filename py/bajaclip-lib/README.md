@@ -20,7 +20,7 @@ from bajaclip.scan import load_model, scan_sequence, resolve_rbps
 m = load_model()                       # bundled checkpoint
 names, cols = resolve_rbps(m, "TARDBP")   # 'all' | 'reliable' | comma list
 centers, scores = scan_sequence(m, "ACGUACGU...", cols, step=8)
-# centers: window-centre positions (0-based); scores: (n_windows, len(cols))
+# centers: window-center positions (0-based); scores: (n_windows, len(cols))
 ```
 
 Override the checkpoint with the `BAJACLIP_CKPT` env var. The list of reliable

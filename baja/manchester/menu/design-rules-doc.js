@@ -64,7 +64,7 @@ function (kind) {
             + H('The candidate space')
             + UL([
                 'Lengths <b>16, 17, 18, 19, 20</b> nt',
-                'DNA gaps of <b>8, 9, 10</b> nt, centred, with the wings split as evenly as the length allows',
+                'DNA gaps of <b>8, 9, 10</b> nt, centerd, with the wings split as evenly as the length allows',
                 'Wings <b>LNA</b>; gap left as DNA, which is what recruits RNase&nbsp;H1',
                 'Backbone <b>phosphorothioate</b> throughout',
                 'Output written as <b>DNA</b>'

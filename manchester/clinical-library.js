@@ -24,7 +24,7 @@ function (graph, layout) {
                 const active = await SUB.checkSubscription();
                 if (active === false) {
                     const msg = ' The Clinical Library is available to subscribers. ';
-                    // CENTRED, not the result toast. That toast is drawn 16px from the bottom
+                    // CENTERD, not the result toast. That toast is drawn 16px from the bottom
                     // of the canvas (see the messageIsResult block in flexigraph/gene.js), and
                     // the free-plan bar is fixed to the bottom of the window -- so the one
                     // notice a free user sees landed underneath the other notice a free user

@@ -24,7 +24,7 @@ function (graph, opts) {
     // are icon-only and their tooltip is what the template puts in the title attribute
     // (button-menu.component.html), so the text a person hovers to learn the name is the
     // same string this matches on -- one thing to keep in step instead of two. A step whose
-    // anchor is not on screen still shows, centred and without a spotlight, so a toolbar
+    // anchor is not on screen still shows, centerd and without a spotlight, so a toolbar
     // that gains or loses a button shortens the tour rather than breaking it.
 
     return (async () => {
@@ -240,7 +240,7 @@ function (graph, opts) {
                 hole.style.width = (r.width + pad * 2) + 'px';
                 hole.style.height = (r.height + pad * 2) + 'px';
             } else {
-                // No anchor: dim the whole screen and centre the card. Achieved by a hole of
+                // No anchor: dim the whole screen and center the card. Achieved by a hole of
                 // no size parked off-screen, so the same 9999px shadow covers everything.
                 hole.style.display = 'block';
                 hole.style.top = '-20px';
@@ -250,7 +250,7 @@ function (graph, opts) {
             }
 
             // The card goes below the anchor, or above it when there is no room below --
-            // and centred when there is no anchor at all.
+            // and centerd when there is no anchor at all.
             const cw = cardEl.offsetWidth || 360;
             const ch = cardEl.offsetHeight || 180;
             const vw = window.innerWidth, vh = window.innerHeight;

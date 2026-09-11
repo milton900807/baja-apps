@@ -684,7 +684,7 @@ function (script, config) {
                         }
                     }
                     // Glide the cursor onto the REAL lasso button in the canvas control row
-                    // (top-centre) and click it, then draw the loop.
+                    // (top-center) and click it, then draw the loop.
                     say('Clicking the lasso tool…');
                     try {
                         const bp = ctrlButtonViewport('lasso');
@@ -755,7 +755,7 @@ function (script, config) {
                     if (!el && spt) { try { el = document.elementFromPoint(spt.cx, spt.cy); } catch (e) { } }
                     if (!el) { try { console.warn('demo click: element not found', loc); } catch (e) { } break; }
                     try { if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { }
-                    // Cursor + click at the recorded screen point (fall back to the element centre if
+                    // Cursor + click at the recorded screen point (fall back to the element center if
                     // the recording had no point). One screen-coordinate model for everything.
                     let cx, cy;
                     if (spt) { cx = spt.cx; cy = spt.cy; }
@@ -865,7 +865,7 @@ function (script, config) {
                     // Menu item not found: skip quietly (console only) — don't surface a bottom
                     // error-log panel during playback.
                     if (!item) { try { console.warn('demo menuclick: "' + label + '" not found in ' + menuType + ' menu'); } catch (e) { } break; }
-                    // Glide the cursor to the item (side menu: exact; center menu: canvas centre) and pulse.
+                    // Glide the cursor to the item (side menu: exact; center menu: canvas center) and pulse.
                     try {
                         let vp = (menuType === 'side') ? sideMenuItemViewport(list, idx) : null;
                         if (!vp) { const cv = biggestCanvas(); const r = cv && cv.getBoundingClientRect(); if (r) vp = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }

@@ -462,7 +462,7 @@ function () {
                     const tw = ctx.measureText(label).width;
                     let w, h, cx, cy;
                     if (__mob) {
-                        // Anchor to the BOTTOM of the canvas, centred and finger-sized: on a
+                        // Anchor to the BOTTOM of the canvas, centerd and finger-sized: on a
                         // phone the menu's own x/y can be anywhere (or off-screen), and a small
                         // inline pill is neither reachable nor tappable.
                         const cw = (ctx.canvas && ctx.canvas.width) || 360;

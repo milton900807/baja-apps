@@ -2566,7 +2566,7 @@ function (path, config) {
                                                 {
                                                     label: 'Track', icon: 'timeline',
                                                     tooltip: 'Add and manage tracks', ionFunction: createIonFunction(() => {
-                                                        // A library, not the centre menu: each way of getting a track
+                                                        // A library, not the center menu: each way of getting a track
                                                         // onto the canvas is a card that says what it does before it is
                                                         // clicked -- the same idiom as Layers and Selection.
                                                         try { graph.hideMenu(); } catch (e) { }
@@ -2725,7 +2725,7 @@ function (path, config) {
 
 
 
-                                                        // Navigate is a LIBRARY, not a centre menu.
+                                                        // Navigate is a LIBRARY, not a center menu.
                                                         //
                                                         // It was a popup of five items, two of which opened further popups -- the pattern
                                                         // the shelves replaced everywhere else in the app. Same entries, same actions,
