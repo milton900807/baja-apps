@@ -2057,8 +2057,23 @@ function (path, config) {
                         const scale = HIST_BINS / c.length;
                         let b0 = Math.max(0, Math.floor(lo * scale));
                         let b1 = Math.min(HIST_BINS - 1, Math.ceil(hi * scale));
+                        // The last row of in-bar metadata, so the next one can refuse to
+                        // overlap it. Per chromosome, across both sides: they are laid out
+                        // down a bar.
+                        let lastMetaY = -1e9;
+                        // ONE PASS PER SIDE. A mark sits on the side its file was loaded to.
+                        // Each side has its own histogram, its own density scale and its own
+                        // exact-or-density decision; the geometry is mirrored through `ex`,
+                        // the bar edge the marks grow from, and `dir`, which way they grow.
+                        const hL = d.histL, hlL = d.hlHistL;
+                        for (let side = 0; side < 2; side++) {
+                        const nSide = side ? d.nL : (d.n - d.nL);
+                        if (!nSide) continue;
+                        const histS = (b) => side ? (hL ? hL[b] : 0) : (d.hist[b] - (hL ? hL[b] : 0));
+                        const hlHistS = (b) => !d.hlHist ? 0 : (side ? (hlL ? hlL[b] : 0) : (d.hlHist[b] - (hlL ? hlL[b] : 0)));
+                        const dir = side ? -1 : 1, ex = side ? bx0 : bx1;
                         let inView = 0;
-                        for (let b = b0; b <= b1; b++) inView += d.hist[b];
+                        for (let b = b0; b <= b1; b++) inView += histS(b);
                         if (!inView) continue;
 
                         if (inView <= EXACT_MAX) {
@@ -2067,10 +2082,8 @@ function (path, config) {
                             let a = 0, z = d.n;
                             while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < lo) a = m + 1; else z = m; }
                             const r = Math.max(3.4, Math.min(7, bw * 0.16));
-                            // The last row of in-bar metadata, so the next one can refuse to
-                            // overlap it. Per chromosome: they are laid out down a bar.
-                            let lastMetaY = -1e9;
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                                if ((d.side ? d.side[k] : 0) !== side) continue;
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
                                 const col = colorOf(d, k);
@@ -2087,9 +2100,9 @@ function (path, config) {
                                 ctx.shadowBlur = 8;
                                 ctx.fillStyle = col;
                                 ctx.beginPath();
-                                ctx.moveTo(bx1 + 1, my);
-                                ctx.lineTo(bx1 + 1 + r * 1.6, my - r);
-                                ctx.lineTo(bx1 + 1 + r * 1.6, my + r);
+                                ctx.moveTo(ex + dir * 1, my);
+                                ctx.lineTo(ex + dir * (1 + r * 1.6), my - r);
+                                ctx.lineTo(ex + dir * (1 + r * 1.6), my + r);
                                 ctx.closePath();
                                 ctx.fill();
                                 ctx.fill();                     // twice: the glow compounds
@@ -2107,13 +2120,14 @@ function (path, config) {
                                     const o = snpAt(ci, k);
                                     const nm = (o && o.name) || (d.names[k] || (c.name + ':' + d.pos[k]));
                                     ctx.font = '700 10.5px ' + FONT;
-                                    ctx.textAlign = 'left';
+                                    ctx.textAlign = side ? 'right' : 'left';
                                     ctx.textBaseline = 'middle';
                                     const tw3 = ctx.measureText(nm).width;
                                     ctx.fillStyle = 'rgba(255,255,255,0.88)';
-                                    ctx.fillRect(bx1 + r * 1.6 + 4, my - 7.5, tw3 + 6, 15);
+                                    if (side) ctx.fillRect(ex - r * 1.6 - 4 - (tw3 + 6), my - 7.5, tw3 + 6, 15);
+                                    else ctx.fillRect(ex + r * 1.6 + 4, my - 7.5, tw3 + 6, 15);
                                     ctx.fillStyle = col;
-                                    ctx.fillText(nm, bx1 + r * 1.6 + 7, my);
+                                    ctx.fillText(nm, ex + dir * (r * 1.6 + 7), my);
                                 }
                                 // THE METADATA, INSIDE THE CHROMOSOME.
                                 //
@@ -2167,13 +2181,13 @@ function (path, config) {
                             // block. Log, because coverage across a genome spans orders of
                             // magnitude and a linear scale shows one peak and nothing else.
                             let peak = 1;
-                            for (let b = b0; b <= b1; b++) if (d.hist[b] > peak) peak = d.hist[b];
+                            for (let b = b0; b <= b1; b++) if (histS(b) > peak) peak = histS(b);
                             const lp = Math.log(peak + 1);
                             const maxW = Math.max(6, Math.min(26, bw * 0.55));
                             ctx.globalAlpha = 1;
 
                             for (let b = b0; b <= b1; b++) {
-                                const n = d.hist[b];
+                                const n = histS(b);
                                 if (!n) continue;
                                 const yA = g.Y(wy(b / scale));
                                 const yB = g.Y(wy((b + 1) / scale));
@@ -2184,21 +2198,22 @@ function (path, config) {
                                 // filter they become the background the matches sit on.
                                 if (hlActive) {
                                     ctx.fillStyle = 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')';
-                                    ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
+                                    if (side) ctx.fillRect(ex - 2 - (2 + maxW * f), yA, 2 + maxW * f, h2);
+                                    else ctx.fillRect(ex + 2, yA, 2 + maxW * f, h2);
                                 } else {
                                     // Segments in proportion to the categories in the bin,
                                     // in category order so the colors stack the same way
                                     // down the whole chromosome.
-                                    const hb = binsBy(d), pal = modePalette();
+                                    const hb = binsBy(d, side), pal = modePalette();
                                     const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
-                                    let x2 = bx1 + 2;
+                                    let x2 = ex + dir * 2;
                                     for (let cat = 0; cat < NCAT; cat++) {
                                         const cnt = hb[b * NCAT + cat];
                                         if (!cnt) continue;
                                         const w2 = wAll * cnt / n;
                                         ctx.fillStyle = withAlpha(pal[cat] || CLS_COLOR[0], alpha);
-                                        ctx.fillRect(x2, yA, w2, h2);
-                                        x2 += w2;
+                                        if (side) { ctx.fillRect(x2 - w2, yA, w2, h2); x2 -= w2; }
+                                        else { ctx.fillRect(x2, yA, w2, h2); x2 += w2; }
                                     }
                                 }
                             }
@@ -2208,7 +2223,7 @@ function (path, config) {
                             // than the grey underneath it.
                             if (hlActive && d.hlHist) {
                                 let hlInView = 0;
-                                for (let b = b0; b <= b1; b++) hlInView += d.hlHist[b];
+                                for (let b = b0; b <= b1; b++) hlInView += hlHistS(b);
                                 if (hlInView) {
                                     if (hlInView <= EXACT_MAX && d.hlIdx && d.hlIdx.length) {
                                         // Few enough to place exactly: a hairline strip is
@@ -2235,17 +2250,18 @@ function (path, config) {
                                         for (let j2 = a4; j2 < idx2.length; j2++) {
                                             const k2 = idx2[j2];
                                             if (d.pos[k2] > hi) break;
+                                            if ((d.side ? d.side[k2] : 0) !== side) continue;
                                             const yh = g.Y(wy(d.pos[k2]));
                                             if (yh < -6 || yh > ctx.canvas.height + 6) continue;
                                             const col = HL_COLOR[d.hl[k2]] || HL_COLOR[1];
                                             ctx.fillStyle = col;
                                             ctx.globalAlpha = haloA;
                                             ctx.beginPath();
-                                            ctx.arc(bx1 + 6, yh, haloR, 0, Math.PI * 2);
+                                            ctx.arc(ex + dir * 6, yh, haloR, 0, Math.PI * 2);
                                             ctx.fill();
                                             ctx.globalAlpha = 1;
                                             ctx.beginPath();
-                                            ctx.arc(bx1 + 6, yh, rr2, 0, Math.PI * 2);
+                                            ctx.arc(ex + dir * 6, yh, rr2, 0, Math.PI * 2);
                                             ctx.fill();
                                         }
                                         ctx.restore();
@@ -2258,7 +2274,7 @@ function (path, config) {
                                         ctx.save();
                                         ctx.fillStyle = barCol;
                                         for (let b = b0; b <= b1; b++) {
-                                            const nh = d.hlHist[b];
+                                            const nh = hlHistS(b);
                                             if (!nh) continue;
                                             const yA2 = g.Y(wy(b / scale));
                                             const yB2 = g.Y(wy((b + 1) / scale));
@@ -2267,15 +2283,18 @@ function (path, config) {
                                             const f2 = Math.log(nh + 1) / lp;
                                             const w = 2 + maxW * f2;
                                             ctx.globalAlpha = glowA;
-                                            ctx.fillRect(bx1 + 2, yA2 - 1, w * grow, h3 + 2);
+                                            if (side) ctx.fillRect(ex - 2 - w * grow, yA2 - 1, w * grow, h3 + 2);
+                                            else ctx.fillRect(ex + 2, yA2 - 1, w * grow, h3 + 2);
                                             ctx.globalAlpha = 1;
-                                            ctx.fillRect(bx1 + 2, yA2, w, h3);
+                                            if (side) ctx.fillRect(ex - 2 - w, yA2, w, h3);
+                                            else ctx.fillRect(ex + 2, yA2, w, h3);
                                         }
                                         ctx.restore();
                                     }
                                 }
                             }
                         }
+                        }   // side
                     }
                     ctx.restore();
                 }
@@ -2621,11 +2640,22 @@ function (path, config) {
             // germline -- and which of them carries a change is the first thing to see.
             gts: null,               // Uint8Array(n * gtw): GT_* codes
             gtw: 0,                  // samples known when this chromosome was last built
+            // WHICH SIDE OF THE BAR each mark is drawn on: 0 the right, where everything
+            // has always gone, 1 the left. Chosen when the file is loaded, so a second set
+            // can sit opposite the first and the two be read against each other.
+            side: null,              // Uint8Array parallel to pos
+            nL: 0,                   // how many of them are on the left
+            histL: null,             // Uint32Array(HIST_BINS): the left side's share of hist
         }));
         const BCODE = { A: 0, C: 1, G: 2, T: 3, N: 4 };
         const BCHAR = ['A', 'C', 'G', 'T', 'N'];
         const codeOf = (b) => (b.length === 1 && BCODE[b] != null) ? BCODE[b] : 5;
         let vtotal = 0, vobjects = 0;
+        // THE SIDE THE NEXT LOAD GOES ON: 0 right, 1 left. The upload cards set it for
+        // the duration of one read and put it back, so a paste or a saved file never
+        // inherits a choice made for a different file.
+        let loadSide = 0;
+        const leftTotal = () => vdata.reduce((a, d) => a + (d ? (d.nL || 0) : 0), 0);
 
         // UNCLASSIFIED IS GREY. A variant with no CLNSIG is the common case in any VCF that
         // is not ClinVar, and drawing it in a hot pink made a whole genome of ordinary
@@ -2835,17 +2865,23 @@ function (path, config) {
             if (colorMode === 'phase') return [ABSENT_COLOR].concat(PH_ORDER.slice(1).map((w) => PHASE_COLOR[w]));
             return CLS_COLOR;
         };
-        const binsBy = (d) => {
+        // Cached PER SIDE, because the two sides are drawn one after the other every
+        // frame: a single cache would be rebuilt twice a frame on a genome-sized file.
+        const binsBy = (d, side) => {
             const key = colorMode + ':' + d.gtw + ':' + d.n;
-            if (d.histBy && d.histByKey === key) return d.histBy;
+            const sd = side ? 1 : 0;
+            if (!d.histBy) d.histBy = {};
+            const got = d.histBy[sd];
+            if (got && got.key === key) return got.hb;
             const hb = new Uint32Array(HIST_BINS * NCAT);
             const scale = HIST_BINS / d.__len;
             for (let k = 0; k < d.n; k++) {
+                if ((d.side ? d.side[k] : 0) !== sd) continue;
                 let bin = (d.pos[k] * scale) | 0;
                 if (bin >= HIST_BINS) bin = HIST_BINS - 1;
                 hb[bin * NCAT + Math.min(NCAT - 1, catOf(d, k))]++;
             }
-            d.histBy = hb; d.histByKey = key;
+            d.histBy[sd] = { key: key, hb: hb };
             return hb;
         };
         const withAlpha = (hex, a) => {
@@ -3477,6 +3513,7 @@ function (path, config) {
             pos: new Float64Array(1024), cls: new Uint8Array(1024),
             ref: new Uint8Array(1024), alt: new Uint8Array(1024),
             gts: new Uint8Array(1024 * GT_MAX),   // GT_MAX wide while reading; packed in finalise
+            side: new Uint8Array(1024),
             cplx: new Map(), n: 0,
         }));
         const pushInto = (bufs, ci, p2, cl, rs, as, gt) => {
@@ -3489,9 +3526,11 @@ function (path, config) {
                 const nr = new Uint8Array(b.n * 2); nr.set(b.ref); b.ref = nr;
                 const na = new Uint8Array(b.n * 2); na.set(b.alt); b.alt = na;
                 const ng = new Uint8Array(b.n * 2 * GT_MAX); ng.set(b.gts); b.gts = ng;
+                const ns = new Uint8Array(b.n * 2); ns.set(b.side); b.side = ns;
             }
             const rc = codeOf(rs), ac = codeOf(as);
             b.pos[b.n] = p2; b.cls[b.n] = cl; b.ref[b.n] = rc; b.alt[b.n] = ac;
+            b.side[b.n] = loadSide;
             if (rc === 5 || ac === 5) b.cplx.set(b.n, [rs, as]);
             if (gt) b.gts.set(gt, b.n * GT_MAX);
             b.n++;
@@ -3582,6 +3621,7 @@ function (path, config) {
                 const total = d.n + b.n;
                 const pos = new Float64Array(total), cls = new Uint8Array(total);
                 const rf = new Uint8Array(total), al = new Uint8Array(total);
+                const sd = new Uint8Array(total);
                 const cx = new Map();
                 // Genotypes are re-packed at today's sample count: a second file can bring
                 // new samples, and the rows already here simply have no call for those.
@@ -3590,6 +3630,7 @@ function (path, config) {
                 if (d.n) {
                     pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
                     rf.set(d.ref.subarray(0, d.n)); al.set(d.alt.subarray(0, d.n));
+                    if (d.side) sd.set(d.side.subarray(0, d.n));
                     if (d.cplx) for (const [k, v] of d.cplx) cx.set(k, v);
                     if (gts && d.gts) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) gts[k * W + si] = d.gts[k * d.gtw + si];
                 }
@@ -3597,6 +3638,7 @@ function (path, config) {
                 cls.set(b.cls.subarray(0, b.n), d.n);
                 rf.set(b.ref.subarray(0, b.n), d.n);
                 al.set(b.alt.subarray(0, b.n), d.n);
+                sd.set(b.side.subarray(0, b.n), d.n);
                 for (const [k, v] of b.cplx) cx.set(k + d.n, v);
                 if (gts) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) gts[(d.n + k) * W + si] = b.gts[k * GT_MAX + si];
                 // Sorted once, by ordering an index: every draw binary-searches this.
@@ -3605,33 +3647,38 @@ function (path, config) {
                 Array.prototype.sort.call(order, (x, y) => pos[x] - pos[y]);
                 const sp = new Float64Array(total), sc = new Uint8Array(total);
                 const sr = new Uint8Array(total), sa = new Uint8Array(total);
+                const ss = new Uint8Array(total);
                 const sg = gts ? new Uint8Array(total * W) : null;
                 const scx = new Map();
                 const sn = [];
                 const oldNames = d.names, newNames = namesOf[ci];
                 for (let k = 0; k < total; k++) {
                     const o = order[k];
-                    sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o];
+                    sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o]; ss[k] = sd[o];
                     if (sg) for (let si = 0; si < W; si++) sg[k * W + si] = gts[o * W + si];
                     if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
-                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx;
+                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx; d.side = ss;
                 d.gts = sg; d.gtw = sg ? W : 0;
                 d.n = total; d.snps = []; d.names = sn;
-                d.__len = drawn[ci].length; d.histBy = null; d.histByKey = '';
+                d.__len = drawn[ci].length; d.histBy = null;
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
                 // variants change, rather than something to merge and keep in step.
                 d.hl = new Uint8Array(total);
                 d.hlIdx = [];
                 const hist = new Uint32Array(HIST_BINS);
+                const histL = new Uint32Array(HIST_BINS);
+                let nL = 0;
                 const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
                     let bin = (sp[k] * scale) | 0;
                     if (bin >= HIST_BINS) bin = HIST_BINS - 1;
                     hist[bin]++;
+                    if (ss[k]) { histL[bin]++; nL++; }
                 }
                 d.hist = hist;
+                d.histL = histL; d.nL = nL;
             }
             vtotal += count.added;
             vobjects = Math.min(vtotal, OBJECT_CAP);
@@ -4155,7 +4202,7 @@ function (path, config) {
         // The picker. Reading and uploading are separate jobs on the same file and both are
         // worth doing: whatever the file is, it is kept in My Files whether or not the
         // drawing found anything in it.
-        const pickFile = (accept) => {
+        const pickFile = (accept, side) => {
             try {
                 const input = document.createElement('input');
                 input.type = 'file';
@@ -4170,11 +4217,14 @@ function (path, config) {
                     if (!file) return;
                     step('file: ' + file.name + ' ' + file.size + ' bytes ' + (file.type || ''));
                     let outcome = '';
+                    loadSide = side ? 1 : 0;
                     try { outcome = await readAnyFile(file); }
                     catch (e) {
                         graph.setMessage(' ' + file.name + ' could not be read: ' + (e && e.message ? e.message : e) + ' ');
                         step('read failed: ' + e);
                     }
+                    if (outcome && loadSide && /variants drawn/.test(outcome)) outcome = outcome.replace('variants drawn', 'variants drawn on the left of the chromosomes');
+                    loadSide = 0;
                     // A VCF SAVES WITHOUT SAYING SO. It was opened to be drawn, and keeping
                     // a copy is a side effect of that; announcing the copy over the variant
                     // count reports the less interesting half. The outcome line below still
@@ -4754,13 +4804,18 @@ function (path, config) {
             //          genotype. Omitted entirely for a file with no sample columns, so a
             //          sample-less VCF is no larger than before.
             //   name   last, rejoined so a ':' inside a VCF id survives.
-            let n = 0;
+            // THE SIDES go beside the variants, not inside them: one character per
+            // variant in the same order, '0' right and '1' left, and only written when
+            // something is on the left -- so a file with nothing there is unchanged, and
+            // the positional fields above keep their positions.
+            let n = 0, sides = '', anyLeft = false;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
                 if (!d.n) continue;
                 const bare = drawn[ci].name.replace(/^chr/, '');
                 const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (d.side && d.side[k]) { sides += '1'; anyLeft = true; } else sides += '0';
                     const ab = allelesAt(ci, k);
                     const cls = d.cls[k] || 0;
                     const nm = d.names[k] || '';
@@ -4775,6 +4830,7 @@ function (path, config) {
                     n++;
                 }
             }
+            if (anyLeft) out.sides = sides;
             out.truncated = vtotal > n;
             return out;
         };
@@ -4822,6 +4878,7 @@ function (path, config) {
             const count = { added: 0, offGenome: 0, skipped: 0 };
             const list = doc.variants || [];
             const total = list.length;
+            const __sides = (typeof doc.sides === 'string') ? doc.sides : '';
             let seen = 0;
             // Driven from HERE rather than from the two call sites, so opening by deep
             // link and opening from the file browser report the same way. Below the
@@ -4848,6 +4905,8 @@ function (path, config) {
                         await new Promise((res) => setTimeout(res, 0));
                     }
                     const v = asVariant(raw);
+                    // The side, by position in the list: `seen` is already one past.
+                    loadSide = (__sides && __sides.charCodeAt(seen - 1) === 49) ? 1 : 0;
                     if (!v) { count.skipped++; continue; }
                     let ci = chromIndex[v.c];
                     if (ci == null) ci = chromIndex['chr' + v.c];
@@ -4871,7 +4930,7 @@ function (path, config) {
                     await paintTick();
                 }
                 finalise(bufs, namesOf, count, doc.name || 'the saved file');
-            } finally { placeHide(); }
+            } finally { placeHide(); loadSide = 0; }
             // Bookmarks come back before the view does, so the camera list is already
             // right at the moment the file finishes opening. Files saved before bookmarks
             // existed simply have none, which is the correct reading of a missing field.
@@ -4947,24 +5006,30 @@ function (path, config) {
                 const sp = new Float64Array(total), sc = new Uint8Array(total);
                 const sr = new Uint8Array(total), sa = new Uint8Array(total);
                 const sh = new Uint8Array(total), scx = new Map(), sn = [];
+                const ss = new Uint8Array(total);
                 const hadNames = d.names && d.names.length;
                 for (let j = 0; j < total; j++) {
                     const k = idx[j];
                     sp[j] = d.pos[k]; sc[j] = d.cls[k]; sr[j] = d.ref[k]; sa[j] = d.alt[k];
+                    if (d.side) ss[j] = d.side[k];
                     if (d.hl) sh[j] = d.hl[k];
                     if (d.cplx && d.cplx.has(k)) scx.set(j, d.cplx.get(k));
                     if (hadNames) sn[j] = d.names[k] || '';
                 }
-                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh;
-                d.cplx = scx; d.names = sn; d.snps = []; d.n = total;
+                d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh; d.side = ss;
+                d.cplx = scx; d.names = sn; d.snps = []; d.n = total; d.histBy = null;
                 const hist = new Uint32Array(HIST_BINS);
+                const histL = new Uint32Array(HIST_BINS);
+                let nL = 0;
                 const scale = HIST_BINS / drawn[ci].length;
                 for (let k = 0; k < total; k++) {
                     let bin = (sp[k] * scale) | 0;
                     if (bin >= HIST_BINS) bin = HIST_BINS - 1;
                     hist[bin]++;
+                    if (ss[k]) { histL[bin]++; nL++; }
                 }
                 d.hist = hist;
+                d.histL = histL; d.nL = nL;
                 kept += total;
             }
             reindexHighlights();
@@ -4996,15 +5061,17 @@ function (path, config) {
                 // chromosomes drawn smallest first, a cap simply stops part-way through
                 // whichever chromosome the budget runs out on.
                 const hh = new Uint32Array(HIST_BINS);
+                const hhL = new Uint32Array(HIST_BINS);
                 if (idx.length && d.n) {
                     const sc2 = HIST_BINS / drawn[ci].length;
                     for (let q = 0; q < idx.length; q++) {
                         let b = (d.pos[idx[q]] * sc2) | 0;
                         if (b >= HIST_BINS) b = HIST_BINS - 1;
                         hh[b]++;
+                        if (d.side && d.side[idx[q]]) hhL[b]++;
                     }
                 }
-                d.hlHist = hh;
+                d.hlHist = hh; d.hlHistL = hhL;
             }
         };
 
@@ -6314,22 +6381,31 @@ function (path, config) {
             // the next slot -- so the slot the pointer is in and the one before it are both
             // candidates, and the bar edge decides.
             const slot = Math.floor(wx / SLOT);
-            for (const i of [slot, slot - 1]) {
+            for (const i of [slot, slot - 1, slot + 1]) {
                 if (i < 0 || i >= drawn.length) continue;
                 const c = drawn[i];
                 if (c.circular) continue;
                 const d = vdata[i];
                 if (!d || !d.n || !d.hlIdx || !d.hlIdx.length) continue;
-                if (wx < barRight(i) - 2 * wppX || wx > barRight(i) + gut) continue;
+                // Two gutters now: the right one holds the marks loaded to the right, the
+                // left one those loaded to the left. Which gutter the pointer is in says
+                // which side's marks are candidates.
+                let side = -1;
+                if (wx >= barRight(i) - 2 * wppX && wx <= barRight(i) + gut) side = 0;
+                else if (wx >= barLeft(i) - gut && wx <= barLeft(i) + 2 * wppX) side = 1;
+                if (side < 0) continue;
+                if (side ? !d.nL : (d.n === d.nL)) continue;
                 const pbp = -wyy * MB;
                 // hlIdx is ascending in k and therefore in position, so the same bisection
-                // the drawing uses finds the mark nearest the pointer.
+                // the drawing uses finds the mark nearest the pointer; the few entries
+                // either side of it are checked for one on the right side of the bar.
                 const idx = d.hlIdx;
                 let a = 0, z = idx.length;
                 while (a < z) { const m = (a + z) >> 1; if (d.pos[idx[m]] < pbp) a = m + 1; else z = m; }
                 let best = -1, bestD = Infinity;
-                for (const q of [a - 1, a]) {
+                for (let q = a - 4; q <= a + 3; q++) {
                     if (q < 0 || q >= idx.length) continue;
+                    if ((d.side ? d.side[idx[q]] : 0) !== side) continue;
                     const dist = Math.abs(d.pos[idx[q]] - pbp);
                     if (dist < bestD) { bestD = dist; best = idx[q]; }
                 }
@@ -7796,7 +7872,8 @@ function (path, config) {
                 d.ref = new Uint8Array(0); d.alt = new Uint8Array(0);
                 d.cplx = new Map(); d.names = []; d.snps = [];
                 d.gts = null; d.gtw = 0; d.hl = new Uint8Array(0); d.hlIdx = [];
-                d.hist = new Uint32Array(HIST_BINS); d.histBy = null; d.histByKey = '';
+                d.side = new Uint8Array(0); d.nL = 0; d.histL = null;
+                d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
             regions = []; try { geneCache.clear(); } catch (e) { }
@@ -7868,20 +7945,39 @@ function (path, config) {
         // to it, and a card for anything else; the reader still decides from the bytes.
         const uploadMenu = () => {
             const n = SAMPLES.length;
+            const nLeft = leftTotal();
+            const VCF_ACCEPT = '.vcf,.vcf.gz,.vcf.bgz,.gz,.bgz,text/vcf';
+            // WHICH SIDE. The first file goes on the right without asking, which is where
+            // marks have always gone. Once something is there, a second VCF can go on the
+            // right beside it or on the left opposite it -- a tumour against its normal, a
+            // second caller against the first -- and the card asks.
+            const sideBooks = () => [
+                { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
+                    + (nLeft ? ', ' + nLeft.toLocaleString() + ' of them on the left' : ', all on the right') + '. Choose where this file\'s marks go.' },
+                { section: 'Side', title: 'Right side', badge: 'default', icon: 'east', ready: true,
+                    blurb: 'Beside what is already there: the marks share the right gutter of every chromosome.',
+                    open: () => pickFile(VCF_ACCEPT, 0) },
+                { section: 'Side', title: 'Left side', badge: 'compare', icon: 'west', ready: true,
+                    blurb: 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.',
+                    open: () => pickFile(VCF_ACCEPT, 1) },
+            ];
+            const vcfCard = {
+                title: 'A VCF', badge: vtotal ? 'variants \u00b7 pick a side' : 'variants',
+                blurb: 'Plain or bgzipped, any size: it is read in slices here and every variant is drawn. '
+                    + 'Sample and phase columns are read too, and color the marks.'
+                    + (vtotal ? ' With variants already loaded, it asks which side of the chromosomes to draw on.' : ''),
+            };
+            if (vtotal) vcfCard.books = sideBooks; else vcfCard.open = () => pickFile(VCF_ACCEPT, 0);
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-upload',
                     title: 'Upload',
                     subtitle: (vtotal ? vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' on the genome'
-                            + (n ? ' from ' + n + ' sample' + (n === 1 ? '' : 's') : '') + '  \u00b7  '
+                            + (n ? ' from ' + n + ' sample' + (n === 1 ? '' : 's') : '')
+                            + (nLeft ? ' (' + nLeft.toLocaleString() + ' on the left)' : '') + '  \u00b7  '
                         : '') + 'Whatever is opened is also kept in My Files.',
                     books: [
-                        {
-                            title: 'A VCF', badge: 'variants',
-                            blurb: 'Plain or bgzipped, any size: it is read in slices here and every variant is drawn. '
-                                + 'Sample and phase columns are read too, and color the marks.',
-                            open: () => pickFile('.vcf,.vcf.gz,.vcf.bgz,.gz,.bgz,text/vcf'),
-                        },
+                        vcfCard,
                         {
                             title: 'A genetic report or lab PDF', badge: 'report',
                             blurb: 'A clinical report, a lab result, a paper, a screenshot of one. The genes and variants it names '
