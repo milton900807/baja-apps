@@ -6302,8 +6302,16 @@ function (path, config) {
             // for the individual scheme card. It cycles through the schemes the file can
             // actually show: ClinVar class always, and by-sample / by-phase when there are
             // samples. Its badge names the view that is on now.
+            // SAMPLE COLOUR OPTIONS ARE FOR MULTI-SAMPLE FILES. One sample (or none) is just
+            // plotted -- every carried variant is that one sample, so "which sample carries it"
+            // has no answer worth a colour. `multi` gates the by-sample scheme, the per-sample
+            // colour pickers and the per-sample glow. ClinVar class is always offered, and the
+            // by-phase (haplotype) view is offered whenever the file carries genotypes, since
+            // that reads a single sample too.
+            const hasGt = vdata.some(d => d.gtw && d.gts);
+            const multi = nS > 1;
             const schemeLabel = { class: 'ClinVar class', sample: 'By sample', phase: 'By phase' };
-            const SCHEMES = ['class'].concat(nS ? ['sample', 'phase'] : []);
+            const SCHEMES = ['class'].concat(multi ? ['sample'] : []).concat(hasGt ? ['phase'] : []);
             const cycleColorView = () => {
                 const i = SCHEMES.indexOf(colorMode);
                 const next = SCHEMES[(i + 1) % SCHEMES.length];
@@ -6320,9 +6328,8 @@ function (path, config) {
             };
             // One card per sample: mark every variant that sample carries, genome-wide, in the
             // sample's own colour and glowing so it reads when zoomed out. Clicking the one that
-            // is on clears it. Needs genotypes; without them the cards say so and stay inert.
-            const hasGt = vdata.some(d => d.gtw && d.gts);
-            const sampleGlowCards = (nS && hasGt) ? SAMPLES.map((nm, si) => ({
+            // is on clears it. Multi-sample only; needs genotypes.
+            const sampleGlowCards = (multi && hasGt) ? SAMPLES.map((nm, si) => ({
                 section: 'By sample (glowing)',
                 title: nm || ('Sample ' + (si + 1)),
                 badge: (hlActive === (SAMPLE_HL_BASE + si)) ? 'on' : 'off',
@@ -6331,7 +6338,7 @@ function (path, config) {
                     try { if (hlActive === (SAMPLE_HL_BASE + si)) { clearHighlights(); } else { highlightSample(si); } } catch (e) { }
                     colorMenu();
                 },
-            })) : (nS ? [{
+            })) : (multi ? [{
                 section: 'By sample (glowing)', title: 'No genotypes in this VCF', badge: '',
                 ready: false, readyNote: 'no genotypes',
                 blurb: 'This VCF has sample columns but no genotype calls, so per-sample glow is not available.',
@@ -6366,7 +6373,7 @@ function (path, config) {
                     try { graph.setMessage(' The colour picker could not open. '); } catch (e2) { }
                 }
             };
-            const sampleColorCards = nS ? SAMPLES.map((nm, si) => ({
+            const sampleColorCards = multi ? SAMPLES.map((nm, si) => ({
                 section: 'Sample colors',
                 title: nm || ('Sample ' + (si + 1)),
                 swatch: SAMPLE_COLOR[si] || '#1d9bf0',
@@ -6379,33 +6386,42 @@ function (path, config) {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-color',
                     title: 'Color & highlight',
-                    subtitle: nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
-                        : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
+                    subtitle: multi ? ('This VCF has ' + nS + ' samples: ' + SAMPLES.join(', ') + '.')
+                        : (nS === 1
+                            ? ('One sample (' + SAMPLES[0] + '): variants are plotted by ClinVar class'
+                                + (hasGt ? ', with a haplotype view available' : '') + '.')
+                            : 'This VCF carries no sample columns, so its variants are plotted by ClinVar class.'),
                     books: [
-                        {
+                        // The toggle only earns its place when there is more than one view to
+                        // flip between; a single-sample file with no phase has only ClinVar class.
+                        ...(SCHEMES.length > 1 ? [{
                             section: 'Color view', title: 'Toggle color view', icon: '🎨',
                             badge: (schemeLabel[colorMode] || colorMode),
-                            blurb: 'Flip the whole karyotype through its color views'
-                                + (nS ? ' — ClinVar class, by sample, by phase' : ' (only ClinVar class is available without samples)')
+                            blurb: 'Flip the whole karyotype through its color views — '
+                                + SCHEMES.map((s) => schemeLabel[s] || s).join(', ')
                                 + '. Now showing ' + (schemeLabel[colorMode] || colorMode) + '.',
                             open: () => cycleColorView(),
-                        },
+                        }] : []),
                         {
                             section: 'Color scheme', title: 'By ClinVar class', badge: modeBadge('class'),
                             blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
                             open: () => setMode('class'),
                         },
-                        {
-                            section: 'Color scheme', title: 'By sample', badge: (nS ? modeBadge('sample') : 'off'),
-                            blurb: 'Which sample carries the change' + (nS > 1 ? ': ' + SAMPLES.join(', ') : '')
+                        // By sample only for a multi-sample VCF; a single-sample file is just
+                        // plotted (ClinVar class), which is what the user asked for.
+                        ...(multi ? [{
+                            section: 'Color scheme', title: 'By sample', badge: modeBadge('sample'),
+                            blurb: 'Which sample carries the change: ' + SAMPLES.join(', ')
                                 + '. Slate where more than one does, pale where none does.',
-                            open: () => setMode('sample'), ready: nS > 0, readyNote: 'no sample columns',
-                        },
-                        {
-                            section: 'Color scheme', title: 'By phase', badge: (nS ? modeBadge('phase') : 'off'),
+                            open: () => setMode('sample'),
+                        }] : []),
+                        // By phase whenever there are genotypes — a haplotype view reads a
+                        // single sample as well as several.
+                        ...(hasGt ? [{
+                            section: 'Color scheme', title: 'By phase', badge: modeBadge('phase'),
                             blurb: 'Haplotype 1 blue, haplotype 2 pink, homozygous purple, unphased heterozygous amber.',
-                            open: () => setMode('phase'), ready: nS > 0, readyNote: 'no genotypes to phase',
-                        },
+                            open: () => setMode('phase'),
+                        }] : []),
                         // The annotation highlights: each turns on and off, and only one is on at
                         // a time (a variant shows one mark). The same set the Search window offers.
                         { section: 'Highlight (annotation)', title: 'Protein coding', badge: hlBadge(1), blurb: 'Mark the variants in coding sequence, genome-wide.', open: () => toggleHl('coding', 1) },
