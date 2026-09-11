@@ -1880,12 +1880,12 @@ function (path, config) {
                                         // Title + dates only for a lone patent, and only when the
                                         // bar is wide and there are few labels.
                                         const showExtra = (bw >= 240 && clusters.length <= 12);
-                                        // WHEN THE METADATA IS SHOWING, also name the genes each
-                                        // patent sits in and highlight its block. The genes come
-                                        // from one window fetch (throttled, cached), not one per
-                                        // patent.
+                                        // THE GENES the patents sit in, drawn at their loci
+                                        // ALWAYS (whenever the patent labels are drawn), not only
+                                        // when the metadata text is showing. One window fetch,
+                                        // throttled and cached, not one per patent.
                                         let glist = null;
-                                        if (showExtra) {
+                                        {
                                             const wg = winGenes.get(ci + ':' + qlo + ':' + qhi);
                                             if (!wg) winGenesAsk(ci, qlo, qhi);
                                             else if (wg.state === 'done') glist = wg.genes;
@@ -1955,13 +1955,13 @@ function (path, config) {
                                             limit = rr.top - GAP;
                                         }
                                         // THE GENES AT THEIR OWN LOCI. The patent text is left as
-                                        // it was; instead the genes the patents sit in are drawn
-                                        // where they actually are -- the symbol on its locus and
-                                        // its range banded in green. Collected across the shown
-                                        // patent blocks, deduped, and the symbols decluttered so
-                                        // they do not stack. Only while the metadata is showing.
-                                        // NB: `g` is the graph here, so a gene is `gn`.
-                                        if (showExtra && glist) {
+                                        // it was; the genes the patents sit in are drawn where
+                                        // they actually are -- the symbol on its locus and its
+                                        // range banded in green -- whenever the patent labels are
+                                        // drawn, whether or not the metadata text is showing.
+                                        // Collected across the patent blocks, deduped, symbols
+                                        // decluttered. NB: `g` is the graph here, so a gene is `gn`.
+                                        if (glist) {
                                             const seen = new Set();
                                             const grecs = [];
                                             for (const rr of recs) {
@@ -2012,8 +2012,11 @@ function (path, config) {
                                                     ctx.lineTo(bx0 + 1, gg.ay);
                                                     ctx.stroke();
                                                 }
-                                                ctx.fillStyle = 'rgba(236,253,245,0.9)';
+                                                ctx.fillStyle = '#ecfdf5';
                                                 ctx.fillRect(sx - 2, sy - 6, tw + 4, 12);
+                                                ctx.strokeStyle = 'rgba(5,150,105,0.45)';
+                                                ctx.lineWidth = 1;
+                                                ctx.strokeRect(sx - 2 + 0.5, sy - 6 + 0.5, tw + 4 - 1, 12 - 1);
                                                 ctx.fillStyle = '#065f46';
                                                 ctx.fillText(gg.sym, sx, sy);
                                             }
@@ -2034,10 +2037,20 @@ function (path, config) {
                                             ctx.stroke();
                                             ctx.fillStyle = 'rgba(180,83,9,0.95)';
                                             ctx.beginPath(); ctx.arc(stripX, ap, 2, 0, 2 * Math.PI); ctx.fill();
-                                            // Box. A summary gets a faint amber wash so it reads as
-                                            // "several", not one.
-                                            ctx.fillStyle = rr.isCluster ? 'rgba(255,247,237,0.95)' : 'rgba(255,255,255,0.9)';
+                                            // A SOLID BACKFILL so the patent text reads over the
+                                            // green gene bands and the marks behind it -- fully
+                                            // opaque, with a soft shadow and a thin border to lift
+                                            // it off the noise. A summary gets a faint amber body.
+                                            ctx.save();
+                                            ctx.shadowColor = 'rgba(8,22,38,0.35)';
+                                            ctx.shadowBlur = 4;
+                                            ctx.shadowOffsetY = 1;
+                                            ctx.fillStyle = rr.isCluster ? '#fff4e6' : '#ffffff';
                                             ctx.fillRect(lx0, top, rr.boxW, rr.rowH);
+                                            ctx.restore();
+                                            ctx.strokeStyle = 'rgba(124,45,18,0.35)';
+                                            ctx.lineWidth = 1;
+                                            ctx.strokeRect(lx0 + 0.5, top + 0.5, rr.boxW - 1, rr.rowH - 1);
                                             ctx.fillStyle = '#7c2d12';
                                             ctx.font = '600 10px ' + FONT;
                                             ctx.fillText(rr.txt, lx0 + 5, rr.lines.length ? (top + 8) : (top + rr.rowH / 2));
