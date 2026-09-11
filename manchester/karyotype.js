@@ -415,10 +415,22 @@ function (path, config) {
         // before the editor replaced it; the editor's Genome Viewer button relaunches this
         // with config.resume, and the karyotype comes back as it was left -- variants,
         // regions, loss matrix, selection, bookmarks and view -- without a file round trip.
+        // ACROSS A RELOAD TOO. The two return slots live on window, which a reload empties;
+        // baja/lib/return-slot.js keeps the same two in IndexedDB. Read them back here, before
+        // the toolbar is built, so the Editor button and a resume both see what was kept.
+        let __slots = null;
+        try { __slots = await exec('baja/lib/return-slot.js'); } catch (e) { __slots = null; }
+        try {
+            if (__slots && !(window.__bajaEditorReturn && window.__bajaEditorReturn.json)) {
+                const kept = await __slots.get('editor');
+                if (kept && kept.json) window.__bajaEditorReturn = kept;
+            }
+        } catch (e) { }
         let __resumed = null;
         if (!pendingDoc && config && typeof config === 'object' && config.resume) {
             let R = null;
             try { R = window.__bajaKaryoReturn || null; } catch (e) { R = null; }
+            if ((!R || !R.doc) && __slots) { try { R = await __slots.get('karyo'); } catch (e) { R = null; } }
             if (!R || !R.doc) { try { const raw2 = sessionStorage.getItem('baja.karyoReturn'); if (raw2) R = JSON.parse(raw2); } catch (e) { R = null; } }
             if (R && R.doc) {
                 pendingDoc = R.doc; __resumed = R;
@@ -8212,6 +8224,9 @@ function (path, config) {
                 try { const st = window.history.state; kp = (st && st.karyotype) ? ('' + st.karyotype) : ''; } catch (e) { kp = ''; }
                 const keep = { doc: doc, species: (r.species || 'human'), path: kp, name: kp ? baseName(kp) : '', at: Date.now() };
                 window.__bajaKaryoReturn = keep;
+                // IndexedDB for the reload case (no size cap); sessionStorage only as a small
+                // fallback for a browser with IndexedDB blocked.
+                try { if (__slots) __slots.put('karyo', keep); } catch (e) { }
                 try {
                     const js = JSON.stringify(keep);
                     if (js.length < 3500000) sessionStorage.setItem('baja.karyoReturn', js); else sessionStorage.removeItem('baja.karyoReturn');
@@ -8225,6 +8240,9 @@ function (path, config) {
             const R = window.__bajaEditorReturn;
             if (!R || !R.json) { graph.setMessage(' No unsaved editor design is kept. '); return; }
             keepForReturn();
+            // The editor about to open is running on a kept design: a reload of it should
+            // come back with that design, which the flag tells the editor's own startup.
+            try { sessionStorage.setItem('baja.editorReturnLive', '1'); } catch (e) { }
             graph.setMessage(' Opening the editor with ' + (R.name || 'your unsaved design') + '… ');
             try { exec('manchester/editor', '', { mode: 'editor', resumeDesign: R.json, resumeName: R.name || '' }); }
             catch (e) { graph.setMessage(' The editor could not open: ' + (e && e.message ? e.message : e) + ' '); }
@@ -8239,6 +8257,8 @@ function (path, config) {
             // editor about to open is a new one, and the viewer's Editor button must not
             // offer a design that is no longer the one on screen.
             try { window.__bajaEditorReturn = null; } catch (e) { }
+            try { if (__slots) __slots.del('editor'); } catch (e) { }
+            try { sessionStorage.setItem('baja.editorReturnLive', '0'); } catch (e) { }
             const mine = graph;
             try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
             let g2 = null;

@@ -414,7 +414,28 @@ function (path, config) {
                 let tracks;
                 let genegraph_panel_layout;
                 let { Track, TrackRef } = await exec('baja/bio/track.js')
+                // THE DESIGN KEPT FOR A ROUND TRIP, and across a reload. config.resumeDesign
+                // is the karyotype's Editor button handing it back; with no file in the URL
+                // and the editor flagged as running on a kept design (sessionStorage, per
+                // tab), a reload takes the same design from IndexedDB instead of opening
+                // empty. A fresh editor from the home menu carries no flag and starts clean.
+                let __slots = null;
+                try { __slots = await exec('baja/lib/return-slot.js'); } catch (e) { __slots = null; }
+                let __resumeDesign = (config && typeof config === 'object' && config.resumeDesign) || null;
+                let __resumeName = (config && typeof config === 'object' && config.resumeName) || '';
+                let __restoredAfterReload = false;
+                if (!__resumeDesign && !path.endsWith('.baja') && __slots) {
+                    try {
+                        if (sessionStorage.getItem('baja.editorReturnLive') === '1') {
+                            const kept = await __slots.get('editor');
+                            if (kept && kept.json) { __resumeDesign = kept.json; __resumeName = kept.name || ''; __restoredAfterReload = true; }
+                        }
+                    } catch (e) { }
+                }
                 if (path.endsWith('.baja')) {
+                    // A real file is the design now; whatever was kept for a round trip is stale.
+                    try { if (__slots) __slots.del('editor'); } catch (e) { }
+                    try { sessionStorage.setItem('baja.editorReturnLive', '0'); window.__bajaEditorReturn = null; } catch (e) { }
                     let host_ = window['env']['apiUrl']
                     let index = path.lastIndexOf('/')
                     // On reload the URL is /<folder-id>/<file>.baja with no config.user, so use the
@@ -486,13 +507,17 @@ function (path, config) {
                 // the same serialization a save writes), so the round trip loses nothing in
                 // either direction. Applied the way a saved file is: graph.update now, and
                 // __reloadedRs again once the canvas is mounted.
-                if (!path.endsWith('.baja') && config && typeof config === 'object' && config.resumeDesign) {
+                if (!path.endsWith('.baja') && __resumeDesign) {
                     try {
-                        const rd = (typeof config.resumeDesign === 'string') ? JSON.parse(config.resumeDesign) : config.resumeDesign;
+                        const rd = (typeof __resumeDesign === 'string') ? JSON.parse(__resumeDesign) : __resumeDesign;
                         progressBar(45);
                         await graph.update(rd);
-                        graph.file = config.resumeName || rd.file || '';
+                        graph.file = __resumeName || rd.file || '';
                         graph.__reloadedRs = rd;
+                        try { sessionStorage.setItem('baja.editorReturnLive', '1'); } catch (e) { }
+                        if (__restoredAfterReload) {
+                            setTimeout(() => { try { graph.setMessage(' Restored your unsaved design from before the reload — Save to keep it. '); } catch (e) { } }, 1800);
+                        }
                     } catch (e) { try { log('Could not restore the unsaved design: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
                 }
                 let Icon = await exec('flexigraph/shapes/icon.js')
@@ -1897,23 +1922,52 @@ function (path, config) {
                 // browser URL at that save. So if the user accidentally reloads, the editor reopens
                 // the MOST RECENT background save instead of losing in-progress work. Silent; gated
                 // on graph.autosave (File-menu toggle), on by default for signed-in users.
+                // ONE SERIALIZER for the autosave, the Genome Viewer button and the reload
+                // slot: the replacer the share/save path uses, proven loadable.
+                const __designSerialize = () => {
+                    const seen = new WeakSet();
+                    return JSON.stringify(graph, function (key, value) {
+                        if (key === 'canvas') return;
+                        if (typeof value === 'object' && value !== null) {
+                            if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
+                            else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
+                            else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
+                        }
+                        return value;
+                    });
+                };
+                graph.__designSerialize = __designSerialize;
+                // KEEP THE WORKING DESIGN FOR A RELOAD, every minute, whether or not the user
+                // is signed in (the server autosave below needs an account; this needs only
+                // the browser). Only while the editor is running on a kept design, so an
+                // ordinary editor session does not leave a design behind that a later fresh
+                // editor would silently restore.
+                try {
+                    let __slotSig = null;
+                    const __keepSlot = async () => {
+                        try {
+                            if (!__slots) return;
+                            if (sessionStorage.getItem('baja.editorReturnLive') !== '1') return;
+                            if (!graph.track || graph.track.length === 0) return;
+                            const gs = __designSerialize();
+                            if (!gs || gs.length < 3) return;
+                            const sig = gs.length + ':' + gs.slice(0, 160);
+                            if (sig === __slotSig) return;
+                            __slotSig = sig;
+                            const keep = { json: gs, name: ('' + (graph.file || '')), at: Date.now() };
+                            window.__bajaEditorReturn = keep;
+                            await __slots.put('editor', keep);
+                        } catch (e) { }
+                    };
+                    try { if (graph.__slotTimer) clearInterval(graph.__slotTimer); } catch (e) { }
+                    graph.__slotTimer = setInterval(__keepSlot, 60000);
+                } catch (e) { }
                 try {
                     const __asHost = window['env']['apiUrl'];
                     const __asUser = (typeof getUser === 'function') ? getUser() : null;
                     if (__asUser) {
                         if (graph.autosave == null) graph.autosave = true;   // default on
-                        const __asSerialize = () => {
-                            const seen = new WeakSet();
-                            return JSON.stringify(graph, function (key, value) {
-                                if (key === 'canvas') return;
-                                if (typeof value === 'object' && value !== null) {
-                                    if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
-                                    else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
-                                    else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
-                                }
-                                return value;
-                            });
-                        };
+                        const __asSerialize = __designSerialize;
                         // A stable per-file autosave name (kept separate from the real file), so
                         // each successive autosave OVERWRITES the previous — always the latest.
                         const __asName = () => {
@@ -2843,17 +2897,13 @@ function (path, config) {
                                                         // autosave and Save write (proven loadable), held in memory for
                                                         // the viewer's Editor button to hand back as config.resumeDesign.
                                                         try {
-                                                            const seen = new WeakSet();
-                                                            const gs = JSON.stringify(graph, function (key, value) {
-                                                                if (key === 'canvas') return;
-                                                                if (typeof value === 'object' && value !== null) {
-                                                                    if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
-                                                                    else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
-                                                                    else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
-                                                                }
-                                                                return value;
-                                                            });
-                                                            if (gs && gs.length > 2) window.__bajaEditorReturn = { json: gs, name: ('' + (graph.file || '')), at: Date.now() };
+                                                            const gs = (graph.__designSerialize || __designSerialize)();
+                                                            if (gs && gs.length > 2) {
+                                                                const keep = { json: gs, name: ('' + (graph.file || '')), at: Date.now() };
+                                                                window.__bajaEditorReturn = keep;
+                                                                try { if (__slots) __slots.put('editor', keep); } catch (e) { }
+                                                                try { sessionStorage.setItem('baja.editorReturnLive', '1'); } catch (e) { }
+                                                            }
                                                         } catch (e) { try { graph.setMessage(' The design could not be kept for the way back: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } }
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         try { exec('manchester/karyotype', R.species || 'human', { resume: true }); }
