@@ -4787,8 +4787,11 @@ function (path, config) {
             // The loss matrix goes with the file: it is a few hundred gene records at most,
             // and recomputing it means re-reading the annotation for every coding variant.
             if (lossMatrix && Array.isArray(lossMatrix.genes)) {
-                out.lossMatrix = { sample: lossMatrix.sample || '', si: lossMatrix.si, genes: lossMatrix.genes,
-                    scanned: lossMatrix.scanned || 0, counts: lossMatrix.counts || {}, notes: lossMatrix.notes || [], at: lossMatrix.at || '' };
+                out.lossMatrix = { sample: lossMatrix.sample || '', si: lossMatrix.si, hap: lossMatrix.hap || '', genes: lossMatrix.genes,
+                    scanned: lossMatrix.scanned || 0, counts: lossMatrix.counts || {}, notes: lossMatrix.notes || [], at: lossMatrix.at || '',
+                    annot: lossMatrix.annot || null, ther: lossMatrix.ther || null, therNotes: lossMatrix.therNotes || [] };
+                const lf = {}; for (const grp of FILTER_GROUPS) if (lossFilters[grp.key].size) lf[grp.key] = Array.from(lossFilters[grp.key]);
+                if (Object.keys(lf).length) out.lossFilters = lf;
             }
             if (selGenes.size) out.selectedGenes = selectedList();
             // The bookmarks go with the file. They are four numbers and a name each, so
@@ -4976,7 +4979,12 @@ function (path, config) {
             if (doc.lossMatrix && Array.isArray(doc.lossMatrix.genes)) {
                 // The bands came back with the regions above; only the variant marks need
                 // re-deriving, and they come from the saved matrix, not from the server.
-                try { lossMatrix = doc.lossMatrix; applyLossHighlights(false); } catch (e) { }
+                try {
+                    lossMatrix = doc.lossMatrix;
+                    clearLossFilters();
+                    if (doc.lossFilters && typeof doc.lossFilters === 'object') for (const grp of FILTER_GROUPS) for (const o of (doc.lossFilters[grp.key] || [])) lossFilters[grp.key].add(o);
+                    applyLossHighlights(false);
+                } catch (e) { }
             }
             if (Array.isArray(doc.selectedGenes)) {
                 try { selGenes.clear(); doc.selectedGenes.forEach((g) => { if (g && g.gene) selGenes.set(('' + g.gene).toUpperCase(), g); }); } catch (e) { }
@@ -5362,7 +5370,59 @@ function (path, config) {
         // questions and the two-loss backgrounds want to know which is which.
         const ZYG_RANK = { 'biallelic': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'on haplotype 1': 3, 'on haplotype 2': 3, 'unknown': 4 };
         const ZYG_LOST = { 'biallelic': 1, 'compound het': 1, 'possibly biallelic': 1 };
-        let lossZygFilter = 'all';          // 'all' | 'biallelic'
+        // THE REFINE PANEL. Six groups of filters over the loss matrix: OR within a group,
+        // AND across groups; a group with nothing ticked lets every gene through. Zygosity
+        // and consequence come from the matrix itself; cancer-gene classification from
+        // py/bio/gene-annotations.py (curated lists + DepMap dependency); therapeutic
+        // interpretation and evidence level from py/bio/gene-therapeutics.py (Claude over
+        // the literature it knows, fixed labels); expression needs data a VCF does not
+        // carry, so only "unavailable" and "functional transcript retained" (a monoallelic
+        // loss keeps one working copy) can be answered here.
+        const lossFilters = { zyg: new Set(), cons: new Set(), cls: new Set(), ther: new Set(), evid: new Set(), expr: new Set() };
+        const FILTER_GROUPS = [
+            { key: 'zyg', title: 'Zygosity', options: [['biallelic', 'Biallelic loss'], ['possibly', 'Possibly biallelic loss'], ['mono', 'Monoallelic loss']] },
+            { key: 'cons', title: 'Variant consequence', options: [['frameshift', 'Frameshift'], ['stop_gained', 'Stop gained'], ['start_lost', 'Start lost'], ['splice_donor', 'Splice donor'], ['splice_acceptor', 'Splice acceptor'], ['pathogenic_missense', 'Pathogenic missense']] },
+            { key: 'cls', title: 'Cancer-gene classification', needs: 'annot', options: [['tumour_suppressor', 'Tumor suppressor'], ['oncogene', 'Oncogene'], ['cancer_dependency', 'Cancer dependency'], ['dna_repair', 'DNA-repair gene'], ['immune_regulatory', 'Immune-regulatory gene'], ['not_associated', 'Not previously associated with cancer']] },
+            { key: 'ther', title: 'Therapeutic interpretation', needs: 'ther', options: [['synthetic_lethal_vulnerability', 'Potential synthetic-lethal vulnerability'], ['remaining_allele_target', 'Potential target through inhibition of the remaining allele'], ['sensitivity_biomarker', 'Biomarker of drug sensitivity'], ['resistance_biomarker', 'Biomarker of drug resistance'], ['existing_drug', 'Existing drug or inhibitor'], ['clinical_trial', 'Existing clinical trial'], ['none', 'No known therapeutic association']] },
+            { key: 'evid', title: 'Evidence level', needs: 'ther', options: [['human_clinical', 'Human clinical evidence'], ['in_vivo_model', 'In-vivo tumor-model evidence'], ['cell_knockdown', 'Cancer-cell knockdown or knockout evidence'], ['computational_only', 'Computational association only']] },
+            { key: 'expr', title: 'Expression requirement', options: [['expressed', 'Expressed in this tumor'], ['overexpressed', 'Overexpressed relative to normal tissue'], ['retained', 'Functional transcript retained'], ['unavailable', 'Expression data unavailable']] },
+        ];
+        const EXPR_UNANSWERABLE = { expressed: 1, overexpressed: 1 };
+        const GCLS_SHORT = { tumour_suppressor: 'TSG', oncogene: 'oncogene', cancer_dependency: 'dependency', dna_repair: 'DNA repair', immune_regulatory: 'immune', not_associated: '' };
+        const THER_SHORT = { synthetic_lethal_vulnerability: 'SL vulnerability', remaining_allele_target: 'remaining-allele target', sensitivity_biomarker: 'sensitivity marker', resistance_biomarker: 'resistance marker', existing_drug: 'drug exists', clinical_trial: 'trial', none: '' };
+        const zygClass = (z) => ((z === 'biallelic' || z === 'compound het') ? 'biallelic' : (z === 'possibly biallelic' ? 'possibly' : ((z === 'monoallelic' || (z || '').indexOf('on haplotype') === 0) ? 'mono' : '')));
+        const geneAnnot = (g) => (lossMatrix && lossMatrix.annot && lossMatrix.annot[('' + g.gene).toUpperCase()]) || null;
+        const geneTher = (g) => (lossMatrix && lossMatrix.ther && lossMatrix.ther[('' + g.gene).toUpperCase()]) || null;
+        // Which option values a gene answers to, per group.
+        const geneFacets = (g) => {
+            const f = { zyg: new Set(), cons: new Set(), cls: new Set(), ther: new Set(), evid: new Set(), expr: new Set(['unavailable']) };
+            const zc = zygClass(g.zygosity);
+            if (zc) f.zyg.add(zc);
+            if (zc === 'mono') f.expr.add('retained');
+            for (const v of (g.variants || [])) {
+                const e = v.effect === 'hotspot_missense' ? 'pathogenic_missense' : v.effect;
+                if (e) f.cons.add(e);
+            }
+            const a = geneAnnot(g);
+            if (a) for (const c of (a.classes || [])) f.cls.add(c);
+            const t = geneTher(g);
+            if (t) { for (const x of (t.therapeutic || [])) f.ther.add(x); for (const x of (t.evidence || [])) f.evid.add(x); }
+            return f;
+        };
+        const genePasses = (g) => {
+            const f = geneFacets(g);
+            for (const grp of FILTER_GROUPS) {
+                const want = lossFilters[grp.key];
+                if (!want || !want.size) continue;
+                let ok = false;
+                for (const o of want) if (f[grp.key].has(o)) { ok = true; break; }
+                if (!ok) return false;
+            }
+            return true;
+        };
+        const activeFilterCount = () => FILTER_GROUPS.reduce((n, grp) => n + lossFilters[grp.key].size, 0);
+        const clearLossFilters = () => { for (const grp of FILTER_GROUPS) lossFilters[grp.key].clear(); };
+        const filtersSummary = () => FILTER_GROUPS.map((grp) => lossFilters[grp.key].size ? grp.title + ': ' + Array.from(lossFilters[grp.key]).map((o) => (grp.options.find((x) => x[0] === o) || [o, o])[1]).join(' or ') : '').filter(Boolean).join('; ');
         const originWord = (o) => (o === 'shared' ? 'shared by all samples (germline if one is a normal)' : (o === 'somatic' ? 'somatic (this sample only)' : (o === 'mixed' ? 'somatic and shared hits' : '')));
         const annotateLossZygosity = (genes, si, hap) => {
             const nS = Math.min(SAMPLES.length, GT_MAX);
@@ -5405,7 +5465,7 @@ function (path, config) {
         const zygCounts = (gs) => { const c = {}; for (const g of gs) c[g.zygosity || 'unknown'] = (c[g.zygosity || 'unknown'] || 0) + 1; return c; };
         const lossGenesOrdered = () => {
             let gs = (lossMatrix && lossMatrix.genes) ? lossMatrix.genes.slice() : [];
-            if (lossZygFilter === 'biallelic') gs = gs.filter((g) => ZYG_LOST[g.zygosity]);
+            if (activeFilterCount()) gs = gs.filter(genePasses);
             const sev = { frameshift: 0, stop_gained: 1, start_lost: 2, splice_donor: 3, splice_acceptor: 4, hotspot_missense: 5, pathogenic_missense: 6 };
             gs.sort((a, b) => {
                 const ta = lossIsTsg(a) ? 0 : 1, tb = lossIsTsg(b) ? 0 : 1;
@@ -6189,7 +6249,7 @@ function (path, config) {
                     : ['biallelic', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', '),
                 'Notes': (L.notes || []).join(' '),
             };
-            if (lossZygFilter === 'biallelic') summary['Filter'] = 'showing only biallelic losses (' + genes.length + ' of ' + allG.length + ')';
+            if (activeFilterCount()) summary['Filter'] = 'refined to ' + genes.length + ' of ' + allG.length + ' (' + filtersSummary() + ')';
             sheets.push({ name: 'Summary', rows: [summary] });
             }
 
@@ -6313,12 +6373,11 @@ function (path, config) {
                     + (nT ? ', ' + nT + ' of them tumour suppressor' + (nT === 1 ? '' : 's') : '')
                     + ', from ' + (+lossMatrix.scanned || 0).toLocaleString() + ' exonic variant' + (lossMatrix.scanned === 1 ? '' : 's')
                     + (other ? ' (' + other + ' left in place)' : '') + '.' + zygLine
-                    + (lossZygFilter === 'biallelic' ? ' Showing only the ' + genes.length + ' biallelic (both copies hit).' : '')
+                    + (activeFilterCount() ? ' Refined to ' + genes.length + ' of ' + allG.length + ' (' + filtersSummary() + ').' : '')
                     + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
-            if (zc['unknown'] !== allG.length) books.push({ section: 'Loss matrix', title: lossZygFilter === 'biallelic' ? 'Show every lost gene' : 'Only biallelic losses', badge: lossZygFilter === 'biallelic' ? 'biallelic only' : 'all', icon: 'filter_alt',
-                blurb: lossZygFilter === 'biallelic' ? 'Include the monoallelic hits again (one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see).'
-                    : 'Keep only genes with both copies hit: homozygous, compound heterozygous, or two hits of unknown phase. Bands, marks, the list and the CSV follow.',
-                ready: true, open: () => { lossZygFilter = (lossZygFilter === 'biallelic') ? 'all' : 'biallelic'; try { if (hlActive === HL_LOF) applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
+            if (allG.length > 10 || activeFilterCount()) books.push({ section: 'Loss matrix', title: 'Refine gene list', badge: activeFilterCount() ? (activeFilterCount() + ' filter' + (activeFilterCount() === 1 ? '' : 's') + ' · ' + genes.length + ' of ' + allG.length) : (allG.length + ' genes'), icon: 'filter_alt',
+                blurb: 'Narrow the list by zygosity, variant consequence, cancer-gene class, therapeutic interpretation, evidence level or expression. Classification and therapeutic evidence are looked up on demand, the latter through Claude and the literature.',
+                ready: true, open: () => refineMenu() });
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
                 ready: true, open: () => selectedGenesMenu() });
@@ -6349,10 +6408,14 @@ function (path, config) {
                 const more = g.variants.length > 1 ? ' +' + (g.variants.length - 1) + ' more' : '';
                 const on = isSelected(g.gene);
                 const zyg = (g.zygosity && g.zygosity !== 'unknown') ? g.zygosity : '';
+                const a = geneAnnot(g), t = geneTher(g);
+                const chips = [].concat(a ? (a.classes || []).map((c) => GCLS_SHORT[c]).filter(Boolean) : [])
+                    .concat(t ? (t.therapeutic || []).map((c) => THER_SHORT[c]).filter(Boolean) : [])
+                    .concat(t && t.inhibitors && t.inhibitors.length ? [t.inhibitors[0].name] : []);
                 return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : (zyg || lossWord(v.effect)), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
                     blurb: lossWord(v.effect) + (v.gt ? ' ' + v.gt : '') + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
                         + (zyg ? ' · ' + zyg : '') + (g.origin ? ' · ' + originWord(g.origin) : '')
-                        + (g.n_other ? ' · ' + g.n_other + ' other coding' : ''),
+                        + (g.n_other ? ' · ' + g.n_other + ' other coding' : '') + (chips.length ? ' · ' + chips.join(' · ') : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
             };
             const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
@@ -6363,6 +6426,125 @@ function (path, config) {
                 subtitle: 'Genes with a loss-of-function variant; click one to go to it',
                 graph: graph, books: books
             });
+        };
+
+        // ---- THE REFINE PANEL, its lookups, and the therapeutic-evidence shelf --------------
+        let annotBusy = false;
+        const runGeneAnnotations = async () => {
+            if (!lossMatrix || annotBusy) return false;
+            annotBusy = true;
+            const genes = (lossMatrix.genes || []).map((g) => g.gene);
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                graph.setMessage(' Classifying ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + '… ');
+                const rs = await exec(server + '/py/bio/gene-annotations.py', em, JSON.stringify({ genes: genes }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no classification came back');
+                lossMatrix.annot = JSON.parse(rs.genes || '{}');
+                try { lossMatrix.annotNotes = JSON.parse(rs.notes || '[]'); } catch (e) { lossMatrix.annotNotes = []; }
+                graph.setMessage(' ' + Object.keys(lossMatrix.annot).length + ' gene' + (genes.length === 1 ? '' : 's') + ' classified. ');
+                annotBusy = false;
+                return true;
+            } catch (e) {
+                annotBusy = false;
+                try { graph.setError(' Classification failed: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
+                return false;
+            }
+        };
+        let therBusy = false;
+        const runGeneTherapeutics = async (onlySelected) => {
+            if (!lossMatrix || therBusy) return false;
+            const pool = onlySelected ? selectedList().map((g) => g.gene) : (lossMatrix.genes || []).map((g) => g.gene);
+            const genes = pool.filter((g) => !(lossMatrix.ther && lossMatrix.ther[('' + g).toUpperCase()]));
+            if (!genes.length) { graph.setMessage(' Every gene ' + (onlySelected ? 'selected' : 'in the matrix') + ' already has therapeutic evidence. '); return true; }
+            therBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const ctx = (r.species || 'human') + ' tumour sample ' + (lossMatrix.sample || '') + '; other losses: '
+                    + (lossMatrix.genes || []).filter(lossIsTsg).map((g) => g.gene).slice(0, 12).join(', ');
+                graph.setMessage(' Asking Claude about ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — about ' + Math.ceil(genes.length / 20) * 10 + ' s… ');
+                const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: genes, context: ctx }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no evidence came back');
+                const got = JSON.parse(rs.genes || '{}');
+                lossMatrix.ther = Object.assign(lossMatrix.ther || {}, got);
+                try { lossMatrix.therNotes = JSON.parse(rs.notes || '[]'); } catch (e) { lossMatrix.therNotes = []; }
+                lossMatrix.therModel = rs.model || '';
+                graph.setMessage(' Therapeutic evidence read for ' + Object.keys(got).length + ' of ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + '. ');
+                therBusy = false;
+                return true;
+            } catch (e) {
+                therBusy = false;
+                try { graph.setError(' Therapeutic evidence failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+                return false;
+            }
+        };
+        const refineMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lossMatrix) { analysisMenu(); return; }
+            const allG = lossMatrix.genes || [];
+            const passing = allG.filter(genePasses).length;
+            const hasAnnot = !!(lossMatrix.annot && Object.keys(lossMatrix.annot).length);
+            const nTher = lossMatrix.ther ? Object.keys(lossMatrix.ther).length : 0;
+            const facets = allG.map(geneFacets);
+            const countOf = (key, opt) => facets.reduce((n, f) => n + (f[key].has(opt) ? 1 : 0), 0);
+            const books = [];
+            books.push({ section: 'Refine gene list', note: true, title: passing + ' of ' + allG.length + ' gene' + (allG.length === 1 ? '' : 's') + ' pass' + (activeFilterCount() ? ' (' + filtersSummary() + ')' : ' — no filter is on') + '. Within a group any ticked option matches; across groups every group must match. The list, bands, red marks and CSV follow.' });
+            books.push({ section: 'Refine gene list', title: 'Back to the loss matrix', badge: passing + ' genes', icon: 'arrow_back', ready: true, blurb: 'See the refined list.', open: () => { try { if (hlActive === HL_LOF) applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
+            books.push({ section: 'Refine gene list', title: 'Clear all filters', badge: activeFilterCount() ? activeFilterCount() + ' on' : 'none', icon: 'filter_alt_off', ready: activeFilterCount() > 0, readyNote: 'nothing to clear', blurb: 'Let every gene through again.', open: () => { clearLossFilters(); refineMenu(); } });
+            books.push({ section: 'Look things up', title: hasAnnot ? 'Reclassify genes' : 'Classify genes', badge: hasAnnot ? 'done' : 'needed for class filters', icon: 'category', ready: !annotBusy,
+                blurb: 'Tumor suppressor, oncogene, DNA repair, immune regulation from curated lists; cancer dependency from DepMap knockout effects. Quick, no model.',
+                open: async () => { await runGeneAnnotations(); refineMenu(); } });
+            books.push({ section: 'Look things up', title: 'Find therapeutic evidence with Claude — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
+                blurb: 'For each lost gene: is the loss a synthetic-lethal vulnerability, a target through the remaining allele, a biomarker of sensitivity or resistance; existing drugs, trials, and the publications behind it, with an evidence level. About 10 s per 20 genes.',
+                open: async () => { await runGeneTherapeutics(false); refineMenu(); } });
+            books.push({ section: 'Look things up', title: 'Find therapeutic evidence with Claude — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
+                blurb: 'The same lookup for the selection only.', open: async () => { await runGeneTherapeutics(true); refineMenu(); } });
+            books.push({ section: 'Look things up', title: 'Show therapeutic evidence', badge: nTher ? nTher + ' genes' : '', icon: 'library_books', ready: nTher > 0, readyNote: 'no evidence read yet',
+                blurb: 'Gene by gene: interpretation, evidence level, inhibitors, trials, publications.', open: () => therMenu() });
+            for (const grp of FILTER_GROUPS) {
+                const avail = grp.needs === 'annot' ? hasAnnot : (grp.needs === 'ther' ? nTher > 0 : true);
+                books.push({ section: grp.title, note: true, title: avail ? (grp.key === 'expr' ? 'Only what a VCF can answer: a monoallelic loss keeps one functional transcript; tumour expression itself is not in the file.' : 'Tick any that apply.')
+                    : (grp.needs === 'annot' ? 'Classify the genes first (above) to filter on this.' : 'Find therapeutic evidence first (above) to filter on this.') });
+                for (const [val, label] of grp.options) {
+                    const on = lossFilters[grp.key].has(val);
+                    const n = countOf(grp.key, val);
+                    const dead = grp.key === 'expr' && EXPR_UNANSWERABLE[val];
+                    books.push({ section: grp.title, title: label, badge: dead ? 'no data' : (on ? 'on · ' + n : n + (n === 1 ? ' gene' : ' genes')), swatch: on ? '#16a34a' : (dead ? '#94a3b8' : '#64748b'), selected: on,
+                        ready: avail && !dead, readyNote: dead ? 'needs expression data for this tumour' : (grp.needs === 'annot' ? 'classify first' : 'find evidence first'),
+                        blurb: on ? 'Ticked — click to untick.' : ('Tick to keep genes that match' + (n ? ' (' + n + ' now)' : '') + '.'),
+                        open: () => { if (on) lossFilters[grp.key].delete(val); else lossFilters[grp.key].add(val); refineMenu(); } });
+                }
+            }
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Refine gene list', subtitle: lossMatrix.sample + ' — ' + passing + ' of ' + allG.length + ' genes pass', graph: graph, books: books });
+        };
+        const therMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lossMatrix || !lossMatrix.ther) { refineMenu(); return; }
+            const T = lossMatrix.ther;
+            const genes = lossGenesOrdered().filter((g) => T[('' + g.gene).toUpperCase()]);
+            const THER_LABEL = {}; FILTER_GROUPS[3].options.forEach(([v, l]) => { THER_LABEL[v] = l; });
+            const EVID_LABEL = {}; FILTER_GROUPS[4].options.forEach(([v, l]) => { EVID_LABEL[v] = l; });
+            const books = [];
+            books.push({ section: 'Therapeutic evidence', note: true, title: genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' with evidence read' + (lossMatrix.therModel ? ' by ' + lossMatrix.therModel : '') + '.' + (lossMatrix.therNotes && lossMatrix.therNotes.length ? ' ' + lossMatrix.therNotes.join(' ') : '') });
+            books.push({ section: 'Therapeutic evidence', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: genes.length > 0, readyNote: 'nothing to download',
+                blurb: 'One row per gene: labels, evidence, inhibitors, trials, publications, summary.',
+                open: () => { try { dlSaveText(dlToCSV(genes.map((g) => { const t = T[('' + g.gene).toUpperCase()]; return { gene: g.gene, zygosity: g.zygosity || '', therapeutic: (t.therapeutic || []).join('; '), evidence: (t.evidence || []).join('; '), inhibitors: (t.inhibitors || []).map((x) => x.name + (x.stage ? ' (' + x.stage + ')' : '')).join('; '), trials: t.trials || '', publications: (t.publications || []).map((p) => p.first_author + ' ' + p.year + ' — ' + p.title).join(' | '), summary: t.summary || '' }; })), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_therapeutic_evidence') + '.csv', 'text/csv'); dlMsg('Evidence downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Therapeutic evidence', title: 'Back to Refine', badge: 'filters', icon: 'filter_alt', ready: true, blurb: 'Filter the list on these labels.', open: () => refineMenu() });
+            genes.forEach((g) => {
+                const t = T[('' + g.gene).toUpperCase()];
+                const none = (t.therapeutic || []).length === 1 && t.therapeutic[0] === 'none';
+                const sec = none ? 'No known therapeutic association' : 'With a therapeutic story';
+                books.push({ section: sec, title: g.gene, badge: none ? 'none' : (t.therapeutic || []).map((x) => THER_SHORT[x]).filter(Boolean).slice(0, 2).join(' · '), swatch: none ? '#94a3b8' : ((t.evidence || [])[0] === 'human_clinical' ? '#dc2626' : '#f97316'), ready: true,
+                    blurb: (t.summary || '') + ((t.inhibitors || []).length ? ' · ' + t.inhibitors.slice(0, 3).map((x) => x.name + (x.stage ? ' (' + x.stage + ')' : '')).join(', ') : '') + ((t.evidence || []).length ? ' · ' + EVID_LABEL[t.evidence[0]] : ''),
+                    books: () => [].concat(
+                        [{ note: true, title: 'Interpretation: ' + (t.therapeutic || []).map((x) => THER_LABEL[x] || x).join('; ') + ((t.evidence || []).length ? '. Evidence: ' + t.evidence.map((x) => EVID_LABEL[x] || x).join('; ') : '') + '.' }],
+                        t.trials ? [{ note: true, title: 'Trials: ' + t.trials }] : [],
+                        (t.inhibitors || []).length ? [{ note: true, title: 'Inhibitors: ' + t.inhibitors.map((x) => x.name + (x.stage ? ' (' + x.stage + ')' : '')).join(', ') }] : [],
+                        (t.publications || []).map((p) => ({ note: true, title: '📄 ' + p.first_author + ' ' + p.year + ' — ' + p.title })),
+                        [{ note: true, title: 'Publications are for checking, not proof: confirm a paper before relying on it.' }],
+                        [{ title: isSelected(g.gene) ? 'Deselect ' + g.gene : 'Select ' + g.gene, badge: 'selection', icon: 'checklist', ready: true, blurb: 'Add to or remove from the set the microscope works on.', open: () => { toggleGeneSelect(g); therMenu(); } },
+                         { title: 'Go to ' + g.gene, badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on the karyotype.', open: () => gotoLostGene(g) }]) });
+            });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Therapeutic evidence', subtitle: 'What the loss of each gene means for treatment, from the literature', graph: graph, books: books });
         };
 
         // THE ANALYSIS LIBRARY behind the microscope button. Calculate the loss matrix is
