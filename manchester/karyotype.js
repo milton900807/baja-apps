@@ -6291,6 +6291,41 @@ function (path, config) {
         // they do, under a subtitle that says which file this is and what is on it. The
         // shelf reports a card that throws, so a save that fails is a message rather
         // than a dead button.
+        // Clear everything loaded and start from an empty karyotype (same species, no
+        // variants). Confirms first when there is anything to lose.
+        const newKaryotype = async () => {
+            let ok = true;
+            if (vtotal || (regions && regions.length) || (bookmarks && bookmarks.length)) {
+                try {
+                    ok = await exec('baja/lib/confirm-leave.js', {
+                        title: 'Start a new karyotype?',
+                        message: 'This clears every variant, region and bookmark now loaded. Save first if you want to keep them.',
+                        confirmLabel: 'Start fresh'
+                    });
+                } catch (e) { ok = false; }
+            }
+            if (!ok) return;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                d.n = 0; d.pos = new Float64Array(0); d.cls = new Uint8Array(0);
+                d.ref = new Uint8Array(0); d.alt = new Uint8Array(0);
+                d.cplx = new Map(); d.names = []; d.snps = [];
+                d.gts = null; d.gtw = 0; d.hl = new Uint8Array(0); d.hlIdx = [];
+                d.hist = new Uint32Array(HIST_BINS); d.histBy = null; d.histByKey = '';
+            }
+            vtotal = 0; vobjects = 0;
+            regions = []; try { geneCache.clear(); } catch (e) { }
+            bookmarks = []; activeRegion = null; hlActive = 0;
+            try { SAMPLES.length = 0; } catch (e) { }
+            try { setColourMode('class'); } catch (e) { }
+            try { reindexHighlights(); } catch (e) { }
+            try { const nav = document.getElementById('baja-karyo-booknav'); if (nav && nav.parentNode) nav.parentNode.removeChild(nav); } catch (e) { }
+            try { window.history.replaceState({ karyotype: '' }, 'karyotype', '/app/manchester/karyotype'); } catch (e) { }
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            try { await fit(); pan(); } catch (e) { }
+            graph.setMessage(' Started fresh — the karyotype is empty. Load a VCF to add variants. ');
+        };
+
         const filesMenu = () => {
             let cur = '';
             try { cur = '' + ((window.history.state || {}).karyotype || ''); } catch (e) { cur = ''; }
@@ -6305,6 +6340,11 @@ function (path, config) {
                     title: 'Karyotype files',
                     subtitle: (curName ? curName + '  ·  ' : 'Not saved yet  ·  ') + onIt,
                     books: [
+                        {
+                            title: 'New…', badge: 'clear',
+                            blurb: 'Clear the variants, regions and bookmarks loaded now and start from an empty karyotype. Asks first if there is anything to lose.',
+                            open: () => newKaryotype(),
+                        },
                         {
                             title: 'Open a saved karyotype', badge: 'My Files',
                             blurb: 'Browse My Files and open a karyotype you kept. A .baja file there opens in the editor instead.',
