@@ -46,6 +46,23 @@ function (path, config) {
                 if (__rr && __rr.path) __p = '' + __rr.path;
             } catch (e) { }
         }
+        // A shared KARYOTYPE (not a .baja): hand off to the karyotype viewer, which renders
+        // it read-only with no login, because this viewer route is auth-exempt. The share
+        // code resolves to a .karyotype path exactly as a .baja one does.
+        const __isKaryo = (x) => { try { return /\.karyotype(\.json)?$/i.test(decodeURIComponent('' + (x || ''))); } catch (e) { return /\.karyotype(\.json)?$/i.test('' + (x || '')); } };
+        let __kp = '';
+        if (__code && __isKaryo(__p)) __kp = __p;
+        if (!__kp) { try { const __qp = new URL(window.location.href).searchParams.get('path'); if (__qp && __isKaryo(__qp)) __kp = __qp; } catch (e) { } }
+        if (!__kp) { try { if (config && typeof config === 'object' && config.path && __isKaryo(config.path)) __kp = '' + config.path; } catch (e) { } }
+        if (__kp) {
+            try { __spin.stop(); } catch (e) { }
+            try {
+                const __clean = window.location.origin + '/app/manchester/viewer' + (__code ? ('?s=' + encodeURIComponent(__code)) : '');
+                if (window.location.href !== __clean) window.history.replaceState({}, document.title, __clean);
+            } catch (e) { }
+            try { window.__bajaFreeTier = true; } catch (e) { }
+            return await exec('manchester/karyotype', decodeURIComponent('' + __kp), { shared: true });
+        }
         if (!__isBaja(__p)) __p = '' + (path || '');
         if (!__isBaja(__p)) {
             try { if (config && typeof config === 'object' && config.path && __isBaja(config.path)) __p = '' + config.path; } catch (e) { }

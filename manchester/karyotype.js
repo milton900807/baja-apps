@@ -22,7 +22,33 @@ function (path, config) {
     if (Array.isArray(path)) path = path[0];
 
     return (async () => {
-        if (!window.__bajaFreeTier) {
+        // A shared karyotype opens two ways, both before the subscription gate:
+        //   config.shared     the public viewer (manchester/viewer.js) launched us with an
+        //                     already-resolved public path — no login, view-only.
+        //   ?share=<code>     a per-person share: resolve it against the signed-in user via
+        //                     /share-open; a signed-out recipient is sent to the free sign-in
+        //                     first, the same as the editor.
+        let __karyoShared = false;
+        let __karyoShareInfo = null;
+        try {
+            if (config && config.shared) { __karyoShared = true; try { window.__bajaFreeTier = true; } catch (e) { } }
+            let __sc = '';
+            try { __sc = ('' + (new URL(window.location.href).searchParams.get('share') || '')).trim(); } catch (e) { }
+            if (__sc) {
+                const __who = (typeof getUser === 'function') ? ('' + (getUser() || '')).trim() : '';
+                if (!__who) {
+                    try { sessionStorage.setItem('oidc.returnTo', window.location.pathname + window.location.search); } catch (e) { }
+                    window.location.href = window.location.origin + '/login?free=1';
+                    return;
+                }
+                let __r = null;
+                try { __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__sc) + '&user=' + encodeURIComponent(__who)); } catch (e) { __r = { error: { message: '' + e } }; }
+                const __b = (__r && __r.error && typeof __r.error === 'object') ? __r.error : __r;
+                if (__b && __b.path) { path = '' + __b.path; __karyoShared = true; __karyoShareInfo = __b; try { window.__bajaFreeTier = true; } catch (e) { } }
+                else { __karyoShareInfo = { failed: true, message: (__b && (__b.message || (typeof __b.error === 'string' ? __b.error : ''))) || 'This share link could not be opened.' }; }
+            }
+        } catch (e) { }
+        if (!window.__bajaFreeTier && !__karyoShared) {
             let __sub = await exec('lib/subscription.js');
             if ((await __sub.enforce(true)) === false) return;
         }
@@ -756,6 +782,11 @@ function (path, config) {
                                         label: 'Download', icon: 'file_download', color: '#16a34a',
                                         tooltip: 'Download variants as BED, JSON, CSV, XLSX or PDF',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); downloadMenu(); })
+                                    },
+                                    {
+                                        label: 'Share', icon: 'share',
+                                        tooltip: 'Share this karyotype with named people, or as a public view-only link',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); shareMenu(); })
                                     },
                                     {
                                         label: 'Fit', icon: 'fit_screen',
@@ -5784,6 +5815,164 @@ function (path, config) {
             });
         };
 
+        // ---- SHARE -------------------------------------------------------------------------
+        // Mirrors the editor's Share: a public view-only link (anyone, no login, opened by the
+        // exempt manchester/viewer.js) and a per-person share (an email invite; opened in this
+        // viewer after sign-in). Both carry a stateDoc() snapshot, so the shared karyotype has
+        // its variants, view and bookmarks.
+        const shareBaseName = () => {
+            let fn = '';
+            try { const st = window.history.state; fn = (st && st.karyotype) ? ('' + st.karyotype).split('/').pop().replace(/\.karyotype(\.json)?$/i, '') : ''; } catch (e) { }
+            return dlSafe(fn || (dlSpecies() + (dlAssembly() ? ('_' + dlAssembly()) : '')) || 'karyotype');
+        };
+        const shareEsc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const shareKaryoPublic = async () => {
+            const host_ = window['env']['apiUrl']; const user = ('' + (getUser() || '')).trim();
+            if (!user) { dlErr('Sign in to share.'); return; }
+            dlMsg('Creating a public view-only link…');
+            try {
+                const value = JSON.stringify(stateDoc());
+                const name = shareBaseName() + '.karyotype';
+                const saveRs = await POSTJSON({ name: name, key: 'user', user: user, spath: 'public', value: value }, host_ + '/save-user-data');
+                try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host_ + '/save-user-data'); } catch (e) { }
+                const sharedPath = (saveRs && saveRs.path) ? saveRs.path : ('/' + user + '/public/' + name);
+                let link = window.location.origin + '/app/manchester/viewer?path=' + encodeURIComponent(sharedPath);
+                try { const al = await POSTJSON({ path: sharedPath }, host_ + '/share-alias'); if (al && al.code) link = window.location.origin + '/s/' + al.code; } catch (e) { }
+                try { if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(link); } catch (e) { }
+                showModal({ wid: 'html', data: '<div style="padding:18px 20px;font-family:system-ui,-apple-system,Arial;max-width:520px;">'
+                    + '<div style="font-size:15px;font-weight:700;margin-bottom:8px;">Public link created</div>'
+                    + '<div style="font-size:12px;color:#475569;margin-bottom:10px;">Copied to your clipboard. Anyone with this link can view this karyotype — no login required.</div>'
+                    + '<div style="font-size:12px;word-break:break-all;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;"><a href="' + shareEsc(link) + '" target="_blank" style="color:#1d4ed8;">' + shareEsc(link) + '</a></div></div>' }, 560, 220);
+                dlMsg('Public link copied to clipboard.');
+            } catch (e) { dlErr('Could not create the link: ' + e); }
+        };
+        const shareKaryoWithPerson = () => {
+            const host_ = window['env']['apiUrl']; const user = ('' + (getUser() || '')).trim();
+            if (!user) { dlErr('Sign in to share.'); return; }
+            const designName = shareBaseName() + '.karyotype';
+            const body = (r) => (r && r.error && typeof r.error === 'object') ? r.error : r;
+            try { const old = document.getElementById('baja-karyo-share-dialog'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const backdrop = document.createElement('div');
+            backdrop.style.cssText = 'position:fixed;inset:0;z-index:2147482999;background:rgba(0,0,0,0.35);';
+            const panel = document.createElement('div');
+            panel.id = 'baja-karyo-share-dialog';
+            panel.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;width:min(560px,94vw);max-height:calc(100vh - 90px);overflow:auto;background:#0b2545;color:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
+            const fc = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:10px;font:13px Arial;';
+            panel.innerHTML = ''
+                + '<button id="ks-x" title="Close" aria-label="Close" style="position:absolute;top:8px;right:10px;cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 18px Arial;line-height:1;padding:4px 8px;">✕</button>'
+                + '<div style="font:700 16px Arial;margin-bottom:4px;padding-right:24px;">Share this karyotype with a person</div>'
+                + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">They get a short link that opens this karyotype once they sign in. No account yet? The link takes them through the free sign-in first.</div>'
+                + '<label style="font:12px Arial;color:#9fb3c8;">Email address (one or more, comma-separated)</label>'
+                + '<input id="ks-to" type="text" autocomplete="off" placeholder="name@example.org" style="' + fc + 'margin:4px 0 10px;">'
+                + '<label style="font:12px Arial;color:#9fb3c8;">Message (optional)</label>'
+                + '<textarea id="ks-msg" rows="2" placeholder="A note to go with the karyotype" style="' + fc + 'margin:4px 0 10px;resize:vertical;"></textarea>'
+                + '<div id="ks-status" style="font:12px Arial;color:#9fb3c8;min-height:16px;margin-bottom:6px;"></div>'
+                + '<div id="ks-results"></div>'
+                + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">'
+                + '<button id="ks-close" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
+                + '<button id="ks-send" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Share</button></div>';
+            document.body.appendChild(backdrop); document.body.appendChild(panel);
+            const $ = (id) => panel.querySelector('#' + id);
+            let onKey;
+            const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } try { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); } catch (e) { } try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { } };
+            $('ks-close').onclick = close; $('ks-x').onclick = close; backdrop.onclick = close;
+            onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+            document.addEventListener('keydown', onKey, true);
+            $('ks-send').onclick = async () => {
+                const raw = ('' + ($('ks-to').value || '')).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+                const addrs = Array.from(new Set(raw));
+                const bad = addrs.filter((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+                if (!addrs.length) { $('ks-status').textContent = 'Enter at least one email address.'; return; }
+                if (bad.length) { $('ks-status').textContent = 'Not an email address: ' + bad.join(', '); return; }
+                const message = ('' + ($('ks-msg').value || '')).trim();
+                const btn = $('ks-send'); btn.disabled = true; btn.textContent = 'Sharing…';
+                let value = '';
+                try { value = JSON.stringify(stateDoc()); } catch (e) { $('ks-status').textContent = 'Could not serialize: ' + e; btn.disabled = false; btn.textContent = 'Share'; return; }
+                $('ks-status').textContent = 'Saving a copy for ' + (addrs.length === 1 ? addrs[0] : addrs.length + ' people') + '…';
+                let firstLink = '';
+                for (const to of addrs) {
+                    const r = body(await POSTJSON({ user: user, to: to, name: designName, value: value, message: message }, host_ + '/share-with'));
+                    if (r && r.url) {
+                        if (!firstLink) firstLink = r.url;
+                        const mail = r.mailed ? ('<span style="color:#86efac;">Emailed to ' + shareEsc(to) + '.</span>') : ('<span style="color:#fcd34d;">Email not sent' + (r.mailError ? ' (' + shareEsc(r.mailError) + ')' : '') + ' — copy the link and send it.</span>');
+                        $('ks-results').insertAdjacentHTML('beforeend', '<div style="background:#0a1e3a;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 10px;margin:6px 0;font:12px Arial;"><b>' + shareEsc(to) + '</b><div style="word-break:break-all;margin-top:4px;"><a href="' + shareEsc(r.url) + '" target="_blank" style="color:#4fd0e6;">' + shareEsc(r.url) + '</a></div><div style="margin-top:4px;">' + mail + '</div></div>');
+                    } else {
+                        $('ks-results').insertAdjacentHTML('beforeend', '<div style="font:12px Arial;color:#fca5a5;margin:6px 0;">' + shareEsc(to) + ': ' + shareEsc((r && (r.error || r.message)) || 'sharing failed') + '</div>');
+                    }
+                }
+                if (firstLink && addrs.length === 1) { try { await navigator.clipboard.writeText(firstLink); } catch (e) { } }
+                $('ks-status').textContent = firstLink ? ('Shared.' + (addrs.length === 1 ? ' Link on your clipboard.' : '')) : 'Nothing was shared.';
+                $('ks-to').value = ''; btn.disabled = false; btn.textContent = 'Share';
+            };
+            try { $('ks-to').focus(); } catch (e) { }
+        };
+        const shareMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const user = ('' + (getUser() || '')).trim();
+            if (!user) { dlErr('Sign in to share a karyotype.'); return; }
+            exec('baja/lib/shelf.js', {
+                id: 'baja-karyo-share',
+                title: 'Share',
+                subtitle: 'Share this karyotype with named people, or as a public view-only link',
+                graph: graph,
+                books: [
+                    { title: 'Share with people', badge: 'By email', ready: true, leaf: true, blurb: 'Name one or more email addresses; each gets a private link that opens this karyotype once they sign in — free if they have no account.', open: () => { try { shareKaryoWithPerson(); } catch (e) { dlErr('Could not open sharing: ' + e); } } },
+                    { title: 'Public view-only link', badge: 'Anyone', ready: true, blurb: 'A link anyone can open, no login, read-only.', books: () => [
+                        { note: true, title: 'A public link needs no login: anyone who has it can VIEW this karyotype, including the variants on it. Do not create a public link for identifiable or sensitive genetic data.' },
+                        { title: 'Create the public link', badge: 'Confirm', ready: true, leaf: true, blurb: 'Publish this karyotype as a read-only public link and copy it to your clipboard.', open: () => { shareKaryoPublic(); } }
+                    ] }
+                ]
+            });
+        };
+
+        // A lower-left bookmark navigator, the karyotype's version of the editor's
+        // bookmark-nav: it lists the saved views and flies to one on click (goView), with a
+        // green Download button at the bottom. Toggles: a second call takes it down. Auto-opens
+        // for a shared karyotype that carries bookmarks.
+        const bookmarkNav = () => {
+            const id = 'baja-karyo-booknav';
+            try { const ex = document.getElementById(id); if (ex && ex.parentNode) { ex.parentNode.removeChild(ex); return; } } catch (e) { }
+            const esc = (x) => ('' + (x == null ? '' : x)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const panel = document.createElement('div');
+            panel.id = id;
+            panel.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:2147482000;width:230px;max-height:52vh;display:flex;flex-direction:column;background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,0.45);font-family:Arial,Helvetica,sans-serif;overflow:hidden;';
+            const header = document.createElement('div');
+            header.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 12px;background:#0a1e3a;border-bottom:1px solid rgba(255,255,255,0.12);';
+            header.innerHTML = '<span style="font-size:16px;line-height:1;">📷</span><span style="font:700 13px Arial;flex:1;">Bookmarks</span><button id="kn-min" title="Collapse" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 15px Arial;line-height:1;padding:2px 6px;">–</button><button id="kn-x" title="Hide" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 14px Arial;line-height:1;padding:2px 6px;">✕</button>';
+            const list = document.createElement('div');
+            list.style.cssText = 'flex:1 1 auto;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px;';
+            if (!bookmarks.length) {
+                const hint = document.createElement('div');
+                hint.style.cssText = 'font:12px Arial;color:#9fb3c8;padding:6px 4px;line-height:1.5;';
+                hint.innerHTML = 'No bookmarks yet.<br>Keep a view from the <b>Bookmarks</b> button.';
+                list.appendChild(hint);
+            } else {
+                bookmarks.forEach((bk, i) => {
+                    const b = document.createElement('button');
+                    b.style.cssText = 'text-align:left;cursor:pointer;border:1px solid rgba(255,255,255,0.12);background:#0a1e3a;color:#e8f0fb;border-radius:8px;padding:8px 10px;font:13px Arial;';
+                    b.innerHTML = '<div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(bk.name || ('view ' + (i + 1))) + '</div>';
+                    b.onmouseenter = () => { b.style.background = '#123a63'; };
+                    b.onmouseleave = () => { b.style.background = '#0a1e3a'; };
+                    b.onclick = () => { try { goView(bk); } catch (e) { } };
+                    list.appendChild(b);
+                });
+            }
+            const footer = document.createElement('div');
+            footer.style.cssText = 'flex:0 0 auto;padding:8px;border-top:1px solid rgba(255,255,255,0.12);';
+            const dl = document.createElement('button');
+            dl.title = 'Download';
+            dl.style.cssText = 'width:100%;box-sizing:border-box;cursor:pointer;border:none;border-radius:8px;padding:9px 12px;font:700 13px Arial;background:#16a34a;color:#eafff2;display:flex;align-items:center;justify-content:center;gap:8px;';
+            dl.innerHTML = '<span class="material-icons" style="font-size:18px;line-height:1;">file_download</span><span>Download</span>';
+            dl.onclick = () => { try { downloadMenu(); } catch (e) { } };
+            footer.appendChild(dl);
+            let collapsed = false; try { collapsed = sessionStorage.getItem('baja.karyoBookNav.collapsed') === '1'; } catch (e) { }
+            const apply = () => { list.hidden = collapsed; footer.hidden = collapsed; try { header.querySelector('#kn-min').textContent = collapsed ? '+' : '–'; } catch (e) { } try { sessionStorage.setItem('baja.karyoBookNav.collapsed', collapsed ? '1' : '0'); } catch (e) { } };
+            panel.appendChild(header); panel.appendChild(list); panel.appendChild(footer);
+            document.body.appendChild(panel); apply();
+            header.querySelector('#kn-min').onclick = () => { collapsed = !collapsed; apply(); };
+            header.querySelector('#kn-x').onclick = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+        };
+
         const bookmarkMenu = () => {
             const here = viewOf();
             const suggested = describeView(here);
@@ -5825,7 +6014,8 @@ function (path, config) {
                     graph.setMessage(' Removed ' + (gone && gone.name ? gone.name : 'that bookmark') + '. Save the file to keep the change. ');
                 },
             }));
-            const booksFor = (name) => [keepCard(name)].concat(viewCards(), bookmarks.length ? [{
+            const panelCard = { section: 'Bookmark panel', title: 'Show / hide the bookmark panel', badge: 'panel', blurb: 'A small navigator in the lower-left corner with a Download button.', open: () => { bookmarkNav(); } };
+            const booksFor = (name) => [panelCard, keepCard(name)].concat(viewCards(), bookmarks.length ? [{
                 section: 'Saved views (' + bookmarks.length + ')',
                 title: 'Remove a bookmark\u2026', badge: bookmarks.length + ' kept',
                 blurb: 'Choose one to take out of this karyotype.',
@@ -6932,6 +7122,19 @@ function (path, config) {
                     if (nvar) step('placed ' + nvar.toLocaleString() + ' variants');
                     rememberFile(savedPath);
                     step('restored saved karyotype');
+                    // A karyotype opened from a share: greet the recipient and, if it carries
+                    // bookmarks, open the lower-left navigator so the sharer's saved views are
+                    // right there.
+                    if (__karyoShared) {
+                        try {
+                            if (__karyoShareInfo && __karyoShareInfo.failed) { graph.setError(__karyoShareInfo.message, 15); }
+                            else if (__karyoShareInfo && __karyoShareInfo.owner && !__karyoShareInfo.mine) {
+                                graph.setMessage(' ' + __karyoShareInfo.owner + ' shared this karyotype with you.'
+                                    + (bookmarks.length ? (' ' + bookmarks.length + ' saved view' + (bookmarks.length === 1 ? '' : 's') + ' — see the Bookmarks panel, lower-left.') : '') + ' ');
+                            }
+                            if (bookmarks.length) { try { bookmarkNav(); } catch (e) { } }
+                        } catch (e) { }
+                    }
                 } catch (e) {
                     step('applying the saved karyotype threw: ' + e);
                     try {
