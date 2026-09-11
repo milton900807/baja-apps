@@ -5224,7 +5224,8 @@ function (path, config) {
         HL_NAME[HL_LOF] = 'loss-of-function';
         let lossMatrix = null;          // { sample, si, genes, scanned, counts, notes, at }
         const LOF_WORDS = { frameshift: 'frameshift', stop_gained: 'stop gained', start_lost: 'start lost',
-            splice_donor: 'splice donor', splice_acceptor: 'splice acceptor' };
+            splice_donor: 'splice donor', splice_acceptor: 'splice acceptor',
+            hotspot_missense: 'hotspot missense', pathogenic_missense: 'pathogenic missense' };
         // The tumour suppressors the third-gene model screens two-loss backgrounds over,
         // plus the familiar hereditary ones: a loss among these is the one to notice first.
         const LOF_TSG = ['TP53', 'RB1', 'PTEN', 'CDKN2A', 'MTAP', 'ARID1A', 'BAP1', 'KEAP1', 'NF1', 'PBRM1',
@@ -5327,7 +5328,7 @@ function (path, config) {
         const lossGenesOrdered = () => {
             let gs = (lossMatrix && lossMatrix.genes) ? lossMatrix.genes.slice() : [];
             if (lossZygFilter === 'biallelic') gs = gs.filter((g) => ZYG_LOST[g.zygosity]);
-            const sev = { frameshift: 0, stop_gained: 1, start_lost: 2, splice_donor: 3, splice_acceptor: 4 };
+            const sev = { frameshift: 0, stop_gained: 1, start_lost: 2, splice_donor: 3, splice_acceptor: 4, hotspot_missense: 5, pathogenic_missense: 6 };
             gs.sort((a, b) => {
                 const ta = lossIsTsg(a) ? 0 : 1, tb = lossIsTsg(b) ? 0 : 1;
                 if (ta !== tb) return ta - tb;
@@ -5954,7 +5955,7 @@ function (path, config) {
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
             books.push({ section: 'Loss matrix', note: true,
-                title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; deletions and silencing are not in a VCF and are not seen here.' });
+                title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
             const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech',
                 badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'

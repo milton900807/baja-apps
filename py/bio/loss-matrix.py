@@ -11,12 +11,20 @@ coding sequence:
     start_lost      a substitution in the ATG
     splice_donor / splice_acceptor
                     an intronic change within two bases of a coding exon's edge
+    hotspot_missense
+                    a missense at a recurrent inactivating codon of a TUMOUR SUPPRESSOR
+                    (TP53 R175/R248/R273, PTEN R130, SMAD4 R361 ...)
+    pathogenic_missense
+                    a missense that ClinVar classifies Pathogenic / Likely pathogenic,
+                    again only in a tumour suppressor
 
-Those four are LOSS OF FUNCTION. Missense, in-frame indels, synonymous, UTR and intronic
-changes are counted but not called lost: a matrix that called every missense a loss would
-be a list of every gene in the genome. Deletion and silencing are NOT visible in a VCF and
-are not called here; a gene lost that way needs copy number or expression, which the
-caller is told.
+Those are LOSS OF FUNCTION. The two missense classes are restricted to tumour suppressors
+because in an oncogene a hotspot is a GAIN -- KRAS G12D activates -- and calling it a loss
+would put the wrong genes in the background. Other missense, in-frame indels, synonymous,
+UTR and intronic changes are counted but not called lost: a matrix that called every
+missense a loss would be a list of every gene in the genome. Deletion and silencing are
+NOT visible in a VCF and are not called here; a gene lost that way needs copy number or
+expression, which the caller is told.
 
 One transcript speaks for each gene: MANE Select, else Ensembl canonical, else basic,
 else the longest -- the same order every other script on this server trusts them in. A
@@ -38,6 +46,7 @@ Resolves:
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -63,15 +72,59 @@ GENOME = {
     "yeast": "data/genome/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa",
 }
 
+CLINVAR = "reference_data/variants/clinvar.vcf.gz"
+
 MAX_VARIANTS = 250_000
 SPLICE_BP = 2
-LOF = ("frameshift", "stop_gained", "start_lost", "splice_donor", "splice_acceptor")
+LOF = ("frameshift", "stop_gained", "start_lost", "splice_donor", "splice_acceptor",
+       "hotspot_missense", "pathogenic_missense")
 # Worst first, for choosing which consequence names a variant when several transcripts
 # disagree and for ordering the genes in the answer.
 SEVERITY = {"frameshift": 0, "stop_gained": 1, "start_lost": 2, "splice_donor": 3,
-            "splice_acceptor": 4, "stop_lost": 5, "inframe_indel": 6, "missense": 7,
-            "synonymous": 8, "coding_unresolved": 9, "utr": 10, "non_coding_exon": 11,
-            "intronic": 12, "intergenic": 13}
+            "splice_acceptor": 4, "hotspot_missense": 5, "pathogenic_missense": 6,
+            "stop_lost": 7, "inframe_indel": 8, "missense": 9,
+            "synonymous": 10, "coding_unresolved": 11, "utr": 12, "non_coding_exon": 13,
+            "intronic": 14, "intergenic": 15}
+
+# Genes in which a recurrent or ClinVar-pathogenic MISSENSE is a loss: tumour suppressors
+# whose hotspots are dominant-negative or inactivating. The same list build-depmap-sl.py
+# uses for the DepMap hotspot matrix, so the karyotype's loss set and the model's loss
+# calls agree about what a hotspot means.
+HOTSPOT_AS_LOSS = {
+    "TP53", "RB1", "PTEN", "CDKN2A", "MTAP", "ARID1A", "BAP1", "KEAP1", "NF1", "PBRM1", "SMAD4",
+    "SMARCA4", "STK11", "VHL", "BRCA1", "BRCA2", "APC", "ATM", "NF2", "CDH1", "PALB2", "CHEK2",
+    "MLH1", "MSH2", "MSH6", "PMS2", "KMT2D", "CREBBP", "EP300", "FBXW7", "ARID2", "ATRX",
+    "CDKN1B", "CIC", "DAXX", "KDM6A", "MEN1", "NOTCH1", "PTCH1", "RNF43", "SETD2", "TSC1",
+    "TSC2", "WT1", "AXIN1", "CASP8", "ZFHX3", "SMARCB1", "SPOP", "FUBP1",
+}
+# Recurrent inactivating codons (protein position on the MANE transcript), the ones that
+# recur across tumours often enough to be hotspots in their own right. ClinVar covers the
+# long tail; this list catches a hotspot even where ClinVar has no exact record.
+HOTSPOT_CODONS = {
+    "TP53": {175, 245, 248, 249, 273, 282, 220, 213, 196, 306, 337, 158, 163, 176, 179, 205, 234,
+             237, 238, 241, 242, 244, 266, 272, 275, 278, 280, 281, 283, 286, 132, 135, 141, 151,
+             152, 157, 193, 194, 195, 215, 216, 236, 239, 246, 250, 255, 270, 285},
+    "PTEN": {130, 173, 233, 129, 165, 34, 92, 124, 136},
+    "CDKN2A": {80, 83, 84, 74, 114, 58, 69, 72, 88, 100},
+    "SMAD4": {361, 351, 355, 386, 493, 515, 500, 445, 330},
+    "VHL": {98, 117, 161, 167, 65, 76, 78, 86, 88},
+    "FBXW7": {465, 479, 505, 278, 400, 441},
+    "SPOP": {133, 131, 125, 102, 50, 55, 87},
+    "BRCA1": {61, 1699, 1775, 1749, 1706, 1708, 1812},
+    "KEAP1": {334, 320, 483, 254, 413, 470},
+    "CDH1": {},
+    "STK11": {194, 232, 87, 297, 354},
+    "NF2": {},
+    "PTCH1": {},
+    "ATM": {2891, 3008, 2694},
+    "ARID1A": {},
+    "SMARCA4": {1162, 1196, 1232, 1243, 1250, 1256, 1272, 973, 1135, 1142, 1189},
+    "MEN1": {},
+    "CIC": {1512, 1515, 215, 1516},
+    "FUBP1": {},
+    "SETD2": {},
+    "RNF43": {},
+}
 
 CODON = {}
 _B = "TCAG"
@@ -481,6 +534,43 @@ else:
         contigs = gff.contigs()
         genome = Genome(species)
         notes = []
+        cvpath = first_existing(CLINVAR) if species == "human" else ""
+        clinvar = Tabix(cvpath) if cvpath else None
+        cv_contigs = clinvar.contigs() if clinvar else set()
+        if species == "human" and not clinvar:
+            notes.append("ClinVar is not on this server, so pathogenic missense changes could not be called; "
+                         "hotspot codons still are.")
+        HGVS_P_CODON = re.compile(r"p\.[A-Za-z]{3}(\d+)")
+        hotspot_n = 0
+
+        def clinvar_index(contig_name, lo, hi):
+            """(pos, ref, alt) -> CLNSIG for ClinVar rows in a window, pathogenic or not."""
+            idx = {}
+            if not clinvar:
+                return idx
+            cc = resolve_contig(cv_contigs, contig_name)
+            if not cc:
+                return idx
+            for f in clinvar.rows(cc, lo, hi):
+                if len(f) < 8:
+                    continue
+                info = f[7]
+                i = info.find("CLNSIG=")
+                if i < 0:
+                    continue
+                sig = info[i + 7:].split(";")[0]
+                try:
+                    pos = int(f[1])
+                except ValueError:
+                    continue
+                for alt in f[4].split(","):
+                    idx[(pos, f[3].upper(), alt.upper())] = sig
+            return idx
+
+        def is_pathogenic(sig):
+            t = (sig or "").lower()
+            return ("pathogenic" in t) and ("conflict" not in t) and ("non_pathogenic" not in t) \
+                and not t.startswith("benign") and "benign/likely_benign" not in t
         if not genome.ok():
             notes.append("The %s genome FASTA is not on this server, so substitutions could not be "
                          "translated: only frameshifts and splice-site changes are called." % species)
@@ -518,6 +608,7 @@ else:
                 lo = prep[i][0] - 1000
                 hi = prep[j][0] + max(1000, len(prep[j][1]))
                 ts = load_transcripts(gff, contig, max(1, lo), hi)
+                cv = clinvar_index(contig, max(1, lo), hi)
                 # Best transcript per gene among those overlapping this window.
                 best = {}
                 for t in ts:
@@ -543,6 +634,22 @@ else:
                         counts["intergenic"] = counts.get("intergenic", 0) + 1
                         continue
                     _sv, eff, hc, hp, t = worst
+                    # A MISSENSE IN A TUMOUR SUPPRESSOR may be a loss: at a known hotspot
+                    # codon, or where ClinVar has the exact change as pathogenic. Only in
+                    # those genes -- the same missense in an oncogene is a gain.
+                    if eff == "missense" and t.gene in HOTSPOT_AS_LOSS:
+                        sig = cv.get((pos, ref.upper(), alt.upper()))
+                        codon = None
+                        m = HGVS_P_CODON.match(hp or "")
+                        if m:
+                            codon = int(m.group(1))
+                        if codon is not None and codon in HOTSPOT_CODONS.get(t.gene, set()):
+                            eff = "hotspot_missense"
+                            hotspot_n += 1
+                        elif sig and is_pathogenic(sig):
+                            eff = "pathogenic_missense"
+                            hotspot_n += 1
+                            hp = (hp + " (ClinVar " + sig.replace("_", " ") + ")") if hp else ("ClinVar " + sig.replace("_", " "))
                     counts[eff] = counts.get(eff, 0) + 1
                     g = genes.get(t.gene)
                     if g is None:
@@ -566,6 +673,9 @@ else:
         lost.sort(key=lambda g: (SEVERITY.get(g["variants"][0]["effect"], 99), -g["n_lof"], g["gene"]))
         if not genome.ok():
             pass
+        notes.append("Hotspot and ClinVar-pathogenic missense changes count as loss in tumour suppressors only; "
+                     "a hotspot in an oncogene is a gain and is not called."
+                     + ((" %d such missense change(s) were counted." % hotspot_n) if hotspot_n else ""))
         notes.append("Deletions and silencing are not visible in a VCF: a gene lost by copy number "
                      "or expression is not in this matrix.")
         out["ok"] = True
