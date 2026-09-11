@@ -2814,6 +2814,23 @@ function (path, config) {
                                                         catch (e) { try { graph.setError('Could not open bookmarks: ' + e, 8); } catch (e2) { } }
                                                     })
                                                 },
+                                                // BACK TO THE GENOME. A design opened from the Genome
+                                                // Viewer replaced that screen in place, and the viewer
+                                                // kept its whole document for the return (see
+                                                // handToEditor in manchester/karyotype.js). The button
+                                                // exists only while there is something to go back to.
+                                                ...((window.__bajaKaryoReturn && window.__bajaKaryoReturn.doc) ? [{
+                                                    label: 'Genome Viewer', icon: 'arrow_back',
+                                                    tooltip: 'Back to the Genome Viewer, with its variants, regions, loss matrix and selection as you left them',
+                                                    ionFunction: createIonFunction(() => {
+                                                        const R = window.__bajaKaryoReturn;
+                                                        if (!R || !R.doc) { try { graph.setMessage(' No karyotype to go back to. '); } catch (e) { } return; }
+                                                        if (!window.confirm('Back to the Genome Viewer?\n\nSave this design first if you want to keep the changes made here.')) return;
+                                                        try { graph.hideMenu(); } catch (e) { }
+                                                        try { exec('manchester/karyotype', R.species || 'human', { resume: true }); }
+                                                        catch (e) { try { graph.setError('Could not open the Genome Viewer: ' + e, 8); } catch (e2) { } }
+                                                    })
+                                                }] : []),
                                                 {
                                                     // Download sits right after Navigate: once you
                                                     // have found and framed something, the next

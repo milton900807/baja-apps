@@ -411,6 +411,26 @@ function (path, config) {
             }
         }
 
+        // BACK FROM THE EDITOR. handToEditor kept this screen's whole document in memory
+        // before the editor replaced it; the editor's Genome Viewer button relaunches this
+        // with config.resume, and the karyotype comes back as it was left -- variants,
+        // regions, loss matrix, selection, bookmarks and view -- without a file round trip.
+        let __resumed = null;
+        if (!pendingDoc && config && typeof config === 'object' && config.resume) {
+            let R = null;
+            try { R = window.__bajaKaryoReturn || null; } catch (e) { R = null; }
+            if (!R || !R.doc) { try { const raw2 = sessionStorage.getItem('baja.karyoReturn'); if (raw2) R = JSON.parse(raw2); } catch (e) { R = null; } }
+            if (R && R.doc) {
+                pendingDoc = R.doc; __resumed = R;
+                showLoading(R.name || 'your karyotype');
+                setProgress(45);
+                step('resuming the karyotype kept when the editor opened');
+                try { if (R.path) window.history.replaceState({ karyotype: R.path }, 'karyotype', '/app/manchester/karyotype?path=' + R.path); } catch (e) { }
+            } else {
+                step('nothing kept to resume');
+            }
+        }
+
         // The document's species wins; the path is only a species when it is not a file.
         const preset = (pendingDoc && asSpecies(pendingDoc.species)) || asSpecies(path);
         step(preset ? ('species from the ' + (pendingDoc ? 'saved file' : 'path') + ': ' + preset)
@@ -8176,6 +8196,22 @@ function (path, config) {
             if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
             step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
             graph.setMessage(' Opening the editor… ');
+            // KEEP THIS SCREEN. The editor replaces the karyotype in place, and everything
+            // here -- the variants, regions, loss matrix, selection, bookmarks, view -- lived
+            // only in memory. The whole document goes into a slot the editor's Genome Viewer
+            // button hands back through config.resume. In memory first (a VCF can be hundreds
+            // of thousands of variants); sessionStorage as well only when it is small enough.
+            try {
+                const doc = stateDoc();
+                let kp = '';
+                try { const st = window.history.state; kp = (st && st.karyotype) ? ('' + st.karyotype) : ''; } catch (e) { kp = ''; }
+                const keep = { doc: doc, species: (r.species || 'human'), path: kp, name: kp ? baseName(kp) : '', at: Date.now() };
+                window.__bajaKaryoReturn = keep;
+                try {
+                    const js = JSON.stringify(keep);
+                    if (js.length < 3500000) sessionStorage.setItem('baja.karyoReturn', js); else sessionStorage.removeItem('baja.karyoReturn');
+                } catch (e) { }
+            } catch (e) { step('could not keep the karyotype for the way back: ' + (e && e.message ? e.message : e)); }
             const mine = graph;
             try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
             let g2 = null;
