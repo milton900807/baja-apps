@@ -767,11 +767,11 @@ function (path, config) {
                                     {
                                         // WHICH SAMPLE, WHICH HAPLOTYPE, OR WHICH CLASS. A
                                         // VCF says more than where its variants are, and
-                                        // the colour of a mark is the one channel that can
+                                        // the color of a mark is the one channel that can
                                         // show it across a whole genome at once.
-                                        label: 'Colour', icon: 'palette',
-                                        tooltip: 'Colour variants by class, sample or haplotype, and toggle annotation highlights',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); colourMenu(); })
+                                        label: 'Color', icon: 'palette',
+                                        tooltip: 'Color variants by class, sample or haplotype, and toggle annotation highlights',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); colorMenu(); })
                                     },
                                     {
                                         label: 'Bookmarks', icon: 'photo_camera',
@@ -945,7 +945,7 @@ function (path, config) {
         const SEQ_ASPECT = 0.62;     // advance width of a monospace glyph, per px of size
         const SEQ_CHUNK = 2048;      // bases per request
         const SEQ_MAX_CHUNKS = 8;    // at ~9 px a base, a screen is one or two of these
-        // The four bases in the colours sequence viewers have used for decades. Someone
+        // The four bases in the colors sequence viewers have used for decades. Someone
         // arriving from IGV or a chromatogram should not have to learn a second key.
         const BASE_COLOR = { A: '#15803d', C: '#1d4ed8', G: '#b45309', T: '#be123c', N: '#94a3b8' };
 
@@ -1383,7 +1383,7 @@ function (path, config) {
                         if (dm && dm.n) {
                             for (let k = 0; k < dm.n; k++) {
                                 const a2 = (dm.pos[k] / c.length) * Math.PI * 2 - Math.PI / 2;
-                                const col = colourOf(dm, k);
+                                const col = colorOf(dm, k);
                                 ctx.beginPath();
                                 ctx.arc(cxr + Math.cos(a2) * rad, cyr + Math.sin(a2) * rad,
                                     Math.max(1.6, rad * 0.09), 0, Math.PI * 2);
@@ -1960,7 +1960,7 @@ function (path, config) {
                         // PATENTS, DOWN THE LEFT. Log-scaled on the same rule as the
                         // variant strip opposite -- the busiest bin in the genome is the
                         // full width -- so the two sides are read the same way. Its own
-                        // colour, because it is a different fact about the same place.
+                        // color, because it is a different fact about the same place.
                         if (patHist[ci] && patMax > 0) {
                             const ph = patHist[ci];
                             const plp = Math.log(patMax + 1) || 1;
@@ -2032,7 +2032,7 @@ function (path, config) {
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
-                                const col = colourOf(d, k);
+                                const col = colorOf(d, k);
                                 if (bw > 60) {
                                     ctx.strokeStyle = col;
                                     ctx.globalAlpha = 0.9;
@@ -2146,7 +2146,7 @@ function (path, config) {
                                     ctx.fillRect(bx1 + 2, yA, 2 + maxW * f, h2);
                                 } else {
                                     // Segments in proportion to the categories in the bin,
-                                    // in category order so the colours stack the same way
+                                    // in category order so the colors stack the same way
                                     // down the whole chromosome.
                                     const hb = binsBy(d), pal = modePalette();
                                     const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
@@ -2179,18 +2179,33 @@ function (path, config) {
                                             const m4 = (a4 + z4) >> 1;
                                             if (d.pos[idx2[m4]] < lo) a4 = m4 + 1; else z4 = m4;
                                         }
+                                        // Pulsing GLOW so a marked variant reads even zoomed right
+                                        // out: the dot swells a little and casts a soft halo of its
+                                        // own colour, driven by __hlPulse (0..1, set by startHlPulse).
                                         const rr2 = Math.max(2, Math.min(4.5, bw * 0.14));
+                                        const puls = __hlPulse;
+                                        const rrG = rr2 * (1 + 0.6 * puls);
+                                        ctx.save();
+                                        ctx.shadowBlur = 5 + 13 * puls;
                                         for (let j2 = a4; j2 < idx2.length; j2++) {
                                             const k2 = idx2[j2];
                                             if (d.pos[k2] > hi) break;
                                             const yh = g.Y(wy(d.pos[k2]));
                                             if (yh < -6 || yh > ctx.canvas.height + 6) continue;
+                                            const col = HL_COLOR[d.hl[k2]] || HL_COLOR[1];
                                             ctx.beginPath();
-                                            ctx.arc(bx1 + 6, yh, rr2, 0, Math.PI * 2);
-                                            ctx.fillStyle = HL_COLOR[d.hl[k2]] || HL_COLOR[1];
+                                            ctx.arc(bx1 + 6, yh, rrG, 0, Math.PI * 2);
+                                            ctx.fillStyle = col;
+                                            ctx.shadowColor = col;
                                             ctx.fill();
                                         }
+                                        ctx.restore();
                                     } else {
+                                        const barCol = HL_COLOR[hlActive] || HL_COLOR[1];
+                                        ctx.save();
+                                        ctx.shadowBlur = 4 + 11 * __hlPulse;
+                                        ctx.shadowColor = barCol;
+                                        ctx.fillStyle = barCol;
                                         for (let b = b0; b <= b1; b++) {
                                             const nh = d.hlHist[b];
                                             if (!nh) continue;
@@ -2199,9 +2214,9 @@ function (path, config) {
                                             if (yB2 < -4 || yA2 > ctx.canvas.height + 4) continue;
                                             const h3 = Math.max(1, yB2 - yA2);
                                             const f2 = Math.log(nh + 1) / lp;
-                                            ctx.fillStyle = HL_COLOR[hlActive] || HL_COLOR[1];
-                                            ctx.fillRect(bx1 + 2, yA2, 2 + maxW * f2, h3);
+                                            ctx.fillRect(bx1 + 2, yA2, (2 + maxW * f2) * (1 + 0.25 * __hlPulse), h3);
                                         }
+                                        ctx.restore();
                                     }
                                 }
                             }
@@ -2619,37 +2634,37 @@ function (path, config) {
         const ABSENT_COLOR = '#cbd5e1';         // carried by none of them (0/0 everywhere)
         // HOW THE MARKS ARE COLOURED: by ClinVar class, by which sample carries the change,
         // or by which haplotype it is on. Picked for the file on load, and switchable.
-        let colourMode = 'class';
-        const colourOf = (d, k) => {
+        let colorMode = 'class';
+        const colorOf = (d, k) => {
             if (d.hl && d.hl[k] && HL_COLOR[d.hl[k]]) return HL_COLOR[d.hl[k]];
             if (hlActive) return DIM_COLOR;
-            if (colourMode === 'sample' && d.gtw) {
+            if (colorMode === 'sample' && d.gtw) {
                 const m = carriersOf(d, k);
                 if (!m) return ABSENT_COLOR;
                 if (m & (m - 1)) return SHARED_COLOR;
                 return SAMPLE_COLOR[Math.log2(m) | 0] || SHARED_COLOR;
             }
-            if (colourMode === 'phase' && d.gtw) {
+            if (colorMode === 'phase' && d.gtw) {
                 return PHASE_COLOR[phaseOf(d, k)] || ABSENT_COLOR;
             }
             return CLS_COLOR[d.cls[k]] || CLS_COLOR[0];
         };
         // The word that goes inside the bar beside the change, in the current mode.
         const modeAnnot = (d, k) => {
-            if (colourMode === 'sample' && d.gtw) {
+            if (colorMode === 'sample' && d.gtw) {
                 const m = carriersOf(d, k);
                 if (!m) return 'in no sample';
                 const who = SAMPLES.filter((_, si) => m & (1 << si));
                 return who.length === SAMPLES.length && who.length > 1 ? 'all samples' : who.join(' + ');
             }
-            if (colourMode === 'phase' && d.gtw) return phaseOf(d, k);
+            if (colorMode === 'phase' && d.gtw) return phaseOf(d, k);
             return '';
         };
         // The samples and their genotypes for one variant, as [name, code] pairs.
         const genotypesOf = (d, k) => SAMPLES.slice(0, d.gtw).map((nm, si) => [nm, gtOf(d, k, si)]);
 
-        // THE KEY. A colour is a claim, and a key is what makes it one that can be read: a
-        // small card in the corner naming what each colour means in the mode that is on.
+        // THE KEY. A color is a claim, and a key is what makes it one that can be read: a
+        // small card in the corner naming what each color means in the mode that is on.
         // Only shown when there is something to explain -- more than one sample, or a
         // mode other than the classes the in-bar text already spells out.
         let legendEl = null;
@@ -2698,16 +2713,16 @@ function (path, config) {
                 + '<span style="width:11px;height:11px;border-radius:50%;background:' + col + ';box-shadow:0 0 6px ' + col + ';flex:0 0 auto;"></span>'
                 + '<span>' + esc(txt) + '</span></div>';
             let title = '', rows = '';
-            if (colourMode === 'sample' && SAMPLES.length) {
-                title = 'Colour by sample';
+            if (colorMode === 'sample' && SAMPLES.length) {
+                title = 'Color by sample';
                 rows = SAMPLES.map((nm, si) => sw(SAMPLE_COLOR[si], nm + ' only')).join('');
                 if (SAMPLES.length > 1) rows += sw(SHARED_COLOR, 'in more than one sample') + sw(ABSENT_COLOR, 'in none (0/0)');
-            } else if (colourMode === 'phase' && SAMPLES.length) {
-                title = 'Colour by phase';
+            } else if (colorMode === 'phase' && SAMPLES.length) {
+                title = 'Color by phase';
                 rows = ['hap1', 'hap2', 'hom', 'het'].map((w) => sw(PHASE_COLOR[w], PHASE_NAME[w])).join('')
                     + (SAMPLES.length > 1 ? sw(PHASE_COLOR.mixed, PHASE_NAME.mixed) : '');
             } else if (SAMPLES.length > 1) {
-                title = 'Colour by ClinVar class';
+                title = 'Color by ClinVar class';
                 rows = sw(CLS_COLOR[0], 'unclassified') + sw(CLS_COLOR[1], 'pathogenic') + sw(CLS_COLOR[2], 'benign')
                     + sw(CLS_COLOR[3], 'uncertain') + sw(CLS_COLOR[4], 'conflicting');
             } else { legendWanted = false; return; }
@@ -2718,45 +2733,45 @@ function (path, config) {
                     + 'background:rgba(11,37,69,0.94);color:#e8f0fb;font:12px Arial,Helvetica,sans-serif;'
                     + 'border-radius:10px;padding:10px 14px 11px;box-shadow:0 10px 30px rgba(0,0,0,0.35);'
                     + 'border:1px solid rgba(255,255,255,0.14);pointer-events:auto;cursor:pointer;max-width:260px;';
-                el.title = 'Click to change how the variants are coloured';
+                el.title = 'Click to change how the variants are colored';
                 el.innerHTML = '<div style="font:700 12.5px Arial;">' + esc(title) + '</div>' + rows
                     + (SAMPLES.length ? '<div style="margin-top:7px;color:#9fb3c8;font-size:11px;">'
                         + esc(SAMPLES.length + ' sample' + (SAMPLES.length === 1 ? '' : 's') + ': ' + SAMPLES.join(', ')) + '</div>' : '');
-                el.onclick = () => { try { colourMenu(); } catch (e) { } };
+                el.onclick = () => { try { colorMenu(); } catch (e) { } };
                 document.body.appendChild(el);
                 legendEl = el;
             } catch (e) { legendEl = null; }
         };
-        const setColourMode = (m) => {
-            colourMode = m;
+        const setColorMode = (m) => {
+            colorMode = m;
             legendShow();
             try { if (graph.wake) graph.wake(); } catch (e) { }
         };
         // THE DENSITY STRIPS CARRY THE COLOURS TOO. Zoomed out, a chromosome shows its
         // variants as one strip per bin, and a strip that is always magenta says nothing
-        // about who carries what. So each bin is counted per colour category of the mode
+        // about who carries what. So each bin is counted per color category of the mode
         // that is on, and the strip is drawn as segments in proportion -- a bin that is
         // two-thirds haplotype 1 is two-thirds blue. Built lazily per chromosome, once
         // per mode, from the same bytes the exact drawing reads.
         const NCAT = 10;
         const PH_ORDER = ['', 'hap1', 'hap2', 'hom', 'het', 'other', 'mixed'];
         const catOf = (d, k) => {
-            if (colourMode === 'sample' && d.gtw) {
+            if (colorMode === 'sample' && d.gtw) {
                 const m = carriersOf(d, k);
                 if (!m) return 0;
                 if (m & (m - 1)) return 9;
                 return 1 + (Math.log2(m) | 0);
             }
-            if (colourMode === 'phase' && d.gtw) return Math.max(0, PH_ORDER.indexOf(phaseOf(d, k)));
+            if (colorMode === 'phase' && d.gtw) return Math.max(0, PH_ORDER.indexOf(phaseOf(d, k)));
             return d.cls[k] || 0;
         };
         const modePalette = () => {
-            if (colourMode === 'sample') return [ABSENT_COLOR].concat(SAMPLE_COLOR, [SHARED_COLOR]);
-            if (colourMode === 'phase') return [ABSENT_COLOR].concat(PH_ORDER.slice(1).map((w) => PHASE_COLOR[w]));
+            if (colorMode === 'sample') return [ABSENT_COLOR].concat(SAMPLE_COLOR, [SHARED_COLOR]);
+            if (colorMode === 'phase') return [ABSENT_COLOR].concat(PH_ORDER.slice(1).map((w) => PHASE_COLOR[w]));
             return CLS_COLOR;
         };
         const binsBy = (d) => {
-            const key = colourMode + ':' + d.gtw + ':' + d.n;
+            const key = colorMode + ':' + d.gtw + ':' + d.n;
             if (d.histBy && d.histByKey === key) return d.histBy;
             const hb = new Uint32Array(HIST_BINS * NCAT);
             const scale = HIST_BINS / d.__len;
@@ -3133,8 +3148,8 @@ function (path, config) {
         let regions = [];                                  // [{ i, lo, hi }]
         const HL_COLOR = ['', '#ee00ee', '#0ea5e9', '#7c3aed', '#0d9488', '#e11d48'];
         // While a filter is on, everything it did not match is drawn in this instead of
-        // its own colour: the point of asking "where is the protein coding" is to see
-        // that against the rest, not to hunt coloured dots in a field of coloured dots.
+        // its own color: the point of asking "where is the protein coding" is to see
+        // that against the rest, not to hunt colored dots in a field of colored dots.
         const DIM_COLOR = '#cbd5e1';
         let hlActive = 0;               // the filter currently applied, 0 for none
         const HL_NAME = ['', 'protein-coding', 'intronic', "3' UTR", "5' UTR",
@@ -3301,9 +3316,9 @@ function (path, config) {
             }
             if (!any) return null;
             // What the file has to show: samples that differ, and phase. These decide the
-            // colour mode the load lands in. The carrier PATTERN is what matters: a file
+            // color mode the load lands in. The carrier PATTERN is what matters: a file
             // in which every row is tumour-only differs on every row and still has one
-            // pattern, and colouring it by sample paints everything one colour.
+            // pattern, and coloring it by sample paints everything one color.
             if (carriers && carriers < known) count.differ = (count.differ || 0) + 1;
             if (phased) count.phased = (count.phased || 0) + 1;
             let mask = 0;
@@ -3421,8 +3436,8 @@ function (path, config) {
             // neither keeps whatever mode is on.
             let modeNote = '';
             if (count.cols && count.cols.length) {
-                if (SAMPLES.length > 1 && count.maskKinds > 1) { setColourMode('sample'); modeNote = ' Coloured by sample.'; }
-                else if (count.phased) { setColourMode('phase'); modeNote = ' Coloured by haplotype.'; }
+                if (SAMPLES.length > 1 && count.maskKinds > 1) { setColorMode('sample'); modeNote = ' Colored by sample.'; }
+                else if (count.phased) { setColorMode('phase'); modeNote = ' Colored by haplotype.'; }
                 else legendShow();
                 if (SAMPLES.length > 1 && count.maskKinds === 1) {
                     const only = +Object.keys(count.masks)[0];
@@ -4485,12 +4500,12 @@ function (path, config) {
             };
             out.view = viewOf();
             // The rest of the live state, so a reload is exactly what was saved: the sample
-            // columns and per-variant genotypes (what "colour by sample / phase" needs), the
-            // selected regions, the colour scheme, and the active highlight.
+            // columns and per-variant genotypes (what "color by sample / phase" needs), the
+            // selected regions, the color scheme, and the active highlight.
             const __hasGt = SAMPLES.length > 0;
             out.samples = SAMPLES.slice();
             out.hasGt = __hasGt;
-            out.colourMode = colourMode;
+            out.colorMode = colorMode;
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '' }));
             // The bookmarks go with the file. They are four numbers and a name each, so
@@ -4648,7 +4663,7 @@ function (path, config) {
                         x0: +b.x0, x1: +b.x1, y0: +b.y0, y1: +b.y1, at: b.at || ''
                     }));
             }
-            // Selected regions, colour scheme and the active highlight, so the reload is
+            // Selected regions, color scheme and the active highlight, so the reload is
             // exactly what was saved.
             if (Array.isArray(doc.regions)) {
                 try {
@@ -4656,8 +4671,8 @@ function (path, config) {
                         .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '' }));
                 } catch (e) { }
             }
-            if (doc.colourMode && ['class', 'sample', 'phase'].indexOf(doc.colourMode) >= 0) {
-                try { setColourMode(doc.colourMode); } catch (e) { }
+            if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
+                try { setColorMode(doc.colorMode); } catch (e) { }
             }
             if (doc.highlight) {
                 const __kmap = { 1: 'coding', 2: 'intronic', 3: 'three_utr', 4: 'five_utr', 5: 'pathogenic' };
@@ -4677,7 +4692,7 @@ function (path, config) {
         //
         // Two kinds of operation. One edits the variant set -- drop these, keep only
         // these -- and rebuilds the arrays; the other only marks, writing a code into
-        // the highlight channel so paint() colours those variants without changing
+        // the highlight channel so paint() colors those variants without changing
         // what they are.
 
         // Rebuild every chromosome's arrays keeping the variants keep() accepts. The
@@ -4777,6 +4792,39 @@ function (path, config) {
             graph.setMessage(' Highlights cleared. ');
         };
 
+        // A GLOW that PULSES while a highlight is on, so the marked variants read across the
+        // whole genome even zoomed right out. __hlPulse (0..1) drives the glow in paint(); the
+        // timer repaints a few times a second and stops itself the moment nothing is highlighted.
+        let __hlPulse = 0, __hlPulseTimer = 0;
+        const startHlPulse = () => {
+            if (__hlPulseTimer) return;
+            __hlPulseTimer = setInterval(() => {
+                if (!hlActive) { clearInterval(__hlPulseTimer); __hlPulseTimer = 0; __hlPulse = 0; try { if (graph.wake) graph.wake(); } catch (e) { } return; }
+                __hlPulse = 0.5 + 0.5 * Math.sin(Date.now() / 380);
+                try { if (graph.wake) graph.wake(); } catch (e) { }
+            }, 90);
+        };
+
+        // Highlight every variant a SAMPLE carries, genome-wide, in that sample's colour and
+        // glowing. In-memory (no server call): a variant is this sample's if it carries a
+        // non-reference call. Sample highlight codes sit above the annotation-filter codes.
+        const SAMPLE_HL_BASE = 6;
+        const highlightSample = (si) => {
+            if (si < 0 || si >= SAMPLES.length) { graph.setMessage(' No such sample. '); return; }
+            const code = SAMPLE_HL_BASE + si;
+            HL_COLOR[code] = SAMPLE_COLOR[si] || '#ee00ee';
+            HL_NAME[code] = SAMPLES[si] || ('sample ' + (si + 1));
+            for (const d of vdata) if (d.n) d.hl = new Uint8Array(d.n);
+            let marked = 0;
+            for (let ci = 0; ci < drawn.length; ci++) marked += markOn(ci, (p, k, d) => !!(carriersOf(d, k) & (1 << si)), code);
+            hlActive = marked ? code : 0;
+            reindexHighlights();
+            startHlPulse();
+            if (graph.wake) graph.wake();
+            graph.setMessage(' ' + marked.toLocaleString() + ' variant' + (marked === 1 ? '' : 's')
+                + ' carried by ' + (SAMPLES[si] || ('sample ' + (si + 1))) + ' — glowing across the genome. ');
+        };
+
         // Ask the server what a window is made of, then classify this view's own
         // variants against the answer. The intervals travel and the variants stay put.
         // Cached per chromosome and feature set, so asking a second question about the
@@ -4821,7 +4869,7 @@ function (path, config) {
         // marks were confined to a band a couple of pixels tall while everything else on
         // the karyotype greyed out -- so the visible result of asking for the pathogenic
         // SNPs was a dimmed genome with nothing lit on it. Selecting a region is not a
-        // statement about what you want coloured.
+        // statement about what you want colored.
         //
         // A whole chromosome is one query -- chr1 merges to about 21,700 coding intervals
         // -- and the answers are cached, so asking for all of them costs the same the
@@ -4835,7 +4883,7 @@ function (path, config) {
             const live = targets.filter((t) => vdata[t.i] && vdata[t.i].n);
             if (!live.length) { graph.setMessage(' There are no variants to mark. '); return; }
 
-            // A filter replaces the last one rather than adding to it: two colours at
+            // A filter replaces the last one rather than adding to it: two colors at
             // once would be a different feature, and a stale mark would be a lie.
             for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
 
@@ -6230,43 +6278,62 @@ function (path, config) {
         // COLOUR IS A LIBRARY OF THREE. The same shelf as Search and Files: one card per
         // mode, the one that is on badged so, the ones the file cannot support greyed
         // with the reason rather than missing.
-        const colourMenu = () => {
-            if (!vtotal) { graph.setMessage(' Load a VCF first: there are no variants to colour. '); return; }
+        const colorMenu = () => {
+            if (!vtotal) { graph.setMessage(' Load a VCF first: there are no variants to color. '); return; }
             const nS = SAMPLES.length;
-            const modeBadge = (m) => (colourMode === m ? 'on' : 'off');
-            // Choosing a colour scheme; clicking the one already on turns it off (back to the
-            // default ClinVar-class colours). Reopens so the on/off badges refresh.
+            const modeBadge = (m) => (colorMode === m ? 'on' : 'off');
+            // Choosing a color scheme; clicking the one already on turns it off (back to the
+            // default ClinVar-class colors). Reopens so the on/off badges refresh.
             const setMode = (m) => {
-                try { setColourMode((colourMode === m && m !== 'class') ? 'class' : m); } catch (e) { }
-                colourMenu();
+                try { setColorMode((colorMode === m && m !== 'class') ? 'class' : m); } catch (e) { }
+                colorMenu();
             };
             // The annotation highlights, now here as on/off toggles as well as under Search.
             // hlActive holds the one that is on; clicking it again clears it.
             const hlBadge = (code) => (hlActive === code ? 'on' : 'off');
             const toggleHl = async (kind, code) => {
                 try { if (hlActive === code) { clearHighlights(); } else { await applyFilter(kind, code); } } catch (e) { }
-                colourMenu();
+                colorMenu();
             };
+            // One card per sample: mark every variant that sample carries, genome-wide, in the
+            // sample's own colour and glowing so it reads when zoomed out. Clicking the one that
+            // is on clears it. Needs genotypes; without them the cards say so and stay inert.
+            const hasGt = vdata.some(d => d.gtw && d.gts);
+            const sampleGlowCards = (nS && hasGt) ? SAMPLES.map((nm, si) => ({
+                section: 'By sample (glowing)',
+                title: nm || ('Sample ' + (si + 1)),
+                badge: (hlActive === (SAMPLE_HL_BASE + si)) ? 'on' : 'off',
+                blurb: 'Glow every variant ' + (nm || ('sample ' + (si + 1))) + ' carries, right across the genome.',
+                open: () => {
+                    try { if (hlActive === (SAMPLE_HL_BASE + si)) { clearHighlights(); } else { highlightSample(si); } } catch (e) { }
+                    colorMenu();
+                },
+            })) : (nS ? [{
+                section: 'By sample (glowing)', title: 'No genotypes in this VCF', badge: '',
+                ready: false, readyNote: 'no genotypes',
+                blurb: 'This VCF has sample columns but no genotype calls, so per-sample glow is not available.',
+                open: () => { },
+            }] : []);
             try {
                 exec('baja/lib/shelf.js', {
-                    id: 'baja-karyo-colour',
-                    title: 'Colour & highlight',
+                    id: 'baja-karyo-color',
+                    title: 'Color & highlight',
                     subtitle: nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
                         : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
                     books: [
                         {
-                            section: 'Colour scheme', title: 'By ClinVar class', badge: modeBadge('class'),
+                            section: 'Color scheme', title: 'By ClinVar class', badge: modeBadge('class'),
                             blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
                             open: () => setMode('class'),
                         },
                         {
-                            section: 'Colour scheme', title: 'By sample', badge: (nS ? modeBadge('sample') : 'off'),
+                            section: 'Color scheme', title: 'By sample', badge: (nS ? modeBadge('sample') : 'off'),
                             blurb: 'Which sample carries the change' + (nS > 1 ? ': ' + SAMPLES.join(', ') : '')
                                 + '. Slate where more than one does, pale where none does.',
                             open: () => setMode('sample'), ready: nS > 0, readyNote: 'no sample columns',
                         },
                         {
-                            section: 'Colour scheme', title: 'By phase', badge: (nS ? modeBadge('phase') : 'off'),
+                            section: 'Color scheme', title: 'By phase', badge: (nS ? modeBadge('phase') : 'off'),
                             blurb: 'Haplotype 1 blue, haplotype 2 pink, homozygous purple, unphased heterozygous amber.',
                             open: () => setMode('phase'), ready: nS > 0, readyNote: 'no genotypes to phase',
                         },
@@ -6277,13 +6344,14 @@ function (path, config) {
                         { section: 'Highlight (annotation)', title: "3' UTR", badge: hlBadge(3), blurb: "Mark the variants in 3' untranslated regions.", open: () => toggleHl('three_utr', 3) },
                         { section: 'Highlight (annotation)', title: "5' UTR", badge: hlBadge(4), blurb: "Mark the variants in 5' untranslated regions.", open: () => toggleHl('five_utr', 4) },
                         { section: 'Highlight (annotation)', title: 'Pathogenic / likely pathogenic', badge: hlBadge(HL_PATHOGENIC), blurb: 'Mark the variants ClinVar calls pathogenic or likely pathogenic.', open: () => toggleHl('pathogenic', HL_PATHOGENIC) },
-                        { section: 'Highlight (annotation)', title: 'Clear highlights', badge: hlActive ? 'on' : '', ready: !!hlActive, readyNote: 'nothing highlighted', blurb: 'Take every mark off and draw the variants in their own colours again.', open: () => { try { clearHighlights(); } catch (e) { } colourMenu(); } },
+                        ...sampleGlowCards,
+                        { section: 'Highlight (annotation)', title: 'Clear highlights', badge: hlActive ? 'on' : '', ready: !!hlActive, readyNote: 'nothing highlighted', blurb: 'Take every mark off and draw the variants in their own colors again.', open: () => { try { clearHighlights(); } catch (e) { } colorMenu(); } },
                     ],
                     graph: graph,
                 });
             } catch (e) {
-                step('colour shelf threw: ' + e);
-                graph.setMessage(' Colour could not be opened: ' + (e && e.message ? e.message : e) + ' ');
+                step('color shelf threw: ' + e);
+                graph.setMessage(' Color could not be opened: ' + (e && e.message ? e.message : e) + ' ');
             }
         };
 
@@ -6317,7 +6385,7 @@ function (path, config) {
             regions = []; try { geneCache.clear(); } catch (e) { }
             bookmarks = []; activeRegion = null; hlActive = 0;
             try { SAMPLES.length = 0; } catch (e) { }
-            try { setColourMode('class'); } catch (e) { }
+            try { setColorMode('class'); } catch (e) { }
             try { reindexHighlights(); } catch (e) { }
             try { const nav = document.getElementById('baja-karyo-booknav'); if (nav && nav.parentNode) nav.parentNode.removeChild(nav); } catch (e) { }
             try { window.history.replaceState({ karyotype: '' }, 'karyotype', '/app/manchester/karyotype'); } catch (e) { }
@@ -6389,7 +6457,7 @@ function (path, config) {
                         {
                             title: 'A VCF', badge: 'variants',
                             blurb: 'Plain or bgzipped, any size: it is read in slices here and every variant is drawn. '
-                                + 'Sample and phase columns are read too, and colour the marks.',
+                                + 'Sample and phase columns are read too, and color the marks.',
                             open: () => pickFile('.vcf,.vcf.gz,.vcf.bgz,.gz,.bgz,text/vcf'),
                         },
                         {
@@ -6467,7 +6535,7 @@ function (path, config) {
                 { title: "3' UTR", badge: 'highlight', blurb: "Mark the variants in 3' untranslated regions.", open: () => applyFilter('three_utr', 3) },
                 { title: "5' UTR", badge: 'highlight', blurb: "Mark the variants in 5' untranslated regions.", open: () => applyFilter('five_utr', 4) },
                 { title: 'Pathogenic / likely pathogenic', badge: 'ClinVar', blurb: 'Mark the variants ClinVar classifies as pathogenic or likely pathogenic.', open: () => applyFilter('pathogenic', HL_PATHOGENIC) },
-                { title: 'Clear highlights', badge: 'highlight', blurb: 'Take every mark off and draw the variants in their own colours again.', open: () => clearHighlights(), ready: !!hlActive, readyNote: 'nothing highlighted' },
+                { title: 'Clear highlights', badge: 'highlight', blurb: 'Take every mark off and draw the variants in their own colors again.', open: () => clearHighlights(), ready: !!hlActive, readyNote: 'nothing highlighted' },
             ];
             try {
                 exec('baja/lib/shelf.js', {

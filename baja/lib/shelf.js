@@ -406,9 +406,13 @@ function (opts) {
                     // WHY it is unavailable, when the book says. "coming soon" is right for a
                     // feature that does not exist yet and wrong for one that is merely missing
                     // a prerequisite -- the user can act on the second and not on the first.
-                    + (ready ? '' : ('<span style="flex:0 0 auto;margin-left:auto;border-radius:999px;'
-                        + 'padding:3px 10px;font:700 11px Arial;background:rgba(255,176,32,0.16);'
-                        + 'color:#ffb020;border:1px solid rgba(255,176,32,0.45);">'
+                    + (ready ? '' : ('<span style="flex:0 1 auto;min-width:0;margin-left:auto;border-radius:12px;'
+                        + 'padding:3px 10px;font:700 11px/1.35 Arial;background:rgba(255,176,32,0.16);'
+                        + 'color:#ffb020;border:1px solid rgba(255,176,32,0.45);'
+                        // A long reason wraps inside its pill instead of running off the card edge:
+                        // it may shrink (flex:0 1), break anywhere, and word-wrap rather than stay
+                        // a single nowrap line, so it always sits within the card.
+                        + 'white-space:normal;overflow-wrap:anywhere;word-break:break-word;text-align:right;">'
                         + esc(b.readyNote || 'coming soon') + '</span>'))
                     + '</div>'
                     // The › marks a card that opens ANOTHER library rather than loading
