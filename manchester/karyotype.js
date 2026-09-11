@@ -6288,6 +6288,19 @@ function (path, config) {
                 try { setColorMode((colorMode === m && m !== 'class') ? 'class' : m); } catch (e) { }
                 colorMenu();
             };
+            // ONE BUTTON to flip the whole karyotype between its color views without hunting
+            // for the individual scheme card. It cycles through the schemes the file can
+            // actually show: ClinVar class always, and by-sample / by-phase when there are
+            // samples. Its badge names the view that is on now.
+            const schemeLabel = { class: 'ClinVar class', sample: 'By sample', phase: 'By phase' };
+            const SCHEMES = ['class'].concat(nS ? ['sample', 'phase'] : []);
+            const cycleColorView = () => {
+                const i = SCHEMES.indexOf(colorMode);
+                const next = SCHEMES[(i + 1) % SCHEMES.length];
+                try { setColorMode(next); } catch (e) { }
+                try { graph.setMessage(' Color view: ' + (schemeLabel[next] || next) + '. '); } catch (e) { }
+                colorMenu();
+            };
             // The annotation highlights, now here as on/off toggles as well as under Search.
             // hlActive holds the one that is on; clicking it again clears it.
             const hlBadge = (code) => (hlActive === code ? 'on' : 'off');
@@ -6321,6 +6334,14 @@ function (path, config) {
                     subtitle: nS ? ('This VCF has ' + nS + ' sample' + (nS === 1 ? '' : 's') + ': ' + SAMPLES.join(', ') + '.')
                         : 'This VCF carries no sample columns, so only its ClinVar classes can be shown.',
                     books: [
+                        {
+                            section: 'Color view', title: 'Toggle color view', icon: '🎨',
+                            badge: (schemeLabel[colorMode] || colorMode),
+                            blurb: 'Flip the whole karyotype through its color views'
+                                + (nS ? ' — ClinVar class, by sample, by phase' : ' (only ClinVar class is available without samples)')
+                                + '. Now showing ' + (schemeLabel[colorMode] || colorMode) + '.',
+                            open: () => cycleColorView(),
+                        },
                         {
                             section: 'Color scheme', title: 'By ClinVar class', badge: modeBadge('class'),
                             blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
