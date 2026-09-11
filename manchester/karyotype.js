@@ -1974,7 +1974,14 @@ function (path, config) {
                                                 const numW = ctx.measureText(rr.numOnly).width;
                                                 ctx.fillRect(lx0 + 5, rr.lines.length ? (top + 13) : (top + rr.rowH / 2 + 6), numW, 0.8);
                                                 const q2 = rr.cl.members[0].q;
-                                                patLabelHits.push({ x: lx0, y: top, w: rr.boxW, h: rr.rowH, id: '' + (q2.id || ''), label: '' + (q2.label || '') });
+                                                patLabelHits.push({
+                                                    x: lx0, y: top, w: rr.boxW, h: rr.rowH,
+                                                    id: '' + (q2.id || ''), label: '' + (q2.label || ''),
+                                                    title: q2.title || '', filed: q2.filed || '', granted: q2.granted || '',
+                                                    assignee: q2.assignee || '', hits: q2.hits, transcripts: q2.transcripts,
+                                                    where: c.name + ':' + human(Math.max(1, Math.floor(+q2.start || 0)))
+                                                        + '-' + human(Math.ceil(+q2.end || 0)),
+                                                });
                                             } else {
                                                 patLabelHits.push({
                                                     x: lx0, y: top, w: rr.boxW, h: rr.rowH, cluster: true, ci: ci,
@@ -4344,10 +4351,11 @@ function (path, config) {
                 // aimed at the words.
                 const pl = patLabelAt(SX(x), SY(y));
                 if (pl) {
-                    // A summary label opens the full list for the stretch it covers; a single
-                    // label opens that publication.
-                    if (pl.cluster) { await patOpen({ ci: pl.ci, lo: pl.lo, hi: pl.hi, n: pl.n }); }
-                    else { patOpenPublication(pl); }
+                    // Clicking the metadata opens a LIBRARY: a summary label lists every patent
+                    // over that stretch, each drilling into its record; a single label opens
+                    // that patent's record directly. The record's leaf opens the publication.
+                    if (pl.cluster) { await patentInfoCluster({ ci: pl.ci, lo: pl.lo, hi: pl.hi, n: pl.n }); }
+                    else { patentInfoOne(pl, pl.where); }
                     return;
                 }
                 // THE PATENT STRIP, on the other side of the bar from everything else.
@@ -5107,6 +5115,91 @@ function (path, config) {
             catch (e) {
                 graph.setMessage(' Could not open ' + url + ' — the browser blocked it. ');
             }
+        };
+
+        // ONE PATENT AS A LIBRARY. Clicking a patent label opens this shelf: the record
+        // (number, assignee, title, filing/grant dates, how much sequence it claims and
+        // where) as prose, then a leaf that opens the publication itself. Built as `books`
+        // so it can be shown on its own OR drilled into from the cluster shelf below, with a
+        // Back either way.
+        const patentDetailBooks = (p, where) => {
+            const num = ('' + (p.label || ('US' + (p.id || '')))).split(' ')[0];
+            const assignee = p.assignee
+                || ('' + (p.label || '')).split(' ').slice(1).join(' ');
+            const books = [];
+            if (p.title) books.push({ section: 'Patent', note: true, blurb: p.title });
+            books.push({ section: 'Patent', note: true, blurb: 'Publication  ·  ' + num });
+            if (assignee) books.push({ note: true, blurb: 'Assignee  ·  ' + assignee });
+            if (p.filed) books.push({ note: true, blurb: 'Filed  ·  ' + p.filed });
+            if (p.granted) books.push({ note: true, blurb: 'Granted  ·  ' + p.granted });
+            if (p.hits != null && p.hits !== '') {
+                books.push({
+                    note: true, blurb: (+p.hits).toLocaleString() + ' sequence hit' + ((+p.hits) === 1 ? '' : 's')
+                        + (p.transcripts ? ' over ' + p.transcripts + ' transcript' + ((+p.transcripts) === 1 ? '' : 's') : '')
+                });
+            }
+            if (where) books.push({ note: true, blurb: 'Location  ·  ' + where });
+            books.push({
+                section: 'Open', title: 'Open on Google Patents', icon: '↗',
+                blurb: 'The full publication — claims, description, and patent family — on patents.google.com.',
+                open: () => patOpenPublication({ id: p.id }),
+            });
+            return books;
+        };
+        const patentInfoOne = (p, where) => {
+            const num = ('' + (p.label || ('US' + (p.id || '')))).split(' ')[0];
+            const assignee = p.assignee || ('' + (p.label || '')).split(' ').slice(1).join(' ');
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-patent-info',
+                    title: num + (assignee ? '  —  ' + assignee : ''),
+                    subtitle: p.title || 'Patent record',
+                    books: patentDetailBooks(p, where),
+                    graph: graph,
+                });
+            } catch (e) { graph.setMessage(' The patent library could not open: ' + (e && e.message ? e.message : e) + ' '); }
+        };
+        // SEVERAL PATENTS (a summary label) AS A LIBRARY. Fetches the list for the stretch
+        // and shows one card per patent; each drills into its own record shelf above.
+        const patentInfoCluster = async (h) => {
+            const c = drawn[h.ci];
+            const where = c.name + ':' + human(h.lo) + '-' + human(h.hi);
+            graph.setMessage(' Reading the patents over ' + where + '… ');
+            let rs = null;
+            try {
+                const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                rs = await exec(server + '/py/bio/patents-at.py', em,
+                    c.name.replace(/^chr/, ''), String(h.lo), String(h.hi),
+                    PAT_NAME_KEY, (r.species || 'human'), '200');
+            } catch (e) { rs = null; step('patents-at (cluster) threw: ' + e); }
+            if (!rs || !rs.ok) { graph.setMessage(' The patents there could not be read. '); return; }
+            let list = [];
+            try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; }
+            const heading = (rs.count || list.length) + ' patent' + ((rs.count || list.length) === 1 ? '' : 's') + ' over ' + where;
+            const books = list.map((p) => {
+                const num = ('' + (p.label || ('US' + (p.id || '')))).split(' ')[0];
+                const assignee = p.assignee || ('' + (p.label || '')).split(' ').slice(1).join(' ');
+                return {
+                    section: heading,
+                    title: num + (assignee ? '  —  ' + assignee : ''),
+                    blurb: p.title || '',
+                    badge: (p.hits != null && p.hits !== '') ? ((+p.hits) + ' hit' + ((+p.hits) === 1 ? '' : 's')) : '',
+                    books: () => patentDetailBooks(p, where),
+                };
+            });
+            if (!books.length) books.push({ note: true, blurb: 'No named patent claims sequence here.' });
+            if ((rs.count || 0) > list.length) {
+                books.push({ note: true, blurb: (rs.count - list.length) + ' further patents claim sequence here; the busiest ' + list.length + ' are listed.' });
+            }
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-patent-info',
+                    title: 'Patents over ' + where,
+                    subtitle: (rs.hits || 0).toLocaleString() + ' sequence hits in this window',
+                    books: books,
+                    graph: graph,
+                });
+            } catch (e) { graph.setMessage(' The patent library could not open: ' + (e && e.message ? e.message : e) + ' '); }
         };
 
         // THE PATENT STRIP, IF THE POINTER IS ON IT. It is drawn in the gutter to the LEFT
