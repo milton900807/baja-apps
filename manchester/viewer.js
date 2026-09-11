@@ -21,6 +21,21 @@ function (path, config) {
         const progressBar = (pct) => { try { __spin.progress(pct); } catch (e) { } };
         try { progressBar(0); } catch (e) { }
 
+        // THE PUBLIC IP VIEWER. /public/ip redirects here with ?ip=1. This route is
+        // auth-exempt, so it opens the human genome with the patent (IP) layer, no login and
+        // no file — the karyotype module does the rest from { ipPublic: true }.
+        let __ip = false;
+        try { __ip = new URL(window.location.href).searchParams.get('ip') === '1'; } catch (e) { }
+        if (__ip) {
+            try { __spin.stop(); } catch (e) { }
+            try { window.__bajaFreeTier = true; } catch (e) { }
+            try {
+                const __clean = window.location.origin + '/app/manchester/viewer?ip=1';
+                if (window.location.href !== __clean) window.history.replaceState({}, document.title, __clean);
+            } catch (e) { }
+            return await exec('manchester/karyotype', 'human', { shared: true, ipPublic: true });
+        }
+
         // Resolve the .baja path. PREFER a share CODE (?s=…) resolved server-side, so the
         // owner's email (embedded in the path) never appears in the browser URL. Fall back
         // to the path arg, config.path, or a legacy ?path= link.

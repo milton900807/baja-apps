@@ -52,6 +52,11 @@ function (path, config) {
             let __sub = await exec('lib/subscription.js');
             if ((await __sub.enforce(true)) === false) return;
         }
+        // THE PUBLIC IP VIEWER. Launched by manchester/viewer.js (auth-exempt) with
+        // { ipPublic: true }: the human genome with the patent (IP) layer on, a cut-down
+        // toolbar, and a bookmark per chromosome so a visitor can step in and out. No login
+        // and nothing to save. `config.shared` (set alongside it) already opened the gate.
+        const __ipPublic = !!(config && typeof config === 'object' && config.ipPublic);
 
         // EVERY STAGE SAYS SO. This view has now failed twice in ways that look identical
         // from the outside -- an empty screen with no exception -- once for a canvas that was
@@ -692,6 +697,37 @@ function (path, config) {
             },
         ];
 
+        // THE PUBLIC IP TOOLBAR: only Search, Bookmarks, Pan, Info and Login. Bookmarks opens
+        // the lower-left navigator (the auto-created per-chromosome views), not the save/edit
+        // menu; Login leaves for gene.clinic. Same closures the full toolbar uses.
+        const __ipButtons = [
+            {
+                label: 'Search', icon: 'search',
+                tooltip: 'Find a gene, or show the patents',
+                ionFunction: createIonFunction(() => { if (armed) pan(); searchMenu(); })
+            },
+            {
+                label: 'Bookmarks', icon: 'photo_camera',
+                tooltip: 'Zoom into each chromosome, or back to the whole genome',
+                ionFunction: createIonFunction(() => { if (armed) pan(); try { bookmarkNav(); } catch (e) { } })
+            },
+            {
+                label: 'Pan', icon: 'open_with',
+                tooltip: 'Drag to move, scroll to zoom',
+                ionFunction: createIonFunction(() => { try { pan(); } catch (e) { } try { graph.setMessage(' Drag to move, scroll to zoom. '); } catch (e) { } })
+            },
+            {
+                label: 'Info', icon: 'info_outline',
+                tooltip: 'What is loaded: patents, genes, chromosomes',
+                ionFunction: createIonFunction(() => { if (armed) pan(); infoPanel(); })
+            },
+            {
+                label: 'Login', icon: 'login',
+                tooltip: 'Sign in at gene.clinic',
+                ionFunction: createIonFunction(() => { try { window.location.href = 'https://gene.clinic/'; } catch (e) { } })
+            },
+        ];
+
         // The SAME nesting editor.js uses: a geneGraphPanel card holding the toolbar row and
         // the canvas row, wrapped in a mainPanel card. Flattening the two into one card is
         // the obvious simplification and it is not what the renderer is fed anywhere else, so
@@ -706,7 +742,7 @@ function (path, config) {
                         'component': {
                             wid: 'button-menu',
                             data: {
-                                buttons: [
+                                buttons: __ipPublic ? __ipButtons : [
                                     {
                                         // THE FOLDER IS THE WHOLE FILE MENU NOW: open, save,
                                         // remove. Save had its own button beside this one, which
@@ -7660,6 +7696,35 @@ function (path, config) {
                             + 'restored: ' + (e && e.message ? e.message : e) + ' ');
                     } catch (e2) { }
                 }
+            }
+
+            // THE PUBLIC IP VIEWER auto-setup: turn the patent (IP) layer on, drop a bookmark
+            // on the whole genome and on every chromosome, and open the lower-left navigator so
+            // a visitor can zoom into each chromosome and back out. Bookmark rects follow
+            // viewOf()'s convention: y0 is ymin (the bottom, negative-downward) and y1 is ymax
+            // (the top, near base 0).
+            if (__ipPublic) {
+                try { await patLoad(); } catch (e) { step('ip patLoad threw: ' + e); }
+                try {
+                    bookmarks = [];
+                    bookmarks.push({
+                        name: 'Whole genome',
+                        x0: -0.4 * SLOT, x1: (drawn.length + 0.4) * SLOT,
+                        y0: -maxMb * 1.12, y1: maxMb * 0.06, at: ''
+                    });
+                    for (let ci = 0; ci < drawn.length && bookmarks.length < BOOKMARK_CAP; ci++) {
+                        const c = drawn[ci];
+                        const lenMb = (c.length || 0) / MB;
+                        const padMb = Math.max(0.3, lenMb * 0.06);
+                        bookmarks.push({
+                            name: c.name,
+                            x0: barLeft(ci) - 0.35 * SLOT, x1: barRight(ci) + 0.35 * SLOT,
+                            y0: -(lenMb + padMb), y1: padMb, at: ''
+                        });
+                    }
+                } catch (e) { step('ip bookmarks threw: ' + e); }
+                try { bookmarkNav(); } catch (e) { }
+                try { graph.setMessage(' Human genome patent landscape — the IP layer is on. Use Bookmarks (lower-left) to zoom into each chromosome. '); } catch (e) { }
             }
         });
         graph.setMessage(' ' + (r.species || wanted) + ' ' + (r.assembly ? '(' + r.assembly + ') ' : '')
