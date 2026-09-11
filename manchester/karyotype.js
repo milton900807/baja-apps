@@ -753,6 +753,11 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); bookmarkMenu(false); })
                                     },
                                     {
+                                        label: 'Download', icon: 'file_download', color: '#16a34a',
+                                        tooltip: 'Download variants as BED, JSON, CSV, XLSX or PDF',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); downloadMenu(); })
+                                    },
+                                    {
                                         label: 'Fit', icon: 'fit_screen',
                                         tooltip: 'Frame the whole genome again',
                                         ionFunction: createIonFunction(async () => { await fit(); pan(); })
@@ -5644,6 +5649,141 @@ function (path, config) {
         // The name of a new bookmark is typed in the shelf's own box: the box is wired
         // as a search, so what is typed does not filter the cards away -- it relabels
         // the keep card, which saves under that name. Untyped, the view names itself.
+        // ---- DOWNLOAD LIBRARY --------------------------------------------------------------
+        // The same idiom as the editor's Download (baja/lib/shelf.js): whole genome -> a
+        // chromosome -> the selected regions, each ending in a format. Variants are the payload;
+        // BED/JSON/CSV are built here, XLSX/PDF by /export-table. Huge variant sets are capped so
+        // a browser is never asked to build millions of rows.
+        const DL_ROW_CAP = 200000;       // in-browser BED/JSON/CSV
+        const DL_SERVER_CAP = 50000;     // XLSX/PDF via /export-table
+        const dlHost = window['env']['apiUrl'];
+        const dlSafe = (x) => ('' + (x == null ? '' : x)).replace(/[^A-Za-z0-9_\- .]+/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'karyotype';
+        const dlMsg = (m) => { try { if (graph && graph.setMessage) graph.setMessage(' ' + m + ' '); } catch (e) { } };
+        const dlErr = (m) => { try { if (graph && graph.setError) graph.setError(m, 8); else dlMsg(m); } catch (e) { } };
+        const dlSaveText = (text, filename, mime) => {
+            try {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8;' }));
+                a.download = filename; a.style.display = 'none';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+            } catch (e) { dlErr('Could not start the download: ' + e); }
+        };
+        const dlSaveB64 = (b64, filename, mime) => {
+            try {
+                const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
+                a.download = filename; a.style.display = 'none';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+            } catch (e) { dlErr('Could not save the file: ' + e); }
+        };
+        const dlCell = (v) => { let x = (v == null) ? '' : ('' + v); if (/[",\n\r]/.test(x)) x = '"' + x.replace(/"/g, '""') + '"'; return x; };
+        const dlColumns = (rows) => { const seen = []; for (const r of rows) for (const k in r) if (seen.indexOf(k) < 0) seen.push(k); return seen; };
+        const dlToCSV = (rows) => { const c = dlColumns(rows); return c.map(dlCell).join(',') + '\n' + rows.map((r) => c.map((k) => dlCell(r[k])).join(',')).join('\n'); };
+        const dlToBED = (rows) => rows.filter((b) => b && b.chrom && b.start !== '' && b.end !== '')
+            .map((b) => [b.chrom, b.start, b.end, ('' + (b.name == null || b.name === '' ? '.' : b.name)).replace(/\s+/g, '_'), '.', '.'].join('\t')).join('\n') + '\n';
+
+        const dlVariantRow = (ci, k) => {
+            const d = vdata[ci]; const ab = allelesAt(ci, k);
+            return { chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                significance: (function () { try { return sigOf(d, k) || ''; } catch (e) { return CLS_SIG[d.cls[k]] || ''; } })(),
+                name: (d.names && d.names[k]) || '' };
+        };
+        const dlVariantBed = (ci, k) => {
+            const d = vdata[ci];
+            return { chrom: drawn[ci].name, start: Math.max(0, (d.pos[k] | 0) - 1), end: (d.pos[k] | 0),
+                name: (d.names && d.names[k]) || (drawn[ci].name + ':' + d.pos[k]) };
+        };
+        // Collect up to `cap` variant indices for a set of chromosomes, optionally clipped to
+        // regions. Returns { pairs:[[ci,k]...], total, truncated }.
+        const dlCollect = (chromList, regionList, cap) => {
+            const pairs = []; let total = 0, truncated = false;
+            const inReg = (ci, pos) => { if (!regionList) return true; for (const r of regionList) { if (r.i === ci && pos >= r.lo && pos <= r.hi) return true; } return false; };
+            for (const ci of chromList) {
+                const d = vdata[ci]; if (!d || !d.n || !d.pos) continue;
+                for (let k = 0; k < d.n; k++) {
+                    if (regionList && !inReg(ci, d.pos[k])) continue;
+                    total++;
+                    if (pairs.length < cap) pairs.push([ci, k]); else truncated = true;
+                }
+            }
+            return { pairs: pairs, total: total, truncated: truncated };
+        };
+        const dlCountVariants = (chromList, regionList) => {
+            let total = 0;
+            const inReg = (ci, pos) => { if (!regionList) return true; for (const r of regionList) { if (r.i === ci && pos >= r.lo && pos <= r.hi) return true; } return false; };
+            for (const ci of chromList) { const d = vdata[ci]; if (!d || !d.n || !d.pos) continue; if (!regionList) { total += d.n; continue; } for (let k = 0; k < d.n; k++) if (inReg(ci, d.pos[k])) total++; }
+            return total;
+        };
+        const dlAllChroms = () => drawn.map((c, i) => i);
+        const dlSpecies = () => { try { return (r && r.species) || wanted || 'genome'; } catch (e) { return 'genome'; } };
+        const dlAssembly = () => { try { return ('' + ((r && r.assembly) || '')); } catch (e) { return ''; } };
+
+        const dlRunFormat = async (scope, fmt) => {
+            try {
+                const cap = (fmt === 'xlsx' || fmt === 'pdf') ? DL_SERVER_CAP : DL_ROW_CAP;
+                const col = dlCollect(scope.chroms, scope.regions || null, cap);
+                if (!col.pairs.length) { dlMsg('Nothing to download in that selection.'); return; }
+                if (col.truncated) dlMsg('Large set — downloading the first ' + cap.toLocaleString() + ' of ' + col.total.toLocaleString() + ' variants.');
+                if (fmt === 'json') { dlSaveText(JSON.stringify(col.pairs.map((p) => dlVariantRow(p[0], p[1])), null, 2), scope.base + '.json', 'application/json'); return; }
+                if (fmt === 'csv') { dlSaveText(dlToCSV(col.pairs.map((p) => dlVariantRow(p[0], p[1]))), scope.base + '.csv', 'text/csv'); return; }
+                if (fmt === 'bed') { dlSaveText(dlToBED(col.pairs.map((p) => dlVariantBed(p[0], p[1]))), scope.base + '.bed', 'text/plain'); return; }
+                if (fmt === 'xlsx' || fmt === 'pdf') {
+                    dlMsg('Building the ' + fmt.toUpperCase() + '…');
+                    const rows = col.pairs.map((p) => dlVariantRow(p[0], p[1]));
+                    const r = await POSTJSON({ format: fmt, filename: scope.base, title: scope.title, sheets: [{ name: 'Variants', rows: rows }] }, dlHost + '/export-table');
+                    const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
+                    if (body && body.b64) { dlSaveB64(body.b64, body.filename || (scope.base + '.' + fmt), body.mime); dlMsg((body.filename || scope.base) + ' downloaded.'); }
+                    else { dlErr('Could not build the ' + fmt.toUpperCase() + ': ' + ((body && (body.error || body.message)) || 'server error')); }
+                }
+            } catch (e) { dlErr('Download failed: ' + e); }
+        };
+        const dlFormatBooks = (scope) => {
+            const n = dlCountVariants(scope.chroms, scope.regions || null);
+            const heavy = n > DL_SERVER_CAP;
+            const books = [
+                { title: 'BED', badge: '.bed', leaf: true, ready: true, blurb: 'Genomic positions, tab-separated.', open: () => dlRunFormat(scope, 'bed') },
+                { title: 'JSON', badge: '.json', leaf: true, ready: true, blurb: 'The variant records.', open: () => dlRunFormat(scope, 'json') },
+                { title: 'CSV', badge: '.csv', leaf: true, ready: true, blurb: 'One row per variant.', open: () => dlRunFormat(scope, 'csv') },
+                { title: 'Excel (XLSX)', badge: '.xlsx', leaf: true, ready: !heavy, readyNote: 'Too many variants for a spreadsheet — narrow to a chromosome or region.', blurb: 'A spreadsheet of the variants.', open: () => dlRunFormat(scope, 'xlsx') },
+                { title: 'PDF', badge: '.pdf', leaf: true, ready: !heavy, readyNote: 'Too many variants for a PDF — narrow to a chromosome or region.', blurb: 'A printable listing.', open: () => dlRunFormat(scope, 'pdf') }
+            ];
+            return books;
+        };
+        const downloadMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const base = dlSafe(dlSpecies() + (dlAssembly() ? ('_' + dlAssembly()) : ''));
+            const genomeScope = { chroms: dlAllChroms(), base: base + '_variants', title: dlSpecies() + ' — all variants' };
+            const books = [];
+            const totalN = vtotal || dlCountVariants(dlAllChroms(), null);
+            books.push({ section: 'Download genome', note: true, title: 'Every variant on the karyotype (' + (totalN ? totalN.toLocaleString() : '0') + ') — pick a format:' });
+            dlFormatBooks(genomeScope).forEach((b) => books.push(Object.assign({}, b, { section: 'Download genome' })));
+            if (Array.isArray(regions) && regions.length) {
+                const rScope = { chroms: Array.from(new Set(regions.map((r) => r.i))), regions: regions.slice(), base: base + '_regions', title: dlSpecies() + ' — selected regions' };
+                books.push({ section: 'Selected regions', note: true, title: 'The variants inside the ' + regions.length + ' selected region' + (regions.length === 1 ? '' : 's') + ':' });
+                dlFormatBooks(rScope).forEach((b) => books.push(Object.assign({}, b, { section: 'Selected regions' })));
+            }
+            const withV = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
+            if (withV.length) {
+                books.push({ section: 'By chromosome', note: true, title: 'Download one chromosome:' });
+                withV.forEach((i) => books.push({
+                    section: 'By chromosome', title: drawn[i].name, badge: (vdata[i].n.toLocaleString()), ready: true,
+                    blurb: vdata[i].n.toLocaleString() + ' variant' + (vdata[i].n === 1 ? '' : 's'),
+                    books: () => dlFormatBooks({ chroms: [i], base: base + '_' + dlSafe(drawn[i].name), title: dlSpecies() + ' — ' + drawn[i].name })
+                }));
+            }
+            exec('baja/lib/shelf.js', {
+                id: 'baja-karyo-download',
+                title: 'Download',
+                subtitle: 'Download the karyotype variants — whole genome, a chromosome, or the selected regions',
+                graph: graph,
+                books: books
+            });
+        };
+
         const bookmarkMenu = () => {
             const here = viewOf();
             const suggested = describeView(here);
