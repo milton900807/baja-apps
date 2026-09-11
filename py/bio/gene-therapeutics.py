@@ -155,8 +155,8 @@ else:
             notes.append("part %d failed: %s" % (bi + 1, ex))
     if failed:
         notes.append("No answer for: " + ", ".join(sorted(set(failed))[:40]) + ("…" if len(set(failed)) > 40 else ""))
-    notes.append("Read by %s from the literature it knows; labels are fixed so the Refine panel can filter on them. "
-                 "Publications are given for checking, never as proof: confirm a paper before relying on it." % ANTHROPIC_MODEL)
+    notes.append("Labels are fixed so the Refine panel can filter on them. Publications are given for checking, "
+                 "never as proof: confirm a paper before relying on it.")
     out["ok"] = bool(res)
     if not res:
         out["error"] = out["error"] or "no gene could be annotated"

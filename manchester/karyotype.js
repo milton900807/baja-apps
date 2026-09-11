@@ -6376,7 +6376,7 @@ function (path, config) {
                     + (activeFilterCount() ? ' Refined to ' + genes.length + ' of ' + allG.length + ' (' + filtersSummary() + ').' : '')
                     + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
             if (allG.length > 10 || activeFilterCount()) books.push({ section: 'Loss matrix', title: 'Refine gene list', badge: activeFilterCount() ? (activeFilterCount() + ' filter' + (activeFilterCount() === 1 ? '' : 's') + ' · ' + genes.length + ' of ' + allG.length) : (allG.length + ' genes'), icon: 'filter_alt',
-                blurb: 'Narrow the list by zygosity, variant consequence, cancer-gene class, therapeutic interpretation, evidence level or expression. Classification and therapeutic evidence are looked up on demand, the latter through Claude and the literature.',
+                blurb: 'Narrow the list by zygosity, variant consequence, cancer-gene class, therapeutic interpretation, evidence level or expression. Classification and therapeutic evidence are looked up on demand from curated lists, DepMap and the published literature.',
                 ready: true, open: () => refineMenu() });
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
@@ -6461,7 +6461,7 @@ function (path, config) {
             try {
                 const ctx = (r.species || 'human') + ' tumour sample ' + (lossMatrix.sample || '') + '; other losses: '
                     + (lossMatrix.genes || []).filter(lossIsTsg).map((g) => g.gene).slice(0, 12).join(', ');
-                graph.setMessage(' Asking Claude about ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — about ' + Math.ceil(genes.length / 20) * 10 + ' s… ');
+                graph.setMessage(' Reading the therapeutic literature for ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — about ' + Math.ceil(genes.length / 20) * 10 + ' s… ');
                 const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: genes, context: ctx }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no evidence came back');
                 const got = JSON.parse(rs.genes || '{}');
@@ -6493,10 +6493,10 @@ function (path, config) {
             books.push({ section: 'Look things up', title: hasAnnot ? 'Reclassify genes' : 'Classify genes', badge: hasAnnot ? 'done' : 'needed for class filters', icon: 'category', ready: !annotBusy,
                 blurb: 'Tumor suppressor, oncogene, DNA repair, immune regulation from curated lists; cancer dependency from DepMap knockout effects. Quick, no model.',
                 open: async () => { await runGeneAnnotations(); refineMenu(); } });
-            books.push({ section: 'Look things up', title: 'Find therapeutic evidence with Claude — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
+            books.push({ section: 'Look things up', title: 'Find therapeutic evidence — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
                 blurb: 'For each lost gene: is the loss a synthetic-lethal vulnerability, a target through the remaining allele, a biomarker of sensitivity or resistance; existing drugs, trials, and the publications behind it, with an evidence level. About 10 s per 20 genes.',
                 open: async () => { await runGeneTherapeutics(false); refineMenu(); } });
-            books.push({ section: 'Look things up', title: 'Find therapeutic evidence with Claude — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
+            books.push({ section: 'Look things up', title: 'Find therapeutic evidence — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
                 blurb: 'The same lookup for the selection only.', open: async () => { await runGeneTherapeutics(true); refineMenu(); } });
             books.push({ section: 'Look things up', title: 'Show therapeutic evidence', badge: nTher ? nTher + ' genes' : '', icon: 'library_books', ready: nTher > 0, readyNote: 'no evidence read yet',
                 blurb: 'Gene by gene: interpretation, evidence level, inhibitors, trials, publications.', open: () => therMenu() });
@@ -6524,7 +6524,7 @@ function (path, config) {
             const THER_LABEL = {}; FILTER_GROUPS[3].options.forEach(([v, l]) => { THER_LABEL[v] = l; });
             const EVID_LABEL = {}; FILTER_GROUPS[4].options.forEach(([v, l]) => { EVID_LABEL[v] = l; });
             const books = [];
-            books.push({ section: 'Therapeutic evidence', note: true, title: genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' with evidence read' + (lossMatrix.therModel ? ' by ' + lossMatrix.therModel : '') + '.' + (lossMatrix.therNotes && lossMatrix.therNotes.length ? ' ' + lossMatrix.therNotes.join(' ') : '') });
+            books.push({ section: 'Therapeutic evidence', note: true, title: genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' with therapeutic evidence from the published literature.' + (lossMatrix.therNotes && lossMatrix.therNotes.length ? ' ' + lossMatrix.therNotes.join(' ') : '') });
             books.push({ section: 'Therapeutic evidence', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: genes.length > 0, readyNote: 'nothing to download',
                 blurb: 'One row per gene: labels, evidence, inhibitors, trials, publications, summary.',
                 open: () => { try { dlSaveText(dlToCSV(genes.map((g) => { const t = T[('' + g.gene).toUpperCase()]; return { gene: g.gene, zygosity: g.zygosity || '', therapeutic: (t.therapeutic || []).join('; '), evidence: (t.evidence || []).join('; '), inhibitors: (t.inhibitors || []).map((x) => x.name + (x.stage ? ' (' + x.stage + ')' : '')).join('; '), trials: t.trials || '', publications: (t.publications || []).map((p) => p.first_author + ' ' + p.year + ' — ' + p.title).join(' | '), summary: t.summary || '' }; })), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_therapeutic_evidence') + '.csv', 'text/csv'); dlMsg('Evidence downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
