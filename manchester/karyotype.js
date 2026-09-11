@@ -3059,16 +3059,56 @@ function (path, config) {
         let patBusy = false;
         let patNote = '';
         let patLeaders = null;          // chrom name -> { assignee, patents, total }
+
+        // LOADING FEEDBACK. The server calls that fill in as the view moves -- the patent
+        // density and winners, the per-window patent labels, the per-window genes -- are async
+        // and silent, so a visitor sees nothing happening while they arrive. A small pill at
+        // the top of the canvas says what is loading, driven by counts of in-flight requests
+        // per kind, and disappears when the counts fall to zero.
+        const __loadCount = { patents: 0, genes: 0 };
+        const __renderLoadBadge = () => {
+            try {
+                const id = 'baja-karyo-loading';
+                const parts = [];
+                if (__loadCount.patents > 0) parts.push('patents');
+                if (__loadCount.genes > 0) parts.push('genes');
+                let el = document.getElementById(id);
+                if (!parts.length) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+                if (!document.getElementById('baja-kload-style')) {
+                    const st = document.createElement('style'); st.id = 'baja-kload-style';
+                    st.textContent = '@keyframes baja-kload-spin{to{transform:rotate(360deg)}}';
+                    document.head.appendChild(st);
+                }
+                if (!el) {
+                    el = document.createElement('div'); el.id = id;
+                    el.style.cssText = 'position:fixed;top:54px;left:50%;transform:translateX(-50%);z-index:2147482500;'
+                        + 'background:rgba(11,37,69,0.94);color:#e8f0fb;font:600 12px Arial;padding:6px 13px;'
+                        + 'border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.16);'
+                        + 'display:flex;align-items:center;gap:8px;pointer-events:none;';
+                    document.body.appendChild(el);
+                }
+                el.innerHTML = '<span style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);'
+                    + 'border-top-color:#4fd0e6;border-radius:50%;display:inline-block;animation:baja-kload-spin 0.8s linear infinite;"></span>'
+                    + '<span>Loading ' + parts.join(' & ') + '…</span>';
+            } catch (e) { }
+        };
+        const __setLoad = (kind, on) => {
+            __loadCount[kind] = Math.max(0, (__loadCount[kind] || 0) + (on ? 1 : -1));
+            __renderLoadBadge();
+        };
+
         // The per-chromosome winner is precomputed and cached on the server, so this is a
         // lookup. Fetched once alongside the density; failure is silent (the labels just
         // do not appear).
         const patLeadersAsk = async () => {
             if (patLeaders) return;
+            __setLoad('patents', true);
             try {
                 const em = new EngineMonitor(() => { });
                 const rs = await exec(server + '/py/bio/patent-leaders.py', em, PAT_NAME_KEY, (r.species || 'human'));
                 if (rs && rs.ok) { patLeaders = JSON.parse(rs.leaders || '{}') || {}; if (graph.wake) graph.wake(); }
             } catch (e) { step('patent-leaders threw: ' + e); }
+            finally { __setLoad('patents', false); }
         };
         const leaderOf = (name) => {
             if (!patLeaders) return null;
@@ -3078,6 +3118,7 @@ function (path, config) {
             if (patBusy) return;
             if (patHist) { patOn = !patOn; if (graph.wake) graph.wake(); return; }
             patBusy = true;
+            __setLoad('patents', true);
             graph.setMessage(' Reading the patented sequences… ');
             let rs = null;
             try {
@@ -3085,6 +3126,7 @@ function (path, config) {
                 rs = await exec(server + '/py/bio/patent-density.py', em,
                     PAT_KEY, (r.species || 'human'), '100000');
             } catch (e) { rs = null; step('patent-density threw: ' + e); }
+            finally { __setLoad('patents', false); }
             patBusy = false;
             if (!rs || !rs.ok) {
                 graph.setMessage(' The patented sequences could not be read'
@@ -3169,6 +3211,7 @@ function (path, config) {
             if (patLabels.has(k)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // deliberately not marked pending
             patAsking++;
+            __setLoad('patents', true);
             patLabels.set(k, { state: 'pending', list: [] });
             if (patLabels.size > 60) {
                 for (const kk of Array.from(patLabels.keys()).slice(0, 30)) patLabels.delete(kk);
@@ -3181,7 +3224,7 @@ function (path, config) {
                     PAT_NAME_KEY, (r.species || 'human'), '200');
                 if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; } }
             } catch (e) { list = []; }
-            finally { patAsking = Math.max(0, patAsking - 1); }
+            finally { patAsking = Math.max(0, patAsking - 1); __setLoad('patents', false); }
             list = list.filter((q) => q && +q.start > 0 && +q.end >= +q.start);
             list.sort((a, b) => (+a.start) - (+b.start));
             patLabels.set(k, { state: 'done', list: list });
@@ -3198,6 +3241,7 @@ function (path, config) {
             if (winGenes.has(key)) return;
             if (patAsking >= PAT_ASK_MAX) return;   // shares the patent budget; not marked pending
             patAsking++;
+            __setLoad('genes', true);
             winGenes.set(key, { state: 'pending', genes: [] });
             if (winGenes.size > 60) {
                 for (const kk of Array.from(winGenes.keys()).slice(0, 30)) winGenes.delete(kk);
@@ -3210,7 +3254,7 @@ function (path, config) {
                     (r.species || 'human'), '400');
                 try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
             } catch (e) { gs = []; }
-            finally { patAsking = Math.max(0, patAsking - 1); }
+            finally { patAsking = Math.max(0, patAsking - 1); __setLoad('genes', false); }
             gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
             winGenes.set(key, { state: 'done', genes: gs });
             if (graph.wake) graph.wake();
