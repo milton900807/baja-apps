@@ -1868,6 +1868,74 @@ function (path, config) {
                     }
                 }
 
+                // ---- PER-CHROMOSOME PATENT WINNER, AT GENOME ZOOM --------------------
+                //
+                // When the whole genome is in view, each chromosome gets a small vertical
+                // label naming the assignee that holds the most patents on it, with the
+                // count, and a thin line to the bar top. The winner is a precomputed,
+                // cached server-side lookup (patent-leaders.py), fetched once with the
+                // density. Only drawn when every chromosome is visible, so it is a
+                // genome-overview annotation, not something that crowds a zoomed-in view.
+                if (patOn && patLeaders) {
+                    let vis = 0, nonCirc = 0;
+                    for (let ci = 0; ci < drawn.length; ci++) {
+                        const c = drawn[ci];
+                        if (c.circular) continue;
+                        nonCirc++;
+                        const bx0 = g.X(barLeft(ci)), bx1 = g.X(barRight(ci));
+                        if (bx1 >= 0 && bx0 <= ctx.canvas.width) vis++;
+                    }
+                    if (nonCirc && vis >= nonCirc) {
+                        ctx.save();
+                        ctx.font = '700 9px ' + FONT;
+                        for (let ci = 0; ci < drawn.length; ci++) {
+                            const c = drawn[ci];
+                            if (c.circular) continue;
+                            const bx0 = g.X(barLeft(ci)), bx1 = g.X(barRight(ci));
+                            if (bx1 < 0 || bx0 > ctx.canvas.width) continue;
+                            const L = leaderOf(c.name);
+                            if (!L || !L.assignee) continue;
+                            const cx = (bx0 + bx1) / 2;
+                            const yTop = g.Y(wy(0));
+                            // A short, readable name: drop the corporate suffix.
+                            const full = '' + L.assignee;
+                            let nm = full.replace(/,?\s+(Inc\.?|Incorporated|Corporation|Corp\.?|Ltd\.?|Limited|LLC|L\.L\.C\.|LP|GmbH|AG|N\.V\.|Co\.?|Company|Pharmaceuticals?|Therapeutics?|Biosciences?)\b.*$/i, '').trim();
+                            if (!nm) nm = full;
+                            const label = nm + '  ·  ' + L.patents;
+                            const tw = ctx.measureText(label).width;
+                            // Rise from just above the bar top; if there is not room, pin the
+                            // text to the top edge so it never leaves the canvas.
+                            const sy = Math.max(yTop - 6, tw + 4);
+                            // Leader line from the bar top up to the label.
+                            ctx.strokeStyle = 'rgba(180,83,9,0.5)';
+                            ctx.lineWidth = 1;
+                            ctx.beginPath();
+                            ctx.moveTo(cx, yTop);
+                            ctx.lineTo(cx, sy + 2);
+                            ctx.stroke();
+                            ctx.fillStyle = 'rgba(180,83,9,0.95)';
+                            ctx.beginPath(); ctx.arc(cx, yTop, 2, 0, 2 * Math.PI); ctx.fill();
+                            // Vertical label (reads bottom-to-top) with a solid backfill.
+                            ctx.save();
+                            ctx.translate(cx, sy);
+                            ctx.rotate(-Math.PI / 2);
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillStyle = '#fff4e6';
+                            ctx.fillRect(-2, -7, tw + 4, 13);
+                            ctx.strokeStyle = 'rgba(124,45,18,0.35)';
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(-2 + 0.5, -7 + 0.5, tw + 4 - 1, 13 - 1);
+                            ctx.fillStyle = '#7c2d12';
+                            ctx.fillText(label, 0, 0);
+                            ctx.restore();
+                        }
+                        ctx.restore();
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'top';
+                    }
+                }
+
                 // ---- PATENTS, IN A PASS OF THEIR OWN ---------------------------------
                 //
                 // NOT INSIDE THE VARIANT LOOP, which is where both of these used to live.
@@ -3170,6 +3238,22 @@ function (path, config) {
         let patOn = false;
         let patBusy = false;
         let patNote = '';
+        let patLeaders = null;          // chrom name -> { assignee, patents, total }
+        // The per-chromosome winner is precomputed and cached on the server, so this is a
+        // lookup. Fetched once alongside the density; failure is silent (the labels just
+        // do not appear).
+        const patLeadersAsk = async () => {
+            if (patLeaders) return;
+            try {
+                const em = new EngineMonitor(() => { });
+                const rs = await exec(server + '/py/bio/patent-leaders.py', em, PAT_NAME_KEY, (r.species || 'human'));
+                if (rs && rs.ok) { patLeaders = JSON.parse(rs.leaders || '{}') || {}; if (graph.wake) graph.wake(); }
+            } catch (e) { step('patent-leaders threw: ' + e); }
+        };
+        const leaderOf = (name) => {
+            if (!patLeaders) return null;
+            return patLeaders[name] || patLeaders[name.replace(/^chr/, '')] || patLeaders['chr' + name] || null;
+        };
         const patLoad = async () => {
             if (patBusy) return;
             if (patHist) { patOn = !patOn; if (graph.wake) graph.wake(); return; }
@@ -3213,6 +3297,7 @@ function (path, config) {
                 patHist[i] = arr;
             }
             patOn = patMax > 0;
+            patLeadersAsk();
             patNote = (+rs.hits || 0).toLocaleString() + ' patent hits over '
                 + (+rs.transcripts || 0).toLocaleString() + ' transcripts';
             graph.setMessage(' ' + patNote
