@@ -4478,12 +4478,21 @@ function (path, config) {
 
         const stateDoc = () => {
             const out = {
-                type: 'baja-karyotype', version: 2,
+                type: 'baja-karyotype', version: 3,
                 species: r.species || wanted, assembly: r.assembly || '',
                 saved: new Date().toISOString(),
                 view: null, bookmarks: [], variants: [], truncated: false, total: vtotal,
             };
             out.view = viewOf();
+            // The rest of the live state, so a reload is exactly what was saved: the sample
+            // columns and per-variant genotypes (what "colour by sample / phase" needs), the
+            // selected regions, the colour scheme, and the active highlight.
+            const __hasGt = SAMPLES.length > 0;
+            out.samples = SAMPLES.slice();
+            out.hasGt = __hasGt;
+            out.colourMode = colourMode;
+            out.highlight = hlActive || 0;
+            out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '' }));
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
             // this tomorrow cannot reconstruct.
@@ -4501,19 +4510,30 @@ function (path, config) {
             // Name goes LAST and may itself contain ':' -- the reader takes the first four
             // fields by position and rejoins the remainder, so a VCF ID with a colon in it
             // survives the round trip.
+            // VERSION 3 fields: chrom:pos:ref:alt:class[:gt][:name].
+            //   class  always present (0 for none), so gt has a fixed position after it.
+            //   gt     only when the file has samples (out.hasGt) -- one digit per sample
+            //          slot (GT_* codes are 0..7), in SAMPLES order. Empty for a row with no
+            //          genotype. Omitted entirely for a file with no sample columns, so a
+            //          sample-less VCF is no larger than before.
+            //   name   last, rejoined so a ':' inside a VCF id survives.
             let n = 0;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
                 if (!d.n) continue;
                 const bare = drawn[ci].name.replace(/^chr/, '');
+                const gw = d.gtw || 0;
                 for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
                     const ab = allelesAt(ci, k);
-                    let e = bare + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1];
                     const cls = d.cls[k] || 0;
                     const nm = d.names[k] || '';
-                    // Trailing fields only when they carry something.
-                    if (nm) e += ':' + cls + ':' + nm;
-                    else if (cls) e += ':' + cls;
+                    let e = bare + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1] + ':' + cls;
+                    if (__hasGt) {
+                        let gt = '';
+                        if (gw) { for (let si = 0; si < gw && si < GT_MAX; si++) gt += (d.gts[k * gw + si] || 0); }
+                        e += ':' + gt;
+                    }
+                    if (nm) e += ':' + nm;
                     out.variants.push(e);
                     n++;
                 }
@@ -4536,18 +4556,31 @@ function (path, config) {
             if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
             // Version 1 wrote an object per variant, version 2 a string. Both are read:
             // the v1 files are still in people's folders and are the same data.
+            const __V = +(doc.version || 1);
+            const __HASGT = !!doc.hasGt;
             const asVariant = (raw) => {
                 if (raw && typeof raw === 'object') return raw;      // version 1
                 if (typeof raw !== 'string') return null;
                 const f = raw.split(':');
                 if (f.length < 4) return null;
                 const o = { c: f[0], p: +f[1], r: f[2], a: f[3] };
-                if (f.length > 4 && f[4]) o.s = +f[4] || 0;
-                // Anything after the class is the name, rejoined so a ':' inside it
-                // is not a field separator.
-                if (f.length > 5) { const nm = f.slice(5).join(':'); if (nm) o.n = nm; }
+                if (f.length > 4 && f[4] !== '') o.s = +f[4] || 0;
+                if (__V >= 3 && __HASGT) {
+                    // v3 with samples: field 5 is the genotype digits, name is the rest.
+                    if (f.length > 5 && f[5]) o.g = f[5];
+                    if (f.length > 6) { const nm = f.slice(6).join(':'); if (nm) o.n = nm; }
+                } else {
+                    // v1/v2 or v3 without samples: name follows the class.
+                    if (f.length > 5) { const nm = f.slice(5).join(':'); if (nm) o.n = nm; }
+                }
                 return o;
             };
+            // Restore the sample columns BEFORE placing variants, so finalise packs the
+            // genotype lane to the right width (SAMPLES.length).
+            if (Array.isArray(doc.samples) && doc.samples.length) {
+                try { SAMPLES.length = 0; for (const nm of doc.samples.slice(0, GT_MAX)) SAMPLES.push('' + nm); } catch (e) { }
+            }
+            const __gtScratch = new Uint8Array(GT_MAX);
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
             const list = doc.variants || [];
@@ -4584,8 +4617,10 @@ function (path, config) {
                     if (ci == null) { count.offGenome++; continue; }
                     if (!(v.p > 0) || v.p > drawn[ci].length) { count.offGenome++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(v.n || '');
+                    let __gt = null;
+                    if (v.g) { __gtScratch.fill(0); for (let si = 0; si < v.g.length && si < GT_MAX; si++) { const c = v.g.charCodeAt(si) - 48; __gtScratch[si] = (c >= 0 && c <= 9) ? c : 0; } __gt = __gtScratch; }
                     pushInto(bufs, ci, +v.p, +(v.s || 0), ('' + (v.r || 'N')).toUpperCase(),
-                        ('' + (v.a || 'N')).toUpperCase());
+                        ('' + (v.a || 'N')).toUpperCase(), __gt);
                     count.added++;
                 }
                 if (onProgress) onProgress(total, total);
@@ -4612,6 +4647,24 @@ function (path, config) {
                         name: ('' + (b.name || '')).slice(0, 80),
                         x0: +b.x0, x1: +b.x1, y0: +b.y0, y1: +b.y1, at: b.at || ''
                     }));
+            }
+            // Selected regions, colour scheme and the active highlight, so the reload is
+            // exactly what was saved.
+            if (Array.isArray(doc.regions)) {
+                try {
+                    regions = doc.regions.filter((rg) => rg && rg.i != null && isFinite(+rg.lo) && isFinite(+rg.hi))
+                        .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '' }));
+                } catch (e) { }
+            }
+            if (doc.colourMode && ['class', 'sample', 'phase'].indexOf(doc.colourMode) >= 0) {
+                try { setColourMode(doc.colourMode); } catch (e) { }
+            }
+            if (doc.highlight) {
+                const __kmap = { 1: 'coding', 2: 'intronic', 3: 'three_utr', 4: 'five_utr', 5: 'pathogenic' };
+                const __kind = __kmap[doc.highlight];
+                // Best-effort and un-awaited: it re-fetches annotation to re-derive the marks,
+                // which can be slow, and the karyotype is already interactive by now.
+                if (__kind) { try { Promise.resolve(applyFilter(__kind, doc.highlight)).catch(() => { }); } catch (e) { } }
             }
             // Through goView, not zoomRect: a file saved at sequence zoom reopened at
             // genome zoom was the same lost depth, one level up.
