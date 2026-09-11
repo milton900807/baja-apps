@@ -5271,12 +5271,67 @@ function (path, config) {
         const lossIsTsg = (g) => LOF_TSG.indexOf(('' + (g && g.gene || '')).toUpperCase()) >= 0;
         // The genes in the order the karyotype should show them: the tumour suppressors
         // first, then by the worst consequence, which is the order the server sent.
+        // ZYGOSITY AND ORIGIN. A gene is only LOST when both copies are gone: a homozygous
+        // LoF call; two LoF variants on opposite haplotypes (compound heterozygous, which a
+        // PHASED genotype can tell from two hits in cis on the same copy); or one het hit
+        // whose other copy went by deletion or LOH, which a VCF cannot see. So each gene is
+        // called biallelic / compound het / possibly biallelic (two hets, phase unknown) /
+        // monoallelic / unknown (no genotype column), from the CHOSEN SAMPLE's genotypes.
+        // With more than one sample each variant is also called somatic (private to the
+        // chosen sample) or shared (in every sample -- germline, when one sample is the
+        // normal), because a tumour's loss set and its inherited losses are different
+        // questions and the two-loss backgrounds want to know which is which.
+        const ZYG_RANK = { 'biallelic': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'unknown': 4 };
+        const ZYG_LOST = { 'biallelic': 1, 'compound het': 1, 'possibly biallelic': 1 };
+        let lossZygFilter = 'all';          // 'all' | 'biallelic'
+        const originWord = (o) => (o === 'shared' ? 'shared by all samples (germline if one is a normal)' : (o === 'somatic' ? 'somatic (this sample only)' : (o === 'mixed' ? 'somatic and shared hits' : '')));
+        const annotateLossZygosity = (genes, si) => {
+            const nS = Math.min(SAMPLES.length, GT_MAX);
+            const allMask = nS ? ((1 << nS) - 1) : 0;
+            for (const g of (genes || [])) {
+                const ci = chromIndexOf(g.chr);
+                const d = ci >= 0 ? vdata[ci] : null;
+                let hom = 0, hap1 = 0, hap2 = 0, het = 0, known = 0, priv = 0, shared = 0, part = 0;
+                for (const v of (g.variants || [])) {
+                    const k = d ? variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt) : -1;
+                    const gt = (k >= 0 && si >= 0 && d.gtw > si) ? gtOf(d, k, si) : 0;
+                    const m = (k >= 0 && d.gtw) ? carriersOf(d, k) : 0;
+                    v.gt = gt ? (GT_TEXT[gt] || '') : '';
+                    if (gt === GT_HOM || gt === GT_HOMP) hom++;
+                    else if (gt === GT_HAP1) hap1++;
+                    else if (gt === GT_HAP2) hap2++;
+                    else if (gt === GT_HET || gt === GT_OTHER) het++;
+                    if (gt) known++;
+                    v.origin = '';
+                    if (nS > 1 && m) {
+                        const others = m & ~(si >= 0 ? (1 << si) : 0) & allMask;
+                        if ((m & allMask) === allMask) { v.origin = 'shared'; shared++; }
+                        else if (!others) { v.origin = 'somatic'; priv++; }
+                        else { v.origin = 'shared'; part++; }
+                    }
+                }
+                let z = 'unknown';
+                if (known) {
+                    const hits = hom + hap1 + hap2 + het;
+                    if (hom) z = 'biallelic';
+                    else if (hap1 && hap2) z = 'compound het';
+                    else if (hits >= 2 && het) z = 'possibly biallelic';
+                    else z = 'monoallelic';                       // one hit, or two in cis
+                }
+                g.zygosity = z;
+                g.origin = (nS > 1) ? ((priv && !shared && !part) ? 'somatic' : ((shared || part) && !priv ? 'shared' : (priv ? 'mixed' : ''))) : '';
+            }
+        };
+        const zygCounts = (gs) => { const c = {}; for (const g of gs) c[g.zygosity || 'unknown'] = (c[g.zygosity || 'unknown'] || 0) + 1; return c; };
         const lossGenesOrdered = () => {
-            const gs = (lossMatrix && lossMatrix.genes) ? lossMatrix.genes.slice() : [];
+            let gs = (lossMatrix && lossMatrix.genes) ? lossMatrix.genes.slice() : [];
+            if (lossZygFilter === 'biallelic') gs = gs.filter((g) => ZYG_LOST[g.zygosity]);
             const sev = { frameshift: 0, stop_gained: 1, start_lost: 2, splice_donor: 3, splice_acceptor: 4 };
             gs.sort((a, b) => {
                 const ta = lossIsTsg(a) ? 0 : 1, tb = lossIsTsg(b) ? 0 : 1;
                 if (ta !== tb) return ta - tb;
+                const za = ZYG_RANK[a.zygosity] == null ? 4 : ZYG_RANK[a.zygosity], zb = ZYG_RANK[b.zygosity] == null ? 4 : ZYG_RANK[b.zygosity];
+                if (za !== zb) return za - zb;
                 const ea = sev[(a.variants[0] || {}).effect], eb = sev[(b.variants[0] || {}).effect];
                 const sa = (ea == null) ? 9 : ea, sb = (eb == null) ? 9 : eb;
                 if (sa !== sb) return sa - sb;
@@ -5308,7 +5363,7 @@ function (path, config) {
             for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
             try { hlSamples.clear(); } catch (e) { }
             let marked = 0;
-            for (const g of lossMatrix.genes) {
+            for (const g of lossGenesOrdered()) {
                 const ci = chromIndexOf(g.chr);
                 if (ci < 0) continue;
                 for (const v of (g.variants || [])) {
@@ -5324,7 +5379,9 @@ function (path, config) {
                     if (ci < 0) continue;
                     const v = g.variants[0] || {};
                     regions.push({ i: ci, lo: +g.start, hi: +g.end, gene: g.gene, lof: true,
-                        label: g.gene + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : '') });
+                        label: g.gene + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : '')
+                            + (g.zygosity && g.zygosity !== 'monoallelic' && g.zygosity !== 'unknown' ? ' · ' + g.zygosity : '')
+                            + (g.origin === 'somatic' ? ' · somatic' : (g.origin === 'shared' ? ' · shared' : '')) });
                 }
             }
             hlActive = marked ? HL_LOF : 0;
@@ -5392,13 +5449,18 @@ function (path, config) {
                     for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
                     scanned += (+rs.scanned || 0);
                 }
+                annotateLossZygosity(genes, si);
                 lossMatrix = { sample: who, si: si, genes: genes, scanned: scanned, counts: counts, notes: notes,
                     considered: considered, at: new Date().toISOString() };
                 const marked = applyLossHighlights(true);
                 const nT = genes.filter(lossIsTsg).length;
+                const zc = zygCounts(genes);
+                const nBi = (zc['biallelic'] || 0) + (zc['compound het'] || 0);
                 graph.setMessage(' ' + who + ': ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
                     + ' with a loss-of-function variant' + (nT ? ' (' + nT + ' tumour suppressor' + (nT === 1 ? '' : 's') + ')' : '')
-                    + ' among ' + scanned.toLocaleString() + ' exonic variant' + (scanned === 1 ? '' : 's') + '; ' + marked + ' marked in red. ');
+                    + ' among ' + scanned.toLocaleString() + ' exonic variant' + (scanned === 1 ? '' : 's')
+                    + (nBi ? '; ' + nBi + ' biallelic' : '') + ((zc['possibly biallelic'] || 0) ? ', ' + zc['possibly biallelic'] + ' possibly' : '')
+                    + '; ' + marked + ' marked in red. ');
                 step('loss matrix ' + who + ': ' + genes.length + ' genes, ' + scanned + ' scanned');
                 lossBusy = false;
                 lossMatrixMenu();
@@ -5416,6 +5478,8 @@ function (path, config) {
                 for (const v of (g.variants || [])) {
                     rows.push({ gene: g.gene, lof: 1, sample: lossMatrix.sample || '', chrom: g.chr, pos: v.pos, ref: v.ref, alt: v.alt,
                         effect: v.effect, hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '', transcript: g.transcript,
+                        genotype: v.gt || '', zygosity: g.zygosity || '', origin: v.origin || '', gene_origin: g.origin || '',
+                        biallelic: ZYG_LOST[g.zygosity] ? 1 : 0,
                         gene_start: g.start, gene_end: g.end, strand: g.strand, biotype: g.biotype,
                         tumour_suppressor: lossIsTsg(g) ? 1 : 0, n_lof: g.n_lof, n_other_coding: g.n_other });
                 }
@@ -5781,13 +5845,23 @@ function (path, config) {
             const nT = genes.filter(lossIsTsg).length;
             const c = lossMatrix.counts || {};
             const other = ['missense', 'inframe_indel', 'synonymous', 'stop_lost'].map((k) => c[k] ? (c[k].toLocaleString() + ' ' + lossWord(k)) : '').filter(Boolean).join(', ');
+            const allG = (lossMatrix.genes || []);
+            const zc = zygCounts(allG);
+            const zygLine = (zc['unknown'] === allG.length) ? ''
+                : ' By zygosity in ' + lossMatrix.sample + ': ' + ['biallelic', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', ') + '.'
+                    + (SAMPLES.length > 1 ? ' Somatic = in this sample only; shared = in every sample, so germline when one of them is the normal.' : '');
             const books = [];
             books.push({ section: 'Loss matrix', note: true,
-                title: lossMatrix.sample + ': ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' with a loss-of-function variant'
+                title: lossMatrix.sample + ': ' + allG.length + ' gene' + (allG.length === 1 ? '' : 's') + ' with a loss-of-function variant'
                     + (nT ? ', ' + nT + ' of them tumour suppressor' + (nT === 1 ? '' : 's') : '')
                     + ', from ' + (+lossMatrix.scanned || 0).toLocaleString() + ' exonic variant' + (lossMatrix.scanned === 1 ? '' : 's')
-                    + (other ? ' (' + other + ' left in place)' : '') + '.'
+                    + (other ? ' (' + other + ' left in place)' : '') + '.' + zygLine
+                    + (lossZygFilter === 'biallelic' ? ' Showing only the ' + genes.length + ' biallelic (both copies hit).' : '')
                     + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
+            if (zc['unknown'] !== allG.length) books.push({ section: 'Loss matrix', title: lossZygFilter === 'biallelic' ? 'Show every lost gene' : 'Only biallelic losses', badge: lossZygFilter === 'biallelic' ? 'biallelic only' : 'all', icon: 'filter_alt',
+                blurb: lossZygFilter === 'biallelic' ? 'Include the monoallelic hits again (one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see).'
+                    : 'Keep only genes with both copies hit: homozygous, compound heterozygous, or two hits of unknown phase. Bands, marks, the list and the CSV follow.',
+                ready: true, open: () => { lossZygFilter = (lossZygFilter === 'biallelic') ? 'all' : 'biallelic'; try { if (hlActive === HL_LOF) applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: find synthetic-lethal targets, download, clear.',
                 ready: true, open: () => selectedGenesMenu() });
@@ -5812,8 +5886,10 @@ function (path, config) {
                 const v = g.variants[0] || {};
                 const more = g.variants.length > 1 ? ' +' + (g.variants.length - 1) + ' more' : '';
                 const on = isSelected(g.gene);
-                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : lossWord(v.effect), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
-                    blurb: lossWord(v.effect) + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
+                const zyg = (g.zygosity && g.zygosity !== 'unknown') ? g.zygosity : '';
+                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : (zyg || lossWord(v.effect)), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
+                    blurb: lossWord(v.effect) + (v.gt ? ' ' + v.gt : '') + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
+                        + (zyg ? ' · ' + zyg : '') + (g.origin ? ' · ' + originWord(g.origin) : '')
                         + (g.n_other ? ' · ' + g.n_other + ' other coding' : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
             };
