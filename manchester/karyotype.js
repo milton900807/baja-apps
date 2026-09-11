@@ -5761,6 +5761,10 @@ function (path, config) {
             books.push({ section: 'Paralog partners', title: 'Download partners as CSV', badge: 'csv', icon: 'file_download', ready: total > 0, readyNote: 'no partners',
                 blurb: 'One row per predicted partner with the model probability and every feature it was scored on.',
                 open: () => { try { dlSaveText(parCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_paralog_partners') + '.csv', 'text/csv'); dlMsg('Partners downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Paralog partners', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
+                blurb: 'A written summary with pictures: the karyotype and its bookmarks, the selected losses, these partners'
+                    + (lossMatrix ? ', the loss matrix' : '') + (slResult ? ', the synthetic-lethal targets' : '') + ', and how to read it.',
+                open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             books.push({ section: 'Paralog partners', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
             R.summary.forEach((gs) => {
                 const g = gs.gene;
@@ -5916,7 +5920,7 @@ function (path, config) {
                 blurb: 'One row per target with t, FDR, effect, synergy, interpretation and the backgrounds it recurs in.',
                 open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_sl_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Targets', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
-                blurb: 'A written summary: the selected losses, these targets with their statistics and backgrounds'
+                blurb: 'A written summary with pictures of the karyotype and its bookmarks: the selected losses, these targets with their statistics and backgrounds'
                     + (lossMatrix ? ', the loss matrix they came from' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
@@ -5972,6 +5976,58 @@ function (path, config) {
         // Also reached from the targets shelf, where there may be no loss matrix at all --
         // a selection built from hypothetical losses -- so every section is optional and
         // the file is named after whichever of them leads.
+        // PICTURES FOR THE PDF: the whole karyotype, then every bookmark, each made by
+        // setting the view, letting a frame paint, and reading the canvas back; the view
+        // the user had is put back afterwards. JPEG on an opaque ground, because the
+        // canvas is transparent where the page shows through and a picture in a PDF has
+        // no page behind it. Sized down to 1600 px across so thirty of them still post.
+        const snapshotCanvas = () => {
+            const cv = lastCanvas;
+            if (!cv || !cv.width || !cv.height) return '';
+            const sc = Math.min(1, 1600 / cv.width);
+            const off = document.createElement('canvas');
+            off.width = Math.max(1, Math.round(cv.width * sc)); off.height = Math.max(1, Math.round(cv.height * sc));
+            const c2 = off.getContext('2d');
+            let bg = '';
+            try {
+                let el = cv;
+                while (el && (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) { bg = getComputedStyle(el).backgroundColor; el = el.parentElement; }
+            } catch (e) { bg = ''; }
+            c2.fillStyle = (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') ? bg : '#ffffff';
+            c2.fillRect(0, 0, off.width, off.height);
+            c2.drawImage(cv, 0, 0, off.width, off.height);
+            return off.toDataURL('image/jpeg', 0.85).replace(/^data:[^,]*,/, '');
+        };
+        const settleFrame = async () => {
+            await new Promise((r2) => requestAnimationFrame(() => requestAnimationFrame(r2)));
+            await new Promise((r2) => setTimeout(r2, 160));
+        };
+        const captureViews = async () => {
+            const out = [];
+            const cur = viewOf();
+            try {
+                // The whole karyotype: the frame fit() uses, set exactly rather than animated.
+                const fx0 = -0.4 * SLOT, fx1 = (drawn.length + 0.4) * SLOT, fy0 = maxMb * 0.06, fy1 = -maxMb * 1.12, fk = 1.04;
+                const fcx = (fx0 + fx1) / 2, fcy = (fy0 + fy1) / 2, fhx = ((fx1 - fx0) / 2) * fk, fhy = ((fy0 - fy1) / 2) * fk;
+                setViewExact({ x0: fcx - fhx, x1: fcx + fhx, y0: fcy - fhy, y1: fcy + fhy });
+                await settleFrame();
+                const whole = snapshotCanvas();
+                if (whole) out.push({ title: 'The whole karyotype - ' + dlSpecies() + (vtotal ? ', ' + vtotal.toLocaleString() + ' variants' : ''), jpg_b64: whole });
+                const bms = (bookmarks || []).slice(0, 30);
+                for (let i = 0; i < bms.length; i++) {
+                    const b = bms[i];
+                    if (!b || !isFinite(b.x0) || !isFinite(b.y0)) continue;
+                    dlMsg('Picturing bookmark ' + (i + 1) + ' of ' + bms.length + '...');
+                    setViewExact({ x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y1 });
+                    await settleFrame();
+                    const im = snapshotCanvas();
+                    if (im) out.push({ title: 'Bookmark ' + (i + 1) + ': ' + (b.name || 'untitled'), jpg_b64: im });
+                }
+            } catch (e) { step('capture threw: ' + e); }
+            finally { try { if (cur) setViewExact(cur); } catch (e) { } }
+            return out;
+        };
+
         const lossMatrixPDF = async () => {
             const L = lossMatrix;
             if (!L && !(slResult && slResult.targets && slResult.targets.length) && !(parResult && parResult.summary && parResult.summary.length)) {
@@ -6004,6 +6060,11 @@ function (path, config) {
             if (lossZygFilter === 'biallelic') summary['Filter'] = 'showing only biallelic losses (' + genes.length + ' of ' + allG.length + ')';
             sheets.push({ name: 'Summary', rows: [summary] });
             }
+
+            // 1b. The pictures: the whole karyotype, then each bookmark with its title.
+            dlMsg('Picturing the karyotype...');
+            const pics = await captureViews();
+            if (pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics });
 
             // 2. The genes, tumour suppressors first, one record each with its worst hit.
             const geneRow = (g) => {
@@ -6141,7 +6202,7 @@ function (path, config) {
                 ready: !!genes.length, readyNote: 'nothing to download',
                 open: () => { try { dlSaveText(lossMatrixCSV(), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_loss_matrix') + '.csv', 'text/csv'); dlMsg('Loss matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Loss matrix', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf',
-                blurb: 'A written summary of the findings: what was read, the genes lost with their worst hit, the selected losses'
+                blurb: 'A written summary with pictures of the karyotype and its bookmarks: what was read, the genes lost with their worst hit, the selected losses'
                     + (slResult ? ', the synthetic-lethal targets' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
                 ready: !!allG.length, readyNote: 'nothing to summarise',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
