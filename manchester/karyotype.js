@@ -789,6 +789,11 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); shareMenu(); })
                                     },
                                     {
+                                        label: 'Info', icon: 'info_outline',
+                                        tooltip: 'What is loaded: variants, samples, regions, highlights, patents',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); infoPanel(); })
+                                    },
+                                    {
                                         label: 'Fit', icon: 'fit_screen',
                                         tooltip: 'Frame the whole genome again',
                                         ionFunction: createIonFunction(async () => { await fit(); pan(); })
@@ -1834,110 +1839,101 @@ function (path, config) {
                                 const rec = patLabels.get(kk);
                                 if (!rec) { patLabelsAsk(ci, qlo, qhi); }
                                 else if (rec.state === 'done' && rec.list.length) {
-                                    ctx.save();
-                                    ctx.textAlign = 'center';
-                                    ctx.textBaseline = 'middle';
-                                    ctx.font = '600 10px ' + FONT;
-                                    let lastY = -1e9;
+                                    // A COLUMN OF LABELS WITH LEADER LINES, not names crammed
+                                    // into the bar. The top patents claim large, overlapping
+                                    // spans, so their midpoints sat almost on top of each other
+                                    // and the old 11 px dedup dropped all but a handful -- "only
+                                    // one to six showing at a time". Now every patent that fits
+                                    // the canvas height is laid out in a decluttered column and a
+                                    // leader line ties each one back to its place on the density
+                                    // strip (the sequence histogram in the left gutter), so the
+                                    // label says WHICH stretch of chromosome the patent claims.
+                                    const H = ctx.canvas.height;
+                                    const cx = (bx0 + bx1) / 2;
+                                    const stripX = bx0 - 3;         // right edge of the density strip
+                                    const MAXW = Math.max(120, Math.min(320, bw - 10));
+                                    const anchored = [];
                                     for (const q2 of rec.list) {
                                         const mid = ((+q2.start) + (+q2.end)) / 2;
-                                        const ly = g.Y(wy(mid));
-                                        if (ly < 6 || ly > ctx.canvas.height - 6) continue;
-                                        if (ly - lastY < PAT_LABEL_PX) continue;
-                                        // MEASURED against the bar it has to sit in.
+                                        const ay = g.Y(wy(mid));
+                                        if (ay < 6 || ay > H - 6) continue;
+                                        anchored.push({ q: q2, ay: ay });
+                                    }
+                                    anchored.sort((a, b) => a.ay - b.ay);
+                                    // Title + dates only when the bar is wide and the patents are
+                                    // few enough not to stack into a wall; otherwise a compact
+                                    // one-line label each, so many more are shown.
+                                    const showExtra = (bw >= 240 && anchored.length <= 12);
+                                    ctx.save();
+                                    ctx.textBaseline = 'middle';
+                                    ctx.textAlign = 'left';
+                                    let prevBottom = -1e9;
+                                    for (const a of anchored) {
+                                        const q2 = a.q;
+                                        ctx.font = '600 10px ' + FONT;
                                         let txt = '' + (q2.label || q2.id || '');
-                                        if (ctx.measureText(txt).width > bw - 8) {
-                                            // The publication number alone, which is the
-                                            // half that identifies it.
-                                            txt = txt.split(' ')[0];
-                                            if (ctx.measureText(txt).width > bw - 8) continue;
-                                        }
-                                        // TITLE AND DATES, once there is room for them.
-                                        //
-                                        // The number and assignee alone say who owns
-                                        // something, not what it is. patents-at.py returns
-                                        // the title and the filing/grant dates as separate
-                                        // fields, so when the bar is wide enough to hold a
-                                        // readable title and the next label is far enough
-                                        // down the chromosome, they are drawn under the
-                                        // name. Zoomed out, neither test passes and this is
-                                        // exactly the single line it always was.
+                                        const numOnly = txt.split(' ')[0];
+                                        if (ctx.measureText(txt).width > MAXW) txt = numOnly;
                                         const extra = [];
-                                        if (bw >= 150) {
+                                        if (showExtra) {
                                             const dates = [q2.filed ? ('filed ' + q2.filed) : '',
                                                            q2.granted ? ('granted ' + q2.granted) : '']
                                                 .filter(Boolean).join('  ·  ');
                                             let ttl = '' + (q2.title || '');
                                             if (ttl) {
-                                                // Fit the title to the bar rather than
-                                                // letting it run over the chromosome.
                                                 ctx.font = '500 9px ' + FONT;
-                                                while (ttl.length > 8
-                                                       && ctx.measureText(ttl).width > bw - 10) {
-                                                    ttl = ttl.slice(0, -2);
-                                                }
+                                                while (ttl.length > 8 && ctx.measureText(ttl).width > MAXW) ttl = ttl.slice(0, -2);
                                                 if (ttl.length < ('' + q2.title).length) ttl += '…';
                                                 extra.push(ttl);
                                             }
                                             if (dates) extra.push(dates);
                                             ctx.font = '600 10px ' + FONT;
                                         }
-                                        // Each extra line needs its own vertical room, or the
-                                        // next patent's name lands on top of this one's dates.
-                                        if (extra.length && (ly - lastY) < (PAT_LABEL_PX + extra.length * 10)) {
-                                            extra.length = 0;
-                                        }
-                                        // Near the bottom edge the extra lines would run off
-                                        // the canvas, so drop them rather than clip them.
-                                        if (extra.length
-                                            && ly + 6 + (extra.length * 10) + 4 > ctx.canvas.height) {
-                                            extra.length = 0;
-                                        }
-                                        // ONE height, derived after the tests above, so the box,
-                                        // the underline and the next label's spacing cannot
-                                        // disagree. The +4 is the gap the rule sits in: without
-                                        // it the rule lands on the last line of text.
-                                        const extraH = extra.length ? (extra.length * 10 + 4) : 0;
-                                        const blockH = 12 + extraH;
-                                        lastY = ly + extraH;
-                                        const tw = ctx.measureText(txt).width;
-                                        let boxW = tw + 4;
+                                        const rowH = extra.length ? (16 + extra.length * 10) : 13;
+                                        // Decluttered downward from the anchor: each row sits at
+                                        // its own position, or just below the row above it.
+                                        let top = Math.max(a.ay - rowH / 2, prevBottom + 2);
+                                        if (top + rowH > H - 4) break;      // out of room; rest are dropped
+                                        prevBottom = top + rowH;
+                                        // Box width from the widest line.
+                                        ctx.font = '600 10px ' + FONT;
+                                        let boxW = ctx.measureText(txt).width;
                                         if (extra.length) {
                                             ctx.font = '500 9px ' + FONT;
-                                            for (const ln2 of extra) {
-                                                boxW = Math.max(boxW, ctx.measureText(ln2).width + 4);
-                                            }
+                                            for (const ln of extra) boxW = Math.max(boxW, ctx.measureText(ln).width);
                                             ctx.font = '600 10px ' + FONT;
                                         }
-                                        const lx0 = (bx0 + bx1) / 2 - boxW / 2;
-                                        ctx.fillStyle = 'rgba(255,255,255,0.82)';
-                                        ctx.fillRect(lx0, ly - 6, boxW, extra.length ? blockH : 12);
+                                        boxW += 10;
+                                        const lx0 = cx - boxW / 2;
+                                        // LEADER LINE to the strip at the patent's true position.
+                                        ctx.strokeStyle = 'rgba(180,83,9,0.55)';
+                                        ctx.lineWidth = 1;
+                                        ctx.beginPath();
+                                        ctx.moveTo(lx0 - 2, top + rowH / 2);
+                                        ctx.lineTo(stripX, a.ay);
+                                        ctx.stroke();
+                                        ctx.fillStyle = 'rgba(180,83,9,0.95)';
+                                        ctx.beginPath(); ctx.arc(stripX, a.ay, 2, 0, 2 * Math.PI); ctx.fill();
+                                        // The label box.
+                                        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                                        ctx.fillRect(lx0, top, boxW, rowH);
                                         ctx.fillStyle = '#7c2d12';
-                                        ctx.fillText(txt, (bx0 + bx1) / 2, ly);
+                                        ctx.font = '600 10px ' + FONT;
+                                        ctx.fillText(txt, lx0 + 5, extra.length ? (top + 8) : (top + rowH / 2));
                                         if (extra.length) {
                                             ctx.font = '500 9px ' + FONT;
                                             ctx.fillStyle = '#9a3412';
-                                            let ey = ly + 10;
-                                            for (const ln2 of extra) {
-                                                ctx.fillText(ln2, (bx0 + bx1) / 2, ey);
-                                                ey += 10;
-                                            }
+                                            let ey = top + 18;
+                                            for (const ln of extra) { ctx.fillText(ln, lx0 + 5, ey); ey += 10; }
                                             ctx.font = '600 10px ' + FONT;
                                             ctx.fillStyle = '#7c2d12';
                                         }
-                                        // A hairline under it: on a canvas there is no
-                                        // cursor to say a word can be followed, and this
-                                        // is the one mark that reads as a link without
-                                        // taking a second row of space.
-                                        // Under the NAME when it stands alone; under the whole
-                                        // block when a title follows, or the rule is drawn
-                                        // straight through the title's first line.
-                                        ctx.fillRect((bx0 + bx1) / 2 - tw / 2,
-                                                     extra.length ? (ly - 6 + blockH - 2) : (ly + 6),
-                                                     tw, 0.8);
+                                        // Underline the publication number as the "opens the
+                                        // patent" cue.
+                                        const numW = ctx.measureText(numOnly).width;
+                                        ctx.fillRect(lx0 + 5, extra.length ? (top + 13) : (top + rowH / 2 + 6), numW, 0.8);
                                         patLabelHits.push({
-                                            x: lx0, y: ly - 6, w: boxW,
-                                            h: extra.length ? blockH : 12,
+                                            x: lx0, y: top, w: boxW, h: rowH,
                                             id: '' + (q2.id || ''), label: '' + (q2.label || ''),
                                         });
                                     }
@@ -2180,31 +2176,41 @@ function (path, config) {
                                             if (d.pos[idx2[m4]] < lo) a4 = m4 + 1; else z4 = m4;
                                         }
                                         // Pulsing GLOW so a marked variant reads even zoomed right
-                                        // out: the dot swells a little and casts a soft halo of its
-                                        // own colour, driven by __hlPulse (0..1, set by startHlPulse).
+                                        // out: a translucent halo behind a solid core, the halo
+                                        // swelling and brightening with __hlPulse. NOT canvas
+                                        // shadowBlur -- that re-blurs on every fill and, with
+                                        // hundreds of dots repainted several times a second, was
+                                        // the whole cost of the effect. Two plain fills per dot is
+                                        // a fraction of that and looks the same.
                                         const rr2 = Math.max(2, Math.min(4.5, bw * 0.14));
                                         const puls = __hlPulse;
-                                        const rrG = rr2 * (1 + 0.6 * puls);
+                                        const haloR = rr2 * (2.1 + 1.3 * puls);
+                                        const haloA = 0.16 + 0.30 * puls;
                                         ctx.save();
-                                        ctx.shadowBlur = 5 + 13 * puls;
                                         for (let j2 = a4; j2 < idx2.length; j2++) {
                                             const k2 = idx2[j2];
                                             if (d.pos[k2] > hi) break;
                                             const yh = g.Y(wy(d.pos[k2]));
                                             if (yh < -6 || yh > ctx.canvas.height + 6) continue;
                                             const col = HL_COLOR[d.hl[k2]] || HL_COLOR[1];
-                                            ctx.beginPath();
-                                            ctx.arc(bx1 + 6, yh, rrG, 0, Math.PI * 2);
                                             ctx.fillStyle = col;
-                                            ctx.shadowColor = col;
+                                            ctx.globalAlpha = haloA;
+                                            ctx.beginPath();
+                                            ctx.arc(bx1 + 6, yh, haloR, 0, Math.PI * 2);
+                                            ctx.fill();
+                                            ctx.globalAlpha = 1;
+                                            ctx.beginPath();
+                                            ctx.arc(bx1 + 6, yh, rr2, 0, Math.PI * 2);
                                             ctx.fill();
                                         }
                                         ctx.restore();
                                     } else {
+                                        // Density bars, glowing the cheap way too: a translucent
+                                        // over-wide bar behind the solid one, no shadowBlur.
                                         const barCol = HL_COLOR[hlActive] || HL_COLOR[1];
+                                        const glowA = 0.14 + 0.30 * __hlPulse;
+                                        const grow = 1.25 + 0.35 * __hlPulse;
                                         ctx.save();
-                                        ctx.shadowBlur = 4 + 11 * __hlPulse;
-                                        ctx.shadowColor = barCol;
                                         ctx.fillStyle = barCol;
                                         for (let b = b0; b <= b1; b++) {
                                             const nh = d.hlHist[b];
@@ -2214,7 +2220,11 @@ function (path, config) {
                                             if (yB2 < -4 || yA2 > ctx.canvas.height + 4) continue;
                                             const h3 = Math.max(1, yB2 - yA2);
                                             const f2 = Math.log(nh + 1) / lp;
-                                            ctx.fillRect(bx1 + 2, yA2, (2 + maxW * f2) * (1 + 0.25 * __hlPulse), h3);
+                                            const w = 2 + maxW * f2;
+                                            ctx.globalAlpha = glowA;
+                                            ctx.fillRect(bx1 + 2, yA2 - 1, w * grow, h3 + 2);
+                                            ctx.globalAlpha = 1;
+                                            ctx.fillRect(bx1 + 2, yA2, w, h3);
                                         }
                                         ctx.restore();
                                     }
@@ -3090,7 +3100,7 @@ function (path, config) {
                 const em = new EngineMonitor(() => { });
                 const rs = await exec(server + '/py/bio/patents-at.py', em,
                     drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
-                    PAT_NAME_KEY, (r.species || 'human'), '40');
+                    PAT_NAME_KEY, (r.species || 'human'), '200');
                 if (rs && rs.ok) { try { list = JSON.parse(rs.patents || '[]'); } catch (e) { list = []; } }
             } catch (e) { list = []; }
             finally { patAsking = Math.max(0, patAsking - 1); }
@@ -4797,6 +4807,7 @@ function (path, config) {
         const clearHighlights = () => {
             for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
             hlActive = 0;
+            try { hlSamples.clear(); } catch (e) { }
             reindexHighlights();
             if (graph.wake) graph.wake();
             graph.setMessage(' Highlights cleared. ');
@@ -4810,30 +4821,71 @@ function (path, config) {
             if (__hlPulseTimer) return;
             __hlPulseTimer = setInterval(() => {
                 if (!hlActive) { clearInterval(__hlPulseTimer); __hlPulseTimer = 0; __hlPulse = 0; try { if (graph.wake) graph.wake(); } catch (e) { } return; }
-                __hlPulse = 0.5 + 0.5 * Math.sin(Date.now() / 380);
+                __hlPulse = 0.5 + 0.5 * Math.sin(Date.now() / 400);
                 try { if (graph.wake) graph.wake(); } catch (e) { }
-            }, 90);
+            }, 120);
         };
 
-        // Highlight every variant a SAMPLE carries, genome-wide, in that sample's colour and
-        // glowing. In-memory (no server call): a variant is this sample's if it carries a
-        // non-reference call. Sample highlight codes sit above the annotation-filter codes.
+        // Highlight the variants SAMPLES carry, genome-wide, each in its own colour and glowing.
+        // In-memory (no server call): a variant is a sample's if that sample carries a
+        // non-reference call. Sample highlight codes sit above the annotation-filter codes,
+        // one per sample slot. SEVERAL samples can glow at once -- each is toggled on and off
+        // independently -- so hlSamples holds the set that is on and the draw reads each
+        // variant's own code. SAMPLE_HL_MULTI is the density-bar colour when more than one is on
+        // (the exact dots stay per-sample; only the zoomed-out bars need one colour per bin).
         const SAMPLE_HL_BASE = 6;
-        const highlightSample = (si) => {
-            if (si < 0 || si >= SAMPLES.length) { graph.setMessage(' No such sample. '); return; }
-            const code = SAMPLE_HL_BASE + si;
-            HL_COLOR[code] = SAMPLE_COLOR[si] || '#ee00ee';
-            HL_NAME[code] = SAMPLES[si] || ('sample ' + (si + 1));
-            for (const d of vdata) if (d.n) d.hl = new Uint8Array(d.n);
+        const SAMPLE_HL_MULTI = 63;
+        const hlSamples = new Set();
+        // Rebuild the highlight channel from the set of active samples in ONE pass over each
+        // chromosome: carriersOf once per variant, masked against the active samples, and the
+        // lowest active carrier wins the colour. This is the whole per-toggle cost; the pulse
+        // that follows only repaints.
+        const rebuildSampleHighlights = () => {
+            HL_COLOR[SAMPLE_HL_MULTI] = '#f59e0b';
+            HL_NAME[SAMPLE_HL_MULTI] = 'multiple samples';
+            let activeMask = 0;
+            for (const si of hlSamples) {
+                activeMask |= (1 << si);
+                HL_COLOR[SAMPLE_HL_BASE + si] = SAMPLE_COLOR[si] || '#ee00ee';
+                HL_NAME[SAMPLE_HL_BASE + si] = SAMPLES[si] || ('sample ' + (si + 1));
+            }
             let marked = 0;
-            for (let ci = 0; ci < drawn.length; ci++) marked += markOn(ci, (p, k, d) => !!(carriersOf(d, k) & (1 << si)), code);
-            hlActive = marked ? code : 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n); else d.hl.fill(0);
+                if (!activeMask || !d.gtw) continue;
+                for (let k = 0; k < d.n; k++) {
+                    const m = carriersOf(d, k) & activeMask;
+                    if (!m) continue;
+                    const si = 31 - Math.clz32(m & -m);   // lowest set bit -> sample slot
+                    d.hl[k] = SAMPLE_HL_BASE + si;
+                    marked++;
+                }
+            }
+            hlActive = hlSamples.size ? (hlSamples.size === 1
+                ? (SAMPLE_HL_BASE + hlSamples.values().next().value)
+                : SAMPLE_HL_MULTI) : 0;
             reindexHighlights();
-            startHlPulse();
+            if (hlActive) startHlPulse();
             if (graph.wake) graph.wake();
-            graph.setMessage(' ' + marked.toLocaleString() + ' variant' + (marked === 1 ? '' : 's')
-                + ' carried by ' + (SAMPLES[si] || ('sample ' + (si + 1))) + ' — glowing across the genome. ');
+            return marked;
         };
+        // Toggle one sample's glow on or off, leaving the others as they are.
+        const toggleSampleHighlight = (si) => {
+            if (si < 0 || si >= SAMPLES.length) { graph.setMessage(' No such sample. '); return; }
+            const nm = SAMPLES[si] || ('sample ' + (si + 1));
+            const wasOn = hlSamples.has(si);
+            if (wasOn) hlSamples.delete(si); else hlSamples.add(si);
+            const marked = rebuildSampleHighlights();
+            if (wasOn) {
+                graph.setMessage(' ' + nm + ' glow off.' + (hlSamples.size ? ' ' + hlSamples.size + ' still on. ' : ' '));
+            } else {
+                graph.setMessage(' ' + nm + ' — glowing' + (hlSamples.size > 1 ? ' with ' + (hlSamples.size - 1) + ' other' + (hlSamples.size - 1 === 1 ? '' : 's') : ' across the genome') + '. ');
+            }
+        };
+        // Kept for callers that expect the single-sample entry point.
+        const highlightSample = (si) => toggleSampleHighlight(si);
 
         // Ask the server what a window is made of, then classify this view's own
         // variants against the answer. The intervals travel and the variants stay put.
@@ -6285,6 +6337,69 @@ function (path, config) {
             });
         };
 
+        // THE INFORMATION WINDOW, as in the editor: a floating panel that says what is loaded
+        // and what is on, toggled by the Info button. Pinned lower-right, read-only, folds away
+        // on a second press or its own ✕. Reads the live state each time it is opened.
+        const infoPanel = () => {
+            const id = 'baja-karyo-info';
+            try {
+                const ex = document.getElementById(id);
+                if (ex && ex.parentNode) { ex.parentNode.removeChild(ex); return; }
+            } catch (e) { }
+            const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const nS = SAMPLES.length;
+            const chromsWith = vdata.reduce((a, d) => a + (d && d.n ? 1 : 0), 0);
+            const hasGt = vdata.some(d => d.gtw && d.gts);
+            let curName = '';
+            try { const c = '' + ((window.history.state || {}).karyotype || ''); curName = c ? c.split('/').filter(Boolean).pop() : ''; } catch (e) { }
+            const modeName = { class: 'ClinVar class', sample: 'by sample', phase: 'by phase' }[colorMode] || colorMode;
+            // What is glowing / highlighted right now.
+            let hlStr = 'none';
+            try {
+                if (hlSamples && hlSamples.size) {
+                    hlStr = 'samples ' + Array.from(hlSamples).map((si) => SAMPLES[si] || ('#' + (si + 1))).join(', ');
+                } else if (hlActive) {
+                    hlStr = HL_NAME[hlActive] || 'on';
+                }
+            } catch (e) { }
+            const rows = [
+                ['File', curName || 'not saved yet'],
+                ['Species', (r && r.species) || 'human'],
+                ['Variants', (vtotal || 0).toLocaleString()],
+                ['Chromosomes with variants', chromsWith + ' of ' + drawn.length],
+                ['Samples', nS ? (nS + ' — ' + SAMPLES.join(', ')) : 'none'],
+                ['Genotypes', hasGt ? 'yes' : 'no'],
+                ['Colour view', modeName],
+                ['Highlighting', esc(hlStr)],
+                ['Regions selected', '' + ((regions && regions.length) || 0)],
+                ['Bookmarks', '' + ((bookmarks && bookmarks.length) || 0)],
+                ['Patents', patOn ? ('shown' + (patNote ? ' — ' + patNote : '')) : 'off'],
+            ];
+            const panel = document.createElement('div');
+            panel.id = id;
+            panel.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147482000;width:290px;'
+                + 'max-height:70vh;display:flex;flex-direction:column;background:#0b2545;color:#e8f0fb;'
+                + 'border:1px solid rgba(255,255,255,0.16);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,0.45);'
+                + 'font-family:Arial,Helvetica,sans-serif;overflow:hidden;';
+            const header = document.createElement('div');
+            header.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 12px;'
+                + 'background:#0a1e3a;border-bottom:1px solid rgba(255,255,255,0.12);';
+            header.innerHTML = '<span style="font-size:15px;line-height:1;">ℹ️</span>'
+                + '<span style="font:700 13px Arial;flex:1;">Karyotype info</span>'
+                + '<button id="ki-x" title="Close" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 14px Arial;line-height:1;padding:2px 6px;">✕</button>';
+            const body = document.createElement('div');
+            body.style.cssText = 'flex:1 1 auto;overflow:auto;padding:10px 12px;font:12.5px Arial;line-height:1.5;';
+            body.innerHTML = rows.map((rw) =>
+                '<div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06);">'
+                + '<span style="flex:0 0 46%;color:#9fb3c8;">' + esc(rw[0]) + '</span>'
+                + '<span style="flex:1;text-align:right;font-weight:600;word-break:break-word;">' + esc(rw[1]) + '</span></div>'
+            ).join('');
+            panel.appendChild(header);
+            panel.appendChild(body);
+            document.body.appendChild(panel);
+            try { header.querySelector('#ki-x').onclick = () => { if (panel.parentNode) panel.parentNode.removeChild(panel); }; } catch (e) { }
+        };
+
         // COLOUR IS A LIBRARY OF THREE. The same shelf as Search and Files: one card per
         // mode, the one that is on badged so, the ones the file cannot support greyed
         // with the reason rather than missing.
@@ -6326,16 +6441,17 @@ function (path, config) {
                 try { if (hlActive === code) { clearHighlights(); } else { await applyFilter(kind, code); } } catch (e) { }
                 colorMenu();
             };
-            // One card per sample: mark every variant that sample carries, genome-wide, in the
-            // sample's own colour and glowing so it reads when zoomed out. Clicking the one that
-            // is on clears it. Multi-sample only; needs genotypes.
+            // One card per sample: glow every variant that sample carries, genome-wide, in the
+            // sample's own colour. Each toggles on and off ON ITS OWN, so several samples can
+            // glow at once. Multi-sample only; needs genotypes.
             const sampleGlowCards = (multi && hasGt) ? SAMPLES.map((nm, si) => ({
                 section: 'By sample (glowing)',
                 title: nm || ('Sample ' + (si + 1)),
-                badge: (hlActive === (SAMPLE_HL_BASE + si)) ? 'on' : 'off',
-                blurb: 'Glow every variant ' + (nm || ('sample ' + (si + 1))) + ' carries, right across the genome.',
+                badge: hlSamples.has(si) ? 'on' : 'off',
+                blurb: 'Glow every variant ' + (nm || ('sample ' + (si + 1))) + ' carries, right across the genome.'
+                    + (hlSamples.has(si) ? ' Click to turn it off.' : ''),
                 open: () => {
-                    try { if (hlActive === (SAMPLE_HL_BASE + si)) { clearHighlights(); } else { highlightSample(si); } } catch (e) { }
+                    try { toggleSampleHighlight(si); } catch (e) { }
                     colorMenu();
                 },
             })) : (multi ? [{
@@ -6354,13 +6470,18 @@ function (path, config) {
                     const inp = document.createElement('input');
                     inp.type = 'color';
                     inp.value = SAMPLE_COLOR[si] || '#1d9bf0';
-                    inp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+                    // Anchored to the CENTRE of the screen, not parked off-screen: the OS colour
+                    // dialog opens next to its input, so an input at left:-9999px opened the
+                    // picker off the right edge. A 1px, invisible input in the middle puts the
+                    // dialog in the middle.
+                    inp.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'
+                        + 'width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;z-index:2147483647;';
                     document.body.appendChild(inp);
                     inp.addEventListener('change', () => {
                         const c = ('' + inp.value).trim();
                         if (/^#[0-9a-fA-F]{6}$/.test(c)) {
                             SAMPLE_COLOR[si] = c;
-                            if (hlActive === (SAMPLE_HL_BASE + si)) { HL_COLOR[SAMPLE_HL_BASE + si] = c; }
+                            if (hlSamples.has(si)) { HL_COLOR[SAMPLE_HL_BASE + si] = c; if (graph.wake) graph.wake(); }
                             try { if (graph.wake) graph.wake(); } catch (e) { }
                             try { if (colorMode === 'sample') legendShow(); } catch (e) { }
                             try { graph.setMessage(' ' + (SAMPLES[si] || ('Sample ' + (si + 1))) + ' is now ' + c + '. '); } catch (e) { }
