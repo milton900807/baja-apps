@@ -1953,7 +1953,7 @@ function (path, config) {
                                     const cx = (bx0 + bx1) / 2;
                                     const stripX = bx0 - 3;         // right edge of the density strip
                                     const MAXW = Math.max(120, Math.min(320, bw - 10));
-                                    const TOP_PAD = 6, BOT_PAD = 6, GAP = 2, CLUSTER_GAP = 14;
+                                    const TOP_PAD = 6, BOT_PAD = 6, GAP = 1, ROW = 12;
                                     const clampY = (v) => Math.max(TOP_PAD, Math.min(H - BOT_PAD, v));
                                     const anchored = [];
                                     for (const q2 of rec.list) {
@@ -1964,61 +1964,39 @@ function (path, config) {
                                     }
                                     if (anchored.length) {
                                         anchored.sort((a, b) => a.ay - b.ay);
-                                        // MERGE overlapping anchors into clusters.
-                                        const clusters = [];
-                                        for (const a of anchored) {
-                                            const last = clusters[clusters.length - 1];
-                                            if (last && a.ay - last.lastAy <= CLUSTER_GAP) {
-                                                last.members.push(a); last.lastAy = a.ay;
-                                                last.loBp = Math.min(last.loBp, a.s); last.hiBp = Math.max(last.hiBp, a.e);
-                                                last.hits += (+a.q.hits || 0);
-                                            } else {
-                                                clusters.push({ members: [a], lastAy: a.ay, loBp: a.s, hiBp: a.e, hits: (+a.q.hits || 0) });
-                                            }
-                                        }
-                                        // Title + dates only for a lone patent, and only when the
-                                        // bar is wide and there are few labels.
-                                        const showExtra = (bw >= 240 && clusters.length <= 12);
+                                        // SHOW AS MANY AS THE COLUMN HOLDS. No pre-merging by
+                                        // locus any more -- that collapsed patents sharing a span
+                                        // into a single summary and left the column mostly empty.
+                                        // Instead one compact row per patent, packed to fill the
+                                        // height; if there are more than fit, an even spread is
+                                        // shown and the rest roll into one "+N more" summary so
+                                        // nothing is hidden.
+                                        const showExtra = (bw >= 240 && anchored.length <= 12);
+                                        const capacity = Math.max(1, Math.floor((H - TOP_PAD - BOT_PAD) / (ROW + GAP)));
                                         ctx.save();
                                         ctx.textBaseline = 'middle';
                                         ctx.textAlign = 'left';
-                                        // Measure each label (single or summary) before placing.
-                                        const recs = clusters.map((cl) => {
-                                            const ay = cl.members.reduce((s, m) => s + m.ay, 0) / cl.members.length;
-                                            const sBp = (cl.members.length === 1) ? cl.members[0].s : cl.loBp;
-                                            const eBp = (cl.members.length === 1) ? cl.members[0].e : cl.hiBp;
+                                        const makeRec = (a) => {
+                                            const q2 = a.q;
+                                            ctx.font = '600 10px ' + FONT;
+                                            let txt = '' + (q2.label || q2.id || '');
+                                            const numOnly = txt.split(' ')[0];
+                                            if (ctx.measureText(txt).width > MAXW) txt = numOnly;
                                             const lines = [];
-                                            let txt, numOnly = '', isCluster = false;
-                                            ctx.font = '600 10px ' + FONT;
-                                            if (cl.members.length === 1) {
-                                                const q2 = cl.members[0].q;
-                                                txt = '' + (q2.label || q2.id || '');
-                                                numOnly = txt.split(' ')[0];
-                                                if (ctx.measureText(txt).width > MAXW) txt = numOnly;
-                                                if (showExtra) {
-                                                    const dates = [q2.filed ? ('filed ' + q2.filed) : '',
-                                                                   q2.granted ? ('granted ' + q2.granted) : '']
-                                                        .filter(Boolean).join('  ·  ');
-                                                    let ttl = '' + (q2.title || '');
-                                                    if (ttl) {
-                                                        ctx.font = '500 9px ' + FONT;
-                                                        while (ttl.length > 8 && ctx.measureText(ttl).width > MAXW) ttl = ttl.slice(0, -2);
-                                                        if (ttl.length < ('' + q2.title).length) ttl += '…';
-                                                        lines.push(ttl);
-                                                    }
-                                                    if (dates) lines.push(dates);
-                                                    ctx.font = '600 10px ' + FONT;
+                                            if (showExtra) {
+                                                const dates = [q2.filed ? ('filed ' + q2.filed) : '',
+                                                               q2.granted ? ('granted ' + q2.granted) : '']
+                                                    .filter(Boolean).join('  ·  ');
+                                                let ttl = '' + (q2.title || '');
+                                                if (ttl) {
+                                                    ctx.font = '500 9px ' + FONT;
+                                                    while (ttl.length > 8 && ctx.measureText(ttl).width > MAXW) ttl = ttl.slice(0, -2);
+                                                    if (ttl.length < ('' + q2.title).length) ttl += '…';
+                                                    lines.push(ttl);
                                                 }
-                                            } else {
-                                                // A SHORT SUMMARY AND THEN "…": the top patent's
-                                                // number and how many more share this stretch.
-                                                isCluster = true;
-                                                const top = cl.members[0].q;
-                                                numOnly = ('' + (top.label || top.id || '')).split(' ')[0];
-                                                txt = numOnly + '  +' + (cl.members.length - 1) + ' more…';
-                                                if (ctx.measureText(txt).width > MAXW) txt = cl.members.length + ' patents…';
+                                                if (dates) lines.push(dates);
+                                                ctx.font = '600 10px ' + FONT;
                                             }
-                                            ctx.font = '600 10px ' + FONT;
                                             let boxW = ctx.measureText(txt).width;
                                             if (lines.length) {
                                                 ctx.font = '500 9px ' + FONT;
@@ -2026,12 +2004,34 @@ function (path, config) {
                                                 ctx.font = '600 10px ' + FONT;
                                             }
                                             boxW += 10;
-                                            const rowH = lines.length ? (16 + lines.length * 10) : 13;
-                                            return { ay: ay, rowH: rowH, boxW: boxW, txt: txt, numOnly: numOnly, lines: lines, isCluster: isCluster, cl: cl, sBp: sBp, eBp: eBp };
-                                        });
-                                        // PLACE near each anchor, no overlaps, none off canvas: a
-                                        // downward pass opens room below, an upward pass pulls the
-                                        // tail back inside the bottom edge.
+                                            const rowH = lines.length ? (16 + lines.length * 10) : ROW;
+                                            return { ay: a.ay, rowH: rowH, boxW: boxW, txt: txt, numOnly: numOnly, lines: lines, isCluster: false, cl: { members: [a] } };
+                                        };
+                                        let recs;
+                                        if (anchored.length <= capacity) {
+                                            recs = anchored.map(makeRec);
+                                        } else {
+                                            // Keep an even spread across the view; roll the rest
+                                            // into one summary at the busiest point.
+                                            const keepN = Math.max(1, capacity - 1);
+                                            const kept = new Set();
+                                            const items = [];
+                                            for (let i = 0; i < keepN; i++) {
+                                                const idx = Math.min(anchored.length - 1, Math.floor(i * anchored.length / keepN));
+                                                if (!kept.has(idx)) { kept.add(idx); items.push(anchored[idx]); }
+                                            }
+                                            recs = items.map(makeRec);
+                                            const rest = anchored.filter((_, idx) => !kept.has(idx));
+                                            let loBp = Infinity, hiBp = -Infinity, hits = 0, aysum = 0;
+                                            for (const a of rest) { loBp = Math.min(loBp, a.s); hiBp = Math.max(hiBp, a.e); hits += (+a.q.hits || 0); aysum += a.ay; }
+                                            ctx.font = '600 10px ' + FONT;
+                                            const txt = '+' + rest.length + ' more patents…';
+                                            const boxW = ctx.measureText(txt).width + 10;
+                                            recs.push({ ay: aysum / rest.length, rowH: ROW, boxW: boxW, txt: txt, numOnly: '', lines: [], isCluster: true, cl: { loBp: loBp, hiBp: hiBp, hits: hits, members: rest } });
+                                        }
+                                        // PLACE near each anchor, packed to fill: a downward pass
+                                        // opens room below, an upward pass pulls the tail back
+                                        // inside the bottom edge.
                                         recs.sort((a, b) => a.ay - b.ay);
                                         for (const rr of recs) rr.top = rr.ay - rr.rowH / 2;
                                         let cur = TOP_PAD;
