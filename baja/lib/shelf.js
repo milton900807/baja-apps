@@ -379,12 +379,19 @@ function (opts) {
                 // thing the card is, like a variant among tracks and oligos -- and it is not
                 // the node/leaf distinction being removed here.
                 const A = isBack ? null : (ACCENTS[b.accent] || ACCENTS.sunset);
+                // A SELECTED card is green all over -- background, border, hover -- not a tick
+                // in its title: a set built by clicking cards one after another has to be
+                // readable at a glance down the shelf. `selected: true` is the book's to say;
+                // purely additive, cards without it are unchanged.
+                const SEL = b.selected && !isBack
+                    ? ['linear-gradient(160deg,#052e16 0%,#14532d 55%,#166534 100%)', 'rgba(74,222,128,0.65)', '#86efac'] : null;
                 if (A) {
                     if (ready) {
-                        card.style.background = A[0];
-                        card.style.borderColor = A[1];
-                        card.onmouseenter = () => { card.style.borderColor = A[2]; card.style.transform = 'translateY(-2px)'; };
-                        card.onmouseleave = () => { card.style.borderColor = A[1]; card.style.transform = ''; };
+                        card.style.background = SEL ? SEL[0] : A[0];
+                        card.style.borderColor = SEL ? SEL[1] : A[1];
+                        card.style.boxShadow = SEL ? '0 0 0 1px rgba(74,222,128,0.35), 0 6px 18px rgba(22,163,74,0.35)' : '';
+                        card.onmouseenter = () => { card.style.borderColor = SEL ? SEL[2] : A[2]; card.style.transform = 'translateY(-2px)'; };
+                        card.onmouseleave = () => { card.style.borderColor = SEL ? SEL[1] : A[1]; card.style.transform = ''; };
                     } else {
                         // A disabled card keeps the family but drops out of it: the same hue,
                         // darkened and desaturated, so it still belongs to the shelf while

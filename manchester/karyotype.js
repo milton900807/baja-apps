@@ -2421,13 +2421,16 @@ function (path, config) {
                         ctx.shadowColor = 'rgba(15,23,42,0.28)';
                         ctx.shadowBlur = 9;
                         ctx.shadowOffsetY = 2;
-                        ctx.fillStyle = 'rgba(255,255,255,0.97)';
+                        // A SELECTED lost gene's card is green, like its band: the tick alone
+                        // was easy to miss in a column of white cards.
+                        const selCard = !!(co.rg.lof && co.rg.gene && isSelected(co.rg.gene));
+                        ctx.fillStyle = selCard ? 'rgba(220,252,231,0.98)' : 'rgba(255,255,255,0.97)';
                         roundRect(ctx, cardX, co.y, CW, co.h, 7);
                         ctx.fill();
                         ctx.restore();
                         const active = activeRegion === geneKey(co.rg);
-                        ctx.strokeStyle = active ? '#1d4ed8' : 'rgba(37,99,235,0.45)';
-                        ctx.lineWidth = active ? 2 : 1;
+                        ctx.strokeStyle = selCard ? (active ? '#15803d' : '#16a34a') : (active ? '#1d4ed8' : 'rgba(37,99,235,0.45)');
+                        ctx.lineWidth = (active || selCard) ? 2 : 1;
                         roundRect(ctx, cardX, co.y, CW, co.h, 7);
                         ctx.stroke();
                         calloutHits.push({ x: cardX, y: co.y, w: CW, h: co.h, rg: co.rg });
@@ -2465,9 +2468,10 @@ function (path, config) {
                         if (ctx.measureText(coordTxt).width > CW - 20) coordTxt = spanTxt;
                         ctx.fillText(coordTxt, cardX + 10, co.y + 9 + line);
                         let ly = co.y + 9 + line + line;
+                        const selLab = !!(co.rg.lof && co.rg.gene && isSelected(co.rg.gene));
                         for (let wi = 0; wi < co.wrapped.length; wi++) {
                             const isLabel = wi < (co.labelLines || 0);
-                            ctx.fillStyle = isLabel ? '#9d174d' : (co.genes ? '#334155' : '#94a3b8');
+                            ctx.fillStyle = isLabel ? (selLab ? '#15803d' : '#9d174d') : (co.genes ? '#334155' : '#94a3b8');
                             ctx.font = (isLabel ? '600 ' : '') + '11px ' + FONT;
                             ctx.fillText(co.wrapped[wi], cardX + 10, ly);
                             ly += line;
@@ -5808,7 +5812,7 @@ function (path, config) {
                 const v = g.variants[0] || {};
                 const more = g.variants.length > 1 ? ' +' + (g.variants.length - 1) + ' more' : '';
                 const on = isSelected(g.gene);
-                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : lossWord(v.effect), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'),
+                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : lossWord(v.effect), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
                     blurb: lossWord(v.effect) + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
                         + (g.n_other ? ' · ' + g.n_other + ' other coding' : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
