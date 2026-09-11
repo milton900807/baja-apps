@@ -396,6 +396,12 @@ function (opts) {
                 }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
+                    // A SWATCH: a filled dot showing an actual colour the card stands for (a
+                    // sample's colour, say), glowing a little in that colour so it reads. Purely
+                    // additive -- cards without `swatch` are unchanged.
+                    + (b.swatch ? ('<span style="flex:0 0 auto;width:16px;height:16px;border-radius:50%;'
+                        + 'background:' + esc(b.swatch) + ';box-shadow:0 0 6px ' + esc(b.swatch) + ';'
+                        + 'border:1px solid rgba(255,255,255,0.55);"></span>') : '')
                     + (b.icon ? ('<span style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;'
                         + 'display:inline-flex;align-items:center;justify-content:center;font:16px/1 Arial;'
                         + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.14)') + ';">'

@@ -4506,6 +4506,9 @@ function (path, config) {
             out.samples = SAMPLES.slice();
             out.hasGt = __hasGt;
             out.colorMode = colorMode;
+            // The per-sample colours the user chose, so the by-sample view reopens in the
+            // same colours. One hex per sample column, in sample order.
+            out.sampleColors = SAMPLES.map((nm, si) => SAMPLE_COLOR[si] || '');
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '' }));
             // The bookmarks go with the file. They are four numbers and a name each, so
@@ -4669,6 +4672,13 @@ function (path, config) {
                 try {
                     regions = doc.regions.filter((rg) => rg && rg.i != null && isFinite(+rg.lo) && isFinite(+rg.hi))
                         .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '' }));
+                } catch (e) { }
+            }
+            if (Array.isArray(doc.sampleColors)) {
+                try {
+                    doc.sampleColors.forEach((c, si) => {
+                        if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c)) SAMPLE_COLOR[si] = c;
+                    });
                 } catch (e) { }
             }
             if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
@@ -6327,6 +6337,44 @@ function (path, config) {
                 blurb: 'This VCF has sample columns but no genotype calls, so per-sample glow is not available.',
                 open: () => { },
             }] : []);
+            // CHOOSE A SAMPLE'S COLOUR. A native colour picker, opened from within the card's
+            // click so the browser still counts it as a user gesture. The chosen colour is
+            // written into SAMPLE_COLOR (read live by colorOf, the density palette, the legend
+            // and the glow), the canvas is woken, and if that sample is glowing now its glow
+            // colour is updated too. The choice travels with the file (see stateDoc).
+            const pickSampleColor = (si) => {
+                try {
+                    const inp = document.createElement('input');
+                    inp.type = 'color';
+                    inp.value = SAMPLE_COLOR[si] || '#1d9bf0';
+                    inp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+                    document.body.appendChild(inp);
+                    inp.addEventListener('change', () => {
+                        const c = ('' + inp.value).trim();
+                        if (/^#[0-9a-fA-F]{6}$/.test(c)) {
+                            SAMPLE_COLOR[si] = c;
+                            if (hlActive === (SAMPLE_HL_BASE + si)) { HL_COLOR[SAMPLE_HL_BASE + si] = c; }
+                            try { if (graph.wake) graph.wake(); } catch (e) { }
+                            try { if (colorMode === 'sample') legendShow(); } catch (e) { }
+                            try { graph.setMessage(' ' + (SAMPLES[si] || ('Sample ' + (si + 1))) + ' is now ' + c + '. '); } catch (e) { }
+                        }
+                        try { if (inp.parentNode) inp.parentNode.removeChild(inp); } catch (e) { }
+                        colorMenu();
+                    }, { once: true });
+                    inp.click();
+                } catch (e) {
+                    try { graph.setMessage(' The colour picker could not open. '); } catch (e2) { }
+                }
+            };
+            const sampleColorCards = nS ? SAMPLES.map((nm, si) => ({
+                section: 'Sample colors',
+                title: nm || ('Sample ' + (si + 1)),
+                swatch: SAMPLE_COLOR[si] || '#1d9bf0',
+                badge: (SAMPLE_COLOR[si] || '').toUpperCase(),
+                blurb: 'Pick the color for ' + (nm || ('sample ' + (si + 1)))
+                    + ' — used in the by-sample view, its glow, and the legend.',
+                open: () => pickSampleColor(si),
+            })) : [];
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-karyo-color',
@@ -6366,6 +6414,7 @@ function (path, config) {
                         { section: 'Highlight (annotation)', title: "5' UTR", badge: hlBadge(4), blurb: "Mark the variants in 5' untranslated regions.", open: () => toggleHl('five_utr', 4) },
                         { section: 'Highlight (annotation)', title: 'Pathogenic / likely pathogenic', badge: hlBadge(HL_PATHOGENIC), blurb: 'Mark the variants ClinVar calls pathogenic or likely pathogenic.', open: () => toggleHl('pathogenic', HL_PATHOGENIC) },
                         ...sampleGlowCards,
+                        ...sampleColorCards,
                         { section: 'Highlight (annotation)', title: 'Clear highlights', badge: hlActive ? 'on' : '', ready: !!hlActive, readyNote: 'nothing highlighted', blurb: 'Take every mark off and draw the variants in their own colors again.', open: () => { try { clearHighlights(); } catch (e) { } colorMenu(); } },
                     ],
                     graph: graph,
