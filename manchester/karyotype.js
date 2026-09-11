@@ -5799,6 +5799,101 @@ function (path, config) {
                 subtitle: 'The surviving paralog each lost gene leaves the cell dependent on', graph: graph, books: books });
         };
 
+        // THE HIGHER-ORDER MODEL'S OWN CATALOGUE: what the ppset third-gene model has already
+        // found -- its systematic scan over every tumour-suppressor pair, the breast and
+        // pancreas application tables, the single-loss and full pair screens -- looked up
+        // for the selection (py/bio/higher-order-model.py). The live screen recomputes;
+        // this reads the result the chapters were written from, and the two should agree.
+        let hoResult = null;
+        let hoBusy = false;
+        const hoColor = (interp) => ((('' + (interp || '')).indexOf('genuine') === 0) ? '#dc2626' : ((('' + interp).indexOf('driven') === 0) ? '#f97316' : '#94a3b8'));
+        const hoFind = async () => {
+            if (hoBusy) { graph.setMessage(' The catalogue is still being read. '); return; }
+            const genes = selectedList().map((g) => g.gene);
+            if (!genes.length) { graph.setMessage(' Select genes in the loss matrix first. '); return; }
+            hoBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const rs = await exec(server + '/py/bio/higher-order-model.py', em, JSON.stringify({ genes: genes, tissue: (slResult && slResult.tissue) || '' }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the catalogue could not be read');
+                const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
+                hoResult = { genes: genes.slice(), matched: J(rs.matched, '[]'), partial: J(rs.partial, '[]'), tissueTables: J(rs.tissue_tables, '[]'),
+                    singles: J(rs.single_screens, '{}'), pairs: J(rs.pair_screens, '{}'), backgrounds: J(rs.backgrounds, '[]'), notes: J(rs.notes, '[]'), built: rs.built || '', at: new Date().toISOString() };
+                graph.setMessage(' ' + hoResult.matched.length + ' catalogued target' + (hoResult.matched.length === 1 ? '' : 's') + ' within the selection, ' + hoResult.partial.length + ' one loss away. ');
+                hoBusy = false;
+                hoMenu();
+            } catch (e) {
+                hoBusy = false;
+                try { graph.setError(' The higher-order catalogue could not be read: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const hoCSV = () => {
+            const rows = [];
+            for (const r of (hoResult.matched || [])) rows.push({ kind: 'catalogue', background: r.background, target: r.target, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, n_double: r.n_double, tissue: '', missing: '' });
+            for (const r of (hoResult.partial || [])) rows.push({ kind: 'one loss away', background: r.background, target: r.target, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, n_double: r.n_double, tissue: '', missing: (r.missing || []).join('+') });
+            for (const tt of (hoResult.tissueTables || [])) for (const r of tt.rows) rows.push({ kind: 'tissue table', background: tt.background, target: r.target, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, n_double: '', tissue: tt.tissue, eff_in_tissue: r.eff_in_tissue, missing: '' });
+            for (const g in (hoResult.singles || {})) for (const r of hoResult.singles[g]) rows.push({ kind: 'single-loss screen', background: g, target: r.gene, t: r.t, fdr: r.fdr, eff_double: r.eff_def, synergy: '', interpretation: '', n_double: r.n_def, tissue: '', missing: '' });
+            for (const k in (hoResult.pairs || {})) for (const r of hoResult.pairs[k]) rows.push({ kind: 'pair screen', background: k, target: r.gene, t: r.t, fdr: '', eff_double: '', synergy: '', interpretation: '', n_double: '', tissue: '', missing: '' });
+            return dlToCSV(rows);
+        };
+        const hoTargetBooks = (target, bgGenes, stats) => [
+            { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
+                blurb: 'The biology behind ' + target + ' with ' + bgGenes.join(' + ') + ' lost.', open: () => slExplain(target, bgGenes, 'depmap', stats, hoMenu) },
+            { title: 'Go to ' + target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(target) },
+            { title: 'Open ' + target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(target) },
+            { title: 'Select ' + target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection as a what-if loss.',
+                open: () => { selGenes.set(('' + target).toUpperCase(), { gene: target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
+        ];
+        const hoMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!hoResult) { selectedGenesMenu(); return; }
+            const R = hoResult;
+            const books = [];
+            books.push({ section: 'Higher-order model', note: true, title: 'For ' + R.genes.join(', ') + ': ' + R.matched.length + ' catalogued target' + (R.matched.length === 1 ? '' : 's') + ' whose background lies within these losses, '
+                + R.partial.length + ' one loss away' + (R.tissueTables.length ? ', ' + R.tissueTables.length + ' tissue table' + (R.tissueTables.length === 1 ? '' : 's') : '') + '.'
+                + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') + (R.built ? ' Catalogue built ' + R.built.slice(0, 10) + '.' : '') });
+            books.push({ section: 'Higher-order model', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true, blurb: 'Every catalogued, one-loss-away, tissue-table and screen row for this selection.',
+                open: () => { try { dlSaveText(hoCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_higher_order_model') + '.csv', 'text/csv'); dlMsg('Catalogue downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Higher-order model', title: 'Recompute live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('') });
+            books.push({ section: 'Higher-order model', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
+            const statRow = (r) => 't ' + fmtT(r.t) + ' · FDR ' + fmtP(r.fdr) + (r.eff_double != null ? ' · effect ' + fmtT(r.eff_double) : '') + (r.synergy != null && r.synergy !== '' ? ' · synergy ' + fmtT(r.synergy) : '') + (r.eff_in_tissue != null && r.eff_in_tissue !== '' ? ' · in tissue ' + fmtT(r.eff_in_tissue) : '') + (r.n_double ? ' · ' + r.n_double + ' lines' : '');
+            const statsOf = (r, bg) => ({ t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, backgrounds: [{ genes: bg, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation }] });
+            if (R.matched.length) {
+                books.push({ section: 'Within your losses', note: true, title: 'Backgrounds the model screened that lie entirely inside the selection. Genuine three-way hits first.' });
+                R.matched.forEach((r, i) => books.push({ section: 'Within your losses', title: (i + 1) + '. ' + r.target, badge: r.interpretation, swatch: hoColor(r.interpretation), ready: true,
+                    blurb: r.background + ' · ' + statRow(r), books: () => hoTargetBooks(r.target, r.background_genes || [], statsOf(r, r.background_genes || [])) }));
+            }
+            if (R.partial.length) {
+                books.push({ section: 'One loss away', note: true, title: 'Catalogued backgrounds with one of their two genes in the selection: what a second loss would add. Adding the missing gene as a what-if loss brings the background within reach.' });
+                R.partial.forEach((r) => books.push({ section: 'One loss away', title: r.target, badge: 'needs ' + (r.missing || []).join('+'), swatch: hoColor(r.interpretation), ready: true,
+                    blurb: r.background + ' · ' + r.interpretation + ' · ' + statRow(r),
+                    books: () => [{ title: 'Add ' + (r.missing || []).join(' + ') + ' as a what-if loss', badge: 'what-if', icon: 'add_circle_outline', ready: true, blurb: 'Then the ' + r.background + ' background is within the selection.',
+                        open: () => { (r.missing || []).forEach((g) => selGenes.set(('' + g).toUpperCase(), { gene: g, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] })); graph.setMessage(' ' + (r.missing || []).join(', ') + ' added — ' + selWord() + '. '); hoFind(); } }]
+                        .concat(hoTargetBooks(r.target, r.background_genes || [], statsOf(r, r.background_genes || []))) }));
+            }
+            (R.tissueTables || []).forEach((tt) => {
+                const sec = tt.tissue + ' · ' + tt.background;
+                books.push({ section: sec, note: true, title: 'The model\'s ' + tt.tissue.toLowerCase() + ' application table for ' + tt.background + (tt.this_tissue ? ' — the tissue you asked for' : '') + ': the dependency inside that tissue\'s lines is shown beside the genome-wide score.' });
+                tt.rows.slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.target, badge: r.interpretation, swatch: hoColor(r.interpretation), ready: true, blurb: statRow(r),
+                    books: () => hoTargetBooks(r.target, tt.genes || [], statsOf(r, tt.genes || [])) }));
+            });
+            for (const g in (R.singles || {})) {
+                const sec = g + ' lost alone';
+                books.push({ section: sec, note: true, title: 'The single-loss screen for ' + g + ': genes more essential in DepMap lines that have lost ' + g + ' than in the rest (eff_def vs eff_wt are the mean knockout effects).' });
+                (R.singles[g] || []).slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.gene, badge: 't ' + fmtT(r.t), swatch: '#f97316', ready: true,
+                    blurb: 'FDR ' + fmtP(r.fdr) + ' · effect ' + fmtT(r.eff_def) + ' in ' + g + '-lost lines vs ' + fmtT(r.eff_wt) + ' in the rest · ' + r.n_def + ' lines',
+                    books: () => hoTargetBooks(r.gene, [g], { t: r.t, fdr: r.fdr, eff_double: r.eff_def, synergy: null, interpretation: 'single-loss', backgrounds: [{ genes: [g], t: r.t, fdr: r.fdr, eff_double: r.eff_def, interpretation: 'single-loss' }] }) }));
+            }
+            for (const k in (R.pairs || {})) {
+                const sec = k + ' full screen';
+                books.push({ section: sec, note: true, title: 'The complete genome-wide screen for the ' + k + ' background, by t.' });
+                (R.pairs[k] || []).slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.gene, badge: 't ' + fmtT(r.t), swatch: '#dc2626', ready: true, blurb: 'Lineage-corrected differential dependency in ' + k + ' lines.',
+                    books: () => hoTargetBooks(r.gene, k.split('+'), { t: r.t, fdr: null, eff_double: null, synergy: null, interpretation: 'pair screen', backgrounds: [{ genes: k.split('+'), t: r.t, interpretation: 'pair screen' }] }) }));
+            }
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Higher-order model',
+                subtitle: 'What the third-gene model has already found for these losses', graph: graph, books: books });
+        };
+
         // THE SELECTION as a library: what is selected, the model over it, and each gene.
         const selectedGenesMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
@@ -5818,6 +5913,13 @@ function (path, config) {
             if (slResult) {
                 books.push({ section: 'Find targets', title: 'Last result', badge: slResult.targets.length + ' targets', icon: 'list',
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
+            }
+            books.push({ section: 'Find targets', title: 'Higher-order model (published catalogue)', badge: 'catalogue', icon: 'menu_book',
+                blurb: 'What the third-gene model has already found for these losses: its systematic scan over every tumour-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
+                ready: sel.length > 0, readyNote: 'select genes first', open: () => hoFind() });
+            if (hoResult) {
+                books.push({ section: 'Find targets', title: 'Last catalogue result', badge: hoResult.matched.length + ' within · ' + hoResult.partial.length + ' near', icon: 'list',
+                    blurb: 'Catalogue for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
             books.push({ section: 'Find targets', title: 'Paralog partners (ML model)', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : '', icon: 'hub',
                 blurb: 'The trained paralog classifier: for each selected loss, which paralog is predicted to become the surviving copy the cell cannot lose. Works for genes the DepMap panel has too few lines to screen.',
@@ -6305,6 +6407,10 @@ function (path, config) {
             if (slResult) {
                 books.push({ section: 'Loss matrix', title: 'Synthetic-lethal targets', badge: slResult.targets.length + ' targets', icon: 'biotech',
                     blurb: 'Last ranking, for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
+            }
+            if (hoResult) {
+                books.push({ section: 'Loss matrix', title: 'Higher-order model catalogue', badge: hoResult.matched.length + ' within', icon: 'menu_book',
+                    blurb: 'Last catalogue lookup, for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
             if (parResult) {
                 books.push({ section: 'Loss matrix', title: 'Paralog partners', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'hub',
