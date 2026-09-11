@@ -239,6 +239,20 @@ function (graph, layout) {
 
         // ---- compounds-only scope, and a detailed ASO report ----------------------------
         const allOligos = () => { const r = []; for (const t of tracks()) for (const o of (t.oligos || [])) r.push({ t: t, o: o }); return r; };
+        // The SAME oligo can appear on more than one track through the parent/child
+        // relationship (a compound on a pre-mRNA is visible on any child mRNA that spans it),
+        // so a raw sweep double-counts it. Count and download by DISTINCT oligo id: keep the
+        // first occurrence of each id (an oligo with no id is always kept).
+        const distinctOligos = () => {
+            const seen = {}; const out = [];
+            for (const e of allOligos()) {
+                const id = (e.o && e.o.id != null) ? ('' + e.o.id) : null;
+                if (id == null) { out.push(e); continue; }
+                if (seen[id]) continue;
+                seen[id] = true; out.push(e);
+            }
+            return out;
+        };
         const hasCompounds = () => tracks().some((t) => (t.oligos || []).length);
         const designBase = () => safe(('' + (graph.file || 'workbench')).replace(/\.baja$/i, ''));
 
@@ -246,10 +260,10 @@ function (graph, layout) {
             base: designBase() + '_compounds',
             title: 'All compounds',
             hasCoords: true,
-            json: () => allOligos().map((e) => oligoRow(e.t, e.o)),
-            rows: () => allOligos().map((e) => oligoRow(e.t, e.o)),
-            bed: () => allOligos().map((e) => oligoBed(e.t, e.o)),
-            sheets: () => [{ name: 'Compounds', rows: allOligos().map((e) => oligoRow(e.t, e.o)) }]
+            json: () => distinctOligos().map((e) => oligoRow(e.t, e.o)),
+            rows: () => distinctOligos().map((e) => oligoRow(e.t, e.o)),
+            bed: () => distinctOligos().map((e) => oligoBed(e.t, e.o)),
+            sheets: () => [{ name: 'Compounds', rows: distinctOligos().map((e) => oligoRow(e.t, e.o)) }]
         });
 
         // Off-target, summarised for a report cell. `offtarget` is an array of hits (its length
@@ -285,7 +299,7 @@ function (graph, layout) {
             annotations: oligoAnnots(o)
         });
         const downloadAsoReport = async () => {
-            const rows = allOligos().map((e) => asoReportRow(e.t, e.o));
+            const rows = distinctOligos().map((e) => asoReportRow(e.t, e.o));
             if (!rows.length) { try { graph.setError('There are no compounds to report.', 6); } catch (e) { } return; }
             try { graph.setMessage(' Building the ASO report… '); } catch (e) { }
             const base = designBase() + '_ASO_report';
@@ -299,7 +313,7 @@ function (graph, layout) {
         };
 
         // ---- primer-probes (amplicons live in t.oligos as type 'amplicon') ---------------
-        const allAmplicons = () => allOligos().filter((e) => e.o && e.o.type === 'amplicon');
+        const allAmplicons = () => distinctOligos().filter((e) => e.o && e.o.type === 'amplicon');
         const hasAmplicons = () => allAmplicons().length > 0;
         const ampliconRow = (t, a) => ({
             track: t.name || '', id: a.id != null ? a.id : '', name: a.name != null ? a.name : '',
@@ -335,7 +349,7 @@ function (graph, layout) {
             // as its own card below.
             // A prominent 'Download design' heading and a plain-language note, so it is
             // unmistakable that these cards download every oligo in the current design.
-            const __nOl = allOligos().length;
+            const __nOl = distinctOligos().length;
             topBooks.push({ section: 'Download design', note: true, title: 'Every oligo in this design (' + __nOl + ' compound' + (__nOl === 1 ? '' : 's') + '), in one file — pick a format:' });
             formatBooks(scopeAllCompounds()).forEach((b) => topBooks.push(Object.assign({}, b, { section: 'Download design' })));
             topBooks.push({ section: 'Download design', title: 'Detailed ASO report', badge: '.pdf', ready: true, leaf: true, blurb: 'A per-ASO PDF: id, target and synthesis sequence, chemistry, off-target summary, mismatches, annotations and coordinates.', open: () => downloadAsoReport() });
