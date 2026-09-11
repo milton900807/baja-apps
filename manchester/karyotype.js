@@ -6307,7 +6307,10 @@ function (path, config) {
             const esc = (x) => ('' + (x == null ? '' : x)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const panel = document.createElement('div');
             panel.id = id;
-            panel.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:2147482000;width:230px;max-height:52vh;display:flex;flex-direction:column;background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,0.45);font-family:Arial,Helvetica,sans-serif;overflow:hidden;';
+            // On the public IP viewer the free-tier subscribe banner sits along the bottom, so
+            // the panel is lifted clear of it (and its Download footer is dropped below).
+            const __navBottom = __ipPublic ? '84px' : '14px';
+            panel.style.cssText = 'position:fixed;left:14px;bottom:' + __navBottom + ';z-index:2147482000;width:230px;max-height:52vh;display:flex;flex-direction:column;background:#0b2545;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,0.45);font-family:Arial,Helvetica,sans-serif;overflow:hidden;';
             const header = document.createElement('div');
             header.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 12px;background:#0a1e3a;border-bottom:1px solid rgba(255,255,255,0.12);';
             header.innerHTML = '<span style="font-size:16px;line-height:1;">📷</span><span style="font:700 13px Arial;flex:1;">Bookmarks</span><button id="kn-min" title="Collapse" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 15px Arial;line-height:1;padding:2px 6px;">–</button><button id="kn-x" title="Hide" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 14px Arial;line-height:1;padding:2px 6px;">✕</button>';
@@ -6329,17 +6332,22 @@ function (path, config) {
                     list.appendChild(b);
                 });
             }
-            const footer = document.createElement('div');
-            footer.style.cssText = 'flex:0 0 auto;padding:8px;border-top:1px solid rgba(255,255,255,0.12);';
-            const dl = document.createElement('button');
-            dl.title = 'Download';
-            dl.style.cssText = 'width:100%;box-sizing:border-box;cursor:pointer;border:none;border-radius:8px;padding:9px 12px;font:700 13px Arial;background:#16a34a;color:#eafff2;display:flex;align-items:center;justify-content:center;gap:8px;';
-            dl.innerHTML = '<span class="material-icons" style="font-size:18px;line-height:1;">file_download</span><span>Download</span>';
-            dl.onclick = () => { try { downloadMenu(); } catch (e) { } };
-            footer.appendChild(dl);
+            // The Download footer is for the full viewer only; the public IP viewer has no
+            // download and shows just the list.
+            let footer = null;
+            if (!__ipPublic) {
+                footer = document.createElement('div');
+                footer.style.cssText = 'flex:0 0 auto;padding:8px;border-top:1px solid rgba(255,255,255,0.12);';
+                const dl = document.createElement('button');
+                dl.title = 'Download';
+                dl.style.cssText = 'width:100%;box-sizing:border-box;cursor:pointer;border:none;border-radius:8px;padding:9px 12px;font:700 13px Arial;background:#16a34a;color:#eafff2;display:flex;align-items:center;justify-content:center;gap:8px;';
+                dl.innerHTML = '<span class="material-icons" style="font-size:18px;line-height:1;">file_download</span><span>Download</span>';
+                dl.onclick = () => { try { downloadMenu(); } catch (e) { } };
+                footer.appendChild(dl);
+            }
             let collapsed = false; try { collapsed = sessionStorage.getItem('baja.karyoBookNav.collapsed') === '1'; } catch (e) { }
-            const apply = () => { list.hidden = collapsed; footer.hidden = collapsed; try { header.querySelector('#kn-min').textContent = collapsed ? '+' : '–'; } catch (e) { } try { sessionStorage.setItem('baja.karyoBookNav.collapsed', collapsed ? '1' : '0'); } catch (e) { } };
-            panel.appendChild(header); panel.appendChild(list); panel.appendChild(footer);
+            const apply = () => { list.hidden = collapsed; if (footer) footer.hidden = collapsed; try { header.querySelector('#kn-min').textContent = collapsed ? '+' : '–'; } catch (e) { } try { sessionStorage.setItem('baja.karyoBookNav.collapsed', collapsed ? '1' : '0'); } catch (e) { } };
+            panel.appendChild(header); panel.appendChild(list); if (footer) panel.appendChild(footer);
             document.body.appendChild(panel); apply();
             header.querySelector('#kn-min').onclick = () => { collapsed = !collapsed; apply(); };
             header.querySelector('#kn-x').onclick = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
