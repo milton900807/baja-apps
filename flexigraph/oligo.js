@@ -722,6 +722,19 @@ function () {
                     });
                 }
 
+                // A SEQUENCE LABEL the Compounds menu can switch on: the target or the
+                // synthesis sequence drawn as a pill above the body. Deliberately NOT behind
+                // graph.showOligoLabels -- it is an explicit "show me the sequence" the user
+                // just asked for, so it draws on demand, the way flagReason does.
+                if (this.__seqDisp) {
+                    drawCenteredOvalLabel('' + this.__seqDisp, (this.labelOffsetY || 0) - 16, {
+                        font: '10px Arial',
+                        textColor: this.__seqDispColor || '#7c2d12',
+                        fillColor: '#ffffff',
+                        strokeColor: '#000000',
+                    });
+                }
+
                 // Edge bars for a highlighted oligo are no longer drawn — the pulsing
                 // background glow (above) is the selection indicator.
 

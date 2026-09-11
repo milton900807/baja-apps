@@ -942,6 +942,34 @@ function () {
                     graph.drawVerticalLineScreen(graph.X(tgraph.X(this.xf)), graph.Y(tgraph.Y(y)), 10, this.highlight__, 4)
 
                 }
+
+                // A SEQUENCE LABEL the Compounds menu can switch on: the target or, for an
+                // siRNA, the GUIDE (antisense) strand -- drawn as a pill above the duplex so a
+                // whole set can be read at once. Drawn on demand, not behind an oligo-label
+                // toggle. For an siRNA "synthesis" means the guide strand, set in the menu.
+                if (this.__seqDisp && graph.canvas) {
+                    try {
+                        const _c = graph.canvas.getCTX();
+                        const _t = '' + this.__seqDisp;
+                        if (_c && _t) {
+                            _c.save();
+                            _c.shadowBlur = 0;
+                            _c.font = '10px Arial';
+                            _c.textAlign = 'center';
+                            _c.textBaseline = 'middle';
+                            const _cx = Math.round((graph.X(tgraph.X(this.xi)) + graph.X(tgraph.X(this.xf))) / 2);
+                            const _cy = Math.round(graph.Y(tgraph.Y(y)) - 26);
+                            const _tw = Math.max(24, _c.measureText(_t).width);
+                            _c.fillStyle = '#000000';
+                            _c.beginPath(); _c.ellipse(_cx, _cy, _tw / 2 + 11, 9, 0, 0, 2 * Math.PI); _c.fill();
+                            _c.fillStyle = '#ffffff';
+                            _c.beginPath(); _c.ellipse(_cx, _cy, _tw / 2 + 10, 8, 0, 0, 2 * Math.PI); _c.fill();
+                            _c.fillStyle = this.__seqDispColor || '#7c2d12';
+                            _c.fillText(_t, _cx, _cy);
+                            _c.restore();
+                        }
+                    } catch (e) { }
+                }
             }
 
             drawLine = (graph, xi, ys, xf, color, lineSize, lineCap) => {

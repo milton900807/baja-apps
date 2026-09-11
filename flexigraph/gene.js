@@ -11944,6 +11944,56 @@ pattern, GGGG | Required`
                         for (const e of items) { const q = __seqOf(e); if (!q) continue; if (seen[q]) dups.push(e); else seen[q] = true; }
                         return dups;
                     };
+                    // DISPLAY THE SEQUENCE ON THE COMPOUNDS themselves — the target it is aimed
+                    // at, or the strand that is synthesised — as a label above each one, so a
+                    // whole set can be read on the canvas rather than one popup at a time. For an
+                    // siRNA the synthesised strand IS the guide (antisense): that is what a design
+                    // is judged on, so "synthesis" shows the guide for those.
+                    const guideOrSynthOf = (e) => {
+                        const r = e.entry && e.entry.ref;
+                        if (!r) return '';
+                        const t = ('' + (r.type || '')).toLowerCase();
+                        if (t.indexOf('sirna') >= 0 || r.antisense) {
+                            return '' + (r.antisense || r.synthesisSequence || r.sequence || '');
+                        }
+                        return synthSeqOf(e);
+                    };
+                    const applySeqDisplay = (mode) => {
+                        let n = 0;
+                        items.forEach((e) => {
+                            const r = e.entry && e.entry.ref;
+                            if (!r) return;
+                            if (mode === 'off') {
+                                try { delete r.__seqDisp; } catch (er) { r.__seqDisp = null; }
+                                try { delete r.__seqDispColor; } catch (er) { }
+                                n++;
+                                return;
+                            }
+                            const seq = (mode === 'target' ? targetSeqOf(e) : guideOrSynthOf(e));
+                            if (!seq) return;
+                            r.__seqDisp = ('' + seq).toUpperCase();
+                            r.__seqDispColor = (mode === 'target' ? '#0b7285' : '#7c2d12');
+                            n++;
+                        });
+                        try { if (this.wake) this.wake(); } catch (e) { }
+                        close();
+                        if (mode === 'off') {
+                            this.setMessage(' Sequence labels hidden on ' + n + ' compound' + (n === 1 ? '' : 's') + '. ');
+                        } else {
+                            this.setMessage(' Showing the ' + (mode === 'target' ? 'target' : 'synthesis (guide strand for siRNA)')
+                                + ' sequence on ' + n + ' compound' + (n === 1 ? '' : 's') + '. ');
+                        }
+                    };
+                    const openSeqDisplay = () => {
+                        const anyShown = items.some((e) => { const r = e.entry && e.entry.ref; return r && r.__seqDisp; });
+                        const spage = [
+                            { label: 'Target sequence', click: () => { applySeqDisplay('target'); }, move: () => { } },
+                            { label: 'Synthesis sequence (guide for siRNA)', click: () => { applySeqDisplay('synthesis'); }, move: () => { } },
+                            { label: 'Hide sequence' + (anyShown ? '' : ' (none shown)'), click: () => { applySeqDisplay('off'); }, move: () => { } },
+                            { label: '‹ Back', click: () => { show(page, 'Compounds ▸'); }, move: () => { } },
+                        ];
+                        show(spage, 'Display sequence ▸');
+                    };
                     const openFilter = () => {
                         const dups = __duplicates();
                         const hi = items.filter((e) => __isHighRepeat(__seqOf(e)));
@@ -12018,6 +12068,7 @@ pattern, GGGG | Required`
                                 } catch (e) { }
                             }, move: () => { }
                         },
+                        { label: 'Display sequence ▸', click: () => { openSeqDisplay(); }, move: () => { } },
                         { label: 'Copy target sequences', click: () => { close(); copySeqs('target'); }, move: () => { } },
                         { label: 'Copy synthesis sequences', click: () => { close(); copySeqs('synthesis'); }, move: () => { } },
                         { label: 'Download XLSX', click: () => { close(); downloadXlsx(); }, move: () => { } },
