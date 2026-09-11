@@ -5727,11 +5727,11 @@ function (path, config) {
                 : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
             books.push({ section: 'Find targets', title: 'Find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
                 blurb: 'Run the higher-order model: for each selected loss and each pair of them, the third gene that becomes selectively essential in DepMap lines carrying the same losses. Lineage-corrected; each hit labelled genuine three-way or driven by one loss.',
-                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('at most ' + SL_MAX_GENES + ' genes') : 'select genes first',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 open: () => slFindTargets('') });
             books.push({ section: 'Find targets', title: 'Find targets in a tissue…', badge: 'choose', icon: 'science',
                 blurb: 'The same ranking, with the dependency inside one tissue of origin shown beside it.',
-                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('at most ' + SL_MAX_GENES + ' genes') : 'select genes first',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 books: () => tissueBooks((t) => slFindTargets(t)) });
             if (slResult) {
                 books.push({ section: 'Find targets', title: 'Last result', badge: slResult.targets.length + ' targets', icon: 'list',
@@ -5762,8 +5762,14 @@ function (path, config) {
                         { title: 'Deselect', badge: 'remove', icon: 'remove_circle_outline', ready: true, blurb: 'Take ' + g.gene + ' out of the selection.', open: () => { selGenes.delete(('' + g.gene).toUpperCase()); graph.setMessage(' ' + g.gene + ' deselected — ' + selWord() + ' left. '); selectedGenesMenu(); } },
                     ] });
             });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Selected genes (' + sel.length + ')',
-                subtitle: 'The losses to reason from — run the model, or edit the set', graph: graph, books: books });
+            // THE TITLE IS STABLE. The shelf tells its levels apart by title: re-opening a
+            // title already on the path unwinds to it, anything else is a new level. With
+            // the count in the title, 'Selected genes (2)' and 'Selected genes (3)' were
+            // different levels, so every select or deselect pushed a fresh copy on top of
+            // the old one and Back landed on the stale one -- built when nothing was
+            // selected, with the model cards still greyed. The count goes in the subtitle.
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Selected genes',
+                subtitle: selWord() + ' selected  \u00b7  The losses to reason from — run the model, or edit the set', graph: graph, books: books });
         };
 
         // WHY. A number is not a reason; this asks the model for the biology behind one hit,
@@ -6930,7 +6936,7 @@ function (path, config) {
                         badge: isSelected(rg.gene) ? 'selected' : selWord() + ' selected', icon: 'checklist',
                         blurb: isSelected(rg.gene) ? 'Take it out of the set the microscope works on.'
                             : 'Add it to the set the microscope works on: synthetic-lethal targets, paralog partners. A single click on the label does the same.',
-                        open: () => { const on = toggleGeneSelect(lofRecordFor(rg)); graph.setMessage(' ' + rg.gene + (on ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); if (graph.wake) graph.wake(); },
+                        open: () => { const on = toggleGeneSelect(lofRecordFor(rg)); graph.setMessage(' ' + rg.gene + (on ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); if (graph.wake) graph.wake(); calloutMenu(rg); },
                     }] : []).concat([
                         {
                             title: 'Zoom into',
