@@ -8,6 +8,7 @@ application and are far too large to read as CSV on every request:
     gene_effect.csv                          CRISPR dependency, 26Q1 Chronos   (~413 MB)
     Model.csv                                cell-line lineage (OncotreeLineage)
     OmicsSomaticMutationsMatrixDamaging.csv  damaging-mutation calls, 24Q4     (~148 MB)
+    OmicsSomaticMutationsMatrixHotspot.csv   hotspot-mutation calls, 24Q4       (~4 MB)
     OmicsExpressionProteinCodingGenesTPMLogp1.csv  expression, 24Q4           (~507 MB)
 
 This downloads them from figshare (or reads copies you already have), streams them once
@@ -17,16 +18,25 @@ with the csv module -- no pandas on the server -- and writes a compact bundle:
     <out>/models.txt        ModelIDs of the CRISPR-screened lines, in row order
     <out>/lineage.txt       OncotreeLineage per model, same order ('' when unknown)
     <out>/gene_effect.npy   float32 [models x genes], NaN filled with the gene's mean
-    <out>/lof.npy           bool    [models x genes]: damaging mutation OR expression in
-                            the gene's bottom 15% across lines (deletion / silencing)
+    <out>/lof.npy           bool    [models x genes]: damaging mutation OR hotspot mutation
+                            OR expression in the gene's bottom 15% across lines
+                            (deletion / silencing)
     <out>/meta.json         what went in, and when
+
+Hotspots matter because DepMap's "damaging" matrix is truncating and frameshift changes
+only: TP53's R175H, R248W and the rest of the recurrent missense that inactivate it are
+"hotspot", and without that matrix TP53 looked lost in ~170 lines instead of the several
+hundred that really carry a mutant p53. For an oncogene a hotspot is a GAIN, not a loss
+-- KRAS G12D activates -- so the hotspot call is applied only to genes on the
+tumour-suppressor list below, where a recurrent missense is a loss of function.
 
 Loss of function is called the way data_prep/call_loss_of_function.py calls it in the
 ppset toolkit, so the ranking here is the ranking the chapters describe.
 
 Usage (standalone; no ion runtime needed):
     python3 build-depmap-sl.py [--out DIR] [--gene-effect F] [--model F]
-                               [--mutations F] [--expression F] [--keep-downloads]
+                               [--mutations F] [--hotspots F] [--expression F]
+                               [--keep-downloads]
 
 Files given by path are read in place; anything else is fetched into <out>/raw and, unless
 --keep-downloads, deleted once the bundle is written. Memory stays around 200 MB.
@@ -47,9 +57,21 @@ FIGSHARE = {
     "gene_effect": ("67214582", "gene_effect.csv"),
     "model": ("51065297", "Model.csv"),
     "mutations": ("51065747", "OmicsSomaticMutationsMatrixDamaging.csv"),
+    "hotspots": ("51065750", "OmicsSomaticMutationsMatrixHotspot.csv"),
     "expression": ("51065489", "OmicsExpressionProteinCodingGenesTPMLogp1.csv"),
 }
 LOW_PCT = 15.0
+# Genes for which a recurrent (hotspot) missense is a LOSS: tumour suppressors whose
+# hotspots are dominant-negative or inactivating. The same list the third-gene model
+# screens over, plus the hereditary repair genes; oncogene hotspots (KRAS, BRAF, PIK3CA,
+# IDH1...) are activating and must not be called loss.
+HOTSPOT_AS_LOSS = {
+    "TP53", "RB1", "PTEN", "CDKN2A", "MTAP", "ARID1A", "BAP1", "KEAP1", "NF1", "PBRM1", "SMAD4",
+    "SMARCA4", "STK11", "VHL", "BRCA1", "BRCA2", "APC", "ATM", "NF2", "CDH1", "PALB2", "CHEK2",
+    "MLH1", "MSH2", "MSH6", "PMS2", "KMT2D", "CREBBP", "EP300", "FBXW7", "ARID2", "ATRX",
+    "CDKN1B", "CIC", "DAXX", "KDM6A", "MEN1", "NOTCH1", "PTCH1", "RNF43", "SETD2", "TSC1",
+    "TSC2", "WT1", "AXIN1", "CASP8", "ZFHX3", "SMARCB1", "SPOP", "FUBP1",
+}
 
 
 def say(m):
@@ -68,14 +90,15 @@ def fetch(kind, out_dir):
     fid, name = FIGSHARE[kind]
     os.makedirs(out_dir, exist_ok=True)
     dest = os.path.join(out_dir, name)
-    if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
+    if os.path.exists(dest) and os.path.getsize(dest) > 100_000:
         say("using already-downloaded " + dest)
         return dest
     url = "https://ndownloader.figshare.com/files/" + fid
     say("downloading %s (%s)…" % (name, url))
     tmp = dest + ".part"
     r = subprocess.run(["curl", "-sSL", "--retry", "3", "--max-time", "3600", "-o", tmp, url])
-    if r.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 1_000_000:
+    # Model.csv is under a megabyte; a real failure is an HTML error page of a few KB.
+    if r.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 100_000:
         raise SystemExit("download of %s failed" % name)
     os.replace(tmp, dest)
     say("%s: %.0f MB" % (name, os.path.getsize(dest) / 1e6))
@@ -83,7 +106,10 @@ def fetch(kind, out_dir):
 
 
 def symbol(col):
-    return col.split(" (")[0].strip()
+    # A column with no symbol -- " (12345)" -- keeps its id as its name rather than
+    # becoming a blank line in genes.txt, which a reader could mistake for nothing.
+    s = col.split(" (")[0].strip()
+    return s if s else col.strip().replace(" ", "")
 
 
 def read_matrix(path, keep_models=None, what="matrix"):
@@ -92,7 +118,9 @@ def read_matrix(path, keep_models=None, what="matrix"):
     with open(path, newline="") as fh:
         r = csv.reader(fh)
         head = next(r)
-        syms = [symbol(c) for c in head[1:]]
+        # A column with an empty header still occupies its position: name it by that
+        # position so genes.txt never carries a blank line.
+        syms = [symbol(c) or ("column_%d" % (i + 1)) for i, c in enumerate(head[1:])]
         models, rows = [], []
         t0 = time.time()
         for row in r:
@@ -118,6 +146,7 @@ def main():
     ap.add_argument("--gene-effect", default=None)
     ap.add_argument("--model", default=None)
     ap.add_argument("--mutations", default=None)
+    ap.add_argument("--hotspots", default=None)
     ap.add_argument("--expression", default=None)
     ap.add_argument("--keep-downloads", action="store_true")
     a = ap.parse_args()
@@ -137,6 +166,7 @@ def main():
     ge_path = source("gene_effect", a.gene_effect)
     model_path = source("model", a.model)
     mut_path = source("mutations", a.mutations)
+    hot_path = source("hotspots", a.hotspots)
     expr_path = source("expression", a.expression)
 
     # 1. Dependency: every screened line, every gene.
@@ -177,6 +207,26 @@ def main():
     say("damaging-mutation calls placed: %d" % hit)
     del M
 
+    hm, hs, H = read_matrix(hot_path, keep_models=model_set, what="hotspot mutations")
+    hot = 0
+    skipped = set()
+    for j, s in enumerate(hs):
+        gi = gidx.get(s)
+        if gi is None:
+            continue
+        if s not in HOTSPOT_AS_LOSS:
+            if (H[:, j] > 0).any():
+                skipped.add(s)
+            continue
+        col = H[:, j] > 0
+        for k, m in enumerate(hm):
+            if col[k] and not lof[midx[m], gi]:
+                lof[midx[m], gi] = True
+                hot += 1
+    say("hotspot calls added as loss (tumour suppressors only): %d; hotspot genes left alone as gains: %d"
+        % (hot, len(skipped)))
+    del H
+
     em, es, E = read_matrix(expr_path, keep_models=model_set, what="expression")
     low_hits = 0
     with np.errstate(invalid="ignore"):
@@ -212,8 +262,10 @@ def main():
         "models": len(models), "genes": len(genes),
         "lof_calls": int(lof.sum()),
         "sources": {k: os.path.basename(p) for k, p in
-                    [("gene_effect", ge_path), ("model", model_path), ("mutations", mut_path), ("expression", expr_path)]},
+                    [("gene_effect", ge_path), ("model", model_path), ("mutations", mut_path),
+                     ("hotspots", hot_path), ("expression", expr_path)]},
         "figshare": FIGSHARE, "low_expression_percentile": LOW_PCT,
+        "hotspot_as_loss": sorted(HOTSPOT_AS_LOSS), "hotspot_calls_added": int(hot),
     }
     with open(os.path.join(out, "meta.json"), "w") as fh:
         json.dump(meta, fh, indent=2)

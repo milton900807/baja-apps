@@ -105,8 +105,11 @@ elif len(want) > MAX_GENES:
     out["error"] = "at most %d genes at a time (%d given)" % (MAX_GENES, len(want))
 else:
     works.msg("Loading the DepMap dependency bundle…")
-    genes = [g.strip() for g in open(os.path.join(bd, "genes.txt")).read().split("\n") if g.strip()]
-    lin = [g.strip() for g in open(os.path.join(bd, "lineage.txt")).read().split("\n")]
+    # POSITIONAL FILES. genes.txt is the gene_effect column order and lineage.txt the row
+    # order, one line each; a blank line is a real entry (a column with no symbol), so
+    # nothing is filtered -- dropping one shifted every gene after it by a column.
+    genes = [g.strip() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
+    lin = [g.strip() for g in open(os.path.join(bd, "lineage.txt")).read().rstrip("\n").split("\n")]
     G = np.load(os.path.join(bd, "gene_effect.npy"), mmap_mode="r")
     L = np.load(os.path.join(bd, "lof.npy"), mmap_mode="r")
     n_models, n_genes = G.shape
