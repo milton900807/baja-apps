@@ -7766,7 +7766,7 @@ function (path, config) {
             }
         };
 
-        // FILES IS A LIBRARY TOO, the same shelf Search opens: three cards that say what
+        // FILES IS A LIBRARY TOO, the same shelf Search opens: four cards that say what
         // they do, under a subtitle that says which file this is and what is on it. The
         // shelf reports a card that throws, so a save that fails is a message rather
         // than a dead button.
@@ -7818,27 +7818,32 @@ function (path, config) {
                     id: 'baja-karyo-files',
                     title: 'Karyotype files',
                     subtitle: (curName ? curName + '  ·  ' : 'Not saved yet  ·  ') + onIt,
+                    // SAVE COMES FIRST. It is the card people open this menu for, and the one
+                    // that costs something to miss; the others are recoverable. Each card wears
+                    // a Material icon so the action reads before the title does -- the floppy
+                    // is the save glyph every toolbar uses.
                     books: [
-                        {
-                            title: 'New…', badge: 'clear',
-                            blurb: 'Clear the variants, regions and bookmarks loaded now and start from an empty karyotype. Asks first if there is anything to lose.',
-                            open: () => newKaryotype(),
-                        },
-                        {
-                            title: 'Open a saved karyotype', badge: 'My Files',
-                            blurb: 'Browse My Files and open a karyotype you kept. A .baja file there opens in the editor instead.',
-                            open: () => openJson(false),
-                        },
                         {
                             title: curName ? 'Save this karyotype' : 'Save this karyotype as…',
                             badge: curName ? 'saved as ' + curName : 'unsaved',
+                            icon: 'save',
                             blurb: 'Keep this genome, its variants and the selected regions in My Files, to reopen later or share by link.',
                             open: () => saveJson(),
                             ready: !!vtotal || !!regions.length,
                             readyNote: 'nothing to save yet',
                         },
                         {
-                            title: 'Remove a saved karyotype', badge: 'My Files',
+                            title: 'Open a saved karyotype', badge: 'My Files', icon: 'folder_open',
+                            blurb: 'Browse My Files and open a karyotype you kept. A .baja file there opens in the editor instead.',
+                            open: () => openJson(false),
+                        },
+                        {
+                            title: 'New…', badge: 'clear', icon: 'add',
+                            blurb: 'Clear the variants, regions and bookmarks loaded now and start from an empty karyotype. Asks first if there is anything to lose.',
+                            open: () => newKaryotype(),
+                        },
+                        {
+                            title: 'Remove a saved karyotype', badge: 'My Files', icon: 'delete_outline',
                             blurb: 'Browse My Files and delete a karyotype you no longer need. Asked before each one; it is not moved to a bin.',
                             open: () => openJson(true),
                         },
