@@ -2579,7 +2579,13 @@ function (path, config) {
         const codeOf = (b) => (b.length === 1 && BCODE[b] != null) ? BCODE[b] : 5;
         let vtotal = 0, vobjects = 0;
 
-        const CLS_COLOR = ['#ff2d78', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
+        // UNCLASSIFIED IS GREY. A variant with no CLNSIG is the common case in any VCF that
+        // is not ClinVar, and drawing it in a hot pink made a whole genome of ordinary
+        // calls look like a whole genome of findings. Grey says "here, but nothing is
+        // known about it", which is the truth; the four classes keep their colours, and
+        // conflicting stays its own paler slate so the two greys are not confused. Darker
+        // than DIM_COLOR, so a greyed-out variant under a highlight still reads as dimmer.
+        const CLS_COLOR = ['#6b7280', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
 
         // ---- SAMPLES AND PHASE -----------------------------------------------------------
         //
