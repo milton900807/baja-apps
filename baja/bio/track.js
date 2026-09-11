@@ -44,12 +44,12 @@ return new Promise(async (resolve, reject) => {
   // ---- TRACK THEMES ---------------------------------------------------------------------
   //
   // The constants above ARE the classic theme. A theme names the same roles with different
-  // colours, and GX_T is the palette in force while a track draws itself: Track.draw() points
+  // colors, and GX_T is the palette in force while a track draws itself: Track.draw() points
   // it at that track's theme on entry, so the free helpers below and the class methods all
   // pick it up without threading a palette through every signature.
   //
   // Safe because tracks draw one after another, never interleaved. A track with no theme, or
-  // an unknown one, gets 'classic' -- a bad name should cost the user their colours, not
+  // an unknown one, gets 'classic' -- a bad name should cost the user their colors, not
   // their track.
   const GX_THEMES = {
     // classic: { label: 'Classic', ink: '#0a2540', paper: '#ffffff', guide: 'rgb(168, 255, 240)', gtag: 'rgba(150,160,175,0.85)', ring: '#123049', exon: 'rgba(44,90,160,0.85)', exonEdge: '#1b4a7a', arrow: 'rgba(120,130,145,0.22)' },
@@ -78,14 +78,14 @@ return new Promise(async (resolve, reject) => {
   // ---- GENE DRAW CLASSES ----------------------------------------------------------------
   //
   // A theme is not only a palette. These decide HOW a gene body is put on the canvas -- the
-  // shape and the stroke -- so two themes with similar colours can still look nothing alike.
+  // shape and the stroke -- so two themes with similar colors can still look nothing alike.
   //
   // One method, body(), because that is the mark the eye actually reads on a track. Each
   // subclass overrides it and nothing else; the base is the wash-and-outline the app has
   // always drawn, so 'classic' is the base class unchanged.
   class GeneDraw {
     constructor(T) { this.T = T || GX_THEMES.classic; }
-    // Fill colour derived from the theme's exon role, so a subclass need not restate it.
+    // Fill color derived from the theme's exon role, so a subclass need not restate it.
     fill() { return this.T.exon; }
     edge() { return this.T.exonEdge || this.T.ring; }
     body(ctx, x, y, w, h) {
@@ -157,7 +157,7 @@ return new Promise(async (resolve, reject) => {
   }
 
   // Hatched: a light fill under diagonal ruling, the way an engraving shades a solid. Gives a
-  // print theme texture without another colour.
+  // print theme texture without another color.
   class GeneDrawHatch extends GeneDraw {
     body(ctx, x, y, w, h) {
       ctx.save();
@@ -225,7 +225,7 @@ return new Promise(async (resolve, reject) => {
       return new C(T);
     } catch (e) { return new GeneDraw(T); }
   };
-  // ---- ANNOTATION COLOURS ----------------------------------------------------------------
+  // ---- ANNOTATION COLORS ----------------------------------------------------------------
   //
   // The palette every annotation is drawn in: UTRs, introns, TSS and codons, SNPs and indels,
   // oligos, domains, ncRNA classes, the amino-acid row. These were module constants, so a track
@@ -238,7 +238,7 @@ return new Promise(async (resolve, reject) => {
   let GX_UTR = 'rgba(147,180,216,0.85)', GX_INTRON = '#9fb4c6', GX_GENE = '#16456b', GX_TSS = '#17a39a', GX_START = '#17a39a', GX_STOP = '#9c3350', GX_SNP = '#9c2f45', GX_INS = '#12768f', GX_DEL = '#8c2f42', GX_ASO = '#159a91', GX_SIRNA = '#1897b0', GX_RNABIND = '#b0533f', GX_DOMAIN = '#2bb0bf', GX_ACCENT = '#a86b3e', GX_LNCRNA = '#2bb0bf', GX_MIRNA = '#6e4560', GX_SNRNA = '#9a5f3e', GX_PSEUDO = '#7f96a8', GX_REGION = '#7a4f66', GX_POLYA = '#1aa3bd', GX_AA = 'rgba(176,69,62,0.55)';
 
   // The scheme above is the DEFAULT set, and the semantic hues in it are load-bearing: teal
-  // reads as a start, red as a stop or a deletion, blue as an insertion. A theme should recolour
+  // reads as a start, red as a stop or a deletion, blue as an insertion. A theme should recolor
   // annotations, not relabel them -- so rather than 11 hand-authored sets that would drift apart,
   // each theme keeps these hues and shifts them to sit on its own paper.
   const GX_ANN_DEFAULTS = {
@@ -312,12 +312,12 @@ return new Promise(async (resolve, reject) => {
       }
       out[k] = v;
     }
-    // A theme that names a colour outright wins: derivation is a default, not a rule.
+    // A theme that names a color outright wins: derivation is a default, not a rule.
     try { if (T && T.ann) { for (const k in T.ann) { if (k in out) out[k] = T.ann[k]; } } } catch (e) { }
     return out;
   };
 
-  // Assign the module-level annotation colours for the theme about to be drawn.
+  // Assign the module-level annotation colors for the theme about to be drawn.
   const gxApplyAnnotations = (T) => {
     const a = gxAnnotationsFor(T);
     GX_UTR = a.GX_UTR;
@@ -4235,7 +4235,7 @@ return new Promise(async (resolve, reject) => {
     // silently when it was designed across a whole transcript, and which modality that hit
     // depended only on how far out you happened to be working. Painted from the track, every
     // modality gets it at every zoom.
-    // Join each pair of duplicate-sequence compounds with a dashed arch, in the colour of
+    // Join each pair of duplicate-sequence compounds with a dashed arch, in the color of
     // the "duplicate sequence" warning they both carry. The arch springs from the top of
     // one warning label, clears the labels, and lands on the top of the other, so the eye
     // can follow it from a flagged compound to the compound it repeats without reading
@@ -6493,7 +6493,7 @@ return new Promise(async (resolve, reject) => {
       // one assignment covers the whole of this track's drawing without a palette argument on
       // every signature.
       GX_T = this.themeColors();
-      // The annotations too, not only the gene body. A theme that recoloured the exons and left
+      // The annotations too, not only the gene body. A theme that recolored the exons and left
       // every UTR, codon, SNP and domain in the default scheme was half a theme -- and on the
       // dark ones it drew dark annotations on dark paper.
       try { gxApplyAnnotations(GX_T); } catch (e) { }
@@ -6511,7 +6511,7 @@ return new Promise(async (resolve, reject) => {
         };
       } catch (e) { }
       // The gene-draw class that goes with it: the theme decides the SHAPE of a gene body,
-      // not only its colour.
+      // not only its color.
       this.__geneDraw = geneDrawFor(this.theme, GX_T);
 
       // Display flags published on the GRAPH, because the annotation shapes in
@@ -8122,7 +8122,7 @@ return new Promise(async (resolve, reject) => {
           // Each head is a grab handle for resizing that edge, so it is drawn to read as a
           // raised physical control: cast shadow for lift, a vertical gradient lit from above
           // for curvature, a dark edge to stay crisp on pale tracks, and a specular streak.
-          // Orange rather than the theme gene/exon colours so the handles never blend into the
+          // Orange rather than the theme gene/exon colors so the handles never blend into the
           // features underneath them. Identical treatment to track-flexi.js.
           // Heads keep a floor size so a very short selection still shows two marks rather
           // than collapsing to nothing (the old code drew a min-width bar for that case).
@@ -8378,7 +8378,7 @@ return new Promise(async (resolve, reject) => {
         // the middle of a gene does not leave the track unlabelled -- while it is on screen,
         // its name is too.
         //
-        // The colours come from the track's own ink/paper pair, so it reads on every theme:
+        // The colors come from the track's own ink/paper pair, so it reads on every theme:
         // those two are already guaranteed to contrast (they are the track's text and its
         // background), where a fixed navy-on-white tab would vanish on Blueprint or Midnight.
         try {
