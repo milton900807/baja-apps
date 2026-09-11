@@ -6384,6 +6384,17 @@ function (path, config) {
             return books;
         };
 
+        // FRAME ONE REGION: the same padding a gene found by name gets, so a lost gene
+        // clicked from its callout card lands the way Find gene would land it.
+        const zoomToRegion = async (rg) => {
+            const ci = rg.i, lo = +rg.lo, hi = +rg.hi;
+            const pad = Math.max((hi - lo) * 0.25, 2000) / MB;
+            const v = { x0: barLeft(ci) - 0.5 * SLOT, x1: barRight(ci) + 0.5 * SLOT, y0: wy(hi) - pad, y1: wy(lo) + pad };
+            try { flyToView(v); } catch (e) { try { await goView(v); } catch (e2) { } }
+            graph.setMessage(' ' + (rg.label ? rg.label + ' — ' : '') + drawn[ci].name + ':' + human(lo) + '-' + human(hi)
+                + ' (' + fmtSpan(Math.max(1, hi - lo + 1)) + ') ');
+        };
+
         const calloutMenu = (rg) => {
             const c = drawn[rg.i];
             const where = c.name + ':' + human(rg.lo) + '-' + human(rg.hi);
@@ -6391,10 +6402,17 @@ function (path, config) {
             try {
                 exec('baja/lib/shelf.js', {
                     id: 'baja-region-actions',
-                    title: where,
-                    subtitle: fmtSpan(Math.max(1, rg.hi - rg.lo + 1))
+                    title: rg.label ? ('' + rg.label) : where,
+                    subtitle: (rg.label ? where + '  ·  ' : '') + fmtSpan(Math.max(1, rg.hi - rg.lo + 1))
                         + (n >= 0 ? '  ·  region ' + (n + 1) + ' of ' + regions.length : ''),
                     books: [
+                        {
+                            title: 'Zoom into',
+                            badge: rg.lof ? 'lost gene' : 'view',
+                            blurb: 'Fly the camera to ' + where + ' and frame it with a little room either side'
+                                + (rg.lof ? ', so the loss-of-function variant can be clicked' : '') + '.',
+                            open: () => zoomToRegion(rg),
+                        },
                         {
                             title: 'Open in oligo editor',
                             badge: 'transcripts',
