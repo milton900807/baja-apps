@@ -63,14 +63,35 @@ function (graph, layout) {
         // more than a person wants. State is remembered for the session.
         let collapsed = false;
         try { collapsed = sessionStorage.getItem('baja.bookmarkNav.collapsed') === '1'; } catch (e) { }
+        let __footerEl = null;
         const applyCollapsed = () => {
             list.hidden = collapsed;
+            try { if (__footerEl) __footerEl.hidden = collapsed; } catch (e) { }
             try { header.querySelector('#bn-min').textContent = collapsed ? '+' : '–'; } catch (e) { }
             try { sessionStorage.setItem('baja.bookmarkNav.collapsed', collapsed ? '1' : '0'); } catch (e) { }
         };
 
         panel.appendChild(header);
         panel.appendChild(list);
+
+        // When there are bookmarks, the last item is a Download button — the same action as
+        // the green Download button in the toolbar (it opens the Download library). Handy for a
+        // share recipient, who reaches the design through this panel.
+        if (names.length) {
+            const footer = document.createElement('div');
+            footer.style.cssText = 'flex:0 0 auto;padding:8px;border-top:1px solid rgba(255,255,255,0.12);';
+            const dl = document.createElement('button');
+            dl.title = 'Download';
+            dl.style.cssText = 'width:100%;box-sizing:border-box;cursor:pointer;border:none;border-radius:8px;'
+                + 'padding:9px 12px;font:700 13px Arial;background:#16a34a;color:#eafff2;'
+                + 'display:flex;align-items:center;justify-content:center;gap:8px;';
+            dl.innerHTML = '<span class="material-icons" style="font-size:18px;line-height:1;">file_download</span><span>Download</span>';
+            dl.onclick = () => { try { exec('manchester/io/download-hub.js', graph, layout); } catch (e) { try { graph.setError('Could not open Download: ' + e, 8); } catch (e2) { } } };
+            footer.appendChild(dl);
+            panel.appendChild(footer);
+            __footerEl = footer;
+        }
+
         document.body.appendChild(panel);
         applyCollapsed();
 
