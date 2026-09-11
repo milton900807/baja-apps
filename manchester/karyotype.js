@@ -5959,6 +5959,136 @@ function (path, config) {
                 + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : (v.hgvs_c ? ' ' + v.hgvs_c : ''))
                 + ' at ' + human(v.pos) + ' ' + v.ref + '>' + v.alt + '. ');
         };
+        // THE FINDINGS AS A PDF. A written summary of what the loss matrix found, and of
+        // whatever was run on it -- the selected losses, the synthetic-lethal targets, the
+        // paralog partners -- built here as titled sheets of records and rendered by
+        // /export-table, the same route the variant listing takes. Each sheet is a short
+        // section; each record is one thing found, with the facts that make it a finding.
+        // Plain ASCII throughout: the PDF font cannot draw anything else.
+        const lossMatrixPDF = async () => {
+            if (!lossMatrix) { dlMsg('No loss matrix to summarise yet.'); return; }
+            const L = lossMatrix;
+            const genes = lossGenesOrdered();
+            const allG = L.genes || [];
+            const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
+            const ascii = (t) => ('' + (t == null ? '' : t)).replace(/\u2212/g, '-').replace(/\u00b7/g, '-').replace(/\u2014/g, '-').replace(/[^\x20-\x7e]/g, '');
+            const num = (v, d) => (v == null || v === '' || !isFinite(+v)) ? '' : (+v).toFixed(d == null ? 2 : d);
+            const c = L.counts || {};
+            const zc = zygCounts(allG);
+            const sheets = [];
+
+            // 1. What was read, and the headline.
+            const summary = {
+                'Genome': dlSpecies() + (dlAssembly() ? ' (' + dlAssembly() + ')' : ''),
+                'Sample': L.sample || 'all variants',
+                'Haplotype': L.hap ? (L.hap === 'hap1' ? 'haplotype 1 only' : 'haplotype 2 only') : 'both copies',
+                'Calculated': L.at ? new Date(L.at).toLocaleString() : new Date().toLocaleString(),
+                'Exonic variants read': (+L.scanned || 0).toLocaleString(),
+                'Genes with a loss-of-function variant': allG.length + (tsg.length ? ' (' + tsg.length + ' tumour suppressor' + (tsg.length === 1 ? '' : 's') + ')' : ''),
+                'Loss-of-function variants': ['frameshift', 'stop_gained', 'start_lost', 'splice_acceptor', 'splice_donor', 'hotspot_missense', 'pathogenic_missense'].map((k) => c[k] ? c[k] + ' ' + lossWord(k) : '').filter(Boolean).join(', ') || '',
+                'Left in place': ['missense', 'inframe_indel', 'synonymous', 'stop_lost'].map((k) => c[k] ? c[k] + ' ' + lossWord(k) : '').filter(Boolean).join(', ') || '',
+                'Zygosity': (zc['unknown'] === allG.length) ? 'not called (no genotype columns)'
+                    : ['biallelic', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', '),
+                'Notes': (L.notes || []).join(' '),
+            };
+            if (lossZygFilter === 'biallelic') summary['Filter'] = 'showing only biallelic losses (' + genes.length + ' of ' + allG.length + ')';
+            sheets.push({ name: 'Summary', rows: [summary] });
+
+            // 2. The genes, tumour suppressors first, one record each with its worst hit.
+            const geneRow = (g) => {
+                const v = (g.variants || [])[0] || {};
+                const more = (g.variants || []).length > 1 ? ' (+' + (g.variants.length - 1) + ' more)' : '';
+                const row = {
+                    'Gene': g.gene + (lossIsTsg(g) ? '  [tumour suppressor]' : ''),
+                    'Consequence': lossWord(v.effect) + more,
+                    'Locus': g.chr + ':' + (v.pos != null ? (+v.pos).toLocaleString() : '') + (v.ref ? ' ' + v.ref + '>' + v.alt : ''),
+                    'HGVS': [v.hgvs_c, v.hgvs_p].filter(Boolean).join('  '),
+                    'Genotype': v.gt || '',
+                    'Zygosity': (g.zygosity && g.zygosity !== 'unknown') ? g.zygosity : '',
+                    'Origin': originWord(g.origin) || '',
+                    'Transcript': g.transcript || '',
+                    'Other coding variants in the gene': g.n_other || '',
+                };
+                if (isSelected(g.gene)) row['Selected'] = 'yes - in the set the models were run on';
+                return row;
+            };
+            if (tsg.length) sheets.push({ name: 'Tumour suppressors lost', rows: tsg.map(geneRow) });
+            if (rest.length) sheets.push({ name: 'Other genes lost', rows: rest.map(geneRow) });
+
+            // 3. The selection the models were asked about.
+            const sel = selectedList();
+            if (sel.length) {
+                sheets.push({ name: 'Selected losses', rows: [{
+                    'Genes': sel.map((g) => g.gene).join(', '),
+                    'Count': sel.length + (sel.length > 1 ? ' losses, ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss'),
+                    'Hypothetical': sel.filter((g) => !g.chr || ((g.variants || [])[0] || {}).effect === 'hypothetical').map((g) => g.gene).join(', ') || 'none - every loss is in this VCF',
+                }] });
+            }
+
+            // 4. Synthetic-lethal targets, when the model has run.
+            if (slResult && slResult.targets && slResult.targets.length) {
+                const R = slResult;
+                const rows = R.targets.slice(0, 40).map((t, i) => ({
+                    'Rank': i + 1,
+                    'Target': t.target,
+                    'Interpretation': t.interpretation || '',
+                    'Backgrounds': (t.backgrounds || []).map((b) => (b.genes || []).join('+') + ' (t ' + num(b.t, 1) + ', ' + (b.interpretation || '') + ')').join('; '),
+                    'Best t': num(t.best_t, 2),
+                    'Min FDR': (t.min_fdr == null) ? '' : (+t.min_fdr < 1e-3 ? (+t.min_fdr).toExponential(1) : num(t.min_fdr, 3)),
+                    'Effect in lines with the losses': num(t.eff_double, 2),
+                    'Synergy': t.synergy == null ? '' : num(t.synergy, 2),
+                    'Effect in tissue': t.eff_in_tissue == null ? '' : num(t.eff_in_tissue, 2),
+                }));
+                rows.unshift({
+                    'Losses': R.genes.join(', '),
+                    'Tissue': R.tissue || 'any (lineage-corrected across the panel)',
+                    'DepMap lines': R.nModels ? R.nModels.toLocaleString() : '',
+                    'Candidates': R.targets.length + (R.targets.length > 40 ? ' (first 40 listed)' : ''),
+                    'Run': R.at ? new Date(R.at).toLocaleString() : '',
+                    'Notes': (R.notes || []).join(' '),
+                });
+                sheets.push({ name: 'Synthetic-lethal targets', rows: rows });
+            }
+
+            // 5. Paralog partners, when that model has run.
+            if (parResult && parResult.summary && parResult.summary.length) {
+                const R = parResult;
+                const rows = [];
+                rows.push({ 'Losses': R.genes.join(', '), 'Run': R.at ? new Date(R.at).toLocaleString() : '', 'Notes': (R.notes || []).join(' ') });
+                R.summary.forEach((gs) => {
+                    const lst = (R.partners && R.partners[gs.gene]) || [];
+                    const row = { 'Lost gene': gs.gene, 'Status': gs.status === 'scored'
+                        ? (gs.n_paralogs + ' paralog' + (gs.n_paralogs === 1 ? '' : 's') + ', ' + gs.n_shown + ' predicted to become essential')
+                        : ('' + (gs.status || '')) };
+                    lst.slice(0, 8).forEach((x, i) => {
+                        row['Partner ' + (i + 1)] = x.partner + ' - ' + Math.round(x.pred * 100) + '%'
+                            + ', identity ' + Math.round(x.identity) + '%'
+                            + (x.bioplex ? ', BioPlex interaction' : '') + (x.label ? ', known SL pair' : '');
+                    });
+                    rows.push(row);
+                });
+                sheets.push({ name: 'Paralog partners', rows: rows });
+            }
+
+            // 6. How to read it.
+            sheets.push({ name: 'How to read this', rows: [{
+                'Loss matrix': 'Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too. Deletions and silencing are not in a VCF and are not seen.',
+                'Zygosity': 'Biallelic = both copies hit (homozygous, compound heterozygous, or two hits of unknown phase). Monoallelic = one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see.',
+                'Synthetic-lethal targets': 'For each selected loss and each pair of them, the gene that becomes selectively essential in DepMap lines carrying the same losses, lineage-corrected. Genuine higher-order = the pair explains the dependency beyond either loss alone; single-loss = one loss drives it.',
+                'Paralog partners': 'The trained paralog classifier: for a lost gene, which paralog is predicted to become the surviving copy the cell cannot lose.',
+                'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
+            }] });
+
+            // Every value through the ASCII gate, once, here.
+            for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = ascii(v); }
+            const base = dlSafe(dlSpecies() + '_' + (L.sample || 'sample') + '_loss_matrix_summary');
+            dlMsg('Building the PDF...');
+            const rs = await POSTJSON({ format: 'pdf', filename: base, title: 'Loss matrix - ' + ascii(L.sample || 'all variants'), sheets: sheets }, dlHost + '/export-table');
+            const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+            if (body && body.b64) { dlSaveB64(body.b64, body.filename || (base + '.pdf'), body.mime || 'application/pdf'); dlMsg((body.filename || base) + ' downloaded.'); }
+            else dlErr('Could not build the PDF: ' + ((body && (body.error || body.message)) || 'server error'));
+        };
+
         const lossMatrixMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lossMatrix) { analysisMenu(); return; }
@@ -5997,6 +6127,11 @@ function (path, config) {
                 blurb: 'One row per loss-of-function variant: gene, position, alleles, consequence, HGVS — the shape the third-gene model reads.',
                 ready: !!genes.length, readyNote: 'nothing to download',
                 open: () => { try { dlSaveText(lossMatrixCSV(), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_loss_matrix') + '.csv', 'text/csv'); dlMsg('Loss matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Loss matrix', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf',
+                blurb: 'A written summary of the findings: what was read, the genes lost with their worst hit, the selected losses'
+                    + (slResult ? ', the synthetic-lethal targets' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
+                ready: !!allG.length, readyNote: 'nothing to summarise',
+                open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             books.push({ section: 'Loss matrix', title: 'Recalculate', badge: SAMPLES.length > 1 ? 'pick a sample' : 'run again', icon: 'refresh',
                 blurb: 'Read the variants again' + (SAMPLES.length > 1 ? ', for this or another sample.' : '.'),
                 open: () => analysisMenu() });
