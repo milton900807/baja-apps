@@ -2956,6 +2956,46 @@ function (path, config) {
             pan();
             return true;
         };
+        // FLY to a bookmark: zoom OUT to the whole genome, then IN to the target. A bookmarked
+        // chromosome is a tall, narrow rectangle that animateTo/zoomRect would reshape (its
+        // aspect is well below the clamp), so goView lands on it instantly. To animate anyway
+        // we tween the grid bounds ourselves, easing out to the genome frame and then in to the
+        // target, so the eye is carried from wherever it was, back to the whole genome, and
+        // down onto the chromosome. Interrupting (another click) cancels the running fly.
+        let __flyRAF = 0;
+        const __genomeView = () => ({ x0: -0.4 * SLOT, x1: (drawn.length + 0.4) * SLOT, y0: -maxMb * 1.12, y1: maxMb * 0.06 });
+        const flyToView = (target) => {
+            if (!target || !isFinite(target.x0)) return;
+            try { if (__flyRAF) { cancelAnimationFrame(__flyRAF); __flyRAF = 0; } } catch (e) { }
+            const start = viewOf();
+            const tv = { x0: target.x0, x1: target.x1, y0: target.y0, y1: target.y1 };
+            if (!start) { setViewExact(tv); pan(); return; }
+            const gv = __genomeView();
+            const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+            const L = (a, b, t) => a + (b - a) * t;
+            const mix = (A, B, t) => ({ x0: L(A.x0, B.x0, t), x1: L(A.x1, B.x1, t), y0: L(A.y0, B.y0, t), y1: L(A.y1, B.y1, t) });
+            // Skip the zoom-out leg when the target already IS (about) the whole genome, or
+            // when the current view is already framed wider than the genome frame.
+            const targetW = Math.abs(tv.x1 - tv.x0), genomeW = Math.abs(gv.x1 - gv.x0);
+            const startW = Math.abs(start.x1 - start.x0);
+            const isGenomeTarget = targetW >= 0.9 * genomeW;
+            const OUT_MS = (isGenomeTarget || startW >= 0.9 * genomeW) ? 0 : 340;
+            const IN_MS = 520;
+            const total = OUT_MS + IN_MS;
+            const from = OUT_MS > 0 ? gv : start;
+            const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+            const stepFn = () => {
+                const e = now() - t0;
+                let v;
+                if (OUT_MS > 0 && e < OUT_MS) v = mix(start, gv, ease(e / OUT_MS));
+                else v = mix(from, tv, ease(Math.min(1, (e - OUT_MS) / IN_MS)));
+                setViewExact(v);
+                if (e < total) { try { __flyRAF = requestAnimationFrame(stepFn); } catch (er) { __flyRAF = 0; setViewExact(tv); pan(); } }
+                else { __flyRAF = 0; setViewExact(tv); pan(); }
+            };
+            try { __flyRAF = requestAnimationFrame(stepFn); } catch (e) { setViewExact(tv); pan(); }
+        };
         // Enough of a description to recognise the place: which chromosomes the rectangle
         // covers and what stretch of them, in whichever unit the span is actually in.
         const bpText = (lo, hi) => {
@@ -6285,7 +6325,7 @@ function (path, config) {
                     b.innerHTML = '<div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(bk.name || ('view ' + (i + 1))) + '</div>';
                     b.onmouseenter = () => { b.style.background = '#123a63'; };
                     b.onmouseleave = () => { b.style.background = '#0a1e3a'; };
-                    b.onclick = () => { try { goView(bk); } catch (e) { } };
+                    b.onclick = () => { try { flyToView(bk); } catch (e) { try { goView(bk); } catch (e2) { } } };
                     list.appendChild(b);
                 });
             }
@@ -6332,8 +6372,8 @@ function (path, config) {
                 badge: 'view ' + (k + 1),
                 blurb: describeView(bk) + (when(bk) ? '  \u00b7  ' + when(bk) : ''),
                 open: async () => {
-                    if (await goView(bk)) graph.setMessage(' ' + (bk.name || 'Bookmark') + '. ');
-                    else graph.setMessage(' That bookmark could not be restored. ');
+                    try { flyToView(bk); } catch (e) { try { await goView(bk); } catch (e2) { } }
+                    graph.setMessage(' ' + (bk.name || 'Bookmark') + '. ');
                 },
             }));
             const removeCards = () => bookmarks.map((bk, k) => ({
