@@ -5915,6 +5915,10 @@ function (path, config) {
             books.push({ section: 'Targets', title: 'Download targets as CSV', badge: 'csv', icon: 'file_download', ready: R.targets.length > 0, readyNote: 'no targets',
                 blurb: 'One row per target with t, FDR, effect, synergy, interpretation and the backgrounds it recurs in.',
                 open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_sl_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Targets', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
+                blurb: 'A written summary: the selected losses, these targets with their statistics and backgrounds'
+                    + (lossMatrix ? ', the loss matrix they came from' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
+                open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
                 blurb: 'Tissues below are the ones whose DepMap lines carry one of these losses.', books: () => tissueBooks((t) => slFindTargets(t)) });
             books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
@@ -5965,19 +5969,25 @@ function (path, config) {
         // /export-table, the same route the variant listing takes. Each sheet is a short
         // section; each record is one thing found, with the facts that make it a finding.
         // Plain ASCII throughout: the PDF font cannot draw anything else.
+        // Also reached from the targets shelf, where there may be no loss matrix at all --
+        // a selection built from hypothetical losses -- so every section is optional and
+        // the file is named after whichever of them leads.
         const lossMatrixPDF = async () => {
-            if (!lossMatrix) { dlMsg('No loss matrix to summarise yet.'); return; }
             const L = lossMatrix;
-            const genes = lossGenesOrdered();
-            const allG = L.genes || [];
+            if (!L && !(slResult && slResult.targets && slResult.targets.length) && !(parResult && parResult.summary && parResult.summary.length)) {
+                dlMsg('Nothing to summarise yet: calculate a loss matrix or run the model first.'); return;
+            }
+            const genes = L ? lossGenesOrdered() : [];
+            const allG = (L && L.genes) || [];
             const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
             const ascii = (t) => ('' + (t == null ? '' : t)).replace(/\u2212/g, '-').replace(/\u00b7/g, '-').replace(/\u2014/g, '-').replace(/[^\x20-\x7e]/g, '');
             const num = (v, d) => (v == null || v === '' || !isFinite(+v)) ? '' : (+v).toFixed(d == null ? 2 : d);
-            const c = L.counts || {};
+            const c = (L && L.counts) || {};
             const zc = zygCounts(allG);
             const sheets = [];
 
             // 1. What was read, and the headline.
+            if (L) {
             const summary = {
                 'Genome': dlSpecies() + (dlAssembly() ? ' (' + dlAssembly() + ')' : ''),
                 'Sample': L.sample || 'all variants',
@@ -5993,6 +6003,7 @@ function (path, config) {
             };
             if (lossZygFilter === 'biallelic') summary['Filter'] = 'showing only biallelic losses (' + genes.length + ' of ' + allG.length + ')';
             sheets.push({ name: 'Summary', rows: [summary] });
+            }
 
             // 2. The genes, tumour suppressors first, one record each with its worst hit.
             const geneRow = (g) => {
@@ -6081,9 +6092,11 @@ function (path, config) {
 
             // Every value through the ASCII gate, once, here.
             for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = ascii(v); }
-            const base = dlSafe(dlSpecies() + '_' + (L.sample || 'sample') + '_loss_matrix_summary');
+            const base = L ? dlSafe(dlSpecies() + '_' + (L.sample || 'sample') + '_loss_matrix_summary')
+                : dlSafe(dlSpecies() + '_' + ((slResult || parResult).genes || []).join('-') + '_targets_summary');
+            const title = L ? ('Loss matrix - ' + ascii(L.sample || 'all variants')) : ('Synthetic-lethal targets - ' + ascii(((slResult || parResult).genes || []).join(', ')));
             dlMsg('Building the PDF...');
-            const rs = await POSTJSON({ format: 'pdf', filename: base, title: 'Loss matrix - ' + ascii(L.sample || 'all variants'), sheets: sheets }, dlHost + '/export-table');
+            const rs = await POSTJSON({ format: 'pdf', filename: base, title: title, sheets: sheets }, dlHost + '/export-table');
             const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
             if (body && body.b64) { dlSaveB64(body.b64, body.filename || (base + '.pdf'), body.mime || 'application/pdf'); dlMsg((body.filename || base) + ' downloaded.'); }
             else dlErr('Could not build the PDF: ' + ((body && (body.error || body.message)) || 'server error'));
