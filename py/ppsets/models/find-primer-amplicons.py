@@ -513,7 +513,7 @@ def primer3_global_settings(
     # windows take a few milliseconds each and return pairs.
     #
     # What is given up is primer3's thermodynamic self-structure PENALTY, not the check:
-    # the sequence-alignment check (PRIMER_MAX_SELF_ANY / _END, the pre-2.3 behaviour)
+    # the sequence-alignment check (PRIMER_MAX_SELF_ANY / _END, the pre-2.3 behavior)
     # still applies. And primer3's own scores are not what ranks a design here -- djPrimer
     # does, and the whitepaper's finding is that those scores predict assay success at
     # chance -- so a coarser primer3 penalty costs the ranking nothing.

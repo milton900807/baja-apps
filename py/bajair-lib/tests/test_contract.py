@@ -1,4 +1,4 @@
-"""The behavioural contract: silence is a valid answer, and it is not an error."""
+"""The behavioral contract: silence is a valid answer, and it is not an error."""
 import pandas as pd
 import pytest
 

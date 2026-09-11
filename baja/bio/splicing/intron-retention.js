@@ -236,7 +236,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
         // for each time.
         // `list` is the tracks to run against. Passed in by the caller -- the library hands
         // down whatever it was given -- and only falls back to the whole canvas when nobody
-        // said. That fallback is the old behaviour, kept so an older call site still works.
+        // said. That fallback is the old behavior, kept so an older call site still works.
         const runAllTracks = (tier, list) => {
             let all = [];
             try {

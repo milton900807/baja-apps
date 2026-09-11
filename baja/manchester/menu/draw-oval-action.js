@@ -9,7 +9,7 @@ function (graph) {
         // quick click could land its mouseup before the class resolved, so mouseup saw no
         // currentShape, skipped its whole cleanup block, and left the tool armed — then the
         // late mousedown built an oval that the still-live move listener stretched to follow
-        // the cursor forever. That is the "won't release / stays on the graph" behaviour.
+        // the cursor forever. That is the "won't release / stays on the graph" behavior.
         const Oval = await exec('flexigraph/shapes/sketch-oval.js');
 
         graph.clearMouseListeners();

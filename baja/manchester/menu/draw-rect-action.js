@@ -4,7 +4,7 @@ function (graph) {
     // leaves a yield between the press and the state it sets: a quick click can land its
     // mouseup BEFORE the class resolves, so mouseup sees no shape and skips its cleanup,
     // and the late mousedown then builds a shape that the still-live move listener stretches
-    // to follow the cursor forever. That is the "keeps drawing after mouse up" behaviour.
+    // to follow the cursor forever. That is the "keeps drawing after mouse up" behavior.
     // A press arriving before the class is ready is ignored, which is a dropped click in the
     // first few milliseconds rather than a tool that never lets go.
     let Rectangle = null;

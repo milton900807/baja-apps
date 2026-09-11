@@ -27,7 +27,7 @@ except Exception:
 #   other species    the off-target index contigs, which carry name + gene symbol
 #
 # When we hold no catalogue for the species (zebrafish, say) the original
-# one-pass behaviour still runs, so nothing that worked before stops working.
+# one-pass behavior still runs, so nothing that worked before stops working.
 #
 # Params (after the EngineMonitor):
 #   param(1) : the user's natural-language prompt

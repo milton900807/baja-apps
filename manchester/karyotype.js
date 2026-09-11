@@ -500,7 +500,7 @@ function (path, config) {
         // selecting. arm() is what the gesture means on a karyotype: drag down a
         // chromosome, release, and the range that comes out is looked up and offered as
         // transcripts to open. The toolbar button of the same name calls the same thing,
-        // so the two are one behaviour and not two.
+        // so the two are one behavior and not two.
         try { graph.__selectSeqOverride = () => { arm(); }; } catch (e) { }
 
         // AND THE BOX ZOOM IS THIS VIEW'S TOO.
@@ -3188,7 +3188,7 @@ function (path, config) {
         //
         // Two at a time, and a refusal is NOT recorded as pending, so the frame after asks
         // again and the rest arrive in their own time. Labels appearing chromosome by
-        // chromosome over a few seconds is the correct behaviour for a question this
+        // chromosome over a few seconds is the correct behavior for a question this
         // expensive; taking the server down to answer it faster is not.
         const PAT_ASK_MAX = 2;
         let patAsking = 0;

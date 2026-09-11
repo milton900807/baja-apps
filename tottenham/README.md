@@ -209,5 +209,5 @@ The inputs and the decisions. **Not the scores.** Every number is a pure functio
 inputs and of the model registry as it stood when the button was pressed, and the entire point
 of that registry is that better models get added to it. A stored half-life index would be a
 number from a model that no longer exists, sitting in a file that does not say so. Reopening
-recomputes with whatever is registered now, which is the only behaviour that stays honest as
+recomputes with whatever is registered now, which is the only behavior that stays honest as
 the models improve.

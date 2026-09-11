@@ -307,7 +307,7 @@ def build_model(extracted: Dict[str, Any], today: Optional[str] = None) -> Dict[
             })
             intervals.append(item)
 
-    # Unique names (the plot keys some behaviour off point.name).
+    # Unique names (the plot keys some behavior off point.name).
     seen: Dict[str, int] = {}
     for it in intervals + milestones:
         base = it["name"]

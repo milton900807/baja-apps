@@ -8,7 +8,7 @@ function (path, config) {
     // this URL is no longer a way around that: it reaches the same gate as every other route
     // in. The name is kept because the url is published. Clicking a
     // compound loads it into THIS viewer graph, so a public visitor gets the full load
-    // behaviour — target transcript, binding site, chemistry zoom — without the editor.
+    // behavior — target transcript, binding site, chemistry zoom — without the editor.
     //
     // manchester/clinical-library.js itself is unchanged: it takes (graph, layout) and calls
     // load-clinical-compound.js with them, so handing it a viewer graph is all that is needed.

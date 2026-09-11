@@ -1,7 +1,7 @@
 function (graph, genegraph_panel_layout, presetResource, presetTracks) {
     // presetTracks: the track(s) this load is FOR, decided by whoever opened it -- the Data
     // Resources library passes the track above the card on its path. Given, the load runs on
-    // exactly those and asks for no click; without it the click / all-tracks behaviour below
+    // exactly those and asks for no click; without it the click / all-tracks behavior below
     // stands, so the toolbar preset and any older caller are unchanged.
     // Public data resources browser — nested LIBRARIES, the same idiom as the rest of Data
     // Resources: a shelf of public resources, and picking one opens a shelf of the matching
@@ -192,7 +192,7 @@ function (graph, genegraph_panel_layout, presetResource, presetTracks) {
         // VCF endpoints, let the user pick one (if several), then load it as a layer.
         // `preCand` is a file already chosen from the library: load THAT onto every track in
         // scope, with no per-track listing and no popup. Without it (the preset/toolbar path)
-        // the original behaviour stands -- list per track, ask if there is more than one.
+        // the original behavior stands -- list per track, ask if there is more than one.
         const armLoad = async (name, preCand) => {
             if (!name) return;
             CurrentLayout.clearComponent('mainPanel');

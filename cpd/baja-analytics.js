@@ -380,7 +380,7 @@ function (path, config) {
 
                 if (!result.allowed) {
                     // Not subscribed drops this app to FREE MODE rather than throwing up the checkout
-                    // page. This check runs on a TIMER, so the old behaviour interrupted someone mid-session
+                    // page. This check runs on a TIMER, so the old behavior interrupted someone mid-session
                     // with a paywall over work they were in the middle of -- and denied them on a network
                     // error too, before verifyUserPath was fixed to fail open.
                     //

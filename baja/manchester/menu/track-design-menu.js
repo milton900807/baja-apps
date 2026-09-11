@@ -1986,7 +1986,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         })();
 
         // The blink, shared. It was written inline for compounds; primer probes want exactly
-        // the same behaviour on a different subset, and a second copy would drift the first
+        // the same behavior on a different subset, and a second copy would drift the first
         // time the timing or the color changed.
         const __blinkOligos = (list, noun) => {
             if (!list || !list.length) return;
@@ -2114,7 +2114,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                 // is the one you want -- and it is the whole modality, not a fallback.
                 title: 'Steric Blocking oligo', badge: 'Steric',
                 blurb: 'Tile the transcript on the design rules alone, with no splice-switching '
-                    + 'priority. The behaviour this modality has always had'
+                    + 'priority. The behavior this modality has always had'
                     + (hasModel ? '.' : ' — and the only option here until a model is added.'),
                 open: () => t.click(0, 0, null)
             }

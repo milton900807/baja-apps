@@ -5,7 +5,7 @@ function (options) {
     // Most files in My Files open in an editor: a .baja screen, a .karyotype, a .liverpool
     // design. Everything else -- a pasted VCF, a spreadsheet, a note, anything uploaded --
     // had no handler at all. Clicking one cleared the screen and left the user on a blank
-    // page, which is the worst of the three possible behaviours: it looks like a crash and
+    // page, which is the worst of the three possible behaviors: it looks like a crash and
     // it loses the folder they were browsing.
     //
     // This is the fallback: a small menu offering the three things you can do with a file
