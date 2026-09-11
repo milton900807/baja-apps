@@ -6461,7 +6461,7 @@ function (path, config) {
             try {
                 const ctx = (r.species || 'human') + ' tumour sample ' + (lossMatrix.sample || '') + '; other losses: '
                     + (lossMatrix.genes || []).filter(lossIsTsg).map((g) => g.gene).slice(0, 12).join(', ');
-                graph.setMessage(' Reading the therapeutic literature for ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — about ' + Math.ceil(genes.length / 20) * 10 + ' s… ');
+                graph.setMessage(' Reading the therapeutic literature for ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — ' + Math.ceil(genes.length / 10) + ' part' + (genes.length > 10 ? 's' : '') + ' in parallel… ');
                 const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: genes, context: ctx }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no evidence came back');
                 const got = JSON.parse(rs.genes || '{}');
@@ -6494,7 +6494,7 @@ function (path, config) {
                 blurb: 'Tumor suppressor, oncogene, DNA repair, immune regulation from curated lists; cancer dependency from DepMap knockout effects. Quick, no model.',
                 open: async () => { await runGeneAnnotations(); refineMenu(); } });
             books.push({ section: 'Look things up', title: 'Find therapeutic evidence — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
-                blurb: 'For each lost gene: is the loss a synthetic-lethal vulnerability, a target through the remaining allele, a biomarker of sensitivity or resistance; existing drugs, trials, and the publications behind it, with an evidence level. About 10 s per 20 genes.',
+                blurb: 'For each lost gene: is the loss a synthetic-lethal vulnerability, a target through the remaining allele, a biomarker of sensitivity or resistance; existing drugs, trials, and the publications behind it, with an evidence level. Batches run in parallel and genes seen before are instant.',
                 open: async () => { await runGeneTherapeutics(false); refineMenu(); } });
             books.push({ section: 'Look things up', title: 'Find therapeutic evidence — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
                 blurb: 'The same lookup for the selection only.', open: async () => { await runGeneTherapeutics(true); refineMenu(); } });

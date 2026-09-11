@@ -20,6 +20,9 @@ Resolves:
 import json
 import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ion import works
 
@@ -31,8 +34,45 @@ except Exception:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-opus-5"
 
-BATCH = 20
-MAX_GENES = 400
+BATCH = 10               # small on purpose: a call's time is its output length, so ten genes
+MAX_GENES = 400          # finish in about a third of the time twenty do
+WORKERS = 8              # batches in flight at once; the API takes them concurrently
+CACHE_DAYS = 120         # a gene's therapeutic story changes slowly; the cache is per gene
+
+# SERVER-SIDE CACHE, keyed by gene. The facts asked for are about the gene, not about this
+# tumour (the context line only colours the summary), so a gene answered once is answered
+# for every later matrix at no cost. Lives beside the DepMap bundle, which is per box and
+# writable by the exec user; a box where it cannot be written simply does not cache.
+def cache_path():
+    for base in ["/opt/baja-server", os.path.expanduser("~/baja-server"), os.getcwd()]:
+        d = os.path.join(base, "reference_data", "depmap")
+        if os.path.isdir(d):
+            return os.path.join(d, "therapeutics-cache.json")
+    return ""
+
+
+def cache_load():
+    p = cache_path()
+    if not p or not os.path.exists(p):
+        return {}
+    try:
+        c = json.load(open(p))
+        return c if isinstance(c, dict) else {}
+    except Exception:
+        return {}
+
+
+def cache_save(cache):
+    p = cache_path()
+    if not p:
+        return
+    try:
+        tmp = p + ".%d.part" % os.getpid()
+        with open(tmp, "w") as fh:
+            json.dump(cache, fh)
+        os.replace(tmp, p)
+    except Exception:
+        pass
 THERAPEUTIC = ["synthetic_lethal_vulnerability", "remaining_allele_target", "sensitivity_biomarker",
                "resistance_biomarker", "existing_drug", "clinical_trial", "none"]
 EVIDENCE = ["human_clinical", "in_vivo_model", "cell_knockdown", "computational_only"]
@@ -91,17 +131,44 @@ else:
     res = {}
     notes = []
     failed = []
-    batches = [want[i:i + BATCH] for i in range(0, len(want), BATCH)]
-    for bi, batch in enumerate(batches):
-        works.msg("Reading the therapeutic literature for %d gene(s)%s…"
-                  % (len(batch), (" — part %d of %d" % (bi + 1, len(batches))) if len(batches) > 1 else ""))
+    # 1. The cache answers first.
+    cache = cache_load()
+    now = time.time()
+    fresh_after = now - CACHE_DAYS * 86400
+    cached = 0
+    for g in want:
+        c = cache.get(g)
+        if isinstance(c, dict) and isinstance(c.get("entry"), dict) and float(c.get("at") or 0) >= fresh_after:
+            res[g] = c["entry"]
+            cached += 1
+    todo = [g for g in want if g not in res]
+    if cached:
+        works.msg("%d gene(s) answered from the cache; asking about %d…" % (cached, len(todo)))
+
+    def clean(e):
+        th = [str(x) for x in (e.get("therapeutic") or []) if str(x) in THERAPEUTIC]
+        if not th or ("none" in th and len(th) > 1):
+            th = [x for x in th if x != "none"] or ["none"]
+        ev = [str(x) for x in (e.get("evidence") or []) if str(x) in EVIDENCE]
+        if th == ["none"]:
+            ev = []
+        inh = []
+        for x in (e.get("inhibitors") or []):
+            if isinstance(x, dict) and x.get("name"):
+                inh.append({"name": str(x.get("name"))[:80], "stage": str(x.get("stage") or "")[:40]})
+        pubs = []
+        for x in (e.get("publications") or [])[:3]:
+            if isinstance(x, dict) and x.get("title"):
+                pubs.append({"first_author": str(x.get("first_author") or "")[:60],
+                             "year": str(x.get("year") or "")[:8], "title": str(x.get("title") or "")[:200]})
+        return {"therapeutic": th, "evidence": ev, "inhibitors": inh,
+                "trials": str(e.get("trials") or "")[:300], "publications": pubs,
+                "summary": str(e.get("summary") or "")[:500]}
+
+    def ask_batch(batch):
+        """One API call for one batch; returns (answers, failed_genes, note)."""
+        ask = ("Genes: " + ", ".join(batch) + ("\nContext: " + context if context else ""))
         try:
-            try:
-                import claude_usage as _cu
-                _cu.bump("gene-therapeutics")
-            except Exception:
-                pass
-            ask = ("Genes: " + ", ".join(batch) + ("\nContext: " + context if context else ""))
             r = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
@@ -110,49 +177,63 @@ else:
                       "messages": [{"role": "user", "content": ask}]},
                 timeout=240,
             )
-            if r.status_code != 200:
-                failed.extend(batch)
-                notes.append("anthropic %s on part %d: %s" % (r.status_code, bi + 1, r.text[:160]))
-                continue
-            data = r.json()
-            txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
-            m = re.search(r"\{.*\}", txt, re.S)
-            parsed = None
-            if m:
-                try:
-                    parsed = json.loads(m.group(0))
-                except Exception:
-                    parsed = None
-            if not isinstance(parsed, dict):
-                failed.extend(batch)
-                notes.append("part %d could not be read" % (bi + 1))
-                continue
-            for g in batch:
-                e = parsed.get(g) or parsed.get(g.title()) or parsed.get(g.lower())
-                if not isinstance(e, dict):
-                    failed.append(g)
-                    continue
-                th = [str(x) for x in (e.get("therapeutic") or []) if str(x) in THERAPEUTIC]
-                if not th or ("none" in th and len(th) > 1):
-                    th = [x for x in th if x != "none"] or ["none"]
-                ev = [str(x) for x in (e.get("evidence") or []) if str(x) in EVIDENCE]
-                if th == ["none"]:
-                    ev = []
-                inh = []
-                for x in (e.get("inhibitors") or []):
-                    if isinstance(x, dict) and x.get("name"):
-                        inh.append({"name": str(x.get("name"))[:80], "stage": str(x.get("stage") or "")[:40]})
-                pubs = []
-                for x in (e.get("publications") or [])[:3]:
-                    if isinstance(x, dict) and x.get("title"):
-                        pubs.append({"first_author": str(x.get("first_author") or "")[:60],
-                                     "year": str(x.get("year") or "")[:8], "title": str(x.get("title") or "")[:200]})
-                res[g] = {"therapeutic": th, "evidence": ev, "inhibitors": inh,
-                          "trials": str(e.get("trials") or "")[:300], "publications": pubs,
-                          "summary": str(e.get("summary") or "")[:500]}
         except Exception as ex:
-            failed.extend(batch)
-            notes.append("part %d failed: %s" % (bi + 1, ex))
+            return {}, list(batch), "a part failed: %s" % ex
+        if r.status_code != 200:
+            return {}, list(batch), "anthropic %s: %s" % (r.status_code, r.text[:160])
+        data = r.json()
+        txt = "".join(b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text")
+        m = re.search(r"\{.*\}", txt, re.S)
+        parsed = None
+        if m:
+            try:
+                parsed = json.loads(m.group(0))
+            except Exception:
+                parsed = None
+        if not isinstance(parsed, dict):
+            return {}, list(batch), "a part could not be read"
+        got, bad = {}, []
+        for g in batch:
+            e = parsed.get(g) or parsed.get(g.title()) or parsed.get(g.lower())
+            if isinstance(e, dict):
+                got[g] = clean(e)
+            else:
+                bad.append(g)
+        return got, bad, ""
+
+    # 2. The rest, in PARALLEL batches: the API takes several requests at once, and a
+    #    200-gene matrix is twenty batches -- minutes one after another, well under one
+    #    minute eight abreast.
+    batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
+    if batches:
+        try:
+            import claude_usage as _cu
+            for _ in batches:
+                _cu.bump("gene-therapeutics")
+        except Exception:
+            pass
+        works.msg("Reading the therapeutic literature for %d gene(s) in %d part(s), %d at a time…"
+                  % (len(todo), len(batches), min(WORKERS, len(batches))))
+        done = 0
+        lock = threading.Lock()
+        with ThreadPoolExecutor(max_workers=min(WORKERS, len(batches))) as pool:
+            futs = {pool.submit(ask_batch, b): b for b in batches}
+            for fut in as_completed(futs):
+                try:
+                    got, bad, note = fut.result()
+                except Exception as ex:
+                    got, bad, note = {}, list(futs[fut]), "a part failed: %s" % ex
+                with lock:
+                    res.update(got)
+                    failed.extend(bad)
+                    if note:
+                        notes.append(note)
+                    for g, e in got.items():
+                        cache[g] = {"entry": e, "at": now, "model": ANTHROPIC_MODEL}
+                    done += 1
+                works.msg("%d of %d part(s) read…" % (done, len(batches)))
+        if any(res.get(g) for g in todo):
+            cache_save(cache)
     if failed:
         notes.append("No answer for: " + ", ".join(sorted(set(failed))[:40]) + ("…" if len(set(failed)) > 40 else ""))
     notes.append("Labels are fixed so the Refine panel can filter on them. Publications are given for checking, "
