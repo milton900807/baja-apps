@@ -351,9 +351,26 @@ class Transcript:
 
 
 def load_transcripts(gff, contig, lo, hi):
-    """Every transcript overlapping [lo, hi], with exons and CDS, best-ranked first per gene."""
-    by_id = {}
+    """Every transcript overlapping [lo, hi], with ALL its exons and CDS, best-ranked first per gene.
+
+    Two passes on purpose. A variant's coding offset -- the c. number, the codon, whether an
+    indel is in frame -- is counted from the transcript's FIRST coding base, so a transcript
+    read only within the variant's window is a transcript with its beginning missing, and
+    every offset comes out wrong by however much was cut off: a nonsense read as missense,
+    R248 read as codon 216. So the window is first widened to the full span of every gene
+    and transcript it touches, and the exons and CDS are read from that."""
+    span_lo, span_hi = lo, hi
     for f in gff.rows(contig, lo, hi):
+        if len(f) < 9:
+            continue
+        if f[2] == "gene" or f[2] in ("transcript", "mRNA") or "transcript_id" in f[8]:
+            try:
+                span_lo = min(span_lo, int(f[3]))
+                span_hi = max(span_hi, int(f[4]))
+            except ValueError:
+                pass
+    by_id = {}
+    for f in gff.rows(contig, max(1, span_lo), span_hi):
         if len(f) < 9:
             continue
         kind = f[2]
