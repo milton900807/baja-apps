@@ -402,10 +402,19 @@ function (opts) {
                     + (b.swatch ? ('<span style="flex:0 0 auto;width:16px;height:16px;border-radius:50%;'
                         + 'background:' + esc(b.swatch) + ';box-shadow:0 0 6px ' + esc(b.swatch) + ';'
                         + 'border:1px solid rgba(255,255,255,0.55);"></span>') : '')
+                    // AN ICON IS A GLYPH OR A MATERIAL NAME. An emoji is drawn as text; a
+                    // Material Icons name -- `biotech`, `file_download`, the same names the
+                    // toolbars use -- is drawn through the icon font, so a card and the button
+                    // that opened it can wear the same symbol. A bare identifier is never a
+                    // glyph anyone meant to show as a word.
                     + (b.icon ? ('<span style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;'
                         + 'display:inline-flex;align-items:center;justify-content:center;font:16px/1 Arial;'
-                        + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.14)') + ';">'
-                        + esc(b.icon) + '</span>') : '')
+                        + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.14)') + ';'
+                        + 'color:' + (A ? A[4] : '#4fd0e6') + ';">'
+                        + (/^[a-z][a-z0-9_]*$/.test('' + b.icon)
+                            ? ('<span class="material-icons" style="font-size:18px;line-height:1;">' + esc(b.icon) + '</span>')
+                            : esc(b.icon))
+                        + '</span>') : '')
                     + (b.badge ? ('<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;'
                         + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
                         + 'color:' + (A ? A[4] : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')

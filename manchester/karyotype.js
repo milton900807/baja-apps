@@ -630,21 +630,6 @@ function (path, config) {
                     + 'remove one you no longer need.',
             },
             {
-                title: 'Search — look something up',
-                byTitle: 'Find a gene, act on the selected regions, or show patents',
-                byIcon: 'search',
-                text: 'Jump to a gene by name, see the genes inside the regions you have '
-                    + 'selected and open their transcripts in the editor, or show the patents.',
-            },
-            {
-                title: 'Patents — the whole landscape',
-                byTitle: 'Show where patented sequences fall across the whole genome; press again to hide',
-                byIcon: 'gavel',
-                text: 'Draws a strip down every chromosome showing where patented sequences '
-                    + 'fall, so you can see the crowded and the open ground at once. Press it '
-                    + 'again to hide the strip.',
-            },
-            {
                 title: 'Upload — put a file on the genome',
                 byTitle: 'Read a VCF, a genetic report, or any file carrying genetic information onto the karyotype, and keep it in My Files',
                 byIcon: 'upload_file',
@@ -669,12 +654,13 @@ function (path, config) {
             },
             {
                 title: 'Analyze — the loss matrix',
-                byTitle: 'Analyze the loaded variants: calculate the loss matrix, or see what is loaded',
+                byTitle: 'Analyze the loaded variants: the loss matrix, gene search, patents, and what is loaded',
                 byIcon: 'biotech',
                 text: 'Work out which genes a sample has lost — frameshifts, stop codons and '
                     + 'splice-site changes, read off the coding sequence — and light those '
-                    + 'variants and genes up across the genome. With more than one sample '
-                    + 'in the file you pick the one to read.',
+                    + 'variants and genes up across the genome. The same library finds a '
+                    + 'gene by name, acts on the selected regions, shows the patent '
+                    + 'landscape, and says what is loaded.',
             },
             {
                 title: 'Fit — see everything again',
@@ -752,41 +738,17 @@ function (path, config) {
                             wid: 'button-menu',
                             data: {
                                 buttons: __ipPublic ? __ipButtons : [
+                                    // THE ORDER IS THE WORKFLOW: open a file, put variants on
+                                    // it, colour them, keep a view, analyze, share, frame,
+                                    // download, and help last. Search and Patents left this
+                                    // row for the Analyze library, where looking something up
+                                    // sits beside the loss matrix rather than ahead of Upload.
                                     {
-                                        // THE FOLDER IS THE WHOLE FILE MENU NOW: open, save,
-                                        // remove. Save had its own button beside this one, which
-                                        // left the two halves of one job in two places and no
-                                        // way to delete a karyotype at all without leaving for
-                                        // the file browser.
+                                        // THE FOLDER IS THE WHOLE FILE MENU: open, save,
+                                        // remove.
                                         label: 'Files', icon: 'folder_open',
                                         tooltip: 'Open, save or remove a karyotype in My Files',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); filesMenu(); })
-                                    },
-                                    {
-                                        // Find gene, Regions and Patents were three buttons
-                                        // asking one question -- what do you want to look up,
-                                        // and where -- so they are one button and a menu.
-                                        label: 'Search', icon: 'search',
-                                        tooltip: 'Find a gene, act on the selected regions, or show patents',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); searchMenu(); })
-                                    },
-                                    {
-                                        // PATENTS ARE A GENOME-WIDE QUESTION, so they get a
-                                        // button rather than living two levels down a menu
-                                        // that is otherwise about looking one thing up. The
-                                        // strip is drawn down every chromosome at once, which
-                                        // is the whole point of asking, and the answer is not
-                                        // something you search FOR: you either want the
-                                        // landscape or you do not. Search still offers it, for
-                                        // anyone who learned it there.
-                                        //
-                                        // patLoad() reads the density on the first press and
-                                        // toggles the strip on every press after, so this is
-                                        // one button for show and hide.
-                                        label: 'Patents', icon: 'gavel',
-                                        tooltip: 'Show where patented sequences fall across the whole '
-                                            + 'genome; press again to hide',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); patLoad(); })
                                     },
                                     {
                                         // ANY FILE, NOT ONLY A VCF. A VCF is read directly;
@@ -824,9 +786,12 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); bookmarkMenu(false); })
                                     },
                                     {
-                                        label: 'Download', icon: 'file_download', color: '#16a34a',
-                                        tooltip: 'Download variants as BED, JSON, CSV, XLSX or PDF',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); downloadMenu(); })
+                                        // THE MICROSCOPE IS THE ANALYSIS LIBRARY: the loss
+                                        // matrix, gene search and the selected regions, the
+                                        // patent landscape, and the Info window as cards.
+                                        label: 'Analyze', icon: 'biotech',
+                                        tooltip: 'Analyze the loaded variants: the loss matrix, gene search, patents, and what is loaded',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); analysisMenu(); })
                                     },
                                     {
                                         label: 'Share', icon: 'share',
@@ -834,27 +799,20 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); shareMenu(); })
                                     },
                                     {
-                                        // THE MICROSCOPE IS THE ANALYSIS LIBRARY. Info was
-                                        // a button that answered one question; this is a
-                                        // shelf that asks them, starting with the loss
-                                        // matrix -- which genes a sample has lost -- and
-                                        // keeping the Info window as one of its cards.
-                                        label: 'Analyze', icon: 'biotech',
-                                        tooltip: 'Analyze the loaded variants: calculate the loss matrix, or see what is loaded',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); analysisMenu(); })
-                                    },
-                                    {
                                         label: 'Fit', icon: 'fit_screen',
                                         tooltip: 'Frame the whole genome again',
                                         ionFunction: createIonFunction(async () => { await fit(); pan(); })
                                     },
                                     {
+                                        label: 'Download', icon: 'file_download', color: '#16a34a',
+                                        tooltip: 'Download variants as BED, JSON, CSV, XLSX or PDF',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); downloadMenu(); })
+                                    },
+                                    {
                                         // LAST IN THE ROW ON PURPOSE, as in the editor: help is
                                         // not something you do to a karyotype, so it sits after
                                         // the things that are. Straight to the tour rather than
-                                        // through a shelf -- the editor's Help opens a library
-                                        // because it has more than one thing to offer, and this
-                                        // view has one. The tour describes and never drives:
+                                        // through a shelf. The tour describes and never drives:
                                         // nothing in it opens a menu or moves the camera, so it
                                         // can be taken with a karyotype open and left at any step.
                                         label: 'Help', icon: 'help_outline',
@@ -5501,6 +5459,12 @@ function (path, config) {
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
             }
+            books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
+                blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
+                ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
+            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', icon: 'gavel',
+                blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
+                ready: true, open: () => { try { patLoad(); } catch (e) { } } });
             books.push({ section: 'This karyotype', title: 'What is loaded', badge: 'info', icon: 'info_outline',
                 blurb: 'Variants, samples, regions, highlights and patents on this karyotype.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
