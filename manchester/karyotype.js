@@ -6741,8 +6741,50 @@ function (path, config) {
             const apply = () => { list.hidden = collapsed; if (footer) footer.hidden = collapsed; try { header.querySelector('#kn-min').textContent = collapsed ? '+' : '–'; } catch (e) { } try { sessionStorage.setItem('baja.karyoBookNav.collapsed', collapsed ? '1' : '0'); } catch (e) { } };
             panel.appendChild(header); panel.appendChild(list); if (footer) panel.appendChild(footer);
             document.body.appendChild(panel); apply();
+            // LEAVE WITH THE KARYOTYPE. Fixed to the viewport and hung off <body>, the panel
+            // outlived this screen: open the editor or the home menu and the bookmarks of the
+            // genome you just left stayed in the corner. Same watch as the editor's
+            // bookmark-nav.js: the graph's canvas is the screen, and when it leaves the
+            // document, or has been hidden for two consecutive checks, the panel goes too.
+            const hostEl = () => {
+                try {
+                    const c = graph && graph.canvas;
+                    if (!c) return null;
+                    if (c.canvas && c.canvas.nativeElement) return c.canvas.nativeElement;
+                    if (c.nativeElement) return c.nativeElement;
+                    if (typeof HTMLElement !== 'undefined' && c instanceof HTMLElement) return c;
+                } catch (e) { }
+                return null;
+            };
+            const shown = (el) => {
+                try { return !!(el && el.isConnected && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)); }
+                catch (e) { return true; }
+            };
+            let watchTimer = 0, observer = null, hiddenTicks = 0;
+            const stopWatch = () => {
+                if (watchTimer) { clearInterval(watchTimer); watchTimer = 0; }
+                try { if (observer) observer.disconnect(); } catch (e) { }
+                observer = null;
+                try { window.removeEventListener('popstate', check); window.removeEventListener('hashchange', check); } catch (e) { }
+            };
+            const close = () => { stopWatch(); try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            const check = () => {
+                if (!panel.isConnected) { stopWatch(); return; }
+                const h = hostEl();
+                if (!h) return;
+                if (!h.isConnected) { close(); return; }
+                if (shown(h)) { hiddenTicks = 0; return; }
+                if (++hiddenTicks >= 2) close();
+            };
+            try {
+                watchTimer = setInterval(check, 800);
+                observer = new MutationObserver(() => { try { check(); } catch (e) { } });
+                observer.observe(document.body, { childList: true, subtree: true });
+                window.addEventListener('popstate', check);
+                window.addEventListener('hashchange', check);
+            } catch (e) { }
             header.querySelector('#kn-min').onclick = () => { collapsed = !collapsed; apply(); };
-            header.querySelector('#kn-x').onclick = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            header.querySelector('#kn-x').onclick = () => close();
         };
 
         const bookmarkMenu = () => {
