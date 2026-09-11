@@ -481,6 +481,20 @@ function (path, config) {
                     }
 
                 }
+                // BACK FROM THE GENOME VIEWER WITH UNSAVED WORK. The viewer's Editor button
+                // relaunches this with the design the Genome Viewer button kept (config.resumeDesign,
+                // the same serialization a save writes), so the round trip loses nothing in
+                // either direction. Applied the way a saved file is: graph.update now, and
+                // __reloadedRs again once the canvas is mounted.
+                if (!path.endsWith('.baja') && config && typeof config === 'object' && config.resumeDesign) {
+                    try {
+                        const rd = (typeof config.resumeDesign === 'string') ? JSON.parse(config.resumeDesign) : config.resumeDesign;
+                        progressBar(45);
+                        await graph.update(rd);
+                        graph.file = config.resumeName || rd.file || '';
+                        graph.__reloadedRs = rd;
+                    } catch (e) { try { log('Could not restore the unsaved design: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                }
                 let Icon = await exec('flexigraph/shapes/icon.js')
                 graph.folder = path;
                 // The share's own message, once the canvas has had a moment to mount.
@@ -2821,11 +2835,26 @@ function (path, config) {
                                                 // exists only while there is something to go back to.
                                                 ...((window.__bajaKaryoReturn && window.__bajaKaryoReturn.doc) ? [{
                                                     label: 'Genome Viewer', icon: 'arrow_back',
-                                                    tooltip: 'Back to the Genome Viewer, with its variants, regions, loss matrix and selection as you left them',
+                                                    tooltip: 'Back to the Genome Viewer as you left it; this design is kept too, and the viewer\'s Editor button brings it back',
                                                     ionFunction: createIonFunction(() => {
                                                         const R = window.__bajaKaryoReturn;
                                                         if (!R || !R.doc) { try { graph.setMessage(' No karyotype to go back to. '); } catch (e) { } return; }
-                                                        if (!window.confirm('Back to the Genome Viewer?\n\nSave this design first if you want to keep the changes made here.')) return;
+                                                        // KEEP THIS DESIGN, saved or not: the same serialization the
+                                                        // autosave and Save write (proven loadable), held in memory for
+                                                        // the viewer's Editor button to hand back as config.resumeDesign.
+                                                        try {
+                                                            const seen = new WeakSet();
+                                                            const gs = JSON.stringify(graph, function (key, value) {
+                                                                if (key === 'canvas') return;
+                                                                if (typeof value === 'object' && value !== null) {
+                                                                    if (Array.isArray(value) && value.every((e) => e && typeof e === 'object' && 'x' in e && 'y' in e)) return value;
+                                                                    else if (value.x != null && value.y != null && !isNaN(key) && parseInt(key, 10).toString() === key) return value;
+                                                                    else { if (seen.has(value)) return '[a_c]'; seen.add(value); }
+                                                                }
+                                                                return value;
+                                                            });
+                                                            if (gs && gs.length > 2) window.__bajaEditorReturn = { json: gs, name: ('' + (graph.file || '')), at: Date.now() };
+                                                        } catch (e) { try { graph.setMessage(' The design could not be kept for the way back: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { } }
                                                         try { graph.hideMenu(); } catch (e) { }
                                                         try { exec('manchester/karyotype', R.species || 'human', { resume: true }); }
                                                         catch (e) { try { graph.setError('Could not open the Genome Viewer: ' + e, 8); } catch (e2) { } }

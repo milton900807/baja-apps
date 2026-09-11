@@ -763,6 +763,15 @@ function (path, config) {
                                     // download, and help last. Search and Patents left this
                                     // row for the Analyze library, where looking something up
                                     // sits beside the loss matrix rather than ahead of Upload.
+                                    //
+                                    // AHEAD OF ALL OF THEM, only during a round trip: the way
+                                    // back to the oligo editor and the unsaved design it kept
+                                    // when its Genome Viewer button was pressed.
+                                    ...((window.__bajaEditorReturn && window.__bajaEditorReturn.json) ? [{
+                                        label: 'Editor', icon: 'arrow_forward',
+                                        tooltip: 'Back to the oligo editor, with the unsaved design as you left it',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); backToEditor(); })
+                                    }] : []),
                                     {
                                         // THE FOLDER IS THE WHOLE FILE MENU: open, save,
                                         // remove.
@@ -8191,16 +8200,12 @@ function (path, config) {
         // take the same road. The editor is a different app with a different graph, and it
         // stashes that graph as it boots -- so the wait is for the stash to CHANGE, not merely
         // to exist: this graph is already in there under the same key.
-        const handToEditor = async (ids, inRange, focus) => {
-            const list = (ids || []).filter(Boolean);
-            if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
-            step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
-            graph.setMessage(' Opening the editor… ');
-            // KEEP THIS SCREEN. The editor replaces the karyotype in place, and everything
-            // here -- the variants, regions, loss matrix, selection, bookmarks, view -- lived
-            // only in memory. The whole document goes into a slot the editor's Genome Viewer
-            // button hands back through config.resume. In memory first (a VCF can be hundreds
-            // of thousands of variants); sessionStorage as well only when it is small enough.
+        // KEEP THIS SCREEN. The editor replaces the karyotype in place, and everything here
+        // -- the variants, regions, loss matrix, selection, bookmarks, view -- lived only in
+        // memory. The whole document goes into a slot the editor's Genome Viewer button hands
+        // back through config.resume. In memory first (a VCF can be hundreds of thousands of
+        // variants); sessionStorage as well only when it is small enough.
+        const keepForReturn = () => {
             try {
                 const doc = stateDoc();
                 let kp = '';
@@ -8211,7 +8216,29 @@ function (path, config) {
                     const js = JSON.stringify(keep);
                     if (js.length < 3500000) sessionStorage.setItem('baja.karyoReturn', js); else sessionStorage.removeItem('baja.karyoReturn');
                 } catch (e) { }
-            } catch (e) { step('could not keep the karyotype for the way back: ' + (e && e.message ? e.message : e)); }
+                return true;
+            } catch (e) { step('could not keep the karyotype for the way back: ' + (e && e.message ? e.message : e)); return false; }
+        };
+        // BACK TO THE EDITOR with the design it kept when its Genome Viewer button was
+        // pressed: this screen is kept again first, so the two can be walked between freely.
+        const backToEditor = () => {
+            const R = window.__bajaEditorReturn;
+            if (!R || !R.json) { graph.setMessage(' No unsaved editor design is kept. '); return; }
+            keepForReturn();
+            graph.setMessage(' Opening the editor with ' + (R.name || 'your unsaved design') + '… ');
+            try { exec('manchester/editor', '', { mode: 'editor', resumeDesign: R.json, resumeName: R.name || '' }); }
+            catch (e) { graph.setMessage(' The editor could not open: ' + (e && e.message ? e.message : e) + ' '); }
+        };
+        const handToEditor = async (ids, inRange, focus) => {
+            const list = (ids || []).filter(Boolean);
+            if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
+            step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
+            graph.setMessage(' Opening the editor… ');
+            keepForReturn();
+            // A FRESH hand-off supersedes any design kept from an earlier round trip: the
+            // editor about to open is a new one, and the viewer's Editor button must not
+            // offer a design that is no longer the one on screen.
+            try { window.__bajaEditorReturn = null; } catch (e) { }
             const mine = graph;
             try { exec('manchester/editor', '', { mode: 'editor' }); } catch (e) { }
             let g2 = null;
