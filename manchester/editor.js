@@ -2822,7 +2822,7 @@ function (path, config) {
                                                     // as Navigate -- walking from the whole
                                                     // workbench down to a single oligo or variant,
                                                     // each level ending in a choice of format.
-                                                    label: 'Download', icon: 'file_download',
+                                                    label: 'Download', icon: 'file_download', color: '#16a34a',
                                                     tooltip: 'Download tracks and their elements as BED, JSON, CSV, XLSX or PDF',
                                                     ionFunction: createIonFunction(async () => {
                                                         try { graph.hideMenu(); } catch (e) { }
