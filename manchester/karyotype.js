@@ -1131,6 +1131,12 @@ function (path, config) {
         // measure-track.js and variant-tools.js both use it exactly this way. The one thing
         // to know is that clearMouseListeners() nulls it, so arm() re-installs it after
         // clearing, every time.
+        // A PICTURE OF THE NEXT COMPLETE FRAME. The flexigraph's redraw is asynchronous:
+        // it clears the canvas and fills it white, awaits its own layers, and only then
+        // calls this pass. A snapshot taken on a timer can land in that gap and come back
+        // blank white -- which is what the first PDFs did. So a snapshot is asked for
+        // here and taken at the END of paint, when every layer is on the canvas.
+        let __snapAsk = null;
         const paint = (ctx, g) => {
             if (ctx && ctx.canvas) lastCanvas = ctx.canvas;   // the key watches this canvas
             {
@@ -2535,6 +2541,7 @@ function (path, config) {
                 }
                 ctx.restore();
             }
+            if (__snapAsk) { const ask = __snapAsk; __snapAsk = null; try { ask(ctx.canvas); } catch (e) { } }
         };
 
         // ---- SCREEN AND WORLD ----------------------------------------------------------
@@ -5981,8 +5988,8 @@ function (path, config) {
         // the user had is put back afterwards. JPEG on an opaque ground, because the
         // canvas is transparent where the page shows through and a picture in a PDF has
         // no page behind it. Sized down to 1600 px across so thirty of them still post.
-        const snapshotCanvas = () => {
-            const cv = lastCanvas;
+        const snapshotCanvas = (from) => {
+            const cv = from || lastCanvas;
             if (!cv || !cv.width || !cv.height) return '';
             const sc = Math.min(1, 1600 / cv.width);
             const off = document.createElement('canvas');
@@ -5998,10 +6005,20 @@ function (path, config) {
             c2.drawImage(cv, 0, 0, off.width, off.height);
             return off.toDataURL('image/jpeg', 0.85).replace(/^data:[^,]*,/, '');
         };
-        const settleFrame = async () => {
-            await new Promise((r2) => requestAnimationFrame(() => requestAnimationFrame(r2)));
-            await new Promise((r2) => setTimeout(r2, 160));
-        };
+        // Resolves with the canvas once paint() has finished a frame. Wakes the redraw
+        // loop so a frame comes; gives up after four seconds (a paused loop) and hands
+        // back whatever canvas there is, so a PDF is never stuck behind a picture.
+        const paintedFrame = () => new Promise((res) => {
+            let done = false;
+            const fin = (cv) => { if (done) return; done = true; res(cv || lastCanvas); };
+            __snapAsk = fin;
+            try { if (graph.wake) graph.wake(); } catch (e) { }
+            setTimeout(() => { if (!done) { if (__snapAsk === fin) __snapAsk = null; fin(null); } }, 4000);
+        });
+        // Two frames, not one: a redraw already in flight when the view changed paints
+        // with the old geometry, and the frame after it is the first that is certainly
+        // the new view.
+        const settleFrame = async () => { await paintedFrame(); return await paintedFrame(); };
         const captureViews = async () => {
             const out = [];
             const cur = viewOf();
@@ -6010,8 +6027,8 @@ function (path, config) {
                 const fx0 = -0.4 * SLOT, fx1 = (drawn.length + 0.4) * SLOT, fy0 = maxMb * 0.06, fy1 = -maxMb * 1.12, fk = 1.04;
                 const fcx = (fx0 + fx1) / 2, fcy = (fy0 + fy1) / 2, fhx = ((fx1 - fx0) / 2) * fk, fhy = ((fy0 - fy1) / 2) * fk;
                 setViewExact({ x0: fcx - fhx, x1: fcx + fhx, y0: fcy - fhy, y1: fcy + fhy });
-                await settleFrame();
-                const whole = snapshotCanvas();
+                const cvW = await settleFrame();
+                const whole = snapshotCanvas(cvW);
                 if (whole) out.push({ title: 'The whole karyotype - ' + dlSpecies() + (vtotal ? ', ' + vtotal.toLocaleString() + ' variants' : ''), jpg_b64: whole });
                 const bms = (bookmarks || []).slice(0, 30);
                 for (let i = 0; i < bms.length; i++) {
@@ -6019,8 +6036,8 @@ function (path, config) {
                     if (!b || !isFinite(b.x0) || !isFinite(b.y0)) continue;
                     dlMsg('Picturing bookmark ' + (i + 1) + ' of ' + bms.length + '...');
                     setViewExact({ x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y1 });
-                    await settleFrame();
-                    const im = snapshotCanvas();
+                    const cvB = await settleFrame();
+                    const im = snapshotCanvas(cvB);
                     if (im) out.push({ title: 'Bookmark ' + (i + 1) + ': ' + (b.name || 'untitled'), jpg_b64: im });
                 }
             } catch (e) { step('capture threw: ' + e); }
