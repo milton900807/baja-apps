@@ -1291,6 +1291,7 @@ function (path, config) {
                         const ry0 = g.Y(wy(rg.lo)), ry1 = g.Y(wy(rg.hi));
                         const rt = Math.min(ry0, ry1), rh = Math.max(1.5, Math.abs(ry1 - ry0));
                         const isActive = activeRegion === geneKey(rg);
+                        const isSel = !!(rg.lof && rg.gene && isSelected(rg.gene));
                         ctx.save();
                         if (isActive) {
                             // Marked out to either side as well as filled: at the zoom the
@@ -1306,10 +1307,12 @@ function (path, config) {
                             ctx.stroke();
                             ctx.restore();
                         }
-                        ctx.fillStyle = isActive ? 'rgba(37,99,235,0.42)' : 'rgba(37,99,235,0.20)';
+                        ctx.fillStyle = isSel ? (isActive ? 'rgba(22,163,74,0.50)' : 'rgba(22,163,74,0.30)')
+                            : (isActive ? 'rgba(37,99,235,0.42)' : 'rgba(37,99,235,0.20)');
                         ctx.fillRect(x0, Math.min(rt, rt + rh) - (isActive ? 1 : 0),
                             Math.max(1, x1 - x0), rh + (isActive ? 2 : 0));
-                        ctx.strokeStyle = isActive ? '#1d4ed8' : 'rgba(37,99,235,0.85)';
+                        ctx.strokeStyle = isSel ? (isActive ? '#15803d' : 'rgba(22,163,74,0.9)')
+                            : (isActive ? '#1d4ed8' : 'rgba(37,99,235,0.85)');
                         ctx.lineWidth = isActive ? 2 : 1.25;
                         ctx.beginPath();
                         ctx.moveTo(x0 - 1, rt); ctx.lineTo(x1 + 1, rt);
@@ -1369,9 +1372,9 @@ function (path, config) {
                                 // scrolled off it, so it stays readable at gene zoom.
                                 if (rg.label && rh >= 30) {
                                     ctx.font = '600 10.5px ' + FONT;
-                                    ctx.fillStyle = '#9d174d';
+                                    ctx.fillStyle = isSel ? '#15803d' : '#9d174d';
                                     const ly0 = Math.max(8, rt + 8);
-                                    ctx.fillText(('' + rg.label).slice(0, 70), lx + 7, ly0);
+                                    ctx.fillText(regionLabel(rg).slice(0, 72), lx + 7, ly0);
                                     lastY = ly0;
                                 }
                                 for (const gn of gc.genes) {
@@ -2325,7 +2328,7 @@ function (path, config) {
                             ctx.font = '600 11px ' + FONT;
                             const lab = [];
                             let ln2 = '';
-                            for (const w3 of ('' + co.rg.label).split(/\s+/)) {
+                            for (const w3 of regionLabel(co.rg).split(/\s+/)) {
                                 const t3 = ln2 ? ln2 + ' ' + w3 : w3;
                                 if (ctx.measureText(t3).width > CW - 20 && ln2) { lab.push(ln2); ln2 = w3; }
                                 else ln2 = t3;
@@ -4436,7 +4439,7 @@ function (path, config) {
                 if (card) {
                     activeRegion = geneKey(card.rg);
                     if (graph.wake) graph.wake();
-                    calloutMenu(card.rg);
+                    if (!lofLabelClick(card.rg)) calloutMenu(card.rg);
                     return;
                 }
                 // A PATENT NAME ON THE BAR. Tested before the variants underneath it: it is
@@ -4482,7 +4485,7 @@ function (path, config) {
                     if (rg) {
                         activeRegion = geneKey(rg);
                         if (graph.wake) graph.wake();
-                        calloutMenu(rg);
+                        if (!lofLabelClick(rg)) calloutMenu(rg);
                     }
                     return;
                 }
@@ -5399,6 +5402,31 @@ function (path, config) {
             return true;
         };
         const selectedList = () => Array.from(selGenes.values());
+        // A LOSS LABEL IS A TOGGLE. Clicking a lost gene's callout card or band on the
+        // karyotype selects it, click after click, which is how a set of losses is built
+        // while looking at the chromosomes; the label shows a tick and the band turns green.
+        // The card's menu (Zoom into, Open in editor, ...) is still there: click the label
+        // again within half a second. Regions that are not from the loss matrix keep
+        // opening their menu on the first click, as before.
+        let __lofClickKey = '', __lofClickAt = 0;
+        const lofRecordFor = (rg) => {
+            const key = ('' + (rg.gene || '')).toUpperCase();
+            const fromMatrix = (lossMatrix && lossMatrix.genes || []).find((g) => ('' + g.gene).toUpperCase() === key);
+            return fromMatrix || { gene: rg.gene, chr: (drawn[rg.i] || {}).name || '', start: rg.lo, end: rg.hi, variants: [] };
+        };
+        const lofLabelClick = (rg) => {
+            if (!rg || !rg.lof || !rg.gene) return false;
+            const key = ('' + rg.gene).toUpperCase();
+            const now = Date.now();
+            if (__lofClickKey === key && now - __lofClickAt < 500) { __lofClickKey = ''; return false; }   // second click: the menu
+            __lofClickKey = key; __lofClickAt = now;
+            const on = toggleGeneSelect(lofRecordFor(rg));
+            graph.setMessage(' ' + rg.gene + (on ? ' selected' : ' deselected') + ' — ' + selWord()
+                + ' for the microscope. Click again quickly for the menu. ');
+            if (graph.wake) graph.wake();
+            return true;
+        };
+        const regionLabel = (rg) => ((rg.lof && rg.gene && isSelected(rg.gene)) ? '✓ ' : '') + ('' + (rg.label || ''));
         const selWord = () => selGenes.size + ' gene' + (selGenes.size === 1 ? '' : 's');
         const gotoSymbol = async (sym) => { try { return await gotoGene(sym); } catch (e) { return false; } };
         const openSymbolInEditor = async (sym) => {
@@ -6653,7 +6681,13 @@ function (path, config) {
                     title: rg.label ? ('' + rg.label) : where,
                     subtitle: (rg.label ? where + '  ·  ' : '') + fmtSpan(Math.max(1, rg.hi - rg.lo + 1))
                         + (n >= 0 ? '  ·  region ' + (n + 1) + ' of ' + regions.length : ''),
-                    books: [
+                    books: (rg.lof && rg.gene ? [{
+                        title: isSelected(rg.gene) ? 'Deselect ' + rg.gene : 'Select ' + rg.gene + ' for analysis',
+                        badge: isSelected(rg.gene) ? 'selected' : selWord() + ' selected', icon: 'checklist',
+                        blurb: isSelected(rg.gene) ? 'Take it out of the set the microscope works on.'
+                            : 'Add it to the set the microscope works on: synthetic-lethal targets, paralog partners. A single click on the label does the same.',
+                        open: () => { const on = toggleGeneSelect(lofRecordFor(rg)); graph.setMessage(' ' + rg.gene + (on ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); if (graph.wake) graph.wake(); },
+                    }] : []).concat([
                         {
                             title: 'Zoom into',
                             badge: rg.lof ? 'lost gene' : 'view',
@@ -6690,7 +6724,7 @@ function (path, config) {
                                     + (regions.length === 1 ? '' : 's') + ' left. ');
                             },
                         },
-                    ],
+                    ]),
                     graph: graph,
                 });
             } catch (e) {
