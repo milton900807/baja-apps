@@ -1880,12 +1880,24 @@ function (path, config) {
                                         // Title + dates only for a lone patent, and only when the
                                         // bar is wide and there are few labels.
                                         const showExtra = (bw >= 240 && clusters.length <= 12);
+                                        // WHEN THE METADATA IS SHOWING, also name the genes each
+                                        // patent sits in and highlight its block. The genes come
+                                        // from one window fetch (throttled, cached), not one per
+                                        // patent.
+                                        let glist = null;
+                                        if (showExtra) {
+                                            const wg = winGenes.get(ci + ':' + qlo + ':' + qhi);
+                                            if (!wg) winGenesAsk(ci, qlo, qhi);
+                                            else if (wg.state === 'done') glist = wg.genes;
+                                        }
                                         ctx.save();
                                         ctx.textBaseline = 'middle';
                                         ctx.textAlign = 'left';
                                         // Measure each label (single or summary) before placing.
                                         const recs = clusters.map((cl) => {
                                             const ay = cl.members.reduce((s, m) => s + m.ay, 0) / cl.members.length;
+                                            const sBp = (cl.members.length === 1) ? cl.members[0].s : cl.loBp;
+                                            const eBp = (cl.members.length === 1) ? cl.members[0].e : cl.hiBp;
                                             const lines = [];
                                             let txt, numOnly = '', isCluster = false;
                                             ctx.font = '600 10px ' + FONT;
@@ -1906,6 +1918,17 @@ function (path, config) {
                                                         lines.push(ttl);
                                                     }
                                                     if (dates) lines.push(dates);
+                                                    // THE GENES it sits in, when they have arrived.
+                                                    if (glist) {
+                                                        const gsy = genesOver(glist, sBp, eBp, 6);
+                                                        if (gsy.length) {
+                                                            ctx.font = '500 9px ' + FONT;
+                                                            let gl = 'Genes: ' + gsy.join(', ');
+                                                            while (gl.length > 10 && ctx.measureText(gl).width > MAXW) gl = gl.slice(0, -2);
+                                                            if (gl.length < ('Genes: ' + gsy.join(', ')).length) gl += '…';
+                                                            lines.push(gl);
+                                                        }
+                                                    }
                                                     ctx.font = '600 10px ' + FONT;
                                                 }
                                             } else {
@@ -1916,6 +1939,18 @@ function (path, config) {
                                                 numOnly = ('' + (top.label || top.id || '')).split(' ')[0];
                                                 txt = numOnly + '  +' + (cl.members.length - 1) + ' more…';
                                                 if (ctx.measureText(txt).width > MAXW) txt = cl.members.length + ' patents…';
+                                                // Genes across the whole cluster block, when known.
+                                                if (showExtra && glist) {
+                                                    const gsy = genesOver(glist, sBp, eBp, 6);
+                                                    if (gsy.length) {
+                                                        ctx.font = '500 9px ' + FONT;
+                                                        let gl = 'Genes: ' + gsy.join(', ');
+                                                        while (gl.length > 10 && ctx.measureText(gl).width > MAXW) gl = gl.slice(0, -2);
+                                                        if (gl.length < ('Genes: ' + gsy.join(', ')).length) gl += '…';
+                                                        lines.push(gl);
+                                                        ctx.font = '600 10px ' + FONT;
+                                                    }
+                                                }
                                             }
                                             ctx.font = '600 10px ' + FONT;
                                             let boxW = ctx.measureText(txt).width;
@@ -1926,7 +1961,7 @@ function (path, config) {
                                             }
                                             boxW += 10;
                                             const rowH = lines.length ? (16 + lines.length * 10) : 13;
-                                            return { ay: ay, rowH: rowH, boxW: boxW, txt: txt, numOnly: numOnly, lines: lines, isCluster: isCluster, cl: cl };
+                                            return { ay: ay, rowH: rowH, boxW: boxW, txt: txt, numOnly: numOnly, lines: lines, isCluster: isCluster, cl: cl, sBp: sBp, eBp: eBp };
                                         });
                                         // PLACE near each anchor, no overlaps, none off canvas: a
                                         // downward pass opens room below, an upward pass pulls the
@@ -1941,6 +1976,27 @@ function (path, config) {
                                             if (rr.top + rr.rowH > limit) rr.top = limit - rr.rowH;
                                             if (rr.top < TOP_PAD) rr.top = TOP_PAD;
                                             limit = rr.top - GAP;
+                                        }
+                                        // HIGHLIGHT THE BLOCK each patent claims: a translucent
+                                        // amber band down the bar over the patent's span, drawn
+                                        // under the labels and leaders. Only when the metadata is
+                                        // showing, so it does not paint the whole genome amber
+                                        // when zoomed out.
+                                        if (showExtra) {
+                                            ctx.save();
+                                            ctx.fillStyle = 'rgba(245,158,11,0.16)';
+                                            ctx.strokeStyle = 'rgba(180,83,9,0.5)';
+                                            ctx.lineWidth = 1;
+                                            for (const rr of recs) {
+                                                let yA = g.Y(wy(rr.sBp)), yB = g.Y(wy(rr.eBp));
+                                                if (yA > yB) { const t = yA; yA = yB; yB = t; }
+                                                yA = Math.max(-2, yA); yB = Math.min(H + 2, yB);
+                                                if (yB < 0 || yA > H) continue;
+                                                const hgt = Math.max(2, yB - yA);
+                                                ctx.fillRect(bx0, yA, Math.max(2, bx1 - bx0), hgt);
+                                                ctx.strokeRect(bx0 + 0.5, yA + 0.5, Math.max(2, bx1 - bx0) - 1, hgt - 1);
+                                            }
+                                            ctx.restore();
                                         }
                                         for (const rr of recs) {
                                             const top = rr.top;
@@ -3162,6 +3218,45 @@ function (path, config) {
             list.sort((a, b) => (+a.start) - (+b.start));
             patLabels.set(k, { state: 'done', list: list });
             if (graph.wake) graph.wake();
+        };
+
+        // THE GENES IN THE VISIBLE WINDOW, fetched ONCE per rounded window (not per patent)
+        // so the patent labels can name which genes each one sits in without a server call
+        // each. Same genes-in-range.py the Regions panel uses; same throttle as the patent
+        // labels so a genome full of chromosomes cannot flood the six-slot python bridge.
+        const winGenes = new Map();     // 'ci:qlo:qhi' -> { state, genes:[{gene,start,end}] }
+        const winGenesAsk = async (ci, lo, hi) => {
+            const key = ci + ':' + lo + ':' + hi;
+            if (winGenes.has(key)) return;
+            if (patAsking >= PAT_ASK_MAX) return;   // shares the patent budget; not marked pending
+            patAsking++;
+            winGenes.set(key, { state: 'pending', genes: [] });
+            if (winGenes.size > 60) {
+                for (const kk of Array.from(winGenes.keys()).slice(0, 30)) winGenes.delete(kk);
+            }
+            let gs = [];
+            try {
+                const em = new EngineMonitor(() => { });
+                const res = await exec(server + '/py/bio/genes-in-range.py', em,
+                    drawn[ci].name.replace(/^chr/, ''), String(lo), String(hi),
+                    (r.species || 'human'), '400');
+                try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e) { gs = []; }
+            } catch (e) { gs = []; }
+            finally { patAsking = Math.max(0, patAsking - 1); }
+            gs = gs.filter((g) => g && +g.start > 0).sort((a, b) => (+a.start) - (+b.start));
+            winGenes.set(key, { state: 'done', genes: gs });
+            if (graph.wake) graph.wake();
+        };
+        // The gene symbols overlapping [s,e], from a fetched window's gene list (ascending by
+        // start). A few at most are wanted on a label, so it stops after `cap`.
+        const genesOver = (genesList, s, e, cap) => {
+            const out = [];
+            for (const g of genesList) {
+                if (+g.end < s) continue;
+                if (+g.start > e) break;
+                if (g.gene) { out.push(g.gene); if (out.length >= cap) break; }
+            }
+            return out;
         };
 
         // ---- THE GENES INSIDE A SELECTED REGION ---------------------------------
