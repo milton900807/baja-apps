@@ -5550,6 +5550,9 @@ function (path, config) {
                         blurb: 'identity ' + Math.round(x.identity) + '% · family of ' + x.family + ' · partner essentiality ' + fmtT(x.partner_ess)
                             + ' · GTEx ' + (+x.gtex_med).toFixed(1) + ' TPM in ' + x.gtex_breadth + ' tissues' + (x.bioplex ? ' · BioPlex interaction' : '') + (x.label ? ' · known SL label' : ''),
                         books: () => [
+                            { title: 'Why would it become essential?', badge: 'explain', icon: 'psychology', ready: true,
+                                blurb: 'The biology behind ' + x.partner + ' once ' + g + ' is lost: role, buffering, what the model saw, precedent, caveats, druggability.',
+                                open: () => slExplain(x.partner, [g], 'paralog', { pred: x.pred, identity: x.identity, family: x.family, partner_ess: x.partner_ess, loss_freq: x.loss_freq, codep: x.codep, coexpr: x.coexpr, gtex_med: x.gtex_med, gtex_breadth: x.gtex_breadth, bioplex: x.bioplex, label: x.label }, parMenu) },
                             { title: 'Go to ' + x.partner + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(x.partner) },
                             { title: 'Open ' + x.partner + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(x.partner) },
                             { title: 'Select ' + x.partner + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection as a what-if loss.', open: () => { selGenes.set(('' + x.partner).toUpperCase(), { gene: x.partner, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + x.partner + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
@@ -5610,6 +5613,62 @@ function (path, config) {
                 subtitle: 'The losses to reason from — run the model, or edit the set', graph: graph, books: books });
         };
 
+        // WHY. A number is not a reason; this asks the model for the biology behind one hit,
+        // with the statistics handed over so it reads THIS evidence, and shows the answer
+        // as a shelf of prose: what the target does, why the losses make a cell depend on
+        // it, what the numbers say, precedent, caveats, druggability, and its own confidence.
+        const slWhyCache = new Map();
+        let slWhyBusy = false;
+        const slExplain = async (target, losses, source, stats, back) => {
+            const key = source + '|' + target + '|' + (losses || []).join('+') + '|' + (slResult && slResult.tissue || '');
+            if (slWhyCache.has(key)) { slWhyMenu(slWhyCache.get(key), back); return; }
+            if (slWhyBusy) { graph.setMessage(' Still reading the previous explanation. '); return; }
+            slWhyBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                graph.setMessage(' Asking why ' + target + ' would be synthetic-lethal with ' + (losses || []).join(', ') + '… ');
+                const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
+                    target: target, losses: losses || [], source: source || 'depmap',
+                    tissue: (source === 'depmap' && slResult) ? (slResult.tissue || '') : '', stats: stats || {} }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no explanation came back');
+                let R = null; try { R = JSON.parse(rs.rationale || '{}'); } catch (e) { R = null; }
+                if (!R || !R.summary) throw new Error('the explanation was empty');
+                slWhyCache.set(key, R);
+                slWhyBusy = false;
+                slWhyMenu(R, back);
+            } catch (e) {
+                slWhyBusy = false;
+                try { graph.setError(' Could not explain ' + target + ': ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const slWhyMenu = (R, back) => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const conf = ('' + (R.confidence || 'low')).toLowerCase();
+            const confColor = conf === 'high' ? '#16a34a' : (conf === 'medium' ? '#f59e0b' : '#94a3b8');
+            const sect = (title, text, icon) => (text ? [{ section: title, title: text, note: true }] : []);
+            const books = [];
+            books.push({ section: 'Summary', title: R.target + ' with ' + (R.losses || []).join(' + ') + ' lost', badge: conf + ' confidence', swatch: confColor, icon: 'psychology', ready: true,
+                blurb: R.summary, open: () => { } });
+            books.push({ section: 'Summary', note: true, title: 'General knowledge read around this result by ' + (R.model || 'Claude') + ' — a rationale to test, not a finding.' });
+            books.push(...sect('What ' + R.target + ' does', R.target_role));
+            books.push(...sect('Why the losses make a cell depend on it', R.mechanism));
+            books.push(...sect('What the numbers say', R.evidence));
+            books.push(...sect('Precedent', R.precedent));
+            books.push(...sect('Caveats', R.caveats));
+            books.push(...sect('Druggability', R.druggability));
+            books.push({ section: 'Next', title: 'Copy as text', badge: 'clipboard', icon: 'content_copy', ready: true,
+                blurb: 'The whole explanation, for a notebook or an email.',
+                open: async () => {
+                    const txt = [R.target + ' with ' + (R.losses || []).join(' + ') + ' lost — ' + conf + ' confidence', '', 'Summary: ' + R.summary,
+                        'Target role: ' + R.target_role, 'Mechanism: ' + R.mechanism, 'Evidence: ' + R.evidence, 'Precedent: ' + R.precedent,
+                        'Caveats: ' + R.caveats, 'Druggability: ' + R.druggability, '', 'Read by ' + (R.model || 'Claude') + ' around DepMap / paralog-model statistics; general knowledge, not a finding.'].join('\n');
+                    try { await navigator.clipboard.writeText(txt); graph.setMessage(' Explanation copied. '); } catch (e) { graph.setMessage(' Could not copy: ' + (e && e.message ? e.message : e) + ' '); }
+                } });
+            books.push({ section: 'Next', title: 'Back', badge: 'targets', icon: 'arrow_back', ready: true, blurb: 'Back to the list.', open: () => { try { (back || slTargetsMenu)(); } catch (e) { } } });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Why ' + R.target + '?',
+                subtitle: 'The biology behind the hit, with the statistics read in plain words', graph: graph, books: books });
+        };
+
         // THE RANKED TARGETS as a library, best first.
         const slTargetsMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
@@ -5639,6 +5698,9 @@ function (path, config) {
                         + (t.synergy != null ? ' · synergy ' + fmtT(t.synergy) : '') + (t.eff_in_tissue != null ? ' · in ' + R.tissue + ' ' + fmtT(t.eff_in_tissue) : '')
                         + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText,
                     books: () => [
+                        { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
+                            blurb: 'The biology behind ' + t.target + ' with ' + R.genes.join(' + ') + ' lost: role, mechanism, what the numbers say, precedent, caveats, druggability.',
+                            open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
                         { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
                         { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
                         { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumour that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
