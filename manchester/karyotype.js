@@ -2183,12 +2183,13 @@ function (path, config) {
                             let peak = 1;
                             for (let b = b0; b <= b1; b++) if (histS(b) > peak) peak = histS(b);
                             const lp = Math.log(peak + 1);
-                            const maxW = Math.max(6, Math.min(26, bw * 0.55));
-                            // FACING INWARD. The strips hang from a fixed outer edge and grow
-                            // toward the bar, so the busiest bins touch the chromosome and the
-                            // quiet ones stay out at the edge -- the same way the triangles
-                            // point at it. `outer` is that edge, one full strip out from the bar.
-                            const outer = ex + dir * (4 + maxW);
+                            // INSIDE THE BAR. The strips stand on the chromosome's edge line
+                            // and grow INTO the bar, not out into the gutter: the base is on
+                            // the chromosome the counts belong to, and the busiest bins reach
+                            // furthest across it. Capped under half the bar width so the two
+                            // sides never meet in the middle.
+                            const maxW = Math.max(3, Math.min(26, bw * 0.46));
+                            const base = ex;
                             ctx.globalAlpha = 1;
 
                             for (let b = b0; b <= b1; b++) {
@@ -2204,14 +2205,14 @@ function (path, config) {
                                 if (hlActive) {
                                     ctx.fillStyle = 'rgba(148,163,184,' + (0.30 + 0.35 * f).toFixed(3) + ')';
                                     const w1 = 2 + maxW * f;
-                                    ctx.fillRect(side ? outer : outer - w1, yA, w1, h2);
+                                    ctx.fillRect(side ? base : base - w1, yA, w1, h2);
                                 } else {
                                     // Segments in proportion to the categories in the bin,
-                                    // in category order from the outer edge in, so the colors
+                                    // in category order from the edge in, so the colors
                                     // stack the same way down the whole chromosome.
                                     const hb = binsBy(d, side), pal = modePalette();
                                     const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
-                                    let x2 = outer;
+                                    let x2 = base;
                                     for (let cat = 0; cat < NCAT; cat++) {
                                         const cnt = hb[b * NCAT + cat];
                                         if (!cnt) continue;
@@ -2288,9 +2289,9 @@ function (path, config) {
                                             const f2 = Math.log(nh + 1) / lp;
                                             const w = 2 + maxW * f2;
                                             ctx.globalAlpha = glowA;
-                                            ctx.fillRect(side ? outer : outer - w * grow, yA2 - 1, w * grow, h3 + 2);
+                                            ctx.fillRect(side ? base : base - w * grow, yA2 - 1, w * grow, h3 + 2);
                                             ctx.globalAlpha = 1;
-                                            ctx.fillRect(side ? outer : outer - w, yA2, w, h3);
+                                            ctx.fillRect(side ? base : base - w, yA2, w, h3);
                                         }
                                         ctx.restore();
                                     }
