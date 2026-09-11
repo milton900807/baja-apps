@@ -1622,7 +1622,8 @@ function (path, config) {
                         + 'box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.14);font-family:Arial,Helvetica,sans-serif;padding:18px;';
                     const fieldCss = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:10px;font:13px Arial;';
                     panel.innerHTML = ''
-                        + '<div style="font:700 16px Arial;margin-bottom:4px;">Share "' + esc(designName) + '" with a person</div>'
+                        + '<button id="sd-x" title="Close" aria-label="Close" style="position:absolute;top:8px;right:10px;cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 18px Arial;line-height:1;padding:4px 8px;">\u2715</button>'
+                        + '<div style="font:700 16px Arial;margin-bottom:4px;padding-right:24px;">Share "' + esc(designName) + '" with a person</div>'
                         + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">They get a short link that opens this design in their editor once they sign in. '
                         + 'No account yet? The link takes them through the free sign-in first.</div>'
                         + '<label style="font:12px Arial;color:#9fb3c8;">Email address (one or more, separated by commas)</label>'
@@ -1636,15 +1637,24 @@ function (path, config) {
                         + '<button id="sd-send" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 13px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Share</button>'
                         + '</div>'
                         + '<div id="sd-existing" style="margin-top:14px;"></div>';
+                    // A dim backdrop behind the panel: clicking outside the dialog closes it,
+                    // the same as the X in the corner or Escape.
+                    const backdrop = document.createElement('div');
+                    backdrop.id = 'baja-share-backdrop';
+                    backdrop.style.cssText = 'position:fixed;inset:0;z-index:2147482999;background:rgba(0,0,0,0.35);';
+                    document.body.appendChild(backdrop);
                     document.body.appendChild(panel);
 
                     const $ = (id) => panel.querySelector('#' + id);
                     let onKey;
                     const close = () => {
                         try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+                        try { if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); } catch (e) { }
                         try { if (onKey) document.removeEventListener('keydown', onKey, true); } catch (e) { }
                     };
                     $('sd-close').onclick = close;
+                    $('sd-x').onclick = close;
+                    backdrop.onclick = close;
                     onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
                     document.addEventListener('keydown', onKey, true);
 
