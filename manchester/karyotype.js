@@ -5618,6 +5618,15 @@ function (path, config) {
         // (py/bio/synthetic-lethal-targets.py, the ppset third-gene engine on DepMap) over
         // every pair of the selected losses to rank candidate therapeutic targets.
         const selGenes = new Map();     // gene symbol -> the loss-matrix record
+        // BAJA-3: Background-Aware Joint-loss Analysis for Third-Gene Dependencies -- the
+        // name of the whole third-gene tool: the live DepMap screen, its published catalogue
+        // and the explanations. Documented at BAJA3_DOC.
+        const BAJA3 = 'BAJA-3';
+        const BAJA3_LONG = 'Background-Aware Joint-loss Analysis for Third-Gene Dependencies';
+        const BAJA3_DOC = 'https://baja.bio/data/higher-order-synthetic-lethality.html';
+        const baja3DocCard = (section) => ({ section: section, title: BAJA3 + ' documentation', badge: 'baja.bio', icon: 'menu_book', ready: true,
+            blurb: BAJA3_LONG + ': how the model works, what a genuine third-gene dependency is, and the 1p/19q oligodendroglioma case. Opens in a new tab.',
+            open: () => { try { window.open(BAJA3_DOC, '_blank', 'noopener'); } catch (e) { graph.setMessage(' ' + BAJA3_DOC + ' '); } } });
         let slResult = null;            // last ranking: { genes, tissue, targets, backgrounds, lineages, notes, at }
         let slBusy = false;
         const SL_MAX_GENES = 12;
@@ -5853,8 +5862,8 @@ function (path, config) {
                 + R.partial.length + ' one loss away' + (R.tissueTables.length ? ', ' + R.tissueTables.length + ' tissue table' + (R.tissueTables.length === 1 ? '' : 's') : '') + '.'
                 + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') + (R.built ? ' Catalogue built ' + R.built.slice(0, 10) + '.' : '') });
             books.push({ section: 'Higher-order model', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true, blurb: 'Every catalogued, one-loss-away, tissue-table and screen row for this selection.',
-                open: () => { try { dlSaveText(hoCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_higher_order_model') + '.csv', 'text/csv'); dlMsg('Catalogue downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Higher-order model', title: 'Recompute live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('') });
+                open: () => { try { dlSaveText(hoCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_catalogue') + '.csv', 'text/csv'); dlMsg('Catalogue downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Higher-order model', title: 'Run ' + BAJA3 + ' live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('') });
             books.push({ section: 'Higher-order model', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
             const statRow = (r) => 't ' + fmtT(r.t) + ' · FDR ' + fmtP(r.fdr) + (r.eff_double != null ? ' · effect ' + fmtT(r.eff_double) : '') + (r.synergy != null && r.synergy !== '' ? ' · synergy ' + fmtT(r.synergy) : '') + (r.eff_in_tissue != null && r.eff_in_tissue !== '' ? ' · in tissue ' + fmtT(r.eff_in_tissue) : '') + (r.n_double ? ' · ' + r.n_double + ' lines' : '');
             const statsOf = (r, bg) => ({ t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, backgrounds: [{ genes: bg, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation }] });
@@ -5890,8 +5899,9 @@ function (path, config) {
                 (R.pairs[k] || []).slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.gene, badge: 't ' + fmtT(r.t), swatch: '#dc2626', ready: true, blurb: 'Lineage-corrected differential dependency in ' + k + ' lines.',
                     books: () => hoTargetBooks(r.gene, k.split('+'), { t: r.t, fdr: null, eff_double: null, synergy: null, interpretation: 'pair screen', backgrounds: [{ genes: k.split('+'), t: r.t, interpretation: 'pair screen' }] }) }));
             }
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Higher-order model',
-                subtitle: 'What the third-gene model has already found for these losses', graph: graph, books: books });
+            books.push(baja3DocCard('Higher-order model'));
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: BAJA3 + ' catalogue',
+                subtitle: BAJA3_LONG + ' — what the model has already found for these losses', graph: graph, books: books });
         };
 
         // THE SELECTION as a library: what is selected, the model over it, and each gene.
@@ -5902,25 +5912,27 @@ function (path, config) {
             books.push({ section: 'Selected genes', note: true, title: sel.length
                 ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumour\'s background.')
                 : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
-            books.push({ section: 'Find targets', title: 'Find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
-                blurb: 'Run the higher-order model: for each selected loss and each pair of them, the third gene that becomes selectively essential in DepMap lines carrying the same losses. Lineage-corrected; each hit labelled genuine three-way or driven by one loss.',
+            books.push({ section: 'Find targets', note: true, title: BAJA3 + ' — ' + BAJA3_LONG + '. For each selected loss and each pair of them, the third gene that becomes selectively essential in cells carrying the same losses.' });
+            books.push({ section: 'Find targets', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
+                blurb: 'Run the model live on DepMap: lineage-corrected differential dependency across lines carrying these losses, each hit labelled genuine third-gene dependency or driven by one loss.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 open: () => slFindTargets('') });
-            books.push({ section: 'Find targets', title: 'Find targets in a tissue…', badge: 'choose', icon: 'science',
+            books.push({ section: 'Find targets', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
                 blurb: 'The same ranking, with the dependency inside one tissue of origin shown beside it.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 books: () => tissueBooks((t) => slFindTargets(t)) });
             if (slResult) {
-                books.push({ section: 'Find targets', title: 'Last result', badge: slResult.targets.length + ' targets', icon: 'list',
+                books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' result', badge: slResult.targets.length + ' targets', icon: 'list',
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
-            books.push({ section: 'Find targets', title: 'Higher-order model (published catalogue)', badge: 'catalogue', icon: 'menu_book',
-                blurb: 'What the third-gene model has already found for these losses: its systematic scan over every tumour-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
+            books.push({ section: 'Find targets', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
+                blurb: 'What ' + BAJA3 + ' has already found for these losses: its systematic scan over every tumour-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => hoFind() });
             if (hoResult) {
-                books.push({ section: 'Find targets', title: 'Last catalogue result', badge: hoResult.matched.length + ' within · ' + hoResult.partial.length + ' near', icon: 'list',
+                books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' catalogue result', badge: hoResult.matched.length + ' within · ' + hoResult.partial.length + ' near', icon: 'list',
                     blurb: 'Catalogue for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
+            books.push(baja3DocCard('Find targets'));
             books.push({ section: 'Find targets', title: 'Paralog partners (ML model)', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : '', icon: 'hub',
                 blurb: 'The trained paralog classifier: for each selected loss, which paralog is predicted to become the surviving copy the cell cannot lose. Works for genes the DepMap panel has too few lines to screen.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => parFind() });
@@ -5992,7 +6004,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Summary', title: R.target + ' with ' + (R.losses || []).join(' + ') + ' lost', badge: conf + ' confidence', swatch: confColor, icon: 'psychology', ready: true,
                 blurb: R.summary, open: () => { } });
-            books.push({ section: 'Summary', note: true, title: 'General knowledge read around this result by ' + (R.model || 'Claude') + ' — a rationale to test, not a finding.' });
+            books.push({ section: 'Summary', note: true, title: 'General knowledge read around a ' + BAJA3 + ' result by ' + (R.model || 'Claude') + ' — a rationale to test, not a finding.' });
             books.push(...sect('What ' + R.target + ' does', R.target_role));
             books.push(...sect('Why the losses make a cell depend on it', R.mechanism));
             books.push(...sect('What the numbers say', R.evidence));
@@ -6027,7 +6039,7 @@ function (path, config) {
                 + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') });
             books.push({ section: 'Targets', title: 'Download targets as CSV', badge: 'csv', icon: 'file_download', ready: R.targets.length > 0, readyNote: 'no targets',
                 blurb: 'One row per target with t, FDR, effect, synergy, interpretation and the backgrounds it recurs in.',
-                open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_sl_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+                open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Targets', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
                 blurb: 'A written summary with pictures of the karyotype and its bookmarks: the selected losses, these targets with their statistics and backgrounds'
                     + (lossMatrix ? ', the loss matrix they came from' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
@@ -6055,8 +6067,9 @@ function (path, config) {
                     ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
                         + (b.synergy != null ? ', synergy ' + fmtT(b.synergy) : '') + (b.eff_in_tissue != null ? ', in tissue ' + fmtT(b.eff_in_tissue) : '') + ' — ' + b.interpretation }))) });
             });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic-lethal targets',
-                subtitle: 'Third genes that become essential given the selected losses', graph: graph, books: books });
+            books.push(baja3DocCard('Targets'));
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: BAJA3 + ' targets',
+                subtitle: BAJA3_LONG + ' — third genes that become essential given the selected losses', graph: graph, books: books });
         };
 
         // THE MATRIX AS A LIBRARY: one card per lost gene, tumour suppressors first, each
@@ -6307,7 +6320,7 @@ function (path, config) {
                     : 'Keep only genes with both copies hit: homozygous, compound heterozygous, or two hits of unknown phase. Bands, marks, the list and the CSV follow.',
                 ready: true, open: () => { lossZygFilter = (lossZygFilter === 'biallelic') ? 'all' : 'biallelic'; try { if (hlActive === HL_LOF) applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
-                blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: find synthetic-lethal targets, download, clear.',
+                blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
                 ready: true, open: () => selectedGenesMenu() });
             books.push({ section: 'Loss matrix', title: 'Select all tumour suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
                 blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
@@ -6405,11 +6418,11 @@ function (path, config) {
                     : 'Click genes in the loss matrix to select them, then come back here to run the higher-order model over them.',
                 ready: selGenes.size > 0, readyNote: 'select genes in the loss matrix first', open: () => selectedGenesMenu() });
             if (slResult) {
-                books.push({ section: 'Loss matrix', title: 'Synthetic-lethal targets', badge: slResult.targets.length + ' targets', icon: 'biotech',
+                books.push({ section: 'Loss matrix', title: BAJA3 + ' targets', badge: slResult.targets.length + ' targets', icon: 'biotech',
                     blurb: 'Last ranking, for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
             if (hoResult) {
-                books.push({ section: 'Loss matrix', title: 'Higher-order model catalogue', badge: hoResult.matched.length + ' within', icon: 'menu_book',
+                books.push({ section: 'Loss matrix', title: BAJA3 + ' catalogue', badge: hoResult.matched.length + ' within', icon: 'library_books',
                     blurb: 'Last catalogue lookup, for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
             if (parResult) {
