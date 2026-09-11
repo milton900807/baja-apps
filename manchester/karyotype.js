@@ -5281,11 +5281,11 @@ function (path, config) {
         // chosen sample) or shared (in every sample -- germline, when one sample is the
         // normal), because a tumour's loss set and its inherited losses are different
         // questions and the two-loss backgrounds want to know which is which.
-        const ZYG_RANK = { 'biallelic': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'unknown': 4 };
+        const ZYG_RANK = { 'biallelic': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'on haplotype 1': 3, 'on haplotype 2': 3, 'unknown': 4 };
         const ZYG_LOST = { 'biallelic': 1, 'compound het': 1, 'possibly biallelic': 1 };
         let lossZygFilter = 'all';          // 'all' | 'biallelic'
         const originWord = (o) => (o === 'shared' ? 'shared by all samples (germline if one is a normal)' : (o === 'somatic' ? 'somatic (this sample only)' : (o === 'mixed' ? 'somatic and shared hits' : '')));
-        const annotateLossZygosity = (genes, si) => {
+        const annotateLossZygosity = (genes, si, hap) => {
             const nS = Math.min(SAMPLES.length, GT_MAX);
             const allMask = nS ? ((1 << nS) - 1) : 0;
             for (const g of (genes || [])) {
@@ -5314,6 +5314,7 @@ function (path, config) {
                 if (known) {
                     const hits = hom + hap1 + hap2 + het;
                     if (hom) z = 'biallelic';
+                    else if (hap) z = 'on ' + hapWord(hap);        // a one-copy matrix: this copy's hits
                     else if (hap1 && hap2) z = 'compound het';
                     else if (hits >= 2 && het) z = 'possibly biallelic';
                     else z = 'monoallelic';                       // one hit, or two in cis
@@ -5391,17 +5392,54 @@ function (path, config) {
             return marked;
         };
 
+        // HOW A SAMPLE'S CALLS FALL BY HAPLOTYPE: phased alt on copy 1 (1|0), on copy 2
+        // (0|1), homozygous (on both), unphased het (either, unknown). Drives the
+        // haplotype choice in the Calculate menu, and is only offered when there IS phase.
+        const phaseCounts = (si) => {
+            const c = { hap1: 0, hap2: 0, hom: 0, het: 0, all: 0 };
+            if (si < 0) return c;
+            for (const d of vdata) {
+                if (!d || !d.n || d.gtw <= si) continue;
+                for (let k = 0; k < d.n; k++) {
+                    const gt = gtOf(d, k, si);
+                    if (gt < GT_HET) continue;
+                    c.all++;
+                    if (gt === GT_HAP1) c.hap1++;
+                    else if (gt === GT_HAP2) c.hap2++;
+                    else if (gt === GT_HOM || gt === GT_HOMP) c.hom++;
+                    else c.het++;
+                }
+            }
+            c.phased = c.hap1 + c.hap2;
+            return c;
+        };
+        const hapWord = (hap) => (hap === 'hap1' ? 'haplotype 1' : (hap === 'hap2' ? 'haplotype 2' : ''));
+        // Does this call belong to the haplotype being read? A homozygous call sits on
+        // both copies; an unphased het sits on one of them, unknown which, and is left
+        // out of a single-haplotype matrix rather than guessed onto it.
+        const onHaplotype = (gt, hap) => {
+            if (!hap) return gt >= GT_HET;
+            if (gt === GT_HOM || gt === GT_HOMP) return true;
+            return hap === 'hap1' ? gt === GT_HAP1 : gt === GT_HAP2;
+        };
+
         // COMPUTE IT. si is the sample slot to read, or -1 for every variant (a file with
-        // no genotype columns, or a site list). Exon-adjacent variants only go to the
-        // server: the exon intervals are the same cached answer the Color filters use.
+        // no genotype columns, or a site list); hap is '' for both copies, or 'hap1' /
+        // 'hap2' to read one haplotype of a phased sample -- which is what a matrix of
+        // what is lost on ONE copy needs, and what tells two hits in trans from two in
+        // cis. Exon-adjacent variants only go to the server: the exon intervals are the
+        // same cached answer the Color filters use.
         let lossBusy = false;
-        const computeLossMatrix = async (si) => {
+        const computeLossMatrix = async (si, hap) => {
             if (lossBusy) { graph.setMessage(' The loss matrix is still being calculated. '); return; }
             const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
             if (!live.length) { graph.setMessage(' Load a VCF first: there are no variants to read. '); return; }
+            hap = (hap === 'hap1' || hap === 'hap2') ? hap : '';
+            if (hap && si < 0) hap = '';
             lossBusy = true;
-            const who = lossSampleName(si);
+            const who = lossSampleName(si) + (hap ? ' · ' + hapWord(hap) : '');
             const mask = (si >= 0) ? (1 << si) : 0;
+            let unphasedLeftOut = 0;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
                 const batches = [];
@@ -5413,7 +5451,10 @@ function (path, config) {
                     const ex = (F && F.exon) || [];
                     const rows = [];
                     for (let k = 0; k < d.n; k++) {
-                        if (mask && d.gtw && !(carriersOf(d, k) & mask)) continue;
+                        if (mask && d.gtw) {
+                            const gt = gtOf(d, k, si);
+                            if (!onHaplotype(gt, hap)) { if (hap && gt === GT_HET) unphasedLeftOut++; continue; }
+                        }
                         considered++;
                         const p = d.pos[k];
                         const ab = allelesAt(ci, k);
@@ -5449,8 +5490,10 @@ function (path, config) {
                     for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
                     scanned += (+rs.scanned || 0);
                 }
-                annotateLossZygosity(genes, si);
-                lossMatrix = { sample: who, si: si, genes: genes, scanned: scanned, counts: counts, notes: notes,
+                if (hap && unphasedLeftOut) notes.push(unphasedLeftOut.toLocaleString() + ' unphased heterozygous variant' + (unphasedLeftOut === 1 ? '' : 's')
+                    + ' could not be placed on a haplotype and ' + (unphasedLeftOut === 1 ? 'was' : 'were') + ' left out of this ' + hapWord(hap) + ' matrix.');
+                annotateLossZygosity(genes, si, hap);
+                lossMatrix = { sample: who, si: si, hap: hap, genes: genes, scanned: scanned, counts: counts, notes: notes,
                     considered: considered, at: new Date().toISOString() };
                 const marked = applyLossHighlights(true);
                 const nT = genes.filter(lossIsTsg).length;
@@ -5917,16 +5960,33 @@ function (path, config) {
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
                 ready: !!nV, readyNote: 'load a VCF first' };
+            // BY HAPLOTYPE, when the sample is phased: both copies, copy 1, or copy 2.
+            // Homozygous calls count on either; unphased hets only on "both".
+            const hapBooks = (si, nm, pc) => [
+                { section: 'Haplotype', note: true, title: nm + ' is phased: ' + pc.hap1.toLocaleString() + ' variant' + (pc.hap1 === 1 ? '' : 's') + ' on haplotype 1, ' + pc.hap2.toLocaleString() + ' on haplotype 2, '
+                    + pc.hom.toLocaleString() + ' homozygous' + (pc.het ? ', ' + pc.het.toLocaleString() + ' unphased' : '') + '. A one-haplotype matrix says what is lost on that copy alone.' },
+                { section: 'Haplotype', title: 'Both haplotypes', badge: pc.all.toLocaleString() + ' variants', icon: 'join_full', ready: pc.all > 0, readyNote: 'no variants',
+                    blurb: 'Every call ' + nm + ' carries, whichever copy it sits on. Compound heterozygous genes are told from two hits in cis.', open: () => { computeLossMatrix(si, ''); } },
+                { section: 'Haplotype', title: 'Haplotype 1', badge: (pc.hap1 + pc.hom).toLocaleString() + ' variants', icon: 'looks_one', ready: (pc.hap1 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                    blurb: 'Calls phased to copy 1 (1|0) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap1'); } },
+                { section: 'Haplotype', title: 'Haplotype 2', badge: (pc.hap2 + pc.hom).toLocaleString() + ' variants', icon: 'looks_two', ready: (pc.hap2 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                    blurb: 'Calls phased to copy 2 (0|1) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap2'); } },
+            ];
             if (SAMPLES.length > 1) {
                 calc.books = () => SAMPLES.map((nm, si) => {
-                    let n = 0;
-                    for (const d of vdata) if (d && d.n && d.gtw > si) { for (let k = 0; k < d.n; k++) if (gtOf(d, k, si) >= GT_HET) n++; }
-                    return { title: nm, badge: n.toLocaleString() + ' variant' + (n === 1 ? '' : 's'), swatch: SAMPLE_COLOR[si] || '#ee00ee',
-                        blurb: 'Calculate the loss matrix for ' + nm + '.', ready: n > 0, readyNote: 'carries no variants',
-                        open: () => { computeLossMatrix(si); } };
+                    const pc = phaseCounts(si);
+                    const card = { title: nm, badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' · phased' : ''), swatch: SAMPLE_COLOR[si] || '#ee00ee',
+                        blurb: 'Calculate the loss matrix for ' + nm + (pc.phased ? ' — both copies, or one haplotype.' : '.'), ready: pc.all > 0, readyNote: 'carries no variants' };
+                    if (pc.phased) card.books = () => hapBooks(si, nm, pc); else card.open = () => { computeLossMatrix(si, ''); };
+                    return card;
                 });
+            } else if (SAMPLES.length === 1 && phaseCounts(0).phased) {
+                const pc = phaseCounts(0);
+                calc.badge = SAMPLES[0] + ' · phased';
+                calc.blurb = 'Read every exonic variant, on both copies or on one haplotype, and list the genes with a loss-of-function change.';
+                calc.books = () => hapBooks(0, SAMPLES[0], pc);
             } else {
-                calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1); };
+                calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
             }
             books.push(calc);
             if (lossMatrix) {
