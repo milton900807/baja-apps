@@ -1374,7 +1374,15 @@ function (path, config) {
                         // Drawn past the marks gutter so a name never lands on a variant
                         // mark, and only for a region actually on screen and big enough to
                         // be worth the call.
-                        const onScreen = rt < ctx.canvas.height && (rt + rh) > 0;
+                        //
+                        // ON SCREEN MEANS BOTH WAYS. This tested height alone, so once the
+                        // view was zoomed into one chromosome every region on every OTHER
+                        // chromosome -- level with the window but a screen or two to the
+                        // left or right -- still earned a callout card, and the right margin
+                        // filled with labels for genes nowhere in sight. The bar has to be
+                        // inside the canvas sideways as well.
+                        const onScreen = rt < ctx.canvas.height && (rt + rh) > 0
+                            && x1 > 0 && x0 < ctx.canvas.width;
                         // Below the height where a name fits beside the band, the region
                         // gets a callout instead. Its genes are asked for either way: the
                         // answer is the same one, and it is what the callout is for.
