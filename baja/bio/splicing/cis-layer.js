@@ -227,7 +227,7 @@ return new Promise(async (resolve, reject) => {
                 }
 
                 // No per-bar value labels. With windows every 25 nt they overplot into
-                // an unreadable band at any useful zoom, and the bar height and colour
+                // an unreadable band at any useful zoom, and the bar height and color
                 // already carry sign and magnitude. The numbers stay in the status line.
             } catch (e) {
                 console.log('CisLayer paint error: ' + e);

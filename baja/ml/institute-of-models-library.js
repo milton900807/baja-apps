@@ -180,9 +180,9 @@ function (graph, genegraph_panel_layout) {
 
             // The building, behind the masthead.
             //
-            // Layered UNDER a colour wash rather than used raw: a photograph behind body text
+            // Layered UNDER a color wash rather than used raw: a photograph behind body text
             // destroys the contrast that makes the text readable, and this page is text people
-            // are meant to actually read. The wash carries the institute colour, the photograph
+            // are meant to actually read. The wash carries the institute color, the photograph
             // carries the register.
             //
             // If the file is not installed the gradient alone still reads correctly -- there is

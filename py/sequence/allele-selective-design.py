@@ -93,7 +93,7 @@ def longest_run(s):
 # is easier to judge against the alternatives it was picked over than in isolation.
 #
 # So it returns (weight, label, discriminates). A non-discriminating register keeps a weight
-# low enough to sort it below every real candidate and to colour it red in the client, and its
+# low enough to sort it below every real candidate and to color it red in the client, and its
 # label says what is wrong with it rather than just being a small number.
 #
 # THERE IS NO GAPMER EQUIVALENT, DELIBERATELY. A gapmer_discrimination() used to score the

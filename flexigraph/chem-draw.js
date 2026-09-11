@@ -374,7 +374,7 @@ function () {
         // The types the DESIGNERS actually produce. Oligo.draw looks its shape up by
         // `type` (chem_draw[this.type]) and falls back to a plain graph.drawLine when the key
         // is missing -- so a steric-blocking ASO or an siRNA was drawn as a bare line in its
-        // score colour, which at gene zoom reads as a stray red tick rather than a compound.
+        // score color, which at gene zoom reads as a stray red tick rather than a compound.
         //
         // Only the gapmer designer had a matching key. siRNA's shape was here all along under
         // 'siRNA_deprectrd' -- a typo for deprecated -- which nothing could ever look up, since

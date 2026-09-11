@@ -171,11 +171,11 @@ function () {
 
                     for (let k of keys) {
 
-                        let colour = index;
-                        if (colour > 0x1000000) {
-                            colour = 0x00FFFF;
+                        let color = index;
+                        if (color > 0x1000000) {
+                            color = 0x00FFFF;
                         }
-                        let hexCode = '#' + colour.toString(16).padStart(6, "0");
+                        let hexCode = '#' + color.toString(16).padStart(6, "0");
 
                         let label = k;
                         let check = label.indexOf('_-_')

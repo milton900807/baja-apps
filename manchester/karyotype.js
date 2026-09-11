@@ -739,7 +739,7 @@ function (path, config) {
                             data: {
                                 buttons: __ipPublic ? __ipButtons : [
                                     // THE ORDER IS THE WORKFLOW: open a file, put variants on
-                                    // it, colour them, keep a view, analyze, share, frame,
+                                    // it, color them, keep a view, analyze, share, frame,
                                     // download, and help last. Search and Patents left this
                                     // row for the Analyze library, where looking something up
                                     // sits beside the loss matrix rather than ahead of Upload.
@@ -2582,7 +2582,7 @@ function (path, config) {
         // UNCLASSIFIED IS GREY. A variant with no CLNSIG is the common case in any VCF that
         // is not ClinVar, and drawing it in a hot pink made a whole genome of ordinary
         // calls look like a whole genome of findings. Grey says "here, but nothing is
-        // known about it", which is the truth; the four classes keep their colours, and
+        // known about it", which is the truth; the four classes keep their colors, and
         // conflicting stays its own paler slate so the two greys are not confused. Darker
         // than DIM_COLOR, so a greyed-out variant under a highlight still reads as dimmer.
         const CLS_COLOR = ['#6b7280', '#ff2020', '#12c95a', '#ffa400', '#94a3b8'];
@@ -2649,7 +2649,7 @@ function (path, config) {
         const SAMPLE_COLOR = ['#1d9bf0', '#ff2d78', '#ffa400', '#12c95a', '#a855f7', '#f97316', '#14b8a6', '#e11d48'];
         const SHARED_COLOR = '#475569';         // carried by more than one sample
         const ABSENT_COLOR = '#cbd5e1';         // carried by none of them (0/0 everywhere)
-        // HOW THE MARKS ARE COLOURED: by ClinVar class, by which sample carries the change,
+        // HOW THE MARKS ARE COLORED: by ClinVar class, by which sample carries the change,
         // or by which haplotype it is on. Picked for the file on load, and switchable.
         let colorMode = 'class';
         const colorOf = (d, k) => {
@@ -2764,7 +2764,7 @@ function (path, config) {
             legendShow();
             try { if (graph.wake) graph.wake(); } catch (e) { }
         };
-        // THE DENSITY STRIPS CARRY THE COLOURS TOO. Zoomed out, a chromosome shows its
+        // THE DENSITY STRIPS CARRY THE COLORS TOO. Zoomed out, a chromosome shows its
         // variants as one strip per bin, and a strip that is always magenta says nothing
         // about who carries what. So each bin is counted per color category of the mode
         // that is on, and the strip is drawn as segments in proportion -- a bin that is
@@ -4670,8 +4670,8 @@ function (path, config) {
             out.samples = SAMPLES.slice();
             out.hasGt = __hasGt;
             out.colorMode = colorMode;
-            // The per-sample colours the user chose, so the by-sample view reopens in the
-            // same colours. One hex per sample column, in sample order.
+            // The per-sample colors the user chose, so the by-sample view reopens in the
+            // same colors. One hex per sample column, in sample order.
             out.sampleColors = SAMPLES.map((nm, si) => SAMPLE_COLOR[si] || '');
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '', lof: rg.lof ? 1 : 0 }));
@@ -4991,19 +4991,19 @@ function (path, config) {
             }, 120);
         };
 
-        // Highlight the variants SAMPLES carry, genome-wide, each in its own colour and glowing.
+        // Highlight the variants SAMPLES carry, genome-wide, each in its own color and glowing.
         // In-memory (no server call): a variant is a sample's if that sample carries a
         // non-reference call. Sample highlight codes sit above the annotation-filter codes,
         // one per sample slot. SEVERAL samples can glow at once -- each is toggled on and off
         // independently -- so hlSamples holds the set that is on and the draw reads each
-        // variant's own code. SAMPLE_HL_MULTI is the density-bar colour when more than one is on
-        // (the exact dots stay per-sample; only the zoomed-out bars need one colour per bin).
+        // variant's own code. SAMPLE_HL_MULTI is the density-bar color when more than one is on
+        // (the exact dots stay per-sample; only the zoomed-out bars need one color per bin).
         const SAMPLE_HL_BASE = 6;
         const SAMPLE_HL_MULTI = 63;
         const hlSamples = new Set();
         // Rebuild the highlight channel from the set of active samples in ONE pass over each
         // chromosome: carriersOf once per variant, masked against the active samples, and the
-        // lowest active carrier wins the colour. This is the whole per-toggle cost; the pulse
+        // lowest active carrier wins the color. This is the whole per-toggle cost; the pulse
         // that follows only repaints.
         const rebuildSampleHighlights = () => {
             HL_COLOR[SAMPLE_HL_MULTI] = '#f59e0b';
@@ -7024,7 +7024,7 @@ function (path, config) {
                 ['Chromosomes with variants', chromsWith + ' of ' + drawn.length],
                 ['Samples', nS ? (nS + ' — ' + SAMPLES.join(', ')) : 'none'],
                 ['Genotypes', hasGt ? 'yes' : 'no'],
-                ['Colour view', modeName],
+                ['Color view', modeName],
                 ['Highlighting', esc(hlStr)],
                 ['Regions selected', '' + ((regions && regions.length) || 0)],
                 ['Bookmarks', '' + ((bookmarks && bookmarks.length) || 0)],
@@ -7056,7 +7056,7 @@ function (path, config) {
             try { header.querySelector('#ki-x').onclick = () => close(); } catch (e) { }
         };
 
-        // COLOUR IS A LIBRARY OF THREE. The same shelf as Search and Files: one card per
+        // COLOR IS A LIBRARY OF THREE. The same shelf as Search and Files: one card per
         // mode, the one that is on badged so, the ones the file cannot support greyed
         // with the reason rather than missing.
         const colorMenu = () => {
@@ -7073,10 +7073,10 @@ function (path, config) {
             // for the individual scheme card. It cycles through the schemes the file can
             // actually show: ClinVar class always, and by-sample / by-phase when there are
             // samples. Its badge names the view that is on now.
-            // SAMPLE COLOUR OPTIONS ARE FOR MULTI-SAMPLE FILES. One sample (or none) is just
+            // SAMPLE COLOR OPTIONS ARE FOR MULTI-SAMPLE FILES. One sample (or none) is just
             // plotted -- every carried variant is that one sample, so "which sample carries it"
-            // has no answer worth a colour. `multi` gates the by-sample scheme, the per-sample
-            // colour pickers and the per-sample glow. ClinVar class is always offered, and the
+            // has no answer worth a color. `multi` gates the by-sample scheme, the per-sample
+            // color pickers and the per-sample glow. ClinVar class is always offered, and the
             // by-phase (haplotype) view is offered whenever the file carries genotypes, since
             // that reads a single sample too.
             const hasGt = vdata.some(d => d.gtw && d.gts);
@@ -7098,7 +7098,7 @@ function (path, config) {
                 colorMenu();
             };
             // One card per sample: glow every variant that sample carries, genome-wide, in the
-            // sample's own colour. Each toggles on and off ON ITS OWN, so several samples can
+            // sample's own color. Each toggles on and off ON ITS OWN, so several samples can
             // glow at once. Multi-sample only; needs genotypes.
             const sampleGlowCards = (multi && hasGt) ? SAMPLES.map((nm, si) => ({
                 section: 'By sample (glowing)',
@@ -7116,17 +7116,17 @@ function (path, config) {
                 blurb: 'This VCF has sample columns but no genotype calls, so per-sample glow is not available.',
                 open: () => { },
             }] : []);
-            // CHOOSE A SAMPLE'S COLOUR. A native colour picker, opened from within the card's
-            // click so the browser still counts it as a user gesture. The chosen colour is
+            // CHOOSE A SAMPLE'S COLOR. A native color picker, opened from within the card's
+            // click so the browser still counts it as a user gesture. The chosen color is
             // written into SAMPLE_COLOR (read live by colorOf, the density palette, the legend
             // and the glow), the canvas is woken, and if that sample is glowing now its glow
-            // colour is updated too. The choice travels with the file (see stateDoc).
+            // color is updated too. The choice travels with the file (see stateDoc).
             const pickSampleColor = (si) => {
                 try {
                     const inp = document.createElement('input');
                     inp.type = 'color';
                     inp.value = SAMPLE_COLOR[si] || '#1d9bf0';
-                    // Anchored to the CENTRE of the screen, not parked off-screen: the OS colour
+                    // Anchored to the CENTRE of the screen, not parked off-screen: the OS color
                     // dialog opens next to its input, so an input at left:-9999px opened the
                     // picker off the right edge. A 1px, invisible input in the middle puts the
                     // dialog in the middle.
@@ -7147,7 +7147,7 @@ function (path, config) {
                     }, { once: true });
                     inp.click();
                 } catch (e) {
-                    try { graph.setMessage(' The colour picker could not open. '); } catch (e2) { }
+                    try { graph.setMessage(' The color picker could not open. '); } catch (e2) { }
                 }
             };
             const sampleColorCards = multi ? SAMPLES.map((nm, si) => ({

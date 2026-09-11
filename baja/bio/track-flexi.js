@@ -146,7 +146,7 @@ return new Promise(async (resolve, reject) => {
         if (secondary) {
             ctx.font = PLAIN;
             // Quieter than the name: the detail, not the label. Inverted it has to lift off
-            // the dark ground, so it borrows the ground colour at reduced strength rather
+            // the dark ground, so it borrows the ground color at reduced strength rather
             // than the tabSub grey, which would disappear into it.
             ctx.fillStyle = selected ? 'rgba(255,255,255,0.78)' : (T.tabSub || '#5b6b7d');
             ctx.fillText(secondary, tx, ty);
@@ -161,7 +161,7 @@ return new Promise(async (resolve, reject) => {
         // only caller is the showResizeBar block below), so it sits under the sequence letters
         // and everything else on the track: it has to read as "this is selected" without
         // tinting what is drawn on top of it. The previous faint blue was close enough to the
-        // track's own colouring to be missed. Alpha stays low for the same reason -- raised
+        // track's own coloring to be missed. Alpha stays low for the same reason -- raised
         // from 0.16 to 0.24, which reads more clearly as "selected" while still leaving the
         // sequence letters and everything drawn on top of it untinted.
         fillStyle = 'rgba(255,214,10,0.24)',
@@ -2360,8 +2360,8 @@ return new Promise(async (resolve, reject) => {
 
         // ---- TRACK THEMES ---------------------------------------------------------------
         //
-        // A theme is a small set of COLOUR ROLES the renderer asks for by name instead of
-        // hard-coding a colour at each draw. Roles, not individual settings, so a new theme is
+        // A theme is a small set of COLOR ROLES the renderer asks for by name instead of
+        // hard-coding a color at each draw. Roles, not individual settings, so a new theme is
         // one row here rather than an edit in a dozen places:
         //
         //   seq      the sequence letters
@@ -2391,7 +2391,7 @@ return new Promise(async (resolve, reject) => {
 
         // The theme this track draws with. Unknown or unset falls back to 'classic' rather
         // than throwing or drawing nothing -- a theme is presentation, and a bad name should
-        // cost the user their colours, not their track.
+        // cost the user their colors, not their track.
         themeColors() {
             try {
                 const all = Track.THEMES;
@@ -4882,7 +4882,7 @@ return new Promise(async (resolve, reject) => {
                     }
                 } else {
                     // Out past 0.3 px/base draw() is never called, so everything it paints --
-                    // the compound's colour and its labels included -- is this branch's job or
+                    // the compound's color and its labels included -- is this branch's job or
                     // it does not happen. Flagged compounds are collected here and labelled
                     // after the loop, so a label cannot be painted over by a compound drawn
                     // later.
@@ -4904,8 +4904,8 @@ return new Promise(async (resolve, reject) => {
                         if (o.drawIcon)
                             o.drawIcon(graph, this.grid)
                         else
-                            // IN THE COMPOUND'S OWN COLOUR. This was a flat grey, so the one
-                            // band where the score colouring matters most -- the whole design
+                            // IN THE COMPOUND'S OWN COLOR. This was a flat grey, so the one
+                            // band where the score coloring matters most -- the whole design
                             // on screen at once, which is when you look for the bad ones --
                             // was the band that threw it away. A red compound was grey, and
                             // indistinguishable from a green one.

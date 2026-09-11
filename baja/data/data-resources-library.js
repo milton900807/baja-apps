@@ -81,7 +81,7 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 db: 'clinvar', label: 'ClinVar', badge: 'Clinical',
                 clinical: true,
-                blurb: 'Clinically asserted variation with submitter evidence. Coloured by '
+                blurb: 'Clinically asserted variation with submitter evidence. Colored by '
                     + 'significance on the track: red pathogenic, green benign, amber uncertain.'
             },
             {

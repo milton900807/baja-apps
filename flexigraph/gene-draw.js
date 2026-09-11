@@ -22,7 +22,7 @@ function () {
         const t = __theme(graph);
         return (t && t.ink) || __ink(graph);
     };
-    // One annotation colour by name, from the theme-derived palette track.js publishes.
+    // One annotation color by name, from the theme-derived palette track.js publishes.
     const __ann = (graph, key, fallback) => {
         try {
             const a = graph && graph.__trackAnn;
@@ -86,7 +86,7 @@ function () {
     // of functional SITES on a protein (active sites, binding sites, interfaces, modification
     // sites, …). protein-domains.js classifies each site's title into one of the categories
     // below and creates an annotation of type 'cdd-<category>'; each category draws a distinct
-    // fixed-size icon (shape + colour) on a short stem above the track so the different site
+    // fixed-size icon (shape + color) on a short stem above the track so the different site
     // kinds are visually distinguishable at a glance. Nearby sites stack by their label lane
     // (assigned in track.add) so their icons/labels don't collide on the X axis.
     const CDD_SITE_STYLES = {
@@ -185,7 +185,7 @@ function () {
             try { graph.drawScreenLine(cx, cyTrack, cx, gy, st.color, 1, 'butt'); } catch (e) { }
             return;
         }
-        // Transparent, category-coloured box capturing the NUCLEOTIDE span [xs, xf] this annotation
+        // Transparent, category-colored box capturing the NUCLEOTIDE span [xs, xf] this annotation
         // covers — drawn first (behind the glyph/letters), no border, so it just tints the region.
         try {
             const __bx0 = Math.min(graph.X(xs), graph.X(xf));
@@ -233,7 +233,7 @@ function () {
         }
         drawCddGlyph(ctx, st.icon, cx, gy, r, st.color);
         // The site NAME sits at the TOP END of the dashed leader, centered above the glyph (with
-        // a short colour tag prefix so the family is still obvious). Skipped if its box would
+        // a short color tag prefix so the family is still obvious). Skipped if its box would
         // overlap a name already drawn this frame (shared list on the tgraph).
         const name = ('' + (annotation.name || st.label || st.tag || 'site'));
         const label = (name).slice(0, 46);

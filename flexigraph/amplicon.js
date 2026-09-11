@@ -4,7 +4,7 @@ function () {
 
         // A small rounded chip carrying a primer's metrics, in the same palette as the rest
         // of the app's chrome (navy text on a pale ground, thin border) -- see the track tab
-        // in baja/bio/track-flexi.js. The accent is the primer's own colour, so a chip is
+        // in baja/bio/track-flexi.js. The accent is the primer's own color, so a chip is
         // read against the primer it belongs to without repeating its name.
         //
         // Returns the box it occupied, so the caller can keep two chips from colliding.
@@ -485,9 +485,9 @@ function () {
             // The LOW-DETAIL rendering, used when the view is zoomed out (see the else branch
             // in baja/bio/track-flexi.js). One line for the amplicon span, nothing else.
             //
-            // It used to overdraw the span with a blue bar at each primer end, and recolour the
+            // It used to overdraw the span with a blue bar at each primer end, and recolor the
             // whole thing magenta on selection. Against the detailed draw() -- which already
-            // shows the primers in green and red -- that read as a SECOND, differently-coloured
+            // shows the primers in green and red -- that read as a SECOND, differently-colored
             // primer graphic sitting on the first. At this zoom the useful information is where
             // the amplicon is, not what its ends are made of.
             drawIcon(graph, tgraph) {

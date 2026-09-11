@@ -76,7 +76,7 @@ function (opts) {
         // The yellow that marks Back. LIGHT rather than saturated, and the control it marks is
         // small: Back is the one thing on a shelf that does not act on anything, so it should
         // read as a quiet way out rather than compete with the cards. A pale fill carries the
-        // colour better at this size than an outline ring would -- a 1px ring around a 10px
+        // color better at this size than an outline ring would -- a 1px ring around a 10px
         // control is more edge than fill.
         const BACK_YELLOW = '#ffe98a';
         const BACK_RING = 'drop-shadow(1px 0 0 ' + BACK_YELLOW + ') drop-shadow(-1px 0 0 ' + BACK_YELLOW + ')'
@@ -356,7 +356,7 @@ function (opts) {
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so
-                // the colour and the glyph cannot disagree about what a card is.
+                // the color and the glyph cannot disagree about what a card is.
                 //
                 // `leaf` overrides it, for a shelf whose cards open the next level THEMSELVES
                 // rather than by handing back books. The selection library is the one that
@@ -370,10 +370,10 @@ function (opts) {
                 //
                 // The warm look used to mark a LEAF -- a card that acts rather than one that
                 // opens another level -- and navy meant "there is more inside". That put two
-                // signals on the same card for the same thing: the colour and the '›' at the
+                // signals on the same card for the same thing: the color and the '›' at the
                 // end of the title both said node-or-leaf, so one of them was redundant and the
                 // shelf read as two kinds of place rather than one. The chevron keeps saying it;
-                // the colour is now just the shelf's colour.
+                // the color is now just the shelf's color.
                 //
                 // An explicit `accent` still wins. That is a different axis -- what KIND of
                 // thing the card is, like a variant among tracks and oligos -- and it is not
@@ -396,8 +396,8 @@ function (opts) {
                 }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
-                    // A SWATCH: a filled dot showing an actual colour the card stands for (a
-                    // sample's colour, say), glowing a little in that colour so it reads. Purely
+                    // A SWATCH: a filled dot showing an actual color the card stands for (a
+                    // sample's color, say), glowing a little in that color so it reads. Purely
                     // additive -- cards without `swatch` are unchanged.
                     + (b.swatch ? ('<span style="flex:0 0 auto;width:16px;height:16px;border-radius:50%;'
                         + 'background:' + esc(b.swatch) + ';box-shadow:0 0 6px ' + esc(b.swatch) + ';'

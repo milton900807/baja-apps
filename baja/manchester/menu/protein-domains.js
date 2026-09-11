@@ -83,7 +83,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
             // --- CDD functional-site vocabulary -------------------------------------------------
             // Resolve a CDD site title (e.g. "GEF interaction site", "GTP/Mg2+ binding site",
             // "pyridoxal 5'-phosphate binding site") to a drawing style {color, icon, tag, label}.
-            // Each entry gets a family colour+icon and a short TAG code so even same-icon families
+            // Each entry gets a family color+icon and a short TAG code so even same-icon families
             // stay distinguishable on the canvas. Rules are tested top→bottom (specific first).
             const CDD_FAM = {
                 active:       ['#e11d48', 'circledot'],
@@ -248,7 +248,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
                         const start = getNucleotideIndex(aa);
                         if (start >= 0) {
                             // Resolve the site's CDD title to its glyph style and attach it, so
-                            // gene-draw.js's 'cdd-site' shape draws the right icon/colour/tag.
+                            // gene-draw.js's 'cdd-site' shape draws the right icon/color/tag.
                             const style = cddSiteStyle(name);
                             const an = new Annotation('cdd-site', name, start - 2, start + 1);
                             an.__cdd = style;

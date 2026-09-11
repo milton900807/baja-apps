@@ -109,7 +109,7 @@ cleavage score is recomputed in place and compared with its score alone.
 the junction scan is re-run on the final cassette regardless, so the report describes the
 construct that exists rather than the search that produced it.
 
-**5 · Output.** The protein cassette coloured by part, the coding sequence, the full
+**5 · Output.** The protein cassette colored by part, the coding sequence, the full
 transcript, and a plain-text design report. Exports: report (`.txt`), transcript and cassette
 (`.fasta`), all candidates with every intermediate score (`.csv`).
 

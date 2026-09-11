@@ -11,7 +11,7 @@ function (graph, genegraph_panel_layout, presetTrack) {
     //
     //   * An EMPTY result is the normal, correct answer for most genes. hits() deliberately
     //     returns nothing when no intron clears the bar, because a retention track that draws
-    //     something for every intron is just intron structure redrawn in another colour. An
+    //     something for every intron is just intron structure redrawn in another color. An
     //     empty result is therefore reported as a finding, never as a failure.
     //
     //   * RANK is usable, the number is not: correlation with the actual retention level is

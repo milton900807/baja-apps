@@ -8,7 +8,7 @@ function (graph, genegraph_panel_layout) {
     // choice can be made before a layer lands on the board.
     //
     // Same register as the Institute of Machine Learning Models next door, in a different
-    // colour so the two reading rooms are not mistaken for each other.
+    // color so the two reading rooms are not mistaken for each other.
 
     return (async () => {
         const restoreHover = () => {
@@ -49,7 +49,7 @@ function (graph, genegraph_panel_layout) {
                 headline: 'Your own BED and coverage files, from your user folder.',
                 whatItIs: 'Files you have uploaded, loaded as interval or coverage layers on the selected '
                     + 'track. BED intervals keep their name and score columns, which drive the label and '
-                    + 'colour of each drawn interval.',
+                    + 'color of each drawn interval.',
                 readIt: 'Nothing validates the build or chromosome naming of an uploaded file. A BED on a '
                     + 'different assembly will still draw — silently, in the wrong place.',
                 refs: [['BED format', 'https://genome.ucsc.edu/FAQ/FAQformat.html#format1']]

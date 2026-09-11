@@ -168,7 +168,7 @@ function () {
             // The comment as a CHIP, not bare text.
             //
             // It was drawn as plain blue 14px straight onto the canvas: unreadable over a dark
-            // track or a coloured layer, running off the edge when the arrow ended near one,
+            // track or a colored layer, running off the edge when the arrow ended near one,
             // and with no bound on length so a sentence ran across the whole view. A filled
             // rounded box with a leader keeps it legible over anything and keeps it on screen.
             drawComment(ctx, x, y, text) {
@@ -294,7 +294,7 @@ function () {
                     else this.drawArrowhead(ctx, xf, yf, towardStart, headW, headLen, strokeColor);
                 }
 
-                // A selected arrow gets a soft halo rather than only a colour change, so it is
+                // A selected arrow gets a soft halo rather than only a color change, so it is
                 // findable on a canvas that already has red on it.
                 if (this.hl) {
                     ctx.save();

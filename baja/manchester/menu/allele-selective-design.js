@@ -478,7 +478,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // WHY IT IS RED, ON THE COMPOUND. The steric and gapmer designers put their
                 // reason in flagReason and the renderer draws it beside a red compound at
                 // every zoom (flexigraph/oligo.js, baja/bio/track-flexi.js). These were
-                // coloured red and left silent, so the one modality where red has TWO quite
+                // colored red and left silent, so the one modality where red has TWO quite
                 // different causes -- a register that cannot discriminate at all, and one
                 // that simply scores badly -- was the one that did not say which.
                 if (cmp.color === '#d1342f') {
@@ -582,7 +582,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             .sort((a, b) => (+b.score || 0) - (+a.score || 0))[0] || cands[0];
         // WHICH OF THEM ARE ACTUALLY SELECTIVE. Every register across the allele is placed now,
         // and the ones whose mismatch cannot discriminate (an siRNA's P1 or 3' end, under a
-        // gapmer's wing) are placed too -- ranked last, coloured red, and carrying a note that
+        // gapmer's wing) are placed too -- ranked last, colored red, and carrying a note that
         // says why. A count that lumped them in with the rest would overstate what the run
         // produced, so the two are named separately.
         const nSel = made.filter((c) => c && c.alleleSelective && c.alleleSelective.discriminates !== false).length;

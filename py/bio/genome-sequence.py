@@ -2,7 +2,7 @@
 
 The karyotype draws every chromosome at one true scale, so zooming far enough in makes a
 single base tall enough to letter. At that point the honest thing to draw is the sequence
-itself rather than a coloured bar standing in for it. This is the lookup behind that: a
+itself rather than a colored bar standing in for it. This is the lookup behind that: a
 window of the reference, straight off the indexed genome FASTA the rest of the server uses.
 
 Only ever called once a base is several pixels tall, so the windows are small (a screen

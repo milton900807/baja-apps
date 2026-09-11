@@ -3,7 +3,7 @@
 The contract is deliberate: `hits()` returns an empty list when nothing clears
 the tier. A retention track is sparse by nature -- most introns in most genes
 are not retention-prone, and a track that draws something for all of them is
-just intron structure redrawn in a second colour.
+just intron structure redrawn in a second color.
 
 Splice-site features are not computed here. bajair stays free of torch; the
 ss_ctx2000 scores arrive from bajasplice through bajasplice/bajair.py, the same

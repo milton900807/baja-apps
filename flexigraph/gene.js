@@ -8183,7 +8183,7 @@ pattern, GGGG | Required`
                         // that happens to be called 'Back'.
                         back: isBack,
                         // A track keeps its badge and its place at the front of the selection,
-                        // but not a colour of its own: three card looks in one window was one
+                        // but not a color of its own: three card looks in one window was one
                         // more than the window had distinctions worth drawing, and the warm/cool
                         // split -- acts against navigates -- is the one that earns its keep.
 
@@ -11034,7 +11034,7 @@ pattern, GGGG | Required`
                     // them by hand is the thing this saves.
                     //
                     // The span is the union of what is there: an amplicon runs left.xi..right.xf,
-                    // an oligo xi..xf. Highlight colours match the ones the selection window
+                    // an oligo xi..xf. Highlight colors match the ones the selection window
                     // already uses (cyan for amplicons, tropical orange for oligos), so a flash
                     // here reads the same as a selection there. They are restored afterwards,
                     // so this only ever borrows the highlight.

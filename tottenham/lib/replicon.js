@@ -277,7 +277,7 @@ function () {
 
         // ---- assembly --------------------------------------------------------------------------------
         //
-        // Returns one or two molecules, each with its segment map, so the editor can colour
+        // Returns one or two molecules, each with its segment map, so the editor can color
         // the sequence by part and point at positions.
         const assemble = (spec) => {
             const s = spec || {};

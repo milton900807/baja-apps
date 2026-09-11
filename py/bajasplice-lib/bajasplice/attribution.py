@@ -11,7 +11,7 @@ Two methods, both answering "which bases hold this site up":
             but it is a local linearisation rather than a real perturbation.
 
 Both return one value per genomic position, aligned to the reference base at
-that position, which is what a base-coloured client track wants.
+that position, which is what a base-colored client track wants.
 """
 from __future__ import annotations
 

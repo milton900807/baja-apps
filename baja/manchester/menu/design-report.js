@@ -107,7 +107,7 @@ function (graph, genegraph_panel_layout, track) {
             gc_percent: num(o.gc_percent),
             tm_c: num(o.tm_c != null ? o.tm_c : o.tm),
             design_type: str(o.designType),
-            colour: str(o.color),
+            color: str(o.color),
             flagged_reason: str(o.flagReason),
             chemistry: {
                 full_modification: str(o.fullModification),

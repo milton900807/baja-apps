@@ -649,7 +649,7 @@ function (path, config) {
             render();
         };
 
-        const colouredMolecule = (mol) => {
+        const coloredMolecule = (mol) => {
             const cls = { cds: 'seg-cds', utr5: 'seg-utr', utr3: 'seg-utr', replicase: 'seg-rep', cse5: 'seg-cse', cse3: 'seg-cse', polya: 'seg-pa', sgp: 'seg-sgp', kozak: 'seg-utr', stops: 'seg-utr' };
             return mol.segments.map((s) => '<span class="' + (cls[s.id] || '') + '" title="' + esc(s.name) + ' · ' + s.from + '–' + s.to + '">'
                 + esc(GC.toRna(mol.sequence.slice(s.from, s.to))) + '</span>').join('');
@@ -680,7 +680,7 @@ function (path, config) {
                 + S.assembly.molecules.map((mol) => ''
                     + '<div class="tt-card"><h3>' + esc(mol.name) + ' <span class="tag info">' + commas(mol.length) + ' nt</span></h3>'
                     + '<p class="sub">' + mol.segments.map((s) => esc(s.name) + ' (' + commas(s.to - s.from) + ')').join(' · ') + '</p>'
-                    + '<div class="seq" style="max-height:220px;overflow:auto;">' + colouredMolecule(mol) + '</div></div>').join('')
+                    + '<div class="seq" style="max-height:220px;overflow:auto;">' + coloredMolecule(mol) + '</div></div>').join('')
                 + (S.structure ? '<div class="tt-card"><h3>Structure where it matters</h3>'
                     + '<p class="sub">A local hairpin search, not a fold. It answers one question: is there a stable hairpin sitting where it will get in the way.</p>'
                     + '<div class="grid2">'

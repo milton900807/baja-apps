@@ -5,7 +5,7 @@ The payload matches what an AttributionLayer-style client consumes directly:
   track.exons          objects with `xi` / `xf`, the names the client's
                        metaAnalysis() expects from track.getExons()
   layer.points         split into A / T / C / G by the REFERENCE base at each
-                       genomic position, which is how the client colours them
+                       genomic position, which is how the client colors them
                        (its addAttributionPoint(x, y, base) does the same split)
   layer.attribution_site / .window
                        set for attribution layers, null for whole-gene score
@@ -165,7 +165,7 @@ def retention_layer(gene, tier="notable", transcript="canonical", clean_only=Tru
 
     Returning None rather than an empty layer is the point of this track: most
     introns in most genes are not retention-prone, and a layer that draws
-    something for all of them is intron structure redrawn in a second colour.
+    something for all of them is intron structure redrawn in a second color.
     The caller records that the model ran in payload meta, so "nothing shown"
     stays distinguishable from "never ran".
     """

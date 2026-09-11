@@ -372,10 +372,10 @@ return new Promise(async (resolve, reject) => {
             const alreadyExists = this.intervals.some(interval => interval.x1 === x1 && interval.x2 === x2)
             if (!alreadyExists) {
 
-                // The two branches used to be inverted: a caller that PASSED a colour got an
+                // The two branches used to be inverted: a caller that PASSED a color got an
                 // interval stored without one, and the renderer below (`else if (int.color)`)
-                // then fell back to the layer colour, so per-interval colours were silently
-                // dropped. Callers that pass no colour behave exactly as before.
+                // then fell back to the layer color, so per-interval colors were silently
+                // dropped. Callers that pass no color behave exactly as before.
                 if (color) {
                     this.intervals.push({ x1: x1, x2: x2, y: y, t: t, color: color });
                 } else {
@@ -669,7 +669,7 @@ return new Promise(async (resolve, reject) => {
         }
 
         // A site-strength GAUGE: a faint full-height outline (the 0..1 scale) with the filled
-        // part in the site colour, and the probability printed at the top on the outer side,
+        // part in the site color, and the probability printed at the top on the outer side,
         // away from the arc, so donor and acceptor labels on a short intron do not collide.
         // The outline is what makes it read as a bar with a scale rather than a stray tick.
         _sashimiBar(ctx, x, baselineY, prob, color, maxBarPx, opts) {
@@ -710,7 +710,7 @@ return new Promise(async (resolve, reject) => {
             let donorColor = this.donorColor || 'rgba(26,163,189,0.95)';
             let acceptorColor = this.acceptorColor || 'rgba(224,112,59,0.95)';
             // Ink, not grey: the same dark the interval labels use. A 70/70/70 number over a
-            // saturated arc is a light-grey shape on a coloured one, which is exactly the case
+            // saturated arc is a light-grey shape on a colored one, which is exactly the case
             // the halo below exists for -- so make the two work together instead of against.
             let labelColor = this.labelColor || '#0b1a2b';
             let maxBarPx = this.maxBarPx || 20;
@@ -1150,12 +1150,12 @@ return new Promise(async (resolve, reject) => {
                                 ctx.rotate(-Math.PI / 2);
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
-                                // Readable on whatever colour the block happens to be. These
+                                // Readable on whatever color the block happens to be. These
                                 // layers pick from a palette and scale alpha by score, so the
                                 // ground under a label runs from nearly white to saturated --
                                 // plain black text disappeared into the strong end of that range
                                 // and plain white into the weak end. A light halo stroked behind
-                                // dark text is legible on both, which no single fill colour is.
+                                // dark text is legible on both, which no single fill color is.
                                 // Bold and explicit rather than inheriting whatever font the
                                 // previous draw left set.
                                 ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
@@ -1509,12 +1509,12 @@ return new Promise(async (resolve, reject) => {
                                 ctx.rotate(-Math.PI / 2);
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
-                                // Readable on whatever colour the block happens to be. These
+                                // Readable on whatever color the block happens to be. These
                                 // layers pick from a palette and scale alpha by score, so the
                                 // ground under a label runs from nearly white to saturated --
                                 // plain black text disappeared into the strong end of that range
                                 // and plain white into the weak end. A light halo stroked behind
-                                // dark text is legible on both, which no single fill colour is.
+                                // dark text is legible on both, which no single fill color is.
                                 // Bold and explicit rather than inheriting whatever font the
                                 // previous draw left set.
                                 ctx.font = 'bold 11px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';

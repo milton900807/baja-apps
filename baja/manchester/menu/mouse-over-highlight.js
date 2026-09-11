@@ -3358,7 +3358,7 @@ function (graph, genegraph_panel_layout) {
                             click: () => {
                                 try { graph.showSideMenu(null); } catch (e) { }
                                 // o.highlight__ is not a boolean: the renderer passes it straight
-                                // to drawVerticalLineScreen as the COLOUR. Toggling it is the
+                                // to drawVerticalLineScreen as the COLOR. Toggling it is the
                                 // twinkle -- a static highlight is easy to miss on a busy track.
                                 const MAGENTA = '#ff2fd6';
                                 const prev = __cs.map((o) => o.highlight__);

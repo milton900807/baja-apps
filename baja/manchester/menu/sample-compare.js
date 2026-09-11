@@ -3,11 +3,11 @@ function (graph, track, action) {
     // tumour and germline -- or two people, and the question it answers is which of them
     // carries each change. On the track that is invisible: a marker is a marker whoever
     // has it. This puts a strip under the track with one row per sample and one cell per
-    // variant, coloured by that sample's genotype, so a column that is filled in one row
+    // variant, colored by that sample's genotype, so a column that is filled in one row
     // and empty in the next IS the difference, and a phased call shows which haplotype.
     //
     // Two things live here: the strip (an overlay that stays on until switched off, kept
-    // on the graph under a name so it is never installed twice) and a marker colour mode
+    // on the graph under a name so it is never installed twice) and a marker color mode
     // that paints the variant heads themselves by sample or by haplotype, for the times
     // the strip is more than is wanted.
     //
@@ -164,8 +164,8 @@ function (graph, track, action) {
         graph.__overlays.sampleStrip = drawStrip;
     };
 
-    // ---- marker colours -----------------------------------------------------------------
-    const colourMarkers = (tr, mode) => {
+    // ---- marker colors -----------------------------------------------------------------
+    const colorMarkers = (tr, mode) => {
         const names = samplesOn(tr);
         for (const s of (tr.snpindels || [])) {
             if (!s) continue;
@@ -181,7 +181,7 @@ function (graph, track, action) {
                 s.sampleColor = gts.every((x) => x === first) ? (PHASE_COLOR[first] || '#94a3b8') : '#94a3b8';
             }
         }
-        tr.__markerColour = mode;
+        tr.__markerColor = mode;
     };
 
     // ---- the menu -----------------------------------------------------------------------
@@ -199,16 +199,16 @@ function (graph, track, action) {
     if (action === 'toggle') { toggleStrip(); return true; }
     if (action === 'install') { install(); return true; }
 
-    const mark = (m) => (track.__markerColour === m ? '● ' : '○ ');
+    const mark = (m) => (track.__markerColor === m ? '● ' : '○ ');
     const items = [
         { label: '‹ back', move: () => { }, click: () => { graph.showSideMenu(null); try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, graph.genegraph_panel_layout); } catch (e) { } } },
         {
             label: (track.__sampleStrip ? 'Hide' : 'Show') + ' the sample strip (' + names.length + ' sample' + (names.length === 1 ? '' : 's') + ')',
             move: () => { }, click: () => { graph.showSideMenu(null); toggleStrip(); }
         },
-        { label: mark('clinvar') + 'Colour markers by ClinVar class', move: () => { }, click: () => { colourMarkers(track, 'clinvar'); wake(); graph.showSideMenu(null); say('Markers coloured by clinical significance.'); } },
-        { label: mark('sample') + 'Colour markers by sample', move: () => { }, click: () => { colourMarkers(track, 'sample'); wake(); graph.showSideMenu(null); say('Markers coloured by sample: ' + names.map((n, i) => n + ' ' + SAMPLE_COLOR[i % SAMPLE_COLOR.length]).join(', ') + '; slate = in more than one.'); } },
-        { label: mark('phase') + 'Colour markers by haplotype', move: () => { }, click: () => { colourMarkers(track, 'phase'); wake(); graph.showSideMenu(null); say('Markers coloured by haplotype: blue 1|0, pink 0|1, purple homozygous, amber unphased.'); } },
+        { label: mark('clinvar') + 'Color markers by ClinVar class', move: () => { }, click: () => { colorMarkers(track, 'clinvar'); wake(); graph.showSideMenu(null); say('Markers colored by clinical significance.'); } },
+        { label: mark('sample') + 'Color markers by sample', move: () => { }, click: () => { colorMarkers(track, 'sample'); wake(); graph.showSideMenu(null); say('Markers colored by sample: ' + names.map((n, i) => n + ' ' + SAMPLE_COLOR[i % SAMPLE_COLOR.length]).join(', ') + '; slate = in more than one.'); } },
+        { label: mark('phase') + 'Color markers by haplotype', move: () => { }, click: () => { colorMarkers(track, 'phase'); wake(); graph.showSideMenu(null); say('Markers colored by haplotype: blue 1|0, pink 0|1, purple homozygous, amber unphased.'); } },
     ];
     // What each sample carries, as a line of the menu: the count is the summary the
     // strip draws in full.

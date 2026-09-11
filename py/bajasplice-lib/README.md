@@ -234,7 +234,7 @@ for (const L of p.layers) {
 
 Two things worth knowing. `attribution_type` containing `acceptor_attribution`
 switches the client to its purple/blue palette, so score tracks are named
-`*_score` to stay on the other one. And base colouring is only informative on
+`*_score` to stay on the other one. And base coloring is only informative on
 attribution layers: on a score track nearly every point is a `G`, because an
 acceptor is the G of `AG` and a donor the G of `GT`.
 

@@ -568,7 +568,7 @@ function (path, config) {
         // =====================================================================================
         //  TAB 5 — output
         // =====================================================================================
-        const colouredCassette = () => {
+        const coloredCassette = () => {
             if (!S.cassette) return '';
             const cls = { epitope: 'seg-ep', linker: 'seg-lk', leader: 'seg-ld', trailer: 'seg-tr', start: '' };
             return S.cassette.segments.map((s) =>
@@ -696,7 +696,7 @@ function (path, config) {
                     + 'source records: ' + esc(vi.map((x) => x.name).join(', ')) + '. Confirm them on the Construct tab, or choose different parts.</div>' : '')
                 + '<div class="lv-card"><h3>Protein cassette <span class="tag info">' + S.cassette.protein.length + ' aa</span></h3>'
                 + '<p class="sub"><span class="seg-ld">leader</span> · <span class="seg-ep">epitope</span> · <span class="seg-lk">linker</span> · <span class="seg-tr">trailer</span></p>'
-                + '<div class="seq">' + colouredCassette() + '</div></div>'
+                + '<div class="seq">' + coloredCassette() + '</div></div>'
 
                 + '<div class="lv-card"><h3>Coding sequence <span class="tag info">' + b.cds.length + ' nt</span></h3>'
                 + '<div class="kv"><b>CAI</b> ' + GC.cai(b.cds).toFixed(3) + ' &nbsp; <b>GC</b> ' + (GC.gc(b.cds) * 100).toFixed(1) + '% &nbsp; <b>U</b> ' + (GC.uFraction(b.cds) * 100).toFixed(1) + '% &nbsp; <b>strategy</b> ' + esc(S.optMode) + '</div>'

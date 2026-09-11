@@ -411,13 +411,13 @@ function () {
             // and it was being drawn as one undifferentiated wrapped blob in a square white
             // box, with the middle dots breaking wherever the wrap happened to fall. The parts
             // are not equal: the phenotype is what this is, the classification is a verdict
-            // worth colouring, and the mechanism is the detail you read second. So it is set
+            // worth coloring, and the mechanism is the detail you read second. So it is set
             // like a record -- a heading, a chip, and body text -- rather than a paragraph.
             //
             // Same drawing vocabulary as _drawTextOnBackdrop, which this had drifted away from:
             // rounded corners, a hairline border, one soft shadow.
 
-            // Clinical significance decides the colour, everywhere it is shown. "Conflicting
+            // Clinical significance decides the color, everywhere it is shown. "Conflicting
             // classifications of pathogenicity" contains the word pathogenic and is tested for
             // FIRST -- ordering is the whole guard here, as it is everywhere else this string
             // gets read.
@@ -1172,7 +1172,7 @@ function () {
             //   null / unknown -> grey; contains "benign" -> light blue;
             //   contains "pathogenic" -> red (with a red glow).
             clinsigStyle() {
-                // A colour chosen for this variant by a view -- by sample, by haplotype --
+                // A color chosen for this variant by a view -- by sample, by haplotype --
                 // wins over the clinical one while it is set. Cleared by the same view.
                 if (this.sampleColor) return { color: this.sampleColor, glow: null };
                 const c = ('' + (this.clinsig || '')).toLowerCase();
@@ -1204,7 +1204,7 @@ function () {
                 const __dimmed = (__focusOn || __selOn) && !__inSpot;
 
                 // Color by clinical significance (grey / light-blue / red+glow) — or gray when dimmed.
-                // Dimmed colours are (nearly) OPAQUE: the fade comes from globalAlpha alone, so a
+                // Dimmed colors are (nearly) OPAQUE: the fade comes from globalAlpha alone, so a
                 // dimmed marker stays visible-but-grey instead of compounding to ~0.1 and vanishing.
                 const phaseColor = __dimmed ? '#94a3b8' : this.clinsigStyle().color;
                 const neutralStroke = __dimmed ? '#788496' : '#334155';
@@ -1590,9 +1590,9 @@ function () {
                 const y3 = rowY;
 
                 if (clinsig) {
-                    // COLOURED BY WHAT IT SAYS. This pill was mint green whatever the
+                    // COLORED BY WHAT IT SAYS. This pill was mint green whatever the
                     // classification, so a pathogenic variant and a benign one were shown in
-                    // the reassuring colour and only the words told them apart -- and the
+                    // the reassuring color and only the words told them apart -- and the
                     // words are the part a reader skims past.
                     const _st = SnpIndel._sigStyle(clinsig) || { fg: '#065F46', bg: '#ECFDF5', line: '#A7F3D0' };
                     SnpIndel._drawPill(graph, detailLine, textX, y3, {

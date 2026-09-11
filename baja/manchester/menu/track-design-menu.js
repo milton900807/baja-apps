@@ -1290,9 +1290,9 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
                         return "red";
                     }
 
-                    // WHY a compound is red, in the label rather than only in the colour.
+                    // WHY a compound is red, in the label rather than only in the color.
                     //
-                    // Red is the bottom band of the design score (< 10). The colour says a
+                    // Red is the bottom band of the design score (< 10). The color says a
                     // compound is poor and nothing says what is wrong with it, which leaves the
                     // user to guess or to go digging in the report. The scorer already writes
                     // the reasons -- score_gc, score_tm and score_offtarget_toxicity_rules in
@@ -1962,8 +1962,8 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
         // Compounds ▸ Highlight — make every compound on the track twinkle magenta.
         //
         // o.highlight__ is not a boolean: the renderer passes it straight to
-        // drawVerticalLineScreen as the COLOUR of the markers at each oligo's start and end
-        // (baja/bio/track-flexi.js), so setting it to a colour is what draws them. Toggling it
+        // drawVerticalLineScreen as the COLOR of the markers at each oligo's start and end
+        // (baja/bio/track-flexi.js), so setting it to a color is what draws them. Toggling it
         // on and off is the twinkle -- a static highlight is easy to miss on a busy track,
         // whereas motion is what the eye actually catches.
         //
@@ -1987,7 +1987,7 @@ function (graph, selectedTrack, genegraph_panel_layout, presetModality) {
 
         // The blink, shared. It was written inline for compounds; primer probes want exactly
         // the same behaviour on a different subset, and a second copy would drift the first
-        // time the timing or the colour changed.
+        // time the timing or the color changed.
         const __blinkOligos = (list, noun) => {
             if (!list || !list.length) return;
             const MAGENTA = '#ff2fd6';

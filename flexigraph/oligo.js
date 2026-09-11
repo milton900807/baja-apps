@@ -271,7 +271,7 @@ function () {
 
                 // The shape for this compound's type -- and a REAL fallback when there is
                 // none. Missing key used to mean the draw below fell through to a bare
-                // graph.drawLine in this.color, which for a compound with no colour set is a
+                // graph.drawLine in this.color, which for a compound with no color set is a
                 // black line: no beads, no sugars, no linkers, nothing that says what it is.
                 //
                 // chem_draw has keys for gapmer / aso / steric_blocking_aso / siRNA and not
@@ -561,8 +561,8 @@ function () {
                     } else {
                         // Reached only by a compound with no chemistry AND no shape for its
                         // type. this.color is often unset on those, and drawLine with an
-                        // undefined colour paints BLACK -- a 1px black line that reads as a
-                        // stray mark rather than a compound. Teal is the app's oligo colour.
+                        // undefined color paints BLACK -- a 1px black line that reads as a
+                        // stray mark rather than a compound. Teal is the app's oligo color.
                         await graph.drawLine(
                             tgraph.X(this.xi),
                             tgraph.Y(y),
@@ -684,8 +684,8 @@ function () {
                     } else {
                         // Reached only by a compound with no chemistry AND no shape for its
                         // type. this.color is often unset on those, and drawLine with an
-                        // undefined colour paints BLACK -- a 1px black line that reads as a
-                        // stray mark rather than a compound. Teal is the app's oligo colour.
+                        // undefined color paints BLACK -- a 1px black line that reads as a
+                        // stray mark rather than a compound. Teal is the app's oligo color.
                         await graph.drawLine(
                             tgraph.X(this.xi),
                             tgraph.Y(y),
@@ -706,7 +706,7 @@ function () {
                 // WHY flagReason IGNORES THAT TOGGLE.
                 //
                 // The reason a compound is red is not one of its attributes, it is the
-                // warning that explains the colour. Behind an off-by-default toggle, the red
+                // warning that explains the color. Behind an off-by-default toggle, the red
                 // said "something is wrong" and nothing said what -- the reader has to find a
                 // menu before the drawing will tell them why it is warning them. Score, name
                 // and every other attribute stay behind the toggle; this one does not.
