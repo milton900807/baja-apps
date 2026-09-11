@@ -1793,11 +1793,19 @@ function (path, config) {
                         if (!wg) { winGenesAsk(ci, qlo, qhi); continue; }
                         if (wg.state !== 'done' || !wg.genes.length) continue;
                         // Visible genes, ascending by locus. `g` is the graph, so a gene is `gn`.
+                        // ONLY WHEN THE GENE IS BIG ENOUGH TO SEE. Zoomed out, a gene is a
+                        // fraction of a pixel tall and the label would say nothing about a
+                        // place too small to point at -- so a gene is drawn only once its own
+                        // on-screen height reaches the character height. That is the "zoomed in
+                        // close enough that they fit on the scale" test, made exact.
+                        const CHAR_H = 11;
                         const grecs = [];
                         for (const gn of wg.genes) {
                             const s = +gn.start, e = +gn.end;
                             if (e < lo || s > hi) continue;
                             if (!gn.gene) continue;
+                            const hPx = Math.abs(g.Y(wy(e)) - g.Y(wy(s)));
+                            if (hPx < CHAR_H) continue;   // shorter than the text: too zoomed out
                             grecs.push({ sym: gn.gene, s: s, e: e, ay: clampYg(g.Y(wy((s + e) / 2))) });
                         }
                         if (!grecs.length) continue;
