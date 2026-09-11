@@ -1839,107 +1839,154 @@ function (path, config) {
                                 const rec = patLabels.get(kk);
                                 if (!rec) { patLabelsAsk(ci, qlo, qhi); }
                                 else if (rec.state === 'done' && rec.list.length) {
-                                    // A COLUMN OF LABELS WITH LEADER LINES, not names crammed
-                                    // into the bar. The top patents claim large, overlapping
-                                    // spans, so their midpoints sat almost on top of each other
-                                    // and the old 11 px dedup dropped all but a handful -- "only
-                                    // one to six showing at a time". Now every patent that fits
-                                    // the canvas height is laid out in a decluttered column and a
-                                    // leader line ties each one back to its place on the density
-                                    // strip (the sequence histogram in the left gutter), so the
-                                    // label says WHICH stretch of chromosome the patent claims.
+                                    // LABELS THAT STAY ON THE CANVAS AND NEAR THEIR STRIP MARK.
+                                    //
+                                    // The top patents claim large, overlapping spans, so many
+                                    // anchor at almost the same Y. Rather than stack them into a
+                                    // column that runs off the bottom of the screen, anchors that
+                                    // would overlap are MERGED into one summary -- "US1234 +5
+                                    // more…" -- clickable to open the full list for that stretch.
+                                    // Every label is then placed as close to its strip mark as it
+                                    // can go without overlapping a neighbour, and clamped so none
+                                    // leaves the canvas. A leader line ties each back to the
+                                    // density strip (the sequence histogram) it refers to.
                                     const H = ctx.canvas.height;
                                     const cx = (bx0 + bx1) / 2;
                                     const stripX = bx0 - 3;         // right edge of the density strip
                                     const MAXW = Math.max(120, Math.min(320, bw - 10));
+                                    const TOP_PAD = 6, BOT_PAD = 6, GAP = 2, CLUSTER_GAP = 14;
+                                    const clampY = (v) => Math.max(TOP_PAD, Math.min(H - BOT_PAD, v));
                                     const anchored = [];
                                     for (const q2 of rec.list) {
-                                        const mid = ((+q2.start) + (+q2.end)) / 2;
-                                        const ay = g.Y(wy(mid));
-                                        if (ay < 6 || ay > H - 6) continue;
-                                        anchored.push({ q: q2, ay: ay });
+                                        const s = +q2.start, e = +q2.end;
+                                        const ay = g.Y(wy((s + e) / 2));
+                                        if (ay < -30 || ay > H + 30) continue;   // far off-screen: skip; near-edge is clamped
+                                        anchored.push({ q: q2, ay: clampY(ay), s: s, e: e });
                                     }
-                                    anchored.sort((a, b) => a.ay - b.ay);
-                                    // Title + dates only when the bar is wide and the patents are
-                                    // few enough not to stack into a wall; otherwise a compact
-                                    // one-line label each, so many more are shown.
-                                    const showExtra = (bw >= 240 && anchored.length <= 12);
-                                    ctx.save();
-                                    ctx.textBaseline = 'middle';
-                                    ctx.textAlign = 'left';
-                                    let prevBottom = -1e9;
-                                    for (const a of anchored) {
-                                        const q2 = a.q;
-                                        ctx.font = '600 10px ' + FONT;
-                                        let txt = '' + (q2.label || q2.id || '');
-                                        const numOnly = txt.split(' ')[0];
-                                        if (ctx.measureText(txt).width > MAXW) txt = numOnly;
-                                        const extra = [];
-                                        if (showExtra) {
-                                            const dates = [q2.filed ? ('filed ' + q2.filed) : '',
-                                                           q2.granted ? ('granted ' + q2.granted) : '']
-                                                .filter(Boolean).join('  ·  ');
-                                            let ttl = '' + (q2.title || '');
-                                            if (ttl) {
-                                                ctx.font = '500 9px ' + FONT;
-                                                while (ttl.length > 8 && ctx.measureText(ttl).width > MAXW) ttl = ttl.slice(0, -2);
-                                                if (ttl.length < ('' + q2.title).length) ttl += '…';
-                                                extra.push(ttl);
+                                    if (anchored.length) {
+                                        anchored.sort((a, b) => a.ay - b.ay);
+                                        // MERGE overlapping anchors into clusters.
+                                        const clusters = [];
+                                        for (const a of anchored) {
+                                            const last = clusters[clusters.length - 1];
+                                            if (last && a.ay - last.lastAy <= CLUSTER_GAP) {
+                                                last.members.push(a); last.lastAy = a.ay;
+                                                last.loBp = Math.min(last.loBp, a.s); last.hiBp = Math.max(last.hiBp, a.e);
+                                                last.hits += (+a.q.hits || 0);
+                                            } else {
+                                                clusters.push({ members: [a], lastAy: a.ay, loBp: a.s, hiBp: a.e, hits: (+a.q.hits || 0) });
                                             }
-                                            if (dates) extra.push(dates);
-                                            ctx.font = '600 10px ' + FONT;
                                         }
-                                        const rowH = extra.length ? (16 + extra.length * 10) : 13;
-                                        // Decluttered downward from the anchor: each row sits at
-                                        // its own position, or just below the row above it.
-                                        let top = Math.max(a.ay - rowH / 2, prevBottom + 2);
-                                        if (top + rowH > H - 4) break;      // out of room; rest are dropped
-                                        prevBottom = top + rowH;
-                                        // Box width from the widest line.
-                                        ctx.font = '600 10px ' + FONT;
-                                        let boxW = ctx.measureText(txt).width;
-                                        if (extra.length) {
-                                            ctx.font = '500 9px ' + FONT;
-                                            for (const ln of extra) boxW = Math.max(boxW, ctx.measureText(ln).width);
+                                        // Title + dates only for a lone patent, and only when the
+                                        // bar is wide and there are few labels.
+                                        const showExtra = (bw >= 240 && clusters.length <= 12);
+                                        ctx.save();
+                                        ctx.textBaseline = 'middle';
+                                        ctx.textAlign = 'left';
+                                        // Measure each label (single or summary) before placing.
+                                        const recs = clusters.map((cl) => {
+                                            const ay = cl.members.reduce((s, m) => s + m.ay, 0) / cl.members.length;
+                                            const lines = [];
+                                            let txt, numOnly = '', isCluster = false;
                                             ctx.font = '600 10px ' + FONT;
-                                        }
-                                        boxW += 10;
-                                        const lx0 = cx - boxW / 2;
-                                        // LEADER LINE to the strip at the patent's true position.
-                                        ctx.strokeStyle = 'rgba(180,83,9,0.55)';
-                                        ctx.lineWidth = 1;
-                                        ctx.beginPath();
-                                        ctx.moveTo(lx0 - 2, top + rowH / 2);
-                                        ctx.lineTo(stripX, a.ay);
-                                        ctx.stroke();
-                                        ctx.fillStyle = 'rgba(180,83,9,0.95)';
-                                        ctx.beginPath(); ctx.arc(stripX, a.ay, 2, 0, 2 * Math.PI); ctx.fill();
-                                        // The label box.
-                                        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-                                        ctx.fillRect(lx0, top, boxW, rowH);
-                                        ctx.fillStyle = '#7c2d12';
-                                        ctx.font = '600 10px ' + FONT;
-                                        ctx.fillText(txt, lx0 + 5, extra.length ? (top + 8) : (top + rowH / 2));
-                                        if (extra.length) {
-                                            ctx.font = '500 9px ' + FONT;
-                                            ctx.fillStyle = '#9a3412';
-                                            let ey = top + 18;
-                                            for (const ln of extra) { ctx.fillText(ln, lx0 + 5, ey); ey += 10; }
+                                            if (cl.members.length === 1) {
+                                                const q2 = cl.members[0].q;
+                                                txt = '' + (q2.label || q2.id || '');
+                                                numOnly = txt.split(' ')[0];
+                                                if (ctx.measureText(txt).width > MAXW) txt = numOnly;
+                                                if (showExtra) {
+                                                    const dates = [q2.filed ? ('filed ' + q2.filed) : '',
+                                                                   q2.granted ? ('granted ' + q2.granted) : '']
+                                                        .filter(Boolean).join('  ·  ');
+                                                    let ttl = '' + (q2.title || '');
+                                                    if (ttl) {
+                                                        ctx.font = '500 9px ' + FONT;
+                                                        while (ttl.length > 8 && ctx.measureText(ttl).width > MAXW) ttl = ttl.slice(0, -2);
+                                                        if (ttl.length < ('' + q2.title).length) ttl += '…';
+                                                        lines.push(ttl);
+                                                    }
+                                                    if (dates) lines.push(dates);
+                                                    ctx.font = '600 10px ' + FONT;
+                                                }
+                                            } else {
+                                                // A SHORT SUMMARY AND THEN "…": the top patent's
+                                                // number and how many more share this stretch.
+                                                isCluster = true;
+                                                const top = cl.members[0].q;
+                                                numOnly = ('' + (top.label || top.id || '')).split(' ')[0];
+                                                txt = numOnly + '  +' + (cl.members.length - 1) + ' more…';
+                                                if (ctx.measureText(txt).width > MAXW) txt = cl.members.length + ' patents…';
+                                            }
                                             ctx.font = '600 10px ' + FONT;
-                                            ctx.fillStyle = '#7c2d12';
-                                        }
-                                        // Underline the publication number as the "opens the
-                                        // patent" cue.
-                                        const numW = ctx.measureText(numOnly).width;
-                                        ctx.fillRect(lx0 + 5, extra.length ? (top + 13) : (top + rowH / 2 + 6), numW, 0.8);
-                                        patLabelHits.push({
-                                            x: lx0, y: top, w: boxW, h: rowH,
-                                            id: '' + (q2.id || ''), label: '' + (q2.label || ''),
+                                            let boxW = ctx.measureText(txt).width;
+                                            if (lines.length) {
+                                                ctx.font = '500 9px ' + FONT;
+                                                for (const ln of lines) boxW = Math.max(boxW, ctx.measureText(ln).width);
+                                                ctx.font = '600 10px ' + FONT;
+                                            }
+                                            boxW += 10;
+                                            const rowH = lines.length ? (16 + lines.length * 10) : 13;
+                                            return { ay: ay, rowH: rowH, boxW: boxW, txt: txt, numOnly: numOnly, lines: lines, isCluster: isCluster, cl: cl };
                                         });
+                                        // PLACE near each anchor, no overlaps, none off canvas: a
+                                        // downward pass opens room below, an upward pass pulls the
+                                        // tail back inside the bottom edge.
+                                        recs.sort((a, b) => a.ay - b.ay);
+                                        for (const rr of recs) rr.top = rr.ay - rr.rowH / 2;
+                                        let cur = TOP_PAD;
+                                        for (const rr of recs) { if (rr.top < cur) rr.top = cur; cur = rr.top + rr.rowH + GAP; }
+                                        let limit = H - BOT_PAD;
+                                        for (let i = recs.length - 1; i >= 0; i--) {
+                                            const rr = recs[i];
+                                            if (rr.top + rr.rowH > limit) rr.top = limit - rr.rowH;
+                                            if (rr.top < TOP_PAD) rr.top = TOP_PAD;
+                                            limit = rr.top - GAP;
+                                        }
+                                        for (const rr of recs) {
+                                            const top = rr.top;
+                                            const lx0 = cx - rr.boxW / 2;
+                                            const ap = clampY(rr.ay);
+                                            // Leader line back to the strip mark.
+                                            ctx.strokeStyle = 'rgba(180,83,9,0.55)';
+                                            ctx.lineWidth = 1;
+                                            ctx.beginPath();
+                                            ctx.moveTo(lx0 - 2, top + rr.rowH / 2);
+                                            ctx.lineTo(stripX, ap);
+                                            ctx.stroke();
+                                            ctx.fillStyle = 'rgba(180,83,9,0.95)';
+                                            ctx.beginPath(); ctx.arc(stripX, ap, 2, 0, 2 * Math.PI); ctx.fill();
+                                            // Box. A summary gets a faint amber wash so it reads as
+                                            // "several", not one.
+                                            ctx.fillStyle = rr.isCluster ? 'rgba(255,247,237,0.95)' : 'rgba(255,255,255,0.9)';
+                                            ctx.fillRect(lx0, top, rr.boxW, rr.rowH);
+                                            ctx.fillStyle = '#7c2d12';
+                                            ctx.font = '600 10px ' + FONT;
+                                            ctx.fillText(rr.txt, lx0 + 5, rr.lines.length ? (top + 8) : (top + rr.rowH / 2));
+                                            if (rr.lines.length) {
+                                                ctx.font = '500 9px ' + FONT;
+                                                ctx.fillStyle = '#9a3412';
+                                                let ey = top + 18;
+                                                for (const ln of rr.lines) { ctx.fillText(ln, lx0 + 5, ey); ey += 10; }
+                                                ctx.font = '600 10px ' + FONT;
+                                                ctx.fillStyle = '#7c2d12';
+                                            }
+                                            if (!rr.isCluster) {
+                                                const numW = ctx.measureText(rr.numOnly).width;
+                                                ctx.fillRect(lx0 + 5, rr.lines.length ? (top + 13) : (top + rr.rowH / 2 + 6), numW, 0.8);
+                                                const q2 = rr.cl.members[0].q;
+                                                patLabelHits.push({ x: lx0, y: top, w: rr.boxW, h: rr.rowH, id: '' + (q2.id || ''), label: '' + (q2.label || '') });
+                                            } else {
+                                                patLabelHits.push({
+                                                    x: lx0, y: top, w: rr.boxW, h: rr.rowH, cluster: true, ci: ci,
+                                                    lo: Math.max(1, Math.floor(rr.cl.loBp)), hi: Math.min(c.length, Math.ceil(rr.cl.hiBp)),
+                                                    n: rr.cl.hits,
+                                                });
+                                            }
+                                        }
+                                        ctx.restore();
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'top';
                                     }
-                                    ctx.restore();
-                                    ctx.textAlign = 'center';
-                                    ctx.textBaseline = 'top';
                                 }
                             }
                         }
@@ -4296,7 +4343,13 @@ function (path, config) {
                 // drawn over them on its own backing, so a click that lands on the words was
                 // aimed at the words.
                 const pl = patLabelAt(SX(x), SY(y));
-                if (pl) { patOpenPublication(pl); return; }
+                if (pl) {
+                    // A summary label opens the full list for the stretch it covers; a single
+                    // label opens that publication.
+                    if (pl.cluster) { await patOpen({ ci: pl.ci, lo: pl.lo, hi: pl.hi, n: pl.n }); }
+                    else { patOpenPublication(pl); }
+                    return;
+                }
                 // THE PATENT STRIP, on the other side of the bar from everything else.
                 const ph = patAt(x, y);
                 if (ph) { await patOpen(ph); return; }
