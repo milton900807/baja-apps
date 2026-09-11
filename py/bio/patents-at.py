@@ -137,6 +137,38 @@ def attrs(col):
     return d
 
 
+def load_patent_labels(tsv_path):
+    """A metadata TSV -> (labels, meta). Two shapes are handled: the flat
+    'number -> label' one, and the packed 'US<n>|title|filed|granted|assignee'
+    one (U+2016 separated). meta[id] keeps the fields separate so the karyotype
+    can lay the title and dates out on their own lines once a chromosome is
+    zoomed in far enough; labels[id] is the collapsed 'number assignee' line.
+    One reader for both the genomic and the transcript path, so a click on the
+    strip and a label on the chromosome describe a patent the same way."""
+    SEP = "‖"
+    labels, meta = {}, {}
+    if not tsv_path or not os.path.exists(tsv_path):
+        return labels, meta
+    try:
+        with open(tsv_path, "r") as fh:
+            for ln in fh:
+                p = ln.rstrip("\n").split("\t")
+                if len(p) >= 2 and p[0] and p[0] != "patent_id":
+                    k = p[0].strip()
+                    lab = p[1].strip()
+                    if SEP in lab:
+                        fs = [x.strip() for x in lab.split(SEP)]
+                        g = lambda i: (fs[i] if len(fs) > i else "")
+                        num, who = g(0), g(4)
+                        meta[k] = {"title": g(1), "filed": g(2),
+                                   "granted": g(3), "assignee": who}
+                        lab = (num + " " + who).strip() if who else num
+                    labels[k] = lab
+    except Exception:
+        return {}, {}
+    return labels, meta
+
+
 def transcripts_in(gff_path, c, s1, e1):
     """Transcript ids overlapping the window -> their genomic spans, by tabix so only the
     window is read. The spans are what lets a caller DRAW a patent where it sits rather
@@ -218,7 +250,34 @@ elif gidx:
         hits += 1
     out["hits"] = hits
     out["transcripts"] = 0
+    # NAME THEM, so the karyotype can label the strip and not only draw its height.
+    # This path used to stop at the counts -- it built by_pat and the spans and then
+    # emitted nothing, so the chromosome showed a patent strip with no patents on it
+    # and a click returned an empty list. The metadata TSV keys on the same bare
+    # number the hit rows carry (column 4, '<number>|<number>|'), so the labels, the
+    # title and the dates are all available here; they were simply never read.
+    labels, meta = load_patent_labels(tsv)
+    rows = []
+    for pid, n in by_pat.items():
+        sp = span_by_pat.get(pid)
+        m = meta.get(pid) or {}
+        rows.append({
+            "id": pid,
+            "label": labels.get(pid) or (("US" + pid) if out["nameable"] else ("record " + pid)),
+            "title": m.get("title", ""),
+            "filed": m.get("filed", ""),
+            "granted": m.get("granted", ""),
+            "assignee": m.get("assignee", ""),
+            "hits": n,
+            "transcripts": 0,
+            "start": (sp[0] if sp else 0),
+            "end": (sp[1] if sp else 0),
+        })
+    rows.sort(key=lambda r: (-r["hits"], r["id"]))
+    out["count"] = len(rows)
+    out["patents"] = json.dumps(rows[:max_out])
     out["ok"] = True
+    works.msg("%d patent(s), %d hit(s)" % (len(rows), hits))
 else:
     tspan = transcripts_in(gff, chrom, start, end)
     tids = set(tspan.keys())
