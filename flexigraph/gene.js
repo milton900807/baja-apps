@@ -8261,7 +8261,7 @@ pattern, GGGG | Required`
                 const COUNT_WORD = {
                     track: ['track', 'tracks'], ann: ['annotation', 'annotations'],
                     snp: ['variant', 'variants'], oligo: ['oligo', 'oligos'],
-                    amplicon: ['amplicon', 'amplicons'], layer: ['layer item', 'layer items'],
+                    amplicon: ['primer-probe', 'primer-probes'], layer: ['layer item', 'layer items'],
                 };
                 let __sel = [];
                 try { __sel = this.__lassoSelection || []; } catch (e) { __sel = []; }
@@ -10697,7 +10697,7 @@ pattern, GGGG | Required`
                     if (old && old.parentNode) old.parentNode.removeChild(old);
                 } catch (e) { }
 
-                const kindLabels = { track: 'Track', ann: 'Annotation', snp: 'SNP / Indel', oligo: 'Oligo', amplicon: 'Amplicon', layer: 'Layer item', sequence: 'Sequence' };
+                const kindLabels = { track: 'Track', ann: 'Annotation', snp: 'SNP / Indel', oligo: 'Oligo', amplicon: 'Primer-probe', layer: 'Layer item', sequence: 'Sequence' };
                 const dotColor = { track: '#1d4ed8', ann: '#1aa3bd', snp: '#c0392b', oligo: '#ff8c42', amplicon: '#7c3aed', layer: '#a86b3e' };
 
                 // Deduped and grouped the same way the menu is, so the two agree.
@@ -10858,7 +10858,7 @@ pattern, GGGG | Required`
                     if (a) this.showSideMenu(list, a, __lbl); else this.showSideMenu(list, null, __lbl);
                 };
 
-                const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Amplicons', layer: 'Layer items' };
+                const kindLabels = { track: 'Tracks', ann: 'Annotations', snp: 'SNPs / Indels', oligo: 'Oligos', amplicon: 'Primer-probes', layer: 'Layer items' };
                 // The header a menu about ONE kind carries. Same words as the row that opens it,
                 // so the title of the panel and the item you clicked to get there agree.
                 const menuLabel = (k) => (kindLabels[k] || k) + ' ▸';
@@ -11742,7 +11742,8 @@ pattern, GGGG | Required`
                 // them directly too: a lasso over a gene packages its compounds into one row, and
                 // clicking that row has to land in the same place the menu item does.
                 const annEntries = () => distinctSelection().filter((e) => e.kind === 'ann');
-                const cpdEntries = () => distinctSelection().filter((e) => e.kind === 'oligo' || e.kind === 'amplicon');
+                const cpdEntries = () => distinctSelection().filter((e) => e.kind === 'oligo');
+                const ampEntries = () => distinctSelection().filter((e) => e.kind === 'amplicon');
 
                 const entryItem = (e) => ({
                     label: e.label + (e.count > 1 ? '  ×' + e.count : '') + ' ▸',
@@ -12079,6 +12080,15 @@ pattern, GGGG | Required`
                             move: () => { }
                         });
                     }
+                    // Primer-probes (amplicons) are their own top-level group, so a selection of
+                    // primer-probe sets can be operated on independently of the oligos.
+                    if (ampEntries().length) {
+                        menu.push({
+                            label: 'Primer-probes (' + ampEntries().length + ') ▸',
+                            click: () => { openTypeMenu('amplicon'); },
+                            move: () => { }
+                        });
+                    }
                     const restEntries = distinct.filter((e) => e.kind !== 'ann' && e.kind !== 'oligo' && e.kind !== 'amplicon');
 
                     // Everything else -- tracks, SNPs, layer items -- stays listed directly:
@@ -12200,7 +12210,7 @@ pattern, GGGG | Required`
                 }
                 this.__lassoSelection = all.filter((s) => s.kind !== kind);
                 if (!this.__lassoSelection.length) { this.__selPanelBounds = null; this.showDisplay = false; }
-                const _kl = { ann: 'annotation(s)', snp: 'SNP/indel(s)', oligo: 'oligo(s)', amplicon: 'amplicon(s)', layer: 'layer item(s)' }[kind] || (kind + '(s)');
+                const _kl = { ann: 'annotation(s)', snp: 'SNP/indel(s)', oligo: 'oligo(s)', amplicon: 'primer-probe(s)', layer: 'layer item(s)' }[kind] || (kind + '(s)');
                 this.setMessage(' Removed ' + removed + ' ' + _kl + '. ');
                 try { this.rescale(); } catch (e) { }
                 try { this.graph.rescale(); } catch (e) { }
