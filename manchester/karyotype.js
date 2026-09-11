@@ -668,6 +668,15 @@ function (path, config) {
                     + 'same button.',
             },
             {
+                title: 'Analyze — the loss matrix',
+                byTitle: 'Analyze the loaded variants: calculate the loss matrix, or see what is loaded',
+                byIcon: 'biotech',
+                text: 'Work out which genes a sample has lost — frameshifts, stop codons and '
+                    + 'splice-site changes, read off the coding sequence — and light those '
+                    + 'variants and genes up across the genome. With more than one sample '
+                    + 'in the file you pick the one to read.',
+            },
+            {
                 title: 'Fit — see everything again',
                 byTitle: 'Frame the whole genome again',
                 byIcon: 'fit_screen',
@@ -825,9 +834,14 @@ function (path, config) {
                                         ionFunction: createIonFunction(() => { if (armed) pan(); shareMenu(); })
                                     },
                                     {
-                                        label: 'Info', icon: 'info_outline',
-                                        tooltip: 'What is loaded: variants, samples, regions, highlights, patents',
-                                        ionFunction: createIonFunction(() => { if (armed) pan(); infoPanel(); })
+                                        // THE MICROSCOPE IS THE ANALYSIS LIBRARY. Info was
+                                        // a button that answered one question; this is a
+                                        // shelf that asks them, starting with the loss
+                                        // matrix -- which genes a sample has lost -- and
+                                        // keeping the Info window as one of its cards.
+                                        label: 'Analyze', icon: 'biotech',
+                                        tooltip: 'Analyze the loaded variants: calculate the loss matrix, or see what is loaded',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); analysisMenu(); })
                                     },
                                     {
                                         label: 'Fit', icon: 'fit_screen',
@@ -4688,7 +4702,13 @@ function (path, config) {
             // same colours. One hex per sample column, in sample order.
             out.sampleColors = SAMPLES.map((nm, si) => SAMPLE_COLOR[si] || '');
             out.highlight = hlActive || 0;
-            out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '' }));
+            out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '', lof: rg.lof ? 1 : 0 }));
+            // The loss matrix goes with the file: it is a few hundred gene records at most,
+            // and recomputing it means re-reading the annotation for every coding variant.
+            if (lossMatrix && Array.isArray(lossMatrix.genes)) {
+                out.lossMatrix = { sample: lossMatrix.sample || '', si: lossMatrix.si, genes: lossMatrix.genes,
+                    scanned: lossMatrix.scanned || 0, counts: lossMatrix.counts || {}, notes: lossMatrix.notes || [], at: lossMatrix.at || '' };
+            }
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
             // this tomorrow cannot reconstruct.
@@ -4849,7 +4869,7 @@ function (path, config) {
             if (Array.isArray(doc.regions)) {
                 try {
                     regions = doc.regions.filter((rg) => rg && rg.i != null && isFinite(+rg.lo) && isFinite(+rg.hi))
-                        .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '' }));
+                        .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '', lof: !!rg.lof }));
                 } catch (e) { }
             }
             if (Array.isArray(doc.sampleColors)) {
@@ -4862,7 +4882,12 @@ function (path, config) {
             if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
                 try { setColorMode(doc.colorMode); } catch (e) { }
             }
-            if (doc.highlight) {
+            if (doc.lossMatrix && Array.isArray(doc.lossMatrix.genes)) {
+                // The bands came back with the regions above; only the variant marks need
+                // re-deriving, and they come from the saved matrix, not from the server.
+                try { lossMatrix = doc.lossMatrix; applyLossHighlights(false); } catch (e) { }
+            }
+            if (doc.highlight && doc.highlight !== HL_LOF) {
                 const __kmap = { 1: 'coding', 2: 'intronic', 3: 'three_utr', 4: 'five_utr', 5: 'pathogenic' };
                 const __kind = __kmap[doc.highlight];
                 // Best-effort and un-awaited: it re-fetches annotation to re-derive the marks,
@@ -5153,6 +5178,329 @@ function (path, config) {
                 + '; the rest are greyed out.'
                 + (failed ? ' ' + failed + ' chromosome(s) could not be read.' : '') + ' ');
             step('filter ' + kind + ': marked ' + marked + ', failed ' + failed);
+        };
+
+        // ---- LOSS MATRIX ---------------------------------------------------------------
+        //
+        // WHICH GENES THIS SAMPLE HAS LOST. A synthetic-lethal target is only a target in a
+        // tumor that has already lost its partner, so the first question about a tumor VCF
+        // is the list of genes out of action in it. That list, one row per gene, is the
+        // loss matrix, and this is the karyotype's own copy of it for the small variants of
+        // ONE sample: py/bio/loss-matrix.py places each variant on the MANE transcript and
+        // calls frameshift, stop-gained, start-lost and splice-site changes loss of
+        // function. Deletions and silencing are not in a VCF and so not in this matrix,
+        // and the answer says so.
+        //
+        // The variants travel, not the annotation -- the opposite of applyFilter. There the
+        // question is "which of my millions are coding", answered by intervals; here it is
+        // "what does each of these few thousand DO", which needs the codon. So the client
+        // narrows to exons first with the same cached intervals, and sends only those.
+        const HL_LOF = 40;
+        HL_COLOR[HL_LOF] = '#dc2626';
+        HL_NAME[HL_LOF] = 'loss-of-function';
+        let lossMatrix = null;          // { sample, si, genes, scanned, counts, notes, at }
+        const LOF_WORDS = { frameshift: 'frameshift', stop_gained: 'stop gained', start_lost: 'start lost',
+            splice_donor: 'splice donor', splice_acceptor: 'splice acceptor' };
+        // The tumour suppressors the third-gene model screens two-loss backgrounds over,
+        // plus the familiar hereditary ones: a loss among these is the one to notice first.
+        const LOF_TSG = ['TP53', 'RB1', 'PTEN', 'CDKN2A', 'MTAP', 'ARID1A', 'BAP1', 'KEAP1', 'NF1', 'PBRM1',
+            'SMAD4', 'SMARCA4', 'STK11', 'VHL', 'BRCA1', 'BRCA2', 'APC', 'ATM', 'NF2', 'CDH1', 'PALB2',
+            'CHEK2', 'MLH1', 'MSH2', 'MSH6', 'PMS2', 'KMT2D', 'CREBBP', 'EP300', 'FBXW7'];
+        const LOF_BAND_MAX = 60;        // gene bands drawn on the karyotype; the shelf lists them all
+        const LOF_BATCH = 20000;        // variants per server call
+        // Membership in a flat interval list, padded: a splice-site change sits OUTSIDE
+        // the exon, two bases into the intron, so the exon test has to reach past its edge.
+        const nearFlat = (flat, p, pad) => {
+            let lo = 0, hi = (flat.length >> 1) - 1;
+            while (lo <= hi) {
+                const m = (lo + hi) >> 1, a = flat[m << 1] - pad, b = flat[(m << 1) + 1] + pad;
+                if (p < a) hi = m - 1;
+                else if (p > b) lo = m + 1;
+                else return true;
+            }
+            return false;
+        };
+        // The stored index of a variant by position and alleles: positions are sorted,
+        // so bisect to the first at that position and walk the ties.
+        const variantIndexAt = (ci, pos, ref, alt) => {
+            const d = vdata[ci];
+            if (!d || !d.n) return -1;
+            let lo = 0, hi = d.n - 1;
+            while (lo < hi) { const m = (lo + hi) >> 1; if (d.pos[m] < pos) lo = m + 1; else hi = m; }
+            for (let k = lo; k < d.n && d.pos[k] === pos; k++) {
+                const ab = allelesAt(ci, k);
+                if (ab[0] === ref && ab[1] === alt) return k;
+            }
+            for (let k = lo; k < d.n && d.pos[k] === pos; k++) return k;   // same site, different spelling
+            return -1;
+        };
+        const chromIndexOf = (name) => {
+            const n = '' + (name || '');
+            let ci = chromIndex[n];
+            if (ci == null) ci = chromIndex[n.replace(/^chr/i, '')];
+            if (ci == null) ci = chromIndex['chr' + n];
+            return (ci == null) ? -1 : ci;
+        };
+        const lossSampleName = (si) => (si >= 0 && SAMPLES[si]) ? SAMPLES[si]
+            : (SAMPLES.length > 1 ? 'all samples' : 'all variants');
+        const lossWord = (eff) => LOF_WORDS[eff] || ('' + (eff || '')).replace(/_/g, ' ');
+        const lossIsTsg = (g) => LOF_TSG.indexOf(('' + (g && g.gene || '')).toUpperCase()) >= 0;
+        // The genes in the order the karyotype should show them: the tumour suppressors
+        // first, then by the worst consequence, which is the order the server sent.
+        const lossGenesOrdered = () => {
+            const gs = (lossMatrix && lossMatrix.genes) ? lossMatrix.genes.slice() : [];
+            const sev = { frameshift: 0, stop_gained: 1, start_lost: 2, splice_donor: 3, splice_acceptor: 4 };
+            gs.sort((a, b) => {
+                const ta = lossIsTsg(a) ? 0 : 1, tb = lossIsTsg(b) ? 0 : 1;
+                if (ta !== tb) return ta - tb;
+                const ea = sev[(a.variants[0] || {}).effect], eb = sev[(b.variants[0] || {}).effect];
+                const sa = (ea == null) ? 9 : ea, sb = (eb == null) ? 9 : eb;
+                if (sa !== sb) return sa - sb;
+                return ('' + a.gene).localeCompare('' + b.gene);
+            });
+            return gs;
+        };
+
+        // Take the loss marks and bands off, leaving the matrix itself for the shelf.
+        const clearLossMatrix = (forget) => {
+            regions = (regions || []).filter((rg) => !rg.lof);
+            if (hlActive === HL_LOF) {
+                for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
+                hlActive = 0;
+                reindexHighlights();
+            }
+            if (forget) lossMatrix = null;
+            if (graph.wake) graph.wake();
+        };
+
+        // LIGHT THE MATRIX UP: every loss-of-function variant in the sample's own red,
+        // glowing, everything else greyed, and a labelled band down each lost gene so the
+        // list reads on the chromosomes themselves. Bands are capped -- a hypermutated
+        // line can lose hundreds of genes and a karyotype under hundreds of callout cards
+        // is a karyotype nobody can see -- so the tumour suppressors and the worst hits
+        // get the bands and the shelf carries the rest.
+        const applyLossHighlights = (withBands) => {
+            if (!lossMatrix || !Array.isArray(lossMatrix.genes)) return 0;
+            for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
+            try { hlSamples.clear(); } catch (e) { }
+            let marked = 0;
+            for (const g of lossMatrix.genes) {
+                const ci = chromIndexOf(g.chr);
+                if (ci < 0) continue;
+                for (const v of (g.variants || [])) {
+                    const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt);
+                    if (k >= 0) { vdata[ci].hl[k] = HL_LOF; marked++; }
+                }
+            }
+            if (withBands !== false) {
+                regions = (regions || []).filter((rg) => !rg.lof);
+                const ordered = lossGenesOrdered().slice(0, LOF_BAND_MAX);
+                for (const g of ordered) {
+                    const ci = chromIndexOf(g.chr);
+                    if (ci < 0) continue;
+                    const v = g.variants[0] || {};
+                    regions.push({ i: ci, lo: +g.start, hi: +g.end, gene: g.gene, lof: true,
+                        label: g.gene + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : '') });
+                }
+            }
+            hlActive = marked ? HL_LOF : 0;
+            reindexHighlights();
+            if (hlActive) startHlPulse();
+            if (graph.wake) graph.wake();
+            return marked;
+        };
+
+        // COMPUTE IT. si is the sample slot to read, or -1 for every variant (a file with
+        // no genotype columns, or a site list). Exon-adjacent variants only go to the
+        // server: the exon intervals are the same cached answer the Color filters use.
+        let lossBusy = false;
+        const computeLossMatrix = async (si) => {
+            if (lossBusy) { graph.setMessage(' The loss matrix is still being calculated. '); return; }
+            const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
+            if (!live.length) { graph.setMessage(' Load a VCF first: there are no variants to read. '); return; }
+            lossBusy = true;
+            const who = lossSampleName(si);
+            const mask = (si >= 0) ? (1 << si) : 0;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const batches = [];
+                let cur = {}, curN = 0, candidates = 0, considered = 0;
+                for (let q = 0; q < live.length; q++) {
+                    const ci = live[q], d = vdata[ci], c = drawn[ci];
+                    graph.setMessage(' Reading ' + c.name + ' exons — ' + (q + 1) + ' of ' + live.length + '… ');
+                    const F = await fetchFeatures(ci, 'exon', 1, c.length);
+                    const ex = (F && F.exon) || [];
+                    const rows = [];
+                    for (let k = 0; k < d.n; k++) {
+                        if (mask && d.gtw && !(carriersOf(d, k) & mask)) continue;
+                        considered++;
+                        const p = d.pos[k];
+                        const ab = allelesAt(ci, k);
+                        if (ex.length && !nearFlat(ex, p, 12 + ab[0].length)) continue;
+                        rows.push([p, ab[0], ab[1]]);
+                    }
+                    if (!rows.length) continue;
+                    candidates += rows.length;
+                    cur[c.name] = rows; curN += rows.length;
+                    if (curN >= LOF_BATCH) { batches.push(cur); cur = {}; curN = 0; }
+                    await new Promise((res) => setTimeout(res, 0));
+                }
+                if (curN) batches.push(cur);
+                if (!candidates) {
+                    graph.setMessage(' ' + who + ': none of the ' + considered.toLocaleString() + ' variants touch an exon, so nothing can be lost by them. ');
+                    lossBusy = false;
+                    return;
+                }
+                const genes = [], counts = {}, notes = [];
+                let scanned = 0;
+                for (let b = 0; b < batches.length; b++) {
+                    graph.setMessage(' Reading the consequence of ' + candidates.toLocaleString() + ' exonic variant' + (candidates === 1 ? '' : 's')
+                        + (batches.length > 1 ? ' — part ' + (b + 1) + ' of ' + batches.length : '') + '… ');
+                    const rs = await exec(server + '/py/bio/loss-matrix.py', em,
+                        JSON.stringify({ species: (r.species || 'human'), variants: batches[b] }));
+                    if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the variants');
+                    let gs = [], cs = {}, ns = [];
+                    try { gs = JSON.parse(rs.genes || '[]'); } catch (e) { gs = []; }
+                    try { cs = JSON.parse(rs.counts || '{}'); } catch (e) { cs = {}; }
+                    try { ns = JSON.parse(rs.notes || '[]'); } catch (e) { ns = []; }
+                    for (const g of gs) genes.push(g);
+                    for (const k in cs) counts[k] = (counts[k] || 0) + cs[k];
+                    for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
+                    scanned += (+rs.scanned || 0);
+                }
+                lossMatrix = { sample: who, si: si, genes: genes, scanned: scanned, counts: counts, notes: notes,
+                    considered: considered, at: new Date().toISOString() };
+                const marked = applyLossHighlights(true);
+                const nT = genes.filter(lossIsTsg).length;
+                graph.setMessage(' ' + who + ': ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
+                    + ' with a loss-of-function variant' + (nT ? ' (' + nT + ' tumour suppressor' + (nT === 1 ? '' : 's') + ')' : '')
+                    + ' among ' + scanned.toLocaleString() + ' exonic variant' + (scanned === 1 ? '' : 's') + '; ' + marked + ' marked in red. ');
+                step('loss matrix ' + who + ': ' + genes.length + ' genes, ' + scanned + ' scanned');
+                lossBusy = false;
+                lossMatrixMenu();
+            } catch (e) {
+                lossBusy = false;
+                try { graph.setError(' The loss matrix could not be calculated: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
+            }
+        };
+
+        // ONE ROW PER LOSS-OF-FUNCTION VARIANT, with the gene it lands in: the same shape
+        // the third-gene model's lof_matrix reads, plus the evidence.
+        const lossMatrixCSV = () => {
+            const rows = [];
+            for (const g of lossGenesOrdered()) {
+                for (const v of (g.variants || [])) {
+                    rows.push({ gene: g.gene, lof: 1, sample: lossMatrix.sample || '', chrom: g.chr, pos: v.pos, ref: v.ref, alt: v.alt,
+                        effect: v.effect, hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '', transcript: g.transcript,
+                        gene_start: g.start, gene_end: g.end, strand: g.strand, biotype: g.biotype,
+                        tumour_suppressor: lossIsTsg(g) ? 1 : 0, n_lof: g.n_lof, n_other_coding: g.n_other });
+                }
+            }
+            return dlToCSV(rows);
+        };
+
+        // THE MATRIX AS A LIBRARY: one card per lost gene, tumour suppressors first, each
+        // opening on the gene. Download and clear sit at the top where they are found
+        // without scrolling past a hundred genes.
+        const gotoLostGene = async (g) => {
+            const ci = chromIndexOf(g.chr);
+            if (ci < 0) { graph.setMessage(' ' + g.chr + ' is not on this karyotype. '); return; }
+            const lo = +g.start, hi = +g.end;
+            const pad = Math.max((hi - lo) * 0.25, 2000) / MB;
+            await goView({
+                x0: barLeft(ci) - 0.5 * SLOT, x1: barRight(ci) + 0.5 * SLOT,
+                y0: wy(hi) - pad, y1: wy(lo) + pad
+            });
+            const v = g.variants[0] || {};
+            graph.setMessage(' ' + g.gene + ' — ' + drawn[ci].name + ':' + human(lo) + '-' + human(hi)
+                + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : (v.hgvs_c ? ' ' + v.hgvs_c : ''))
+                + ' at ' + human(v.pos) + ' ' + v.ref + '>' + v.alt + '. ');
+        };
+        const lossMatrixMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lossMatrix) { analysisMenu(); return; }
+            const genes = lossGenesOrdered();
+            const nT = genes.filter(lossIsTsg).length;
+            const c = lossMatrix.counts || {};
+            const other = ['missense', 'inframe_indel', 'synonymous', 'stop_lost'].map((k) => c[k] ? (c[k].toLocaleString() + ' ' + lossWord(k)) : '').filter(Boolean).join(', ');
+            const books = [];
+            books.push({ section: 'Loss matrix', note: true,
+                title: lossMatrix.sample + ': ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' with a loss-of-function variant'
+                    + (nT ? ', ' + nT + ' of them tumour suppressor' + (nT === 1 ? '' : 's') : '')
+                    + ', from ' + (+lossMatrix.scanned || 0).toLocaleString() + ' exonic variant' + (lossMatrix.scanned === 1 ? '' : 's')
+                    + (other ? ' (' + other + ' left in place)' : '') + '.'
+                    + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
+            books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', icon: 'highlight',
+                blurb: 'Mark every loss-of-function variant in red and band the lost genes' + (genes.length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
+                ready: !!genes.length, readyNote: 'no lost genes to mark',
+                open: () => { try { if (hlActive === HL_LOF) clearLossMatrix(false); else applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
+            books.push({ section: 'Loss matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download',
+                blurb: 'One row per loss-of-function variant: gene, position, alleles, consequence, HGVS — the shape the third-gene model reads.',
+                ready: !!genes.length, readyNote: 'nothing to download',
+                open: () => { try { dlSaveText(lossMatrixCSV(), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_loss_matrix') + '.csv', 'text/csv'); dlMsg('Loss matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Loss matrix', title: 'Recalculate', badge: SAMPLES.length > 1 ? 'pick a sample' : 'run again', icon: 'refresh',
+                blurb: 'Read the variants again' + (SAMPLES.length > 1 ? ', for this or another sample.' : '.'),
+                open: () => analysisMenu() });
+            books.push({ section: 'Loss matrix', title: 'Forget this matrix', badge: 'clear', icon: 'delete_outline',
+                blurb: 'Take the marks and bands off and drop the result.',
+                open: () => { clearLossMatrix(true); graph.setMessage(' Loss matrix cleared. '); analysisMenu(); } });
+            const card = (g, section) => {
+                const v = g.variants[0] || {};
+                const more = g.variants.length > 1 ? ' +' + (g.variants.length - 1) + ' more' : '';
+                return { section: section, title: g.gene, badge: lossWord(v.effect), swatch: lossIsTsg(g) ? '#dc2626' : '#f97316',
+                    blurb: g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
+                        + (g.n_other ? ' · ' + g.n_other + ' other coding' : ''),
+                    ready: true, open: () => { gotoLostGene(g); } };
+            };
+            const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
+            if (tsg.length) { books.push({ section: 'Tumour suppressors lost', note: true, title: 'The two-loss backgrounds the third-gene model screens start here.' }); tsg.forEach((g) => books.push(card(g, 'Tumour suppressors lost'))); }
+            if (rest.length) { books.push({ section: 'Other genes lost', note: true, title: rest.length + ' more gene' + (rest.length === 1 ? '' : 's') + ', worst consequence first.' }); rest.forEach((g) => books.push(card(g, 'Other genes lost'))); }
+            exec('baja/lib/shelf.js', {
+                id: 'baja-karyo-analysis', title: 'Loss matrix — ' + lossMatrix.sample,
+                subtitle: 'Genes with a loss-of-function variant; click one to go to it',
+                graph: graph, books: books
+            });
+        };
+
+        // THE ANALYSIS LIBRARY behind the microscope button. Calculate the loss matrix is
+        // one card when there is one sample to read and a shelf of samples when there are
+        // several: the matrix is a fact about ONE genome, and a tumour/normal pair is two.
+        const analysisMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+            const books = [];
+            books.push({ section: 'Loss matrix', note: true,
+                title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; deletions and silencing are not in a VCF and are not seen here.' });
+            const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech',
+                badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
+                blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'
+                    : 'Read every exonic variant and list the genes with a loss-of-function change.',
+                ready: !!nV, readyNote: 'load a VCF first' };
+            if (SAMPLES.length > 1) {
+                calc.books = () => SAMPLES.map((nm, si) => {
+                    let n = 0;
+                    for (const d of vdata) if (d && d.n && d.gtw > si) { for (let k = 0; k < d.n; k++) if (gtOf(d, k, si) >= GT_HET) n++; }
+                    return { title: nm, badge: n.toLocaleString() + ' variant' + (n === 1 ? '' : 's'), swatch: SAMPLE_COLOR[si] || '#ee00ee',
+                        blurb: 'Calculate the loss matrix for ' + nm + '.', ready: n > 0, readyNote: 'carries no variants',
+                        open: () => { computeLossMatrix(si); } };
+                });
+            } else {
+                calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1); };
+            }
+            books.push(calc);
+            if (lossMatrix) {
+                books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
+                    blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
+                    open: () => lossMatrixMenu() });
+            }
+            books.push({ section: 'This karyotype', title: 'What is loaded', badge: 'info', icon: 'info_outline',
+                blurb: 'Variants, samples, regions, highlights and patents on this karyotype.', ready: true,
+                open: () => { try { infoPanel(); } catch (e) { } } });
+            exec('baja/lib/shelf.js', {
+                id: 'baja-karyo-analysis', title: 'Analyze',
+                subtitle: 'Read the loaded variants — start with the loss matrix',
+                graph: graph, books: books
+            });
         };
 
         // ---- CLICKING ONE VARIANT ------------------------------------------------
