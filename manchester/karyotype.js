@@ -6001,6 +6001,11 @@ function (path, config) {
         };
         const slInterpColor = (interp) => interp === 'genuine higher-order' ? '#dc2626'
             : (interp === 'weak' ? '#94a3b8' : '#f97316');
+        // "genuine higher-order" is the model's own word for a hit that needs BOTH losses.
+        // On a badge the qualifier reads as a boast, so the badge says "higher-order" and
+        // the prose keeps the full phrase where it is explaining what the test was.
+        const interpWord = (interp) => ('' + (interp || '')).replace(/^genuine\s+/, '').replace(/^genuine /, '');
+        const isHigherOrder = (interp) => /higher-order|3-way/.test('' + (interp || ''));
         const fmtT = (t) => (t == null ? '' : (t < 0 ? '−' : '') + Math.abs(+t).toFixed(1));
         const fmtP = (p) => (p == null ? '' : (+p < 1e-3 ? (+p).toExponential(0) : (+p).toFixed(3)));
 
@@ -6194,13 +6199,13 @@ function (path, config) {
             const statsOf = (r, bg) => ({ t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, backgrounds: [{ genes: bg, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation }] });
             if (R.matched.length) {
                 books.push({ section: 'Within your losses', note: true, title: 'Backgrounds the model screened that lie entirely inside the selection. Genuine three-way hits first.' });
-                R.matched.forEach((r, i) => books.push({ section: 'Within your losses', title: (i + 1) + '. ' + r.target, badge: r.interpretation, swatch: hoColor(r.interpretation), ready: true,
+                R.matched.forEach((r, i) => books.push({ section: 'Within your losses', title: (i + 1) + '. ' + r.target, badge: interpWord(r.interpretation), swatch: hoColor(r.interpretation), ready: true,
                     blurb: r.background + ' · ' + statRow(r), books: () => hoTargetBooks(r.target, r.background_genes || [], statsOf(r, r.background_genes || [])) }));
             }
             if (R.partial.length) {
                 books.push({ section: 'One loss away', note: true, title: 'Catalogued backgrounds with one of their two genes in the selection: what a second loss would add. Adding the missing gene as a what-if loss brings the background within reach.' });
                 R.partial.forEach((r) => books.push({ section: 'One loss away', title: r.target, badge: 'needs ' + (r.missing || []).join('+'), swatch: hoColor(r.interpretation), ready: true,
-                    blurb: r.background + ' · ' + r.interpretation + ' · ' + statRow(r),
+                    blurb: r.background + ' · ' + interpWord(r.interpretation) + ' · ' + statRow(r),
                     books: () => [{ title: 'Add ' + (r.missing || []).join(' + ') + ' as a what-if loss', badge: 'what-if', icon: 'add_circle_outline', ready: true, blurb: 'Then the ' + r.background + ' background is within the selection.',
                         open: () => { (r.missing || []).forEach((g) => selGenes.set(('' + g).toUpperCase(), { gene: g, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] })); graph.setMessage(' ' + (r.missing || []).join(', ') + ' added — ' + selWord() + '. '); hoFind(); } }]
                         .concat(hoTargetBooks(r.target, r.background_genes || [], statsOf(r, r.background_genes || []))) }));
@@ -6208,7 +6213,7 @@ function (path, config) {
             (R.tissueTables || []).forEach((tt) => {
                 const sec = tt.tissue + ' · ' + tt.background;
                 books.push({ section: sec, note: true, title: 'The model\'s ' + tt.tissue.toLowerCase() + ' application table for ' + tt.background + (tt.this_tissue ? ' — the tissue you asked for' : '') + ': the dependency inside that tissue\'s lines is shown beside the genome-wide score.' });
-                tt.rows.slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.target, badge: r.interpretation, swatch: hoColor(r.interpretation), ready: true, blurb: statRow(r),
+                tt.rows.slice(0, 15).forEach((r, i) => books.push({ section: sec, title: (i + 1) + '. ' + r.target, badge: interpWord(r.interpretation), swatch: hoColor(r.interpretation), ready: true, blurb: statRow(r),
                     books: () => hoTargetBooks(r.target, tt.genes || [], statsOf(r, tt.genes || [])) }));
             });
             for (const g in (R.singles || {})) {
@@ -6349,6 +6354,106 @@ function (path, config) {
                 subtitle: 'The biology behind the hit, with the statistics read in plain words', graph: graph, books: books });
         };
 
+        // A WRITTEN REPORT ON THE HIGHER-ORDER HITS. The PDF summary above is a table of
+        // what was found; this is the argument for each finding, a page apiece: the same
+        // rationale the "Why is it synthetic-lethal?" card asks for, gathered for every hit
+        // that needs BOTH losses and rendered through /export-table. Capped, because each
+        // one is a model call and a report nobody reads to the end is a report that cost
+        // minutes for nothing. Answers already in slWhyCache are reused.
+        const HO_REPORT_MAX = 20;
+        let hoReportBusy = false;
+        // The PDF font draws ASCII only; the same gate the loss-matrix summary uses.
+        const pdfAscii = (t) => ('' + (t == null ? '' : t)).replace(/\u2212/g, '-').replace(/\u00b7/g, '-').replace(/\u2014/g, '-').replace(/\u2265/g, '>=').replace(/\u2264/g, '<=').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[^\x20-\x7e]/g, '');
+        const higherOrderReportPDF = async () => {
+            if (!slResult) { graph.setMessage(' Run ' + BAJA3 + ' first. '); return; }
+            if (hoReportBusy) { graph.setMessage(' The report is still being written. '); return; }
+            const R = slResult;
+            const ho = R.targets.filter((t) => isHigherOrder(t.interpretation)).slice(0, HO_REPORT_MAX);
+            if (!ho.length) { graph.setMessage(' No hit in this result needs both losses, so there is nothing to report on. '); return; }
+            hoReportBusy = true;
+            const em = new EngineMonitor(() => { });
+            const written = [], failed = [];
+            try {
+                for (let i = 0; i < ho.length; i++) {
+                    const t = ho[i];
+                    const key = 'depmap|' + t.target + '|' + R.genes.join('+') + '|' + (R.tissue || '');
+                    let W = slWhyCache.get(key) || null;
+                    if (!W) {
+                        dlMsg('Writing up ' + t.target + ' — ' + (i + 1) + ' of ' + ho.length + '…');
+                        try {
+                            const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
+                                target: t.target, losses: R.genes, source: 'depmap', tissue: R.tissue || '',
+                                stats: { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds } }));
+                            if (rs && rs.ok) { try { W = JSON.parse(rs.rationale || '{}'); } catch (e) { W = null; } }
+                            if (W && W.summary) slWhyCache.set(key, W); else W = null;
+                        } catch (e) { W = null; }
+                    } else {
+                        dlMsg(t.target + ' — already written, ' + (i + 1) + ' of ' + ho.length + '…');
+                    }
+                    if (W && W.summary) written.push({ t: t, W: W }); else failed.push(t.target);
+                }
+                if (!written.length) throw new Error('no hit could be written up');
+                const num = (x, dp) => (x == null || x === '') ? '' : (+x).toFixed(dp == null ? 2 : dp);
+                const sheets = [];
+                sheets.push({ name: 'Report', rows: [{
+                    'Report': BAJA3 + ' - higher-order hits',
+                    'What it is': BAJA3_LONG + '. Every target below needs BOTH of the named losses: its dependency is deeper in cells carrying the pair than in cells carrying either loss alone.',
+                    'Losses': R.genes.join(', '),
+                    'Tissue': R.tissue || 'any (lineage-corrected across the panel)',
+                    'Higher-order hits': R.targets.filter((x) => isHigherOrder(x.interpretation)).length + (written.length < R.targets.filter((x) => isHigherOrder(x.interpretation)).length ? ' (' + written.length + ' reported)' : ''),
+                    'Run': R.at ? new Date(R.at).toLocaleString() : '',
+                    'Written': new Date().toLocaleString(),
+                    'Caution': 'Each write-up is general knowledge read around this run\'s statistics. It is a rationale to test, not a finding; confirm any paper before relying on it.',
+                }] });
+                try { const pics = await captureViews(); if (pics && pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics }); } catch (e) { }
+                sheets.push({ name: 'Hits at a glance', rows: written.map((x, i) => ({
+                    'Rank': i + 1, 'Target': x.t.target, 'Confidence': x.W.confidence || '',
+                    'Backgrounds needing both': (x.t.backgrounds || []).filter((b) => isHigherOrder(b.interpretation)).map((b) => (b.genes || []).join('+')).join('; '),
+                    'Best t': num(x.t.best_t), 'Min FDR': (x.t.min_fdr == null) ? '' : (+x.t.min_fdr < 1e-3 ? (+x.t.min_fdr).toExponential(1) : num(x.t.min_fdr, 3)),
+                    'Effect with the losses': num(x.t.eff_double), 'Synergy': x.t.synergy == null ? '' : num(x.t.synergy),
+                    'Summary': x.W.summary || '',
+                })) });
+                written.forEach((x, i) => {
+                    const t = x.t, W = x.W;
+                    sheets.push({ name: (i + 1) + '. ' + t.target, rows: [{
+                        'Target': t.target,
+                        'Losses': R.genes.join(' + '),
+                        'Model confidence': (W.confidence || '') + ' - the writer\'s own confidence that this is real biology rather than a statistical artefact',
+                        'Summary': W.summary || '',
+                        'What it does': W.target_role || '',
+                        'Why the losses make a cell depend on it': W.mechanism || '',
+                        'What the numbers say': W.evidence || '',
+                        'Precedent': W.precedent || '',
+                        'Caveats': W.caveats || '',
+                        'Druggability': W.druggability || '',
+                        'Statistics': 't ' + num(t.best_t) + ', FDR ' + ((t.min_fdr == null) ? '' : (+t.min_fdr < 1e-3 ? (+t.min_fdr).toExponential(1) : num(t.min_fdr, 3)))
+                            + ', effect in lines with the losses ' + num(t.eff_double) + (t.synergy == null ? '' : ', synergy ' + num(t.synergy))
+                            + (t.eff_in_tissue == null ? '' : ', effect in ' + (R.tissue || 'tissue') + ' ' + num(t.eff_in_tissue))
+                            + '. Backgrounds: ' + (t.backgrounds || []).map((b) => (b.genes || []).join('+') + ' (t ' + num(b.t, 1) + ', ' + interpWord(b.interpretation) + ')').join('; '),
+                    }] });
+                });
+                if (failed.length) sheets.push({ name: 'Not written up', rows: [{ 'Targets': failed.join(', '), 'Why': 'the write-up did not come back; run the report again to retry them' }] });
+                sheets.push({ name: 'How to read this', rows: [{
+                    'Higher-order': 'The hit is more essential in cells that have lost BOTH named genes than in cells that have lost either alone. A hit driven by one loss is not reported here.',
+                    't': 'The lineage-corrected difference in CRISPR knockout effect between cells carrying the losses and the rest. More negative means more selectively essential.',
+                    'Effect': 'The mean DepMap knockout effect (Chronos) in cells carrying the losses. Below -0.4 is a real dependency; around -1 is as essential as a core gene.',
+                    'Synergy': 'Effect with both losses minus the effect with the worse single loss. Negative means the pair is worse than either alone.',
+                    'Source': 'oligodesigner.com Genome Viewer, ' + BAJA3 + '. Documentation: ' + BAJA3_DOC,
+                }] });
+                for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = pdfAscii(v); }
+                const base = dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_higher_order_report');
+                dlMsg('Building the report...');
+                const rs = await POSTJSON({ format: 'pdf', filename: base, title: pdfAscii(BAJA3 + ' higher-order report - ' + R.genes.join(', ')), sheets: sheets }, dlHost + '/export-table');
+                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+                if (body && body.b64) { dlSaveB64(body.b64, body.filename || (base + '.pdf'), body.mime || 'application/pdf'); dlMsg(written.length + ' hit' + (written.length === 1 ? '' : 's') + ' reported' + (failed.length ? ', ' + failed.length + ' could not be written up' : '') + '.'); }
+                else dlErr('Could not build the report: ' + ((body && (body.error || body.message)) || 'server error'));
+                hoReportBusy = false;
+            } catch (e) {
+                hoReportBusy = false;
+                throw e;
+            }
+        };
+
         // THE RANKED TARGETS as a library, best first.
         const slTargetsMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
@@ -6369,6 +6474,15 @@ function (path, config) {
                 blurb: 'A written summary with pictures of the karyotype and its bookmarks: the selected losses, these targets with their statistics and backgrounds'
                     + (lossMatrix ? ', the loss matrix they came from' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
+            {
+                const ho = R.targets.filter((t) => isHigherOrder(t.interpretation));
+                const n = Math.min(ho.length, HO_REPORT_MAX);
+                books.push({ section: 'Targets', title: 'Written report on the higher-order hits', badge: ho.length ? (n + (ho.length > HO_REPORT_MAX ? ' of ' + ho.length : '') + ' hits · pdf') : 'none', icon: 'description',
+                    ready: ho.length > 0 && !hoReportBusy, readyNote: ho.length ? 'a report is being written' : 'no higher-order hit in this result',
+                    blurb: 'A page for each hit that needs BOTH losses: what the target does, why the losses create the dependency, what the numbers say, precedent, caveats and druggability — written from the statistics of this run'
+                        + (ho.length > HO_REPORT_MAX ? '. The strongest ' + HO_REPORT_MAX + ' are reported.' : '.') + ' Roughly ' + Math.max(1, Math.round(n * 8 / 60)) + ' minute' + (Math.round(n * 8 / 60) === 1 ? '' : 's') + ' the first time; ones already explained are instant.',
+                    open: () => { higherOrderReportPDF().catch((e) => dlErr('Could not build the report: ' + (e && e.message ? e.message : e))); } });
+            }
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
                 blurb: 'Tissues below are the ones whose DepMap lines carry one of these losses.', books: () => tissueBooks((t) => slFindTargets(t)) });
             books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
@@ -6377,7 +6491,7 @@ function (path, config) {
             R.targets.forEach((t, i) => {
                 const bgs = (t.backgrounds || []);
                 const bgText = bgs.slice(0, 4).map((b) => b.genes.join('+')).join(', ') + (bgs.length > 4 ? ' +' + (bgs.length - 4) : '');
-                books.push({ section: 'Ranked targets', title: (i + 1) + '. ' + t.target, badge: t.interpretation, swatch: slInterpColor(t.interpretation), ready: true,
+                books.push({ section: 'Ranked targets', title: (i + 1) + '. ' + t.target, badge: interpWord(t.interpretation), swatch: slInterpColor(t.interpretation), ready: true,
                     blurb: 't ' + fmtT(t.best_t) + ' · FDR ' + fmtP(t.min_fdr) + ' · effect ' + fmtT(t.eff_double)
                         + (t.synergy != null ? ' · synergy ' + fmtT(t.synergy) : '') + (t.eff_in_tissue != null ? ' · in ' + R.tissue + ' ' + fmtT(t.eff_in_tissue) : '')
                         + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText,
