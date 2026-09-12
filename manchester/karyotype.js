@@ -6758,6 +6758,220 @@ function (path, config) {
                 try { graph.setError(' Therapeutic evidence failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
             }
         };
+        // ---- ALLELE-SELECTIVE TARGETS -------------------------------------------
+        //
+        // The best single-copy targets are the worst drug targets. A gene the cell cannot do
+        // without is exactly what the hemizygous tumour has no headroom for, and exactly what
+        // a normal cell also cannot do without -- which is why the pan-essential filter
+        // discards most of them. Dosage gives a narrow quantitative margin and nothing more.
+        //
+        // There is a second margin, and it is not quantitative. Inside an LOH tract the
+        // tumour holds ONE parental allele; every normal cell in the patient still holds
+        // both. Wherever the germline was heterozygous inside such a gene the two alleles
+        // differ in SEQUENCE, and the tumour kept one of them. An agent directed at the
+        // sequence of the RETAINED allele destroys the tumour's only copy of a gene it
+        // cannot live without, while the normal cell drops to one allele of two and carries
+        // on. Pan-essentiality stops being the objection and becomes the mechanism.
+        //
+        // Everything needed to find these sites is already on screen: the germline file says
+        // where the patient is heterozygous, the tumour file's allele fractions say which
+        // side survived. The server is asked only what a base cannot say for itself --
+        // which transcript it falls in and whether it reaches the mature message.
+        let lohAlleleResult = null;     // { sites, notes, genes, at }
+        let lohAlleleBusy = false;
+        const AS_MAX_GENES = 14;
+        const AS_MAX_PER_GENE = 24;
+        const AS_MAX_SITES = 300;
+        const AS_RETAIN_HI = 0.80, AS_RETAIN_LO = 0.20;
+        // Every germline heterozygous site inside a span where the tumour kept one side,
+        // with the side it kept. Handles both shapes of comparison: two files (each mark
+        // belongs to one side) and two sample columns of one file (one mark, two calls).
+        const alleleSitesIn = (ci, lo, hi, spec, gene) => {
+            const d = vdata[ci];
+            const found = [];
+            if (!d || !d.n) return found;
+            let a = 0, b = d.n - 1;
+            while (a < b) { const m = (a + b) >> 1; if (d.pos[m] < lo) a = m + 1; else b = m; }
+            if (spec.kind === 'sample') {
+                for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                    if (normalHet(gtOf(d, k, spec.normal), bafOf(d, k, spec.normal)) < 0) continue;
+                    const tb = bafOf(d, k, spec.tumour);
+                    if (tb < 0) continue;
+                    const keep = tb >= AS_RETAIN_HI ? 'alt' : (tb <= AS_RETAIN_LO ? 'ref' : '');
+                    if (!keep) continue;
+                    const ab = allelesAt(ci, k);
+                    if (ab[0].length !== 1 || ab[1].length !== 1) continue;   // a SNP, not an indel
+                    found.push({ gene: gene, chr: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                        retained: keep, evidence: 'measured', tumour_baf: Math.round(tb * 100) / 100,
+                        germline_baf: Math.round(Math.max(0, bafOf(d, k, spec.normal)) * 100) / 100 });
+                    if (found.length >= AS_MAX_PER_GENE) break;
+                }
+                return found;
+            }
+            // Two files: index the normal side's heterozygous SNPs, then read the tumour's
+            // allele fraction at the same positions.
+            const het = new Map();
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                if ((d.side ? d.side[k] : 0) !== spec.normal) continue;
+                if (normalHet(gtOfSide(d, k, spec.normal), bafOfSide(d, k, spec.normal)) < 0) continue;
+                const ab = allelesAt(ci, k);
+                if (ab[0].length !== 1 || ab[1].length !== 1) continue;
+                het.set(d.pos[k], { ref: ab[0], alt: ab[1], gb: Math.max(0, bafOfSide(d, k, spec.normal)) });
+            }
+            if (!het.size) return found;
+            const seen = new Set();
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                const g0 = het.get(d.pos[k]);
+                if (!g0) continue;
+                seen.add(d.pos[k]);
+                const ab = allelesAt(ci, k);
+                // The tumour's record has to be about the SAME change, or its fraction is
+                // about a different allele and says nothing about which side survived.
+                if (ab[0] !== g0.ref || ab[1] !== g0.alt) continue;
+                const tb = bafOfSide(d, k, spec.tumour);
+                if (tb < 0) continue;
+                const keep = tb >= AS_RETAIN_HI ? 'alt' : (tb <= AS_RETAIN_LO ? 'ref' : '');
+                if (!keep) continue;
+                found.push({ gene: gene, chr: drawn[ci].name, pos: d.pos[k], ref: g0.ref, alt: g0.alt,
+                    retained: keep, evidence: 'measured', tumour_baf: Math.round(tb * 100) / 100,
+                    germline_baf: Math.round(g0.gb * 100) / 100 });
+                if (found.length >= AS_MAX_PER_GENE) break;
+            }
+            // A GERMLINE HETEROZYGOTE WITH NO TUMOUR RECORD AT ALL. A variants-only tumour
+            // file writes nothing where the tumour is homozygous for the REFERENCE, so the
+            // sites at which it kept the reference allele are invisible as records -- and
+            // they are the majority. Inside a tract already established as single-copy, and
+            // at this depth, that absence means the alternate allele is the one that went.
+            // Worth offering, never worth confusing with a measurement: these are marked
+            // inferred and sorted behind the sites the reads actually show.
+            for (const [pz, g0] of het) {
+                if (found.length >= AS_MAX_PER_GENE) break;
+                if (seen.has(pz)) continue;
+                found.push({ gene: gene, chr: drawn[ci].name, pos: pz, ref: g0.ref, alt: g0.alt,
+                    retained: 'ref', evidence: 'inferred', tumour_baf: null,
+                    germline_baf: Math.round(g0.gb * 100) / 100 });
+            }
+            return found;
+        };
+        const lohAlleleFind = async () => {
+            if (!lohSlResult || !lohResult) { graph.setMessage(' Find the single-copy candidates first. '); return; }
+            if (lohAlleleBusy) { graph.setMessage(' The scan is still running. '); return; }
+            // The confirmed ones first: a gene the lines agree cannot spare a copy is the
+            // one worth an allele-selective agent.
+            const cands = (lohSlResult.cyclops || []).slice()
+                .sort((x, y) => (y.cn_confirmed - x.cn_confirmed) || (x.effect_mean - y.effect_mean))
+                .slice(0, AS_MAX_GENES);
+            if (!cands.length) { graph.setMessage(' No single-copy candidate to design against. '); return; }
+            lohAlleleBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const sites = [];
+                for (const c of cands) {
+                    const g = (lohResult.genes || []).find((x) => ('' + x.gene).toUpperCase() === c.gene);
+                    if (!g || g.ci == null) continue;
+                    const got = alleleSitesIn(g.ci, g.start, g.end, lohResult.spec, c.gene);
+                    got.sort((x, y) => (x.evidence === y.evidence ? x.pos - y.pos : (x.evidence === 'measured' ? -1 : 1)));
+                    for (const st of got) {
+                        sites.push(st);
+                        if (sites.length >= AS_MAX_SITES) break;
+                    }
+                    if (sites.length >= AS_MAX_SITES) break;
+                }
+                if (!sites.length) {
+                    lohAlleleBusy = false;
+                    graph.setError(' No heterozygous site inside these genes survived as a clean one-sided call, so there is '
+                        + 'no sequence difference to aim at. That happens when the germline file covers the gene thinly, or '
+                        + 'when the person is homozygous across it. ', 12);
+                    return;
+                }
+                graph.setMessage(' Annotating ' + sites.length + ' heterozygous site' + (sites.length === 1 ? '' : 's') + '… ');
+                const rs = await exec(server + '/py/bio/allele-selective-targets.py', em,
+                    JSON.stringify({ sites: sites, species: (r.species || 'human'), flank: 30 }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
+                const J = (x, d2) => { try { return JSON.parse(x || d2); } catch (e) { return JSON.parse(d2); } };
+                lohAlleleResult = { sites: J(rs.sites, '[]'), notes: J(rs.notes, '[]'),
+                    genes: +rs.n_genes || 0, at: new Date().toISOString() };
+                lohAlleleResult.inferred = lohAlleleResult.sites.filter((x) => x.evidence === 'inferred').length;
+                const mrna = lohAlleleResult.sites.filter((x) => x.in_mature_transcript).length;
+                graph.setMessage(' ' + lohAlleleResult.sites.length + ' allele-selective site'
+                    + (lohAlleleResult.sites.length === 1 ? '' : 's') + ' across ' + lohAlleleResult.genes
+                    + ' gene' + (lohAlleleResult.genes === 1 ? '' : 's') + ', ' + mrna + ' in the mature transcript. ');
+                step('allele-selective: ' + lohAlleleResult.sites.length + ' sites, ' + mrna + ' in mRNA');
+                lohAlleleBusy = false;
+                lohAlleleMenu();
+            } catch (e) {
+                lohAlleleBusy = false;
+                try { graph.setError(' The allele-selective scan failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const lohAlleleCSV = () => dlToCSV((lohAlleleResult.sites || []).map((x) => ({
+            gene: x.gene, chrom: x.chr, pos: x.pos, ref: x.ref, alt: x.alt,
+            allele_the_tumour_kept: x.retained_allele, allele_the_tumour_lost: x.lost_allele,
+            evidence: x.evidence || 'measured',
+            region: x.region, in_mature_transcript: x.in_mature_transcript ? 'yes' : 'no',
+            coding: x.coding ? 'yes' : 'no', transcript: x.transcript, strand: x.strand,
+            tumour_allele_fraction: x.tumour_baf, germline_allele_fraction: x.germline_baf,
+            sequence_to_target: x.context_retained, sequence_in_normal_cells: x.context_lost,
+            context_start: x.context_start, context_end: x.context_end,
+        })));
+        const lohAlleleMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lohAlleleResult) { lohSlMenu(); return; }
+            const R = lohAlleleResult;
+            const books = [];
+            const mrna = R.sites.filter((x) => x.in_mature_transcript);
+            books.push({ section: 'Allele-selective targets', note: true,
+                title: 'Inside the tract the tumour carries ONE allele and every normal cell carries two. Where the '
+                    + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the tumour '
+                    + 'KEPT destroys its only copy while a normal cell drops to one of two and lives. Essentiality stops '
+                    + 'being the objection here and becomes the mechanism. '
+                    + R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' in ' + R.genes + ' gene'
+                    + (R.genes === 1 ? '' : 's') + ', ' + mrna.length + ' of them in the mature transcript'
+                    + (R.inferred ? ', and ' + R.inferred + ' where the retained allele is inferred from the tumour file having no record rather than read off it' : '') + '.' });
+            books.push({ section: 'Allele-selective targets', title: 'Download the sites as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                blurb: 'Each site with the allele to aim at, the allele normal cells keep, the region, and 61 bases of context on both.',
+                open: () => { try { dlSaveText(lohAlleleCSV(), dlSafe(dlSpecies() + '_allele_selective_sites') + '.csv', 'text/csv'); dlMsg('Sites downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Allele-selective targets', title: 'Back to the vulnerabilities', badge: 'loh', icon: 'arrow_back', ready: true,
+                blurb: 'The complete losses and the single-copy candidates.', open: () => lohSlMenu() });
+            const byGene = {};
+            R.sites.forEach((x) => { (byGene[x.gene] = byGene[x.gene] || []).push(x); });
+            Object.keys(byGene).forEach((gn) => {
+                const list = byGene[gn];
+                const usable = list.filter((x) => x.in_mature_transcript).length;
+                const sec = gn + ' — ' + list.length + ' site' + (list.length === 1 ? '' : 's');
+                books.push({ section: sec, note: true, title: usable
+                    ? usable + ' of these sit in the mature message, which an siRNA or an exon-directed ASO needs. The rest are in the pre-mRNA, where a gapmer can still reach them.'
+                    : 'All of these are intronic. A gapmer acting on pre-mRNA can use them; an siRNA cannot.' });
+                books.push({ section: sec, title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true,
+                    blurb: 'Load its transcripts and design against the allele the tumour kept. The positions are below.',
+                    open: () => openSymbolInEditor(gn) });
+                list.forEach((x) => {
+                    books.push({ section: sec, title: x.chr + ':' + human(x.pos) + '  ' + x.ref + '>' + x.alt,
+                        badge: x.region + (x.evidence === 'inferred' ? ' · inferred' : ''),
+                        swatch: x.evidence === 'inferred' ? '#94a3b8' : (x.coding ? '#16a34a' : (x.in_mature_transcript ? '#0ea5e9' : '#f59e0b')), ready: true,
+                        blurb: 'Aim at ' + x.retained_allele + ', the allele the tumour kept. Normal cells keep ' + x.lost_allele
+                            + ' as well, which is what spares them. '
+                            + (x.evidence === 'inferred'
+                                ? 'INFERRED: the tumour file has no record here at all, which inside a single-copy tract means the '
+                                  + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
+                                : 'Tumour allele fraction ' + x.tumour_baf + '.')
+                            + ' Germline ' + x.germline_baf + '. ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
+                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  normal  ' + x.context_lost : ''),
+                        books: () => [
+                            { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the karyotype.',
+                                open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
+                            { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Design against the retained allele.', open: () => openSymbolInEditor(gn) },
+                            { note: true, title: 'Target (tumour, its only copy): ' + (x.context_retained || 'no sequence available') },
+                            { note: true, title: 'Also present in normal cells: ' + (x.context_lost || 'no sequence available') },
+                        ] });
+                });
+            });
+            if (R.notes && R.notes.length) books.push({ section: 'What this does and does not say', note: true, title: R.notes.join(' ') });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Allele-selective targets',
+                subtitle: R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' \u00b7 aim at the allele the tumour kept',
+                graph: graph, books: books });
+        };
         const lohSlCSV = () => dlToCSV(
             (lohSlResult.complete || []).map((x) => ({ kind: 'complete loss (two hits)', gene: x.gene,
                 tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
@@ -6796,6 +7010,14 @@ function (path, config) {
                 ready: !therBusy && R.cyclops.length > 0, readyNote: therBusy ? 'reading' : 'no candidate',
                 blurb: 'For the single-copy candidates: what acts on each gene today, at what stage, and the papers behind it.',
                 open: () => { lohSlTherapeutics(); } });
+            books.push({ section: 'From the loss of heterozygosity', title: lohAlleleResult ? 'Allele-selective targets' : 'Find allele-selective targets',
+                badge: lohAlleleResult ? (lohAlleleResult.sites.length + ' sites') : 'sequence, not dose', icon: 'gps_fixed',
+                ready: R.cyclops.length > 0 && !lohAlleleBusy, readyNote: lohAlleleBusy ? 'running' : 'no single-copy candidate',
+                blurb: 'The tumour holds one allele here and every normal cell holds two. Where the germline was '
+                    + 'heterozygous inside one of these genes the two differ in sequence, so an oligo aimed at the allele '
+                    + 'the TUMOUR kept destroys its only copy of a gene it cannot live without, and a normal cell drops to '
+                    + 'one of two and lives. Essential stops being the objection and becomes the mechanism.',
+                open: () => { if (lohAlleleResult) lohAlleleMenu(); else lohAlleleFind(); } });
             books.push({ section: 'From the loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'Both lists in one table, with what each one means for a target.',
                 open: () => { try { dlSaveText(lohSlCSV(), dlSafe(dlSpecies() + '_LOH_vulnerabilities') + '.csv', 'text/csv'); dlMsg('Table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
