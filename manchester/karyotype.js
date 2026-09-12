@@ -5350,7 +5350,7 @@ function (path, config) {
                 const d = vdata[ci];
                 if (!d.n) continue;
                 const idx = [];
-                for (let k = 0; k < d.n; k++) if (keep(ci, d.pos[k])) idx.push(k);
+                for (let k = 0; k < d.n; k++) if (keep(ci, d.pos[k], k)) idx.push(k);
                 removed += d.n - idx.length;
                 const total = idx.length;
                 const sp = new Float64Array(total), sc = new Uint8Array(total);
@@ -10808,11 +10808,162 @@ function (path, config) {
         // THE INFORMATION WINDOW, as in the editor: a floating panel that says what is loaded
         // and what is on, toggled by the Info button. Pinned lower-right, read-only, folds away
         // on a second press or its own ✕. Reads the live state each time it is opened.
-        const infoPanel = () => {
+        // ---- WHAT THE INFO PANEL CAN DO ABOUT WHAT IT SAYS ----------------------
+        //
+        // The panel listed what was loaded and stopped there, which left every obvious next
+        // move somewhere else: to drop a file you reloaded the page, to find a region you
+        // hunted for its band, to get the variants out you went to a menu that did not know
+        // about them. A line that names a thing should be a way to act on that thing.
+        //
+        // Each row that refers to something real opens a shelf of what can be done to it.
+        // The rows that are facts about the file -- species, genotypes, colour view -- stay
+        // as text, because there is nothing to do to them from here.
+        const dropSide = (sd) => {
+            const nm = sideName(sd);
+            const before = vtotal;
+            rebuildKeeping((ci, pos, k) => {
+                const d = vdata[ci];
+                return ((d && d.side) ? d.side[k] : 0) !== sd;
+            }, 'removed ' + nm);
+            try { sideFile[sd] = ''; sideSlots[sd] = []; } catch (e) { }
+            graph.setMessage(' ' + nm + ' removed \u2014 ' + (before - vtotal).toLocaleString()
+                + ' variant' + ((before - vtotal) === 1 ? '' : 's') + ' taken off, '
+                + vtotal.toLocaleString() + ' left. ');
+        };
+        // EVERYTHING LOADED, AS ONE TABLE. Position, alleles, class, which side it came from
+        // and each sample's genotype. A whole genome is millions of rows and a browser will
+        // not hand that to a spreadsheet, so it is capped and the cap is stated in the file
+        // rather than left for the reader to notice a short table.
+        const INFO_CSV_MAX = 200000;
+        const dlAllVariantsCSV = () => {
+            const rows = [];
+            let dropped = 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                for (let k = 0; k < d.n; k++) {
+                    if (rows.length >= INFO_CSV_MAX) { dropped++; continue; }
+                    const ab = allelesAt(ci, k);
+                    const row = { chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                        clinvar_class: CLS_SHORT[d.cls[k]] || '',
+                        source: sideName((d.side ? d.side[k] : 0)),
+                        name: (d.names && d.names[k]) || '' };
+                    for (let si = 0; si < d.gtw && si < SAMPLES.length; si++) {
+                        row[SAMPLES[si] || ('sample_' + (si + 1))] = GT_TEXT[gtOf(d, k, si)] || '';
+                    }
+                    rows.push(row);
+                }
+            }
+            if (dropped) rows.push({ chrom: 'NOTE', pos: '', ref: '', alt: '',
+                clinvar_class: '', source: '', name: 'capped at ' + INFO_CSV_MAX.toLocaleString()
+                    + ' rows; ' + dropped.toLocaleString() + ' more are loaded' });
+            return dlToCSV(rows);
+        };
+        const infoActions = (which) => {
+            const books = [];
+            const back = { section: 'Back', title: 'What is loaded', badge: 'info', icon: 'info_outline', back: true,
+                ready: true, blurb: 'The rest of what this genome is carrying.', open: () => { try { infoPanel(true); } catch (e) { } } };
+            if (which === 'variants') {
+                books.push({ section: 'Variants', note: true, title: vtotal.toLocaleString() + ' variant'
+                    + (vtotal === 1 ? '' : 's') + ' on ' + vdata.filter((d) => d && d.n).length + ' chromosome(s).' });
+                books.push({ section: 'Variants', accent: 'run', title: 'Download all information', badge: 'csv', icon: 'file_download', ready: vtotal > 0, readyNote: 'nothing loaded',
+                    blurb: 'Every mark on the genome as one table: position, alleles, ClinVar class, which source it came from and each sample\'s genotype.'
+                        + (vtotal > INFO_CSV_MAX ? ' Capped at ' + INFO_CSV_MAX.toLocaleString() + ' rows, and the file says so.' : ''),
+                    open: () => { try { dlSaveText(dlAllVariantsCSV(), dlSafe(dlSpecies() + '_everything_loaded') + '.csv', 'text/csv'); dlMsg('Downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+                books.push({ section: 'Variants', title: 'Zoom out to the whole genome', badge: 'view', icon: 'fit_screen', ready: true,
+                    blurb: 'Frame every chromosome again.',
+                    open: () => { try { goView(__genomeView()); } catch (e) { } } });
+            } else if (which === 'sources') {
+                const sc = sideCounts();
+                const sides = [];
+                if (sc.right) sides.push({ sd: 0, n: sc.right, where: 'right' });
+                if (sc.left) sides.push({ sd: 1, n: sc.left, where: 'left' });
+                books.push({ section: 'Sources', note: true, title: sides.length
+                    ? 'Each file, paste or disease search that put marks on these chromosomes. Removing one takes its variants off and leaves the others alone.'
+                    : 'Nothing is loaded.' });
+                sides.forEach((x) => books.push({ section: 'Sources', title: sideName(x.sd),
+                    badge: x.n.toLocaleString() + ' variants', icon: x.where === 'left' ? 'west' : 'east', ready: true,
+                    blurb: 'Drawn on the ' + x.where + ' of every chromosome.',
+                    books: () => [
+                        { title: 'Remove this source', badge: 'takes it off', icon: 'delete_outline', ready: true,
+                            blurb: 'Take its ' + x.n.toLocaleString() + ' variant(s) off the genome. Everything else stays, and the file on disk is untouched.',
+                            open: () => { try { dropSide(x.sd); } catch (e) { } infoActions('sources'); } },
+                        { title: 'Download its variants', badge: 'csv', icon: 'file_download', ready: true, accent: 'run',
+                            blurb: 'This source only, as a table.',
+                            open: () => { try { dlSaveText(dlToCSV(infoSideRows(x.sd)), dlSafe(dlSpecies() + '_' + sideName(x.sd)) + '.csv', 'text/csv'); dlMsg('Downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } },
+                    ] }));
+            } else if (which === 'regions') {
+                books.push({ section: 'Regions', note: true, title: (regions && regions.length)
+                    ? regions.length + ' region(s) and bands on the chromosomes. A search puts one here for every gene it found.'
+                    : 'No region is selected and nothing is banded.' });
+                if (regions && regions.length) books.push({ section: 'Regions', title: 'Remove every one', badge: regions.length + '', icon: 'delete_outline', ready: true,
+                    blurb: 'Clear the regions and the bands. The variants they sit over are left exactly as they are.',
+                    open: () => { regions = []; activeRegion = null; if (graph.wake) graph.wake(); infoActions('regions'); } });
+                (regions || []).slice(0, 200).forEach((rg) => {
+                    const c = drawn[rg.i];
+                    const where = (c ? c.name : '?') + ':' + human(rg.lo) + '-' + human(rg.hi);
+                    books.push({ section: 'Regions', title: rg.label || rg.gene || where,
+                        badge: rg.dz ? 'search' : (rg.lof ? 'result' : 'selected'),
+                        swatch: rg.dz ? '#a855f7' : (rg.lof ? '#dc2626' : '#2563eb'), ready: true, blurb: where,
+                        books: () => [
+                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame ' + where + '.',
+                                open: () => { try { const pad = Math.max((rg.hi - rg.lo) * 0.25, 2000) / MB; goView({ x0: barLeft(rg.i) - 0.5 * SLOT, x1: barRight(rg.i) + 0.5 * SLOT, y0: wy(rg.hi) - pad, y1: wy(rg.lo) + pad }); } catch (e) { } } },
+                            { title: 'Remove', badge: 'region', icon: 'delete_outline', ready: true, blurb: 'Take this one off. Its variants stay.',
+                                open: () => { const at = regions.indexOf(rg); if (at >= 0) regions.splice(at, 1); if (graph.wake) graph.wake(); infoActions('regions'); } },
+                        ] });
+                });
+            } else if (which === 'bookmarks') {
+                books.push({ section: 'Bookmarks', note: true, title: (bookmarks && bookmarks.length)
+                    ? bookmarks.length + ' saved view(s).' : 'No view is bookmarked yet.' });
+                (bookmarks || []).forEach((bm, i) => books.push({ section: 'Bookmarks', title: bm.name || ('View ' + (i + 1)),
+                    badge: 'view', icon: 'bookmark', ready: true, blurb: 'Go back to this view, or drop it.',
+                    books: () => [
+                        { title: 'Go to it', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it again.',
+                            open: () => { try { goView({ x0: bm.x0, x1: bm.x1, y0: bm.y0, y1: bm.y1 }); } catch (e) { } } },
+                        { title: 'Remove', badge: 'bookmark', icon: 'delete_outline', ready: true, blurb: 'Forget this view.',
+                            open: () => { const at = bookmarks.indexOf(bm); if (at >= 0) bookmarks.splice(at, 1); if (graph.wake) graph.wake(); infoActions('bookmarks'); } },
+                    ] }));
+            } else if (which === 'samples') {
+                books.push({ section: 'Samples', note: true, title: SAMPLES.length
+                    ? 'Each genotype column in the loaded files. Glow one to see every variant it carries.'
+                    : 'These files carry no genotype columns.' });
+                SAMPLES.forEach((nm, si) => books.push({ section: 'Samples', title: nm || ('Sample ' + (si + 1)),
+                    toggle: true, on: hlSamples.has(si), badge: hlSamples.has(si) ? 'glowing' : 'off',
+                    swatch: SAMPLE_COLOR[si] || '#ee00ee', ready: true,
+                    blurb: 'Glow every variant ' + (nm || 'this sample') + ' carries, right across the genome.',
+                    open: () => { try { toggleSampleHighlight(si); } catch (e) { } infoActions('samples'); } }));
+            } else if (which === 'patents') {
+                books.push({ section: 'Patents', toggle: true, on: patOn, title: patOn ? 'Patent strip is shown' : 'Patent strip is off',
+                    badge: patOn ? 'on' : 'off', icon: 'gavel', ready: true,
+                    blurb: 'A strip down every chromosome showing where patented sequences fall.',
+                    open: () => { try { patLoad(); } catch (e) { } infoActions('patents'); } });
+            }
+            books.push(back);
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'What is loaded',
+                subtitle: which, graph: graph, books: books });
+        };
+        const infoSideRows = (sd) => {
+            const rows = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                for (let k = 0; k < d.n; k++) {
+                    if ((d.side ? d.side[k] : 0) !== sd) continue;
+                    if (rows.length >= INFO_CSV_MAX) break;
+                    const ab = allelesAt(ci, k);
+                    rows.push({ chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                        clinvar_class: CLS_SHORT[d.cls[k]] || '', name: (d.names && d.names[k]) || '' });
+                }
+            }
+            return rows;
+        };
+        const infoPanel = (reopen) => {
             const id = 'baja-karyo-info';
             try {
                 const ex = document.getElementById(id);
-                if (ex && ex.parentNode) { ex.parentNode.removeChild(ex); return; }
+                // Clicking the toolbar button again closes it; coming BACK from one of its
+                // own action shelves has to reopen it, not toggle it shut.
+                if (ex && ex.parentNode) { ex.parentNode.removeChild(ex); if (!reopen) return; }
             } catch (e) { }
             const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const nS = SAMPLES.length;
@@ -10833,9 +10984,9 @@ function (path, config) {
             const rows = [
                 ['File', curName || 'not saved yet'],
                 ['Species', (r && r.species) || 'human'],
-                ['Variants', (vtotal || 0).toLocaleString()],
+                ['Variants', (vtotal || 0).toLocaleString(), 'variants'],
                 ['Chromosomes with variants', chromsWith + ' of ' + drawn.length],
-                ['Samples', nS ? (nS + ' — ' + SAMPLES.join(', ')) : 'none'],
+                ['Samples', nS ? (nS + ' — ' + SAMPLES.join(', ')) : 'none', nS ? 'samples' : ''],
                 // WHAT PUT THESE MARKS HERE. Samples come from a VCF's genotype columns, and a
                 // sites-only source -- ClinVar, and so the disease loader -- has none, so the
                 // row above says 'none' however much is on the chromosomes. The side names are
@@ -10848,13 +10999,13 @@ function (path, config) {
                         if (sc.left) out.push(sideName(1) + ' (' + sc.left.toLocaleString() + ', left)');
                         return out.length ? esc(out.join('  ·  ')) : 'nothing loaded';
                     } catch (e) { return 'nothing loaded'; }
-                })()],
+                })(), 'sources'],
                 ['Genotypes', hasGt ? 'yes' : 'no'],
                 ['Color view', modeName],
                 ['Highlighting', esc(hlStr)],
-                ['Regions selected', '' + ((regions && regions.length) || 0)],
-                ['Bookmarks', '' + ((bookmarks && bookmarks.length) || 0)],
-                ['Patents', patOn ? ('shown' + (patNote ? ' — ' + patNote : '')) : 'off'],
+                ['Regions selected', '' + ((regions && regions.length) || 0), 'regions'],
+                ['Bookmarks', '' + ((bookmarks && bookmarks.length) || 0), 'bookmarks'],
+                ['Patents', patOn ? ('shown' + (patNote ? ' — ' + patNote : '')) : 'off', 'patents'],
             ];
             const panel = document.createElement('div');
             panel.id = id;
@@ -10870,11 +11021,28 @@ function (path, config) {
                 + '<button id="ki-x" title="Close" style="cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 14px Arial;line-height:1;padding:2px 6px;">✕</button>';
             const body = document.createElement('div');
             body.style.cssText = 'flex:1 1 auto;overflow:auto;padding:10px 12px;font:12.5px Arial;line-height:1.5;';
-            body.innerHTML = rows.map((rw) =>
-                '<div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06);">'
-                + '<span style="flex:0 0 46%;color:#9fb3c8;">' + esc(rw[0]) + '</span>'
-                + '<span style="flex:1;text-align:right;font-weight:600;word-break:break-word;">' + esc(rw[1]) + '</span></div>'
-            ).join('');
+            // A ROW THAT NAMES SOMETHING IS A WAY TO ACT ON IT. The ones carrying an action
+            // key take a pointer and a chevron; the rest are facts about the file and stay as
+            // text, because there is nothing to do to "species" from here.
+            body.innerHTML = rows.map((rw, i) => {
+                const act = rw[2] || '';
+                return '<div data-act="' + esc(act) + '" data-i="' + i + '" style="display:flex;gap:10px;padding:3px 0;'
+                    + 'border-bottom:1px solid rgba(255,255,255,0.06);'
+                    + (act ? 'cursor:pointer;border-radius:6px;margin:0 -4px;padding-left:4px;padding-right:4px;' : '')
+                    + '">'
+                    + '<span style="flex:0 0 46%;color:' + (act ? '#8fd3ff' : '#9fb3c8') + ';">' + esc(rw[0]) + '</span>'
+                    + '<span style="flex:1;text-align:right;font-weight:600;word-break:break-word;">' + esc(rw[1])
+                    + (act ? '<span style="color:#8fd3ff;margin-left:6px;">\u203a</span>' : '') + '</span></div>';
+            }).join('');
+            try {
+                Array.prototype.forEach.call(body.querySelectorAll('[data-act]'), (el) => {
+                    const act = el.getAttribute('data-act');
+                    if (!act) return;
+                    el.onmouseenter = () => { el.style.background = 'rgba(143,211,255,0.12)'; };
+                    el.onmouseleave = () => { el.style.background = ''; };
+                    el.onclick = () => { try { close(); } catch (e) { } try { infoActions(act); } catch (e2) { } };
+                });
+            } catch (e) { }
             panel.appendChild(header);
             panel.appendChild(body);
             document.body.appendChild(panel);
@@ -11242,13 +11410,40 @@ function (path, config) {
                 const o = await exec(server + '/py/bio/omim-variants.py', em, query, '' + DZ_MAX_GENES);
                 if (!o || o.error) throw new Error((o && o.error) || 'the condition could not be read');
                 const J = (x) => { try { return JSON.parse(x || '[]'); } catch (e) { return []; } };
-                const genes = J(o.genes), mims = J(o.mims).map((m) => '' + m);
-                const disease = ('' + (o.disease || query)).trim() || query;
+                let genes = J(o.genes), mims = J(o.mims).map((m) => '' + m);
+                let disease = ('' + (o.disease || query)).trim() || query;
+                let byGeneOnly = false;
+                if (!genes.length) {
+                    // NO INHERITED PHENOTYPE IS NOT THE END OF THE QUESTION.
+                    //
+                    // ClinVar files variants against OMIM phenotypes, which are inherited
+                    // conditions. A somatic tumour -- lung adenocarcinoma, DIPG -- has no
+                    // phenotype behind it, so the first route finds nothing and used to stop
+                    // there, telling the user their perfectly ordinary question was the wrong
+                    // shape. But the genes such a condition is defined by are well known, and
+                    // once they are named the rest of the pipeline is unchanged: real
+                    // pathogenic ClinVar records, at real coordinates, in those genes.
+                    //
+                    // Only the GENE NAMES come from the second route. No variant is taken from
+                    // it, so nothing recalled is ever drawn -- the marks are still ClinVar's.
+                    say('Finding the genes "' + query + '" is defined by…');
+                    let g2 = [];
+                    try {
+                        const o2 = await exec(server + '/py/bio/disease-variants.py', em, query, '24');
+                        const raw = (o2 && o2.genes);
+                        g2 = Array.isArray(raw) ? raw.slice() : J(raw);
+                        if (o2 && o2.disease) disease = ('' + o2.disease).trim() || disease;
+                    } catch (e2) { g2 = []; }
+                    genes = g2.map((x) => ('' + (x && x.gene ? x.gene : x)).trim().toUpperCase())
+                        .filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).slice(0, DZ_MAX_GENES);
+                    mims = [];
+                    byGeneOnly = genes.length > 0;
+                }
                 if (!genes.length) {
                     arm(true); dzBusy = false;
-                    fail('Nothing in ClinVar is filed against "' + query + '". That happens for a somatic '
-                        + 'tumour, which has no inherited phenotype behind it, and for a description that is not '
-                        + 'a named condition. Try the condition’s clinical name, or a gene symbol.');
+                    fail('Nothing could be found for "' + query + '" — neither an inherited condition ClinVar '
+                        + 'files variants against, nor a set of genes this is defined by. Try the condition’s '
+                        + 'clinical name, or a gene symbol.');
                     return;
                 }
                 say(disease + ' — ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
@@ -11375,7 +11570,9 @@ function (path, config) {
                 graph.setResultMessage(' ' + disease + ' — ' + rows.length.toLocaleString() + ' pathogenic mutation'
                     + (rows.length === 1 ? '' : 's') + ' on ' + Object.keys(perGene).length + ' gene'
                     + (Object.keys(perGene).length === 1 ? '' : 's') + ': ' + named + '.'
-                    + (mims.length ? '' : ' No phenotype filter was available, so every pathogenic record in these genes was taken.')
+                    + (mims.length ? '' : (byGeneOnly
+                        ? ' No inherited phenotype is filed for this, so the genes it is defined by were read instead and every pathogenic record in them was taken.'
+                        : ' No phenotype filter was available, so every pathogenic record in these genes was taken.'))
                     + ' ');
                 step('disease "' + query + '" -> ' + disease + ': ' + rows.length + ' variants, '
                     + scanned + ' scanned, ' + offMim + ' other phenotypes');
