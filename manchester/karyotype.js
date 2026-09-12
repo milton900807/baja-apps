@@ -4856,6 +4856,7 @@ function (path, config) {
                 out.lossMatrix = { sample: lossMatrix.sample || '', si: lossMatrix.si, hap: lossMatrix.hap || '', genes: lossMatrix.genes,
                     scanned: lossMatrix.scanned || 0, counts: lossMatrix.counts || {}, notes: lossMatrix.notes || [], at: lossMatrix.at || '',
                     annot: lossMatrix.annot || null, ther: lossMatrix.ther || null, therNotes: lossMatrix.therNotes || [] };
+                out.lossHlScope = lossHlScope;
                 const lf = {}; for (const grp of FILTER_GROUPS) if (lossFilters[grp.key].size) lf[grp.key] = Array.from(lossFilters[grp.key]);
                 if (Object.keys(lf).length) out.lossFilters = lf;
             }
@@ -5067,6 +5068,7 @@ function (path, config) {
                 // re-deriving, and they come from the saved matrix, not from the server.
                 try {
                     lossMatrix = doc.lossMatrix;
+                    if (doc.lossHlScope === 'background' || doc.lossHlScope === 'all') lossHlScope = doc.lossHlScope;
                     clearLossFilters();
                     if (doc.lossFilters && typeof doc.lossFilters === 'object') for (const grp of FILTER_GROUPS) for (const o of (doc.lossFilters[grp.key] || [])) lossFilters[grp.key].add(o);
                     applyLossHighlights(false);
@@ -5598,12 +5600,23 @@ function (path, config) {
         // line can lose hundreds of genes and a karyotype under hundreds of callout cards
         // is a karyotype nobody can see -- so the tumour suppressors and the worst hits
         // get the bands and the shelf carries the rest.
+        // WHAT THE KARYOTYPE SHOWS: every loss in the matrix, or only the BACKGROUND -- the
+        // genes selected, which are the ones a BAJA-3 run and its report were built from.
+        // A genome of a hundred lost genes with five of them driving the analysis is a
+        // picture of the file; the five are the picture of the result, so a run switches to
+        // them and a card switches back.
+        let lossHlScope = 'all';           // 'all' | 'background'
+        const lossHlGenes = () => {
+            const list = lossGenesOrdered();
+            if (lossHlScope === 'background' && selGenes.size) return list.filter((g) => isSelected(g.gene));
+            return list;
+        };
         const applyLossHighlights = (withBands) => {
             if (!lossMatrix || !Array.isArray(lossMatrix.genes)) return 0;
             for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
             try { hlSamples.clear(); } catch (e) { }
             let marked = 0;
-            for (const g of lossGenesOrdered()) {
+            for (const g of lossHlGenes()) {
                 const ci = chromIndexOf(g.chr);
                 if (ci < 0) continue;
                 for (const v of (g.variants || [])) {
@@ -5613,7 +5626,7 @@ function (path, config) {
             }
             if (withBands !== false) {
                 regions = (regions || []).filter((rg) => !rg.lof);
-                const ordered = lossGenesOrdered().slice(0, LOF_BAND_MAX);
+                const ordered = lossHlGenes().slice(0, LOF_BAND_MAX);
                 for (const g of ordered) {
                     const ci = chromIndexOf(g.chr);
                     if (ci < 0) continue;
@@ -6152,8 +6165,12 @@ function (path, config) {
                 slResult = { genes: genes.slice(), tissue: tissue || '', targets: J(rs.targets, '[]'), backgrounds: J(rs.backgrounds, '[]'),
                     lineages: J(rs.lineages, '[]'), notes: J(rs.notes, '[]'), nModels: +rs.n_models || 0, at: new Date().toISOString() };
                 const scored = slResult.backgrounds.filter((b) => b.status === 'scored').length;
+                // The karyotype now shows the losses this run reasoned from, and nothing else:
+                // the marks on screen and the result in hand are about the same genes.
+                if (lossMatrix && selGenes.size) { lossHlScope = 'background'; try { applyLossHighlights(true); } catch (e) { } }
                 graph.setMessage(' ' + slResult.targets.length + ' candidate target' + (slResult.targets.length === 1 ? '' : 's')
-                    + ' across ' + scored + ' scored background' + (scored === 1 ? '' : 's') + '. ');
+                    + ' across ' + scored + ' scored background' + (scored === 1 ? '' : 's')
+                    + (lossHlScope === 'background' ? '; the karyotype now marks the ' + selWord() + ' of the background' : '') + '. ');
                 step('sl targets ' + genes.join('+') + ': ' + slResult.targets.length);
                 slBusy = false;
                 slTargetsMenu();
@@ -6682,6 +6699,11 @@ function (path, config) {
             }
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
                 blurb: 'Tissues below are the ones whose DepMap lines carry one of these losses.', books: () => tissueBooks((t) => slFindTargets(t)) });
+            books.push({ section: 'Targets', title: lossHlScope === 'background' ? 'Karyotype: mark every lost gene instead' : 'Karyotype: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
+                ready: !!lossMatrix, readyNote: 'no loss matrix to mark',
+                blurb: lossHlScope === 'background' ? 'The karyotype is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'
+                    : 'Mark and band only ' + R.genes.join(', ') + ' on the chromosomes, rather than every loss in the file.',
+                open: () => { lossHlScope = (lossHlScope === 'background') ? 'all' : 'background'; try { if (lossMatrix) applyLossHighlights(true); } catch (e) { } slTargetsMenu(); } });
             books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
             if (!R.targets.length) books.push({ section: 'Ranked targets', note: true, title: 'No gene passed the threshold (t < 0, effect < −0.4, FDR ≤ 0.25) in any scored background.' });
             else books.push({ section: 'Ranked targets', note: true, title: 'Genuine three-way hits first, then by how many of this tumour\'s backgrounds a gene recurs in, then by t. Click a target to go to it or open it in the editor.' });
@@ -6979,9 +7001,15 @@ function (path, config) {
                 blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
                 open: () => { genes.filter(lossIsTsg).forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', icon: 'highlight',
-                blurb: 'Mark every loss-of-function variant in red and band the lost genes' + (genes.length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
+                blurb: 'Mark ' + (lossHlScope === 'background' && selGenes.size ? 'the selected background genes' : 'every loss-of-function variant') + ' in red and band the lost genes'
+                    + (lossHlGenes().length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
                 ready: !!genes.length, readyNote: 'no lost genes to mark',
                 open: () => { try { if (hlActive === HL_LOF) clearLossMatrix(false); else applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
+            books.push({ section: 'Loss matrix', title: lossHlScope === 'background' ? 'Mark every lost gene' : 'Mark only the background', badge: lossHlScope === 'background' ? (selGenes.size ? selWord() : 'background') : 'all ' + genes.length, icon: 'filter_center_focus',
+                ready: selGenes.size > 0 || lossHlScope === 'background', readyNote: 'select the background genes first',
+                blurb: lossHlScope === 'background' ? 'Go back to marking every loss in the matrix.'
+                    : 'Mark and band only the selected genes: the background a ' + BAJA3 + ' run and its report are built from, rather than every loss in the file. A run switches to this on its own.',
+                open: () => { lossHlScope = (lossHlScope === 'background') ? 'all' : 'background'; try { if (hlActive === HL_LOF) applyLossHighlights(true); } catch (e) { } lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download',
                 blurb: 'One row per loss-of-function variant: gene, position, alleles, consequence, HGVS — the shape the third-gene model reads.',
                 ready: !!genes.length, readyNote: 'nothing to download',
