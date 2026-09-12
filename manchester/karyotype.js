@@ -6645,12 +6645,16 @@ function (path, config) {
                 ready: true, open: () => refineMenu() });
             {
                 // SELECT ALL takes the list AS REFINED: with filters on, that is exactly the
-                // set the panel narrowed to, which is what the selection is for.
-                const allOn = genes.length > 0 && genes.every((g) => isSelected(g.gene));
-                books.push({ section: 'Loss matrix', title: allOn ? 'Deselect all ' + genes.length + ' genes' : 'Select all ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's'),
-                    badge: activeFilterCount() ? 'as refined' : 'every gene', icon: allOn ? 'remove_done' : 'done_all', ready: genes.length > 0, readyNote: 'no genes listed',
-                    blurb: allOn ? 'Take every listed gene out of the selection.' : ('Put every gene in the list' + (activeFilterCount() ? ' (after the filters)' : '') + ' into the selection the microscope works on.'),
-                    open: () => { if (allOn) genes.forEach((g) => selGenes.delete(('' + g.gene).toUpperCase())); else genes.forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
+                // set the panel narrowed to, which is what the selection is for. DESELECT ALL
+                // sits beside it and clears the whole selection, listed or not.
+                const nOn = genes.filter((g) => isSelected(g.gene)).length;
+                books.push({ section: 'Loss matrix', title: 'Select all ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's'),
+                    badge: activeFilterCount() ? 'as refined' : 'every gene', icon: 'done_all', ready: genes.length > 0 && nOn < genes.length, readyNote: genes.length ? 'all listed genes are selected' : 'no genes listed',
+                    blurb: 'Put every gene in the list' + (activeFilterCount() ? ' (after the filters)' : '') + ' into the selection the microscope works on.',
+                    open: () => { genes.forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
+                books.push({ section: 'Loss matrix', title: 'Deselect all', badge: selGenes.size ? selWord() : 'none selected', icon: 'remove_done', ready: selGenes.size > 0, readyNote: 'nothing is selected',
+                    blurb: 'Empty the selection: every gene, listed or not, comes out.',
+                    open: () => { selGenes.clear(); graph.setMessage(' Selection cleared. '); lossMatrixMenu(); } });
             }
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
