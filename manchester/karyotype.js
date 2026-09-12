@@ -5536,8 +5536,48 @@ function (path, config) {
         // chosen sample) or shared (in every sample -- germline, when one sample is the
         // normal), because a tumour's loss set and its inherited losses are different
         // questions and the two-loss backgrounds want to know which is which.
-        const ZYG_RANK = { 'biallelic': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'on haplotype 1': 3, 'on haplotype 2': 3, 'unknown': 4 };
-        const ZYG_LOST = { 'biallelic': 1, 'compound het': 1, 'possibly biallelic': 1 };
+        const ZYG_RANK = { 'biallelic': 0, 'hemizygous': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'on haplotype 1': 3, 'on haplotype 2': 3, 'unknown': 4 };
+        // A gene is LOST when no working copy is left. On a chromosome the sample has only
+        // ONE copy of, a single hit does that -- which is why 'hemizygous' counts here.
+        const ZYG_LOST = { 'biallelic': 1, 'hemizygous': 1, 'compound het': 1, 'possibly biallelic': 1 };
+        // SINGLE-COPY CHROMOSOMES, read off the genotypes themselves. A tumour that has lost
+        // one X carries every X mutation on its only copy, so the caller reports them at an
+        // allele fraction of 1 and they arrive here as homozygous. Across a whole chromosome
+        // that is not a coincidence: where nearly every call is homozygous and the rest of
+        // the genome's are not, the sample has one copy (or has lost heterozygosity across
+        // it), and one hit is a complete loss rather than half of one. Read from the
+        // genotypes because that is what the viewer keeps; a copy-number track would say it
+        // directly and is the better answer when one is loaded.
+        const HEMI_MIN_CALLS = 50;        // too few calls and the fraction means nothing
+        const HEMI_FRACTION = 0.70;       // homozygous share on the chromosome
+        const HEMI_OVER = 3;              // and this many times the genome-wide share
+        const hemizygousChroms = (si) => {
+            const out = {};
+            if (si < 0) return out;
+            let homAll = 0, nAll = 0;
+            const per = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                let hom = 0, n = 0;
+                if (d && d.n && d.gtw > si) {
+                    for (let k = 0; k < d.n; k++) {
+                        const gt = gtOf(d, k, si);
+                        if (gt < GT_HET) continue;
+                        n++;
+                        if (gt === GT_HOM || gt === GT_HOMP) hom++;
+                    }
+                }
+                per.push({ ci: ci, hom: hom, n: n });
+                homAll += hom; nAll += n;
+            }
+            const base = nAll ? homAll / nAll : 0;
+            for (const pc of per) {
+                if (pc.n < HEMI_MIN_CALLS) continue;
+                const f = pc.hom / pc.n;
+                if (f >= HEMI_FRACTION && (base <= 0 || f >= HEMI_OVER * base)) out[drawn[pc.ci].name] = { frac: f, n: pc.n };
+            }
+            return out;
+        };
         // THE REFINE PANEL. Six groups of filters over the loss matrix: OR within a group,
         // AND across groups; a group with nothing ticked lets every gene through. Zygosity
         // and consequence come from the matrix itself; cancer-gene classification from
@@ -5548,7 +5588,7 @@ function (path, config) {
         // loss keeps one working copy) can be answered here.
         const lossFilters = { zyg: new Set(), cons: new Set(), cls: new Set(), ther: new Set(), evid: new Set(), expr: new Set() };
         const FILTER_GROUPS = [
-            { key: 'zyg', title: 'Zygosity', options: [['biallelic', 'Biallelic loss'], ['possibly', 'Possibly biallelic loss'], ['mono', 'Monoallelic loss']] },
+            { key: 'zyg', title: 'Zygosity', options: [['biallelic', 'Biallelic loss'], ['hemizygous', 'Hemizygous (single-copy chromosome)'], ['possibly', 'Possibly biallelic loss'], ['mono', 'Monoallelic loss']] },
             { key: 'cons', title: 'Variant consequence', options: [['frameshift', 'Frameshift'], ['stop_gained', 'Stop gained'], ['start_lost', 'Start lost'], ['splice_donor', 'Splice donor'], ['splice_acceptor', 'Splice acceptor'], ['pathogenic_missense', 'Pathogenic missense']] },
             { key: 'cls', title: 'Cancer-gene classification', needs: 'annot', options: [['tumour_suppressor', 'Tumor suppressor'], ['oncogene', 'Oncogene'], ['cancer_dependency', 'Cancer dependency'], ['dna_repair', 'DNA-repair gene'], ['immune_regulatory', 'Immune-regulatory gene'], ['not_associated', 'Not previously associated with cancer']] },
             { key: 'ther', title: 'Therapeutic interpretation', needs: 'ther', options: [['synthetic_lethal_vulnerability', 'Potential synthetic-lethal vulnerability'], ['remaining_allele_target', 'Potential target through inhibition of the remaining allele'], ['sensitivity_biomarker', 'Biomarker of drug sensitivity'], ['resistance_biomarker', 'Biomarker of drug resistance'], ['existing_drug', 'Existing drug or inhibitor'], ['clinical_trial', 'Existing clinical trial'], ['none', 'No known therapeutic association']] },
@@ -5558,7 +5598,10 @@ function (path, config) {
         const EXPR_UNANSWERABLE = { expressed: 1, overexpressed: 1 };
         const GCLS_SHORT = { tumour_suppressor: 'TSG', oncogene: 'oncogene', cancer_dependency: 'dependency', dna_repair: 'DNA repair', immune_regulatory: 'immune', not_associated: '' };
         const THER_SHORT = { synthetic_lethal_vulnerability: 'SL vulnerability', remaining_allele_target: 'remaining-allele target', sensitivity_biomarker: 'sensitivity marker', resistance_biomarker: 'resistance marker', existing_drug: 'drug exists', clinical_trial: 'trial', none: '' };
-        const zygClass = (z) => ((z === 'biallelic' || z === 'compound het') ? 'biallelic' : (z === 'possibly biallelic' ? 'possibly' : ((z === 'monoallelic' || (z || '').indexOf('on haplotype') === 0) ? 'mono' : '')));
+        const zygClass = (z) => (z === 'hemizygous' ? 'hemizygous'
+            : ((z === 'biallelic' || z === 'compound het') ? 'biallelic'
+                : (z === 'possibly biallelic' ? 'possibly'
+                    : ((z === 'monoallelic' || (z || '').indexOf('on haplotype') === 0) ? 'mono' : ''))));
         const geneAnnot = (g) => (lossMatrix && lossMatrix.annot && lossMatrix.annot[('' + g.gene).toUpperCase()]) || null;
         const geneTher = (g) => (lossMatrix && lossMatrix.ther && lossMatrix.ther[('' + g.gene).toUpperCase()]) || null;
         // Which option values a gene answers to, per group.
@@ -5593,6 +5636,7 @@ function (path, config) {
         const filtersSummary = () => FILTER_GROUPS.map((grp) => lossFilters[grp.key].size ? grp.title + ': ' + Array.from(lossFilters[grp.key]).map((o) => (grp.options.find((x) => x[0] === o) || [o, o])[1]).join(' or ') : '').filter(Boolean).join('; ');
         const originWord = (o) => (o === 'shared' ? 'shared by all samples (germline if one is a normal)' : (o === 'somatic' ? 'somatic (this sample only)' : (o === 'mixed' ? 'somatic and shared hits' : '')));
         const annotateLossZygosity = (genes, si, hap) => {
+            const hemi = hemizygousChroms(si);
             const nS = Math.min(SAMPLES.length, GT_MAX);
             const allMask = nS ? ((1 << nS) - 1) : 0;
             for (const g of (genes || [])) {
@@ -5618,14 +5662,17 @@ function (path, config) {
                     }
                 }
                 let z = 'unknown';
+                const onHemi = !!(hemi[g.chr] || hemi['chr' + ('' + g.chr).replace(/^chr/, '')]);
                 if (known) {
                     const hits = hom + hap1 + hap2 + het;
-                    if (hom) z = 'biallelic';
+                    if (onHemi) z = 'hemizygous';                  // one copy of this chromosome: one hit is all of it
+                    else if (hom) z = 'biallelic';
                     else if (hap) z = 'on ' + hapWord(hap);        // a one-copy matrix: this copy's hits
                     else if (hap1 && hap2) z = 'compound het';
                     else if (hits >= 2 && het) z = 'possibly biallelic';
                     else z = 'monoallelic';                       // one hit, or two in cis
                 }
+                g.hemizygous = onHemi ? 1 : 0;
                 g.zygosity = z;
                 g.origin = (nS > 1) ? ((priv && !shared && !part) ? 'somatic' : ((shared || part) && !priv ? 'shared' : (priv ? 'mixed' : ''))) : '';
             }
@@ -5898,6 +5945,12 @@ function (path, config) {
                     + (lowConfLeftOut ? ': ' + lowConfLeftOut.toLocaleString() + ' lower-confidence variant' + (lowConfLeftOut === 1 ? ' was' : 's were') + ' left out.' : '.'));
                 else notes.push('Every call was admitted, whatever its confidence.');
                 annotateLossZygosity(genes, si, hap);
+                {
+                    const hemi = hemizygousChroms(si);
+                    const names = Object.keys(hemi);
+                    if (names.length) notes.push('Single copy in this sample: ' + names.map((c2) => c2 + ' (' + Math.round(hemi[c2].frac * 100) + '% of its calls homozygous)').join(', ')
+                        + '. A gene there needs only one hit to be lost, so those count as complete losses rather than monoallelic.');
+                }
                 for (const g of genes) { const ci = chromIndexOf(g.chr); if (ci < 0) continue; for (const v of (g.variants || [])) { const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt); v.conf = k >= 0 ? confOf(vdata[ci], k, si) : 0; } }
                 lossMatrix = { sample: who, si: si, hap: hap, genes: genes, scanned: scanned, counts: counts, notes: notes,
                     considered: considered, at: new Date().toISOString() };
@@ -7048,7 +7101,7 @@ function (path, config) {
             // 6. How to read it.
             sheets.push({ name: 'How to read this', rows: [{
                 'Loss matrix': 'Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too. Deletions and silencing are not in a VCF and are not seen.',
-                'Zygosity': 'Biallelic = both copies hit (homozygous, compound heterozygous, or two hits of unknown phase). Monoallelic = one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see.',
+                'Zygosity': 'Biallelic = both copies hit (homozygous, compound heterozygous, or two hits of unknown phase). Hemizygous = the sample has one copy of that chromosome, so one hit removes the gene. Monoallelic = one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see.',
                 'Synthetic-lethal targets': 'For each selected loss and each pair of them, the gene that becomes selectively essential in DepMap lines carrying the same losses, lineage-corrected. Genuine higher-order = the pair explains the dependency beyond either loss alone; single-loss = one loss drives it.',
                 'Paralog partners': 'The trained paralog classifier: for a lost gene, which paralog is predicted to become the surviving copy the cell cannot lose.',
                 'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
@@ -7076,7 +7129,7 @@ function (path, config) {
             const allG = (lossMatrix.genes || []);
             const zc = zygCounts(allG);
             const zygLine = (zc['unknown'] === allG.length) ? ''
-                : ' By zygosity in ' + lossMatrix.sample + ': ' + ['biallelic', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', ') + '.'
+                : ' By zygosity in ' + lossMatrix.sample + ': ' + ['biallelic', 'hemizygous', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', ') + '.'
                     + (SAMPLES.length > 1 ? ' Somatic = in this sample only; shared = in every sample, so germline when one of them is the normal.' : '');
             const books = [];
             books.push({ section: 'Loss matrix', note: true,
