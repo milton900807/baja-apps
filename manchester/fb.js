@@ -53,7 +53,12 @@ function (__path, __header) {
                 // VCF and BED are inputs to the tools, not things anyone opens from here,
                 // and one design can drop several of them into a folder. Gzipped ones too:
                 // matched as a suffix, because the last dot in variants.vcf.gz says 'gz'.
-                hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz'],
+                // Working files, not things anyone opens from here: the JSON a tool wrote
+                // beside a result, and the .part of an upload that is still arriving or
+                // was abandoned. The karyotypes saved as .karyotype.json before that
+                // extension was shortened are the exception, and are still openable.
+                hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz', 'json', 'part'],
+                keepExtensions: ['karyotype.json'],
                 showSearch: true,
                 "ionfunction.cmd": createIonFunction((element) => {
                     commands.go(path_j, element.cmd);
@@ -483,7 +488,12 @@ function (__path, __header) {
 
                     root: __path,
                     columns: 3,
-                    hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz'],
+                    // Working files, not things anyone opens from here: the JSON a tool wrote
+                // beside a result, and the .part of an upload that is still arriving or
+                // was abandoned. The karyotypes saved as .karyotype.json before that
+                // extension was shortened are the exception, and are still openable.
+                hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz', 'json', 'part'],
+                keepExtensions: ['karyotype.json'],
                     "ionfunction.cmd": createIonFunction(async (element) => {
                         console.log(element.cmd);
 
