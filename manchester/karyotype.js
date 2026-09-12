@@ -6390,7 +6390,7 @@ function (path, config) {
                 + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') + (R.built ? ' Catalogue built ' + R.built.slice(0, 10) + '.' : '') });
             books.push({ section: 'Higher-order model', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true, blurb: 'Every catalogued, one-loss-away, tissue-table and screen row for this selection.',
                 open: () => { try { dlSaveText(hoCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_catalogue') + '.csv', 'text/csv'); dlMsg('Catalogue downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Higher-order model', title: 'Run ' + BAJA3 + ' live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('') });
+            books.push({ section: 'Higher-order model', title: 'Run ' + BAJA3 + ' live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('', '') });
             books.push({ section: 'Higher-order model', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
             const statRow = (r) => 't ' + fmtT(r.t) + ' · FDR ' + fmtP(r.fdr) + (r.eff_double != null ? ' · effect ' + fmtT(r.eff_double) : '') + (r.synergy != null && r.synergy !== '' ? ' · synergy ' + fmtT(r.synergy) : '') + (r.eff_in_tissue != null && r.eff_in_tissue !== '' ? ' · in tissue ' + fmtT(r.eff_in_tissue) : '') + (r.n_double ? ' · ' + r.n_double + ' lines' : '');
             const statsOf = (r, bg) => ({ t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, backgrounds: [{ genes: bg, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation }] });
@@ -6443,11 +6443,15 @@ function (path, config) {
             books.push({ section: 'Find targets', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
                 blurb: 'Run the model live on DepMap: lineage-corrected differential dependency across lines carrying these losses, each hit labelled genuine third-gene dependency or driven by one loss.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
-                open: () => slFindTargets('') });
-            books.push({ section: 'Find targets', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
-                blurb: 'The same ranking, with the dependency inside one tissue of origin shown beside it.',
+                open: () => slFindTargets('', '') });
+            books.push({ section: 'Find targets', title: BAJA3 + ' in a cancer type…', badge: 'choose', icon: 'coronavirus',
+                blurb: 'The same ranking, with the dependency inside one cancer type shown beside it — Invasive Breast Carcinoma, Pancreatic Adenocarcinoma, and the rest.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
-                books: () => tissueBooks((t) => slFindTargets(t)) });
+                books: () => diseaseBooks((d) => slFindTargets('', d)) });
+            books.push({ section: 'Find targets', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
+                blurb: 'The same ranking by organ rather than cancer type: Breast, Pancreas, Lung.',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
+                books: () => tissueBooks((t) => slFindTargets(t, '')) });
             if (slResult) {
                 books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' result', badge: slResult.targets.length + ' targets', icon: 'list',
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
@@ -6752,7 +6756,9 @@ function (path, config) {
                     open: () => { higherOrderReportPDF().catch((e) => dlErr('Could not build the report: ' + (e && e.message ? e.message : e))); } });
             }
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
-                blurb: 'Tissues below are the ones whose DepMap lines carry one of these losses.', books: () => tissueBooks((t) => slFindTargets(t)) });
+                blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
+            books.push({ section: 'Targets', title: 'Run again in a cancer type…', badge: 'cancer type', icon: 'coronavirus', ready: true,
+                blurb: 'The types below are the ones whose DepMap lines carry one of these losses.', books: () => diseaseBooks((d) => slFindTargets('', d)) });
             books.push({ section: 'Targets', title: lossHlScope === 'background' ? 'Karyotype: mark every lost gene instead' : 'Karyotype: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
                 ready: !!lossMatrix, readyNote: 'no loss matrix to mark',
                 blurb: lossHlScope === 'background' ? 'The karyotype is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'

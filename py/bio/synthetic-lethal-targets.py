@@ -24,7 +24,10 @@ genome offers that a cell-line panel does not.
 Reads the bundle build-depmap-sl.py wrote to reference_data/depmap (per box).
 
 Params (after the EngineMonitor):
-    param(1) : JSON { genes: [symbol, ...], tissue: OncotreeLineage or "", top: N }
+    param(1) : JSON { genes: [symbol, ...], tissue: OncotreeLineage or "",
+                      disease: OncotreePrimaryDisease or "", top: N }
+               tissue is the ORGAN (Breast); disease is the CANCER TYPE (Invasive Breast
+               Carcinoma). Either may be given; disease wins when both are.
 
 Resolves:
     { ok, targets, backgrounds, lineages, notes, n_models, n_genes, error }
@@ -37,6 +40,7 @@ Resolves:
               target the carriers need and everything else can do without.
   backgrounds JSON array: { genes: [...], n_lines, status, n_hits }
   lineages    JSON array of { lineage, n_lines } among the lines carrying any selected loss
+  diseases    JSON array of { disease, n_lines }, the same for the cancer type
 """
 import json
 import math
@@ -53,8 +57,8 @@ EFF_MAX = -0.4           # a target must actually be essential in the background
 PER_BACKGROUND = 60      # hits kept per background before aggregation
 MAX_GENES = 12           # 66 pairs; each background is one matrix-vector product
 
-out = {"ok": False, "targets": "[]", "backgrounds": "[]", "lineages": "[]", "notes": "[]",
-       "n_models": 0, "n_genes": 0, "error": None}
+out = {"ok": False, "targets": "[]", "backgrounds": "[]", "lineages": "[]", "diseases": "[]",
+       "notes": "[]", "n_models": 0, "n_genes": 0, "error": None}
 
 
 def bundle_dir():
@@ -94,6 +98,7 @@ else:
 want = [str(g).strip().upper() for g in (req.get("genes") or []) if str(g).strip()]
 want = list(dict.fromkeys(want))
 tissue = str(req.get("tissue") or "").strip()
+disease = str(req.get("disease") or "").strip()
 try:
     top_n = max(5, min(200, int(req.get("top") or 40)))
 except Exception:
@@ -114,10 +119,13 @@ else:
     # nothing is filtered -- dropping one shifted every gene after it by a column.
     genes = [g.strip() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
     lin = [g.strip() for g in open(os.path.join(bd, "lineage.txt")).read().rstrip("\n").split("\n")]
+    dpath = os.path.join(bd, "disease.txt")
+    dis = ([g.strip() for g in open(dpath).read().rstrip("\n").split("\n")] if os.path.exists(dpath) else [])
     G = np.load(os.path.join(bd, "gene_effect.npy"), mmap_mode="r")
     L = np.load(os.path.join(bd, "lof.npy"), mmap_mode="r")
     n_models, n_genes = G.shape
     lin = (lin + [""] * n_models)[:n_models]
+    dis = (dis + [""] * n_models)[:n_models]
     gidx = {g.upper(): i for i, g in enumerate(genes)}
     notes = []
 
@@ -154,9 +162,24 @@ else:
             lc[lin[i]] = lc.get(lin[i], 0) + 1
         lineages = sorted(({"lineage": k or "(unknown)", "n_lines": v} for k, v in lc.items()),
                           key=lambda x: -x["n_lines"])
-        tis_mask = np.array([x == tissue for x in lin], dtype=bool) if tissue else None
-        if tissue and not tis_mask.any():
-            notes.append('No DepMap line has lineage "%s"; tissue effects are blank.' % tissue)
+        dc = {}
+        for i in np.where(any_loss)[0]:
+            if dis[i]:
+                dc[dis[i]] = dc.get(dis[i], 0) + 1
+        diseases = sorted(({"disease": k, "n_lines": v} for k, v in dc.items()), key=lambda x: -x["n_lines"])
+        # THE SPOTLIGHT is a cancer type when one is given, else a tissue. A cancer type is
+        # the narrower question -- pancreatic adenocarcinoma rather than the pancreas -- and
+        # is what a target has to hold up in.
+        if disease:
+            tis_mask = np.array([x == disease for x in dis], dtype=bool)
+            if not tis_mask.any():
+                notes.append('No DepMap line has cancer type "%s"; its effects are blank.' % disease)
+        elif tissue:
+            tis_mask = np.array([x == tissue for x in lin], dtype=bool)
+            if not tis_mask.any():
+                notes.append('No DepMap line has lineage "%s"; tissue effects are blank.' % tissue)
+        else:
+            tis_mask = None
 
         # The backgrounds: every pair of the lost genes, and each gene alone. A single gene
         # is the chapter-2 engine; a pair is the chapter-4 one. Both are reported, so a
@@ -295,6 +318,7 @@ else:
         out["targets"] = json.dumps(targets[:top_n])
         out["backgrounds"] = json.dumps(bg_out)
         out["lineages"] = json.dumps(lineages[:40])
+        out["diseases"] = json.dumps(diseases[:60])
         out["notes"] = json.dumps(notes)
         out["n_models"] = int(n_models)
         out["n_genes"] = int(n_genes)

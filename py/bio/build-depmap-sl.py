@@ -17,6 +17,9 @@ with the csv module -- no pandas on the server -- and writes a compact bundle:
     <out>/genes.txt         gene symbols, in gene_effect column order
     <out>/models.txt        ModelIDs of the CRISPR-screened lines, in row order
     <out>/lineage.txt       OncotreeLineage per model, same order ('' when unknown)
+    <out>/disease.txt       OncotreePrimaryDisease per model -- the CANCER TYPE, which is
+                            what a clinician names (Invasive Breast Carcinoma), where the
+                            lineage is only the organ (Breast)
     <out>/gene_effect.npy   float32 [models x genes], NaN filled with the gene's mean
     <out>/lof.npy           bool    [models x genes]: damaging mutation OR hotspot mutation
                             OR expression in the gene's bottom 15% across lines
@@ -178,14 +181,18 @@ def main():
     ii = np.where(np.isnan(G))
     G[ii] = np.take(col_mean, ii[1])
 
-    # 2. Lineage per model.
-    lineage = {}
+    # 2. Lineage and cancer type per model.
+    lineage, disease = {}, {}
     with open(model_path, newline="") as fh:
         r = csv.DictReader(fh)
         for row in r:
-            lineage[row.get("ModelID", "").strip()] = (row.get("OncotreeLineage") or "").strip()
+            mid = row.get("ModelID", "").strip()
+            lineage[mid] = (row.get("OncotreeLineage") or "").strip()
+            disease[mid] = (row.get("OncotreePrimaryDisease") or "").strip()
     lin = [lineage.get(m, "") for m in models]
-    say("lineage known for %d of %d models" % (sum(1 for x in lin if x), len(models)))
+    dis = [disease.get(m, "") for m in models]
+    say("lineage known for %d of %d models; cancer type for %d"
+        % (sum(1 for x in lin if x), len(models), sum(1 for x in dis if x)))
 
     # 3. Loss of function = damaging mutation OR bottom-15% expression, per gene, restricted
     #    to the CRISPR lines and aligned to the gene-effect gene order.
@@ -257,9 +264,12 @@ def main():
         fh.write("\n".join(models) + "\n")
     with open(os.path.join(out, "lineage.txt"), "w") as fh:
         fh.write("\n".join(lin) + "\n")
+    with open(os.path.join(out, "disease.txt"), "w") as fh:
+        fh.write("\n".join(dis) + "\n")
     meta = {
         "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "models": len(models), "genes": len(genes),
+        "cancer_types": len(set(x for x in dis if x)),
         "lof_calls": int(lof.sum()),
         "sources": {k: os.path.basename(p) for k, p in
                     [("gene_effect", ge_path), ("model", model_path), ("mutations", mut_path),
