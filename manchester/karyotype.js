@@ -6891,13 +6891,113 @@ function (path, config) {
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
                 const J = (x, d2) => { try { return JSON.parse(x || d2); } catch (e) { return JSON.parse(d2); } };
                 lohAlleleResult = { sites: J(rs.sites, '[]'), notes: J(rs.notes, '[]'),
-                    genes: +rs.n_genes || 0, at: new Date().toISOString() };
+                    genes: +rs.n_genes || 0, source: 'loh', at: new Date().toISOString() };
                 lohAlleleResult.inferred = lohAlleleResult.sites.filter((x) => x.evidence === 'inferred').length;
                 const mrna = lohAlleleResult.sites.filter((x) => x.in_mature_transcript).length;
                 graph.setMessage(' ' + lohAlleleResult.sites.length + ' allele-selective site'
                     + (lohAlleleResult.sites.length === 1 ? '' : 's') + ' across ' + lohAlleleResult.genes
                     + ' gene' + (lohAlleleResult.genes === 1 ? '' : 's') + ', ' + mrna + ' in the mature transcript. ');
                 step('allele-selective: ' + lohAlleleResult.sites.length + ' sites, ' + mrna + ' in mRNA');
+                lohAlleleBusy = false;
+                lohAlleleMenu();
+            } catch (e) {
+                lohAlleleBusy = false;
+                try { graph.setError(' The allele-selective scan failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        // FROM A BAJA-3 RESULT INSTEAD OF FROM THE TRACT LIST.
+        //
+        // BAJA-3 answers "given what this tumour has lost, what does it now depend on", and
+        // the answer is a third gene somewhere else in the genome. Whether the tumour also
+        // happens to carry ONE copy of that third gene is a separate fact about the same
+        // patient, and where both hold the case is as strong as it gets: the dependency is
+        // conditional on this tumour's losses, the copy number is one, and the allele is a
+        // sequence nothing else has. The window objection disappears -- a normal cell is not
+        // asked to do without the gene, only to do without one of its two alleles.
+        //
+        // The SET-ASIDE targets are included on purpose and are often the better half. The
+        // only thing wrong with a pan-essential hit was that its window was too narrow to
+        // dose against, and allele selectivity replaces the window with a sequence.
+        const AS_MIN_SITES = 3;          // informative heterozygous sites before judging a gene
+        const AS_MIN_LOST = 0.70;        // and the share of them where the tumour kept one side
+        const slAlleleFromTargets = async () => {
+            if (!slResult) { graph.setMessage(' Run ' + BAJA3 + ' first. '); return; }
+            if (!lohResult) { graph.setError(' This needs the loss-of-heterozygosity scan as well: it is the germline '
+                + 'file that says where this person is heterozygous, and the tumour file that says which side survived. '
+                + 'Run Analyze \u2192 Loss of heterozygosity, then come back. ', 12); return; }
+            if (lohAlleleBusy) { graph.setMessage(' The scan is still running. '); return; }
+            lohAlleleBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const all = (slResult.targets || []).map((t) => ({ t: t, kept: true }))
+                    .concat((slResult.dropped || []).map((t) => ({ t: t, kept: false })));
+                const names = [];
+                const byName = {};
+                for (const x of all) {
+                    const nm = ('' + x.t.target).toUpperCase();
+                    if (byName[nm]) continue;
+                    byName[nm] = x;
+                    names.push(nm);
+                    if (names.length >= 60) break;
+                }
+                if (!names.length) { lohAlleleBusy = false; graph.setMessage(' No target to check. '); return; }
+                graph.setMessage(' Finding where ' + names.length + ' target' + (names.length === 1 ? '' : 's') + ' sit on the genome… ');
+                const gl = await exec(server + '/py/bio/gene-locus.py', em, names.join(','), (r.species || 'human'), '400');
+                let loci = [];
+                try { loci = JSON.parse((gl && gl.genes) || '[]'); } catch (e) { loci = []; }
+                if (!loci.length) throw new Error('none of these targets could be placed on the genome');
+                // THE TEST, on this patient's own reads: is the tumour down to one allele
+                // across the gene? Not "is it inside a tract we drew" -- a gene can be
+                // hemizygous in a stretch too short to band, and the sites themselves say so.
+                const qualified = [], rejected = [];
+                for (const g of loci) {
+                    const nm = ('' + (g.query || g.gene)).toUpperCase();
+                    const x = byName[nm];
+                    if (!x) continue;
+                    const ci = chromIndexOf(g.chr);
+                    if (ci < 0) continue;
+                    const st = lohSpanStats(ci, g.start, g.end, lohResult.spec);
+                    const inf = st.lost + st.kept;
+                    const frac = inf ? st.lost / inf : 0;
+                    const rec = { gene: nm, kept: x.kept, t: x.t, ci: ci, chr: g.chr, start: g.start, end: g.end,
+                        het: st.het, lost: st.lost, still: st.kept, uncalled: st.uncalled, frac: frac, informative: inf };
+                    if (inf >= AS_MIN_SITES && frac >= AS_MIN_LOST) qualified.push(rec); else rejected.push(rec);
+                }
+                if (!qualified.length) {
+                    lohAlleleBusy = false;
+                    graph.setError(' None of these targets is down to one allele in this tumour. That is the ordinary case: '
+                        + 'a third-gene hit is usually somewhere the tumour still has both copies, and an allele-selective '
+                        + 'agent has nothing to exploit there. ' + rejected.length + ' target' + (rejected.length === 1 ? ' was' : 's were')
+                        + ' checked against the germline heterozygous sites inside them. ', 14);
+                    return;
+                }
+                qualified.sort((a, b) => (b.frac - a.frac) || (a.t.best_t - b.t.best_t));
+                const sites = [];
+                const why = {};
+                for (const q of qualified) {
+                    why[q.gene] = (q.kept ? 'A ' + BAJA3 + ' hit' : 'Set aside by ' + BAJA3 + ' as essential everywhere, which allele selectivity answers')
+                        + ': ' + interpWord(q.t.interpretation) + ', t ' + fmtT(q.t.best_t) + ', effect ' + fmtT(q.t.eff_double)
+                        + (q.t.eff_none != null ? ', without the losses ' + fmtT(q.t.eff_none) : '') + '. '
+                        + 'In this tumour it is down to one allele: ' + q.lost + ' of ' + q.informative
+                        + ' heterozygous sites inside it kept only one side.';
+                    const got = alleleSitesIn(q.ci, q.start, q.end, lohResult.spec, q.gene);
+                    got.sort((a, b) => (a.evidence === b.evidence ? a.pos - b.pos : (a.evidence === 'measured' ? -1 : 1)));
+                    for (const st2 of got) { sites.push(st2); if (sites.length >= AS_MAX_SITES) break; }
+                    if (sites.length >= AS_MAX_SITES) break;
+                }
+                if (!sites.length) throw new Error('no heterozygous site inside these targets survived as a clean one-sided call');
+                graph.setMessage(' Annotating ' + sites.length + ' site' + (sites.length === 1 ? '' : 's') + ' in ' + qualified.length + ' target… ');
+                const rs = await exec(server + '/py/bio/allele-selective-targets.py', em,
+                    JSON.stringify({ sites: sites, species: (r.species || 'human'), flank: 30 }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
+                const J = (x2, d2) => { try { return JSON.parse(x2 || d2); } catch (e) { return JSON.parse(d2); } };
+                lohAlleleResult = { sites: J(rs.sites, '[]'), notes: J(rs.notes, '[]'), genes: +rs.n_genes || 0,
+                    source: 'baja3', why: why, rejected: rejected.length, at: new Date().toISOString() };
+                lohAlleleResult.inferred = lohAlleleResult.sites.filter((x2) => x2.evidence === 'inferred').length;
+                graph.setMessage(' ' + qualified.length + ' of ' + loci.length + ' ' + BAJA3 + ' target'
+                    + (loci.length === 1 ? '' : 's') + ' are down to one allele in this tumour, with '
+                    + lohAlleleResult.sites.length + ' site' + (lohAlleleResult.sites.length === 1 ? '' : 's') + ' to aim at. ');
+                step('baja3 allele-selective: ' + qualified.length + '/' + loci.length + ' targets, ' + lohAlleleResult.sites.length + ' sites');
                 lohAlleleBusy = false;
                 lohAlleleMenu();
             } catch (e) {
@@ -6921,8 +7021,15 @@ function (path, config) {
             const R = lohAlleleResult;
             const books = [];
             const mrna = R.sites.filter((x) => x.in_mature_transcript);
+            if (R.source === 'baja3') books.push({ section: 'Allele-selective targets', note: true,
+                title: 'These are ' + BAJA3 + ' hits that this tumour ALSO carries a single allele of. Three things line up at '
+                    + 'once: the dependency is conditional on this tumour\'s losses, the copy number is one, and the allele is a '
+                    + 'sequence no normal cell is without. The window objection does not apply, because a normal cell is not asked '
+                    + 'to do without the gene, only to do without one of its two alleles.'
+                    + (R.rejected ? ' ' + R.rejected + ' other target(s) were checked and still carry both alleles here, where an '
+                        + 'allele-selective agent has nothing to exploit.' : '') });
             books.push({ section: 'Allele-selective targets', note: true,
-                title: 'Inside the tract the tumour carries ONE allele and every normal cell carries two. Where the '
+                title: 'Where the tumour carries ONE allele, every normal cell still carries two. Where the '
                     + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the tumour '
                     + 'KEPT destroys its only copy while a normal cell drops to one of two and lives. Essentiality stops '
                     + 'being the objection here and becomes the mechanism. '
@@ -6932,14 +7039,17 @@ function (path, config) {
             books.push({ section: 'Allele-selective targets', title: 'Download the sites as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'Each site with the allele to aim at, the allele normal cells keep, the region, and 61 bases of context on both.',
                 open: () => { try { dlSaveText(lohAlleleCSV(), dlSafe(dlSpecies() + '_allele_selective_sites') + '.csv', 'text/csv'); dlMsg('Sites downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Allele-selective targets', title: 'Back to the vulnerabilities', badge: 'loh', icon: 'arrow_back', ready: true,
-                blurb: 'The complete losses and the single-copy candidates.', open: () => lohSlMenu() });
+            books.push({ section: 'Allele-selective targets', title: R.source === 'baja3' ? 'Back to the ' + BAJA3 + ' targets' : 'Back to the vulnerabilities',
+                badge: R.source === 'baja3' ? 'targets' : 'loh', icon: 'arrow_back', ready: true,
+                blurb: R.source === 'baja3' ? 'The ranked third-gene hits this came from.' : 'The complete losses and the single-copy candidates.',
+                open: () => { if (R.source === 'baja3') slTargetsMenu(); else lohSlMenu(); } });
             const byGene = {};
             R.sites.forEach((x) => { (byGene[x.gene] = byGene[x.gene] || []).push(x); });
             Object.keys(byGene).forEach((gn) => {
                 const list = byGene[gn];
                 const usable = list.filter((x) => x.in_mature_transcript).length;
                 const sec = gn + ' — ' + list.length + ' site' + (list.length === 1 ? '' : 's');
+                if (R.why && R.why[gn]) books.push({ section: sec, note: true, title: R.why[gn] });
                 books.push({ section: sec, note: true, title: usable
                     ? usable + ' of these sit in the mature message, which an siRNA or an exon-directed ASO needs. The rest are in the pre-mRNA, where a gapmer can still reach them.'
                     : 'All of these are intronic. A gapmer acting on pre-mRNA can use them; an siRNA cannot.' });
@@ -7923,6 +8033,13 @@ function (path, config) {
                         + (ho.length > HO_REPORT_MAX ? '. The strongest ' + HO_REPORT_MAX + ' are reported.' : '.') + ' Roughly ' + Math.max(1, Math.round(n * 8 / 60)) + ' minute' + (Math.round(n * 8 / 60) === 1 ? '' : 's') + ' the first time; ones already explained are instant.',
                     open: () => { higherOrderReportPDF().catch((e) => dlErr('Could not build the report: ' + (e && e.message ? e.message : e))); } });
             }
+            books.push({ section: 'Targets', title: 'Allele-selective targets among these hits', badge: 'sequence, not dose', icon: 'gps_fixed',
+                ready: !lohAlleleBusy, readyNote: 'running',
+                blurb: 'Which of these hits the tumour also carries only ONE allele of. Where that holds, an oligo aimed at the '
+                    + 'allele it kept destroys its only copy while a normal cell keeps the other and lives, so the therapeutic '
+                    + 'window stops mattering. The set-aside pan-essential hits are checked too, and are often the better half. '
+                    + 'Needs the loss-of-heterozygosity scan, which supplies the germline and tumour reads.',
+                open: () => { slAlleleFromTargets(); } });
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
             books.push({ section: 'Targets', title: 'Run again in a cancer type…', badge: 'cancer type', icon: 'coronavirus', ready: true,

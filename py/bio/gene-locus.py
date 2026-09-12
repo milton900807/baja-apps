@@ -15,7 +15,10 @@ Synonyms are indexed too, from the GFF's own attributes, so an old name still fi
 gene -- looking up ALS1 and being told nothing is there would be wrong, not merely unhelpful.
 
 Params (after the EngineMonitor):
-    param(1) : gene symbol, or an Ensembl gene id
+    param(1) : gene symbol, or an Ensembl gene id. SEVERAL may be given at once, comma
+               separated or as a JSON array: the index is read in ONE pass whatever the
+               count, so forty symbols cost what one costs. Each returned gene carries the
+               `query` it answered.
     param(2) : optional species (default human)
     param(3) : optional maximum matches (default 12)
 
@@ -74,14 +77,28 @@ def resolve_species(text):
     return best
 
 
-query = str(works.param(1) or "").strip()
+_raw_q = works.param(1)
+if isinstance(_raw_q, (list, tuple)):
+    _queries = [str(x).strip() for x in _raw_q if str(x).strip()]
+else:
+    _q = str(_raw_q or "").strip()
+    if _q.startswith("["):
+        try:
+            _parsed = json.loads(_q)
+            _queries = [str(x).strip() for x in _parsed if str(x).strip()] if isinstance(_parsed, list) else []
+        except Exception:
+            _queries = []
+    else:
+        _queries = [x.strip() for x in _q.split(",") if x.strip()] if "," in _q else ([_q] if _q else [])
+_queries = list(dict.fromkeys(_queries))[:400]
+query = ", ".join(_queries)
 species_in = str(works.param(2) or "human").strip()
 species = resolve_species(species_in) if species_in else "human"
 try:
     max_hits = int(float(works.param(3) or 12))
 except Exception:
     max_hits = 12
-max_hits = max(1, min(200, max_hits))
+max_hits = max(1, min(2000, max_hits))
 
 # `species` is echoed back so the caller can SEE which genome was actually searched rather
 # than assume it was the one it asked for -- the whole point of the change below.
@@ -173,12 +190,14 @@ else:
         out["error"] = "could not index the %s annotation: %s" % (species, e)
 
     if not out["error"]:
-        q = query.upper()
-        # An Ensembl id may carry a version; the index holds it with one.
-        qbase = q.split(".")[0]
+        # One set per kind of match, so the single pass over the index answers every query
+        # at once: forty symbols is forty membership tests per line, not forty passes.
+        qmap = {x.upper(): x for x in _queries}
+        qset = set(qmap)
+        qids = {x.upper().split(".")[0]: x for x in _queries}
         hits, seen = [], set()
 
-        def add(f, how):
+        def add(f, how, asked):
             gid = f[6]
             key = (f[0], f[1], f[2], gid)
             if key in seen:
@@ -191,6 +210,7 @@ else:
             hits.append({
                 "gene": f[0], "chr": f[1], "start": s1, "end": e1,
                 "strand": f[4], "biotype": f[5], "gene_id": gid, "matched": how,
+                "query": asked,
             })
 
         try:
@@ -199,12 +219,20 @@ else:
                     f = line.rstrip("\n").split("\t")
                     if len(f) < 8:
                         continue
-                    if f[0].upper() == q:
-                        add(f, "symbol")
-                    elif f[6].split(".")[0].upper() == qbase:
-                        add(f, "id")
-                    elif f[7] and q in [s.strip().upper() for s in f[7].split("|") if s.strip()]:
-                        add(f, "synonym")
+                    nm = f[0].upper()
+                    if nm in qset:
+                        add(f, "symbol", qmap[nm])
+                        continue
+                    gb = f[6].split(".")[0].upper()
+                    if gb in qids:
+                        add(f, "id", qids[gb])
+                        continue
+                    if f[7]:
+                        for sy in f[7].split("|"):
+                            su = sy.strip().upper()
+                            if su and su in qset:
+                                add(f, "synonym", qmap[su])
+                                break
         except Exception as e:
             out["error"] = "could not read the gene index: %s" % e
 
@@ -212,8 +240,22 @@ else:
             # Exact symbol first, then id, then synonym; and within a kind the longest span,
             # which is the gene rather than a fragment sharing its name on a patch contig.
             rank = {"symbol": 0, "id": 1, "synonym": 2}
-            hits.sort(key=lambda g: (rank.get(g["matched"], 9),
+            # A patch or alt contig carries the same gene again; the primary assembly copy is
+            # the one a coordinate is wanted for.
+            primary = lambda g: 0 if ("_" not in g["chr"]) else 1
+            hits.sort(key=lambda g: (rank.get(g["matched"], 9), primary(g),
                                      -(g["end"] - g["start"]), g["chr"]))
+            if len(_queries) > 1:
+                # ONE ANSWER PER QUERY when several were asked. A caller resolving forty
+                # symbols wants forty loci; letting one gene's patch contigs fill the cap
+                # would silently drop the genes after it.
+                best, order = {}, []
+                for g in hits:
+                    k = (g.get("query") or g["gene"]).upper()
+                    if k not in best:
+                        best[k] = g
+                        order.append(k)
+                hits = [best[k] for k in order]
             out["ok"] = True
             out["count"] = len(hits)
             out["genes"] = json.dumps(hits[:max_hits])
