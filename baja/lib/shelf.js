@@ -56,11 +56,32 @@ function (opts) {
             const st = window.__shelfStacks && window.__shelfStacks[stashKey];
             if (Array.isArray(st)) { carried = st; }
         } catch (e) { carried = []; }
+        // WHERE THE READER WAS LOOKING. A shelf is rebuilt from nothing every time it is
+        // shown -- new overlay, new grid, scroll at the top -- and several things reopen
+        // one: a card that toggles something redraws its own shelf, and walking out of a
+        // sub-library comes back to the parent. So selecting the fortieth gene in a tract
+        // threw the list back to the first, and selecting a run of them meant scrolling
+        // back down after every click.
+        //
+        // Scroll is therefore a property of the LEVEL, not of the shelf. Each level records
+        // where it was left whenever it stops being the one on screen -- drilling in, or
+        // closing to run something -- and gets it back when it is the one on screen again.
+        // The stack is already carried across a reopen through __shelfStacks, so the
+        // positions ride along with it and no second stash has to be kept in step.
+        //
+        // It has to be recorded in close() rather than read here: close() removes the
+        // overlay BEFORE the action that reopens it runs, so by the time this file runs
+        // again there is no grid left to read a scrollTop off.
+
         // Re-entering a level already on the path is going BACK to it, not deeper: walking
         // Selection > Track > SNPs > a variant > Back lands on titles that repeat, and
         // without this the path would grow every time instead of unwinding.
         const already = carried.findIndex((l) => l && l.title === (o.title || 'Library'));
-        if (already >= 0) { carried = carried.slice(0, already); }
+        let carriedTop = 0;
+        if (already >= 0) {
+            carriedTop = +((carried[already] && carried[already].scrollTop) || 0) || 0;
+            carried = carried.slice(0, already);
+        }
         // A SHELF CAN SEARCH SOMETHING IT DOES NOT HOLD. `search(text)` on the options is
         // an async function returning books; while it is set on a level, what is typed in
         // the box is sent to it rather than matched against the cards, and the cards it
@@ -84,6 +105,10 @@ function (opts) {
             + ' drop-shadow(0 1px 0 ' + BACK_YELLOW + ') drop-shadow(0 -1px 0 ' + BACK_YELLOW + ')';
         const id = o.id || 'baja-shelf';
         const esc = (s) => ('' + (s == null ? '' : s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // esc() is for TEXT. Inside an attribute the quotes matter too, and a badge is
+        // caller-supplied text that may well carry one (a 5' UTR, an inch mark, a gene
+        // name in quotes), so anything going into title="..." goes through this instead.
+        const escA = (s) => esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
         try { const old = document.getElementById(id); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
 
@@ -137,6 +162,7 @@ function (opts) {
             // 'open' is a continuation -- the shelf is getting out of the way of the level
             // it just launched -- so the path is handed to whatever opens next. Anything
             // else ends the session and the path with it.
+            try { level().scrollTop = shelf.scrollTop || 0; } catch (e) { }
             try {
                 if (window.__shelfStacks) {
                     if (reason === 'open') { window.__shelfStacks[stashKey] = stack.slice(); }
@@ -221,10 +247,16 @@ function (opts) {
         const goToLevel = (i) => {
             if (i < 0 || i >= stack.length - 1) { return; }
             if (detailBack) { try { detailBack(); } catch (e) { } }
+            try { level().scrollTop = shelf.scrollTop || 0; } catch (e) { }
             stack.length = i + 1;
             try { q.value = ''; } catch (e) { }
             render();
-            try { shelf.scrollTop = 0; } catch (e) { }
+            {
+                const top = +((level() && level().scrollTop) || 0) || 0;
+                const put = () => { try { shelf.scrollTop = top; } catch (e) { } };
+                put();
+                try { requestAnimationFrame(put); } catch (e) { setTimeout(put, 0); }
+            }
         };
 
         const q = header.querySelector('#shelf-q');
@@ -362,7 +394,29 @@ function (opts) {
                     // the badge stops describing the card and starts looking like a button.
                     run: ['linear-gradient(160deg,#04232b 0%,#07414f 55%,#0a5f73 100%)',
                         'rgba(45,212,191,0.60)', '#5eead4',
-                        'rgba(45,212,191,0.22)', '#99f6e4', '#e6fffb', '#a7d8d4']
+                        'rgba(45,212,191,0.22)', '#99f6e4', '#e6fffb', '#a7d8d4'],
+                    // HANDS OFF TO THE DESIGNER. This is the one card on a shelf that does not
+                    // act on what is in front of you: it LEAVES. The karyotype goes away, the
+                    // oligo editor opens with the gene loaded, and whatever reasoning led here
+                    // is now behind you. That is a bigger step than any amount of waiting, and
+                    // it was wearing the same look as every card that merely opens a panel.
+                    //
+                    // Violet, which nothing else on a shelf uses, and deliberately NOT the teal
+                    // that means "runs something here" -- the whole point of the distinction is
+                    // that one of them keeps you where you are and the other does not.
+                    design: ['linear-gradient(160deg,#1a1040 0%,#2c1a63 55%,#3f2688 100%)',
+                        'rgba(167,139,250,0.60)', '#c4b5fd',
+                        'rgba(167,139,250,0.22)', '#ddd6fe', '#f1ecff', '#c3b5da']
+                };
+                // THE TWO ACCENTS WHOSE BADGE IS A BUTTON, not a label. For these the badge is
+                // solid rather than washed, because it has stopped describing the card and
+                // started saying "press this"; the mark says which kind of press it is.
+                // [fill, ink, glow, mark, the word to use when the book supplies no badge]
+                //   run     starts something HERE and you wait for it
+                //   design  leaves for the editor and does not come back
+                const BADGE_SOLID = {
+                    run: ['#2dd4bf', '#042f2e', 'rgba(45,212,191,0.45)', '\u25B6\u2009', 'run'],
+                    design: ['#a78bfa', '#1e1046', 'rgba(167,139,250,0.45)', '\u2197\u2009', 'design'],
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so
@@ -389,6 +443,8 @@ function (opts) {
                 // thing the card is, like a variant among tracks and oligos -- and it is not
                 // the node/leaf distinction being removed here.
                 const A = isBack ? null : (ACCENTS[b.accent] || ACCENTS.sunset);
+                // Back never gets a button badge either, for the same reason it gets no accent.
+                const BS = isBack ? null : (BADGE_SOLID[b.accent] || null);
                 // A SELECTED card is green all over -- background, border, hover -- not a tick
                 // in its title: a set built by clicking cards one after another has to be
                 // readable at a glance down the shelf. `selected: true` is the book's to say;
@@ -448,15 +504,31 @@ function (opts) {
                     // A RUN CARD ALWAYS CARRIES ITS BADGE, even with nothing to say in it:
                     // the badge is the part that says "this executes", so a run card without
                     // one would be the only run card that did not look like one.
-                    + ((b.badge || b.accent === 'run') ? ('<span style="flex:0 0 auto;border-radius:999px;'
+                    // A LONG BADGE IS TRUNCATED, NOT ALLOWED TO RUN OFF THE CARD.
+                    //
+                    // This was `flex:0 0 auto` with no width bound, which says "never shrink,
+                    // whatever it costs" -- so a badge like "outside any transcript · the
+                    // mutation" pushed itself, and the unavailable-reason pill after it, past
+                    // the card's edge. The readyNote pill below already solved the same problem
+                    // for itself, by wrapping.
+                    //
+                    // Wrapping is wrong HERE, though: this row is `align-items:center` and a
+                    // two-line pill would shove the icon and tick out of line with the title.
+                    // A badge is a label, not prose -- the full text is in the blurb and in the
+                    // hover -- so it stays one line and ends in an ellipsis. min-width:0 is what
+                    // actually lets a flex item shrink below its content; overflow:hidden without
+                    // it does nothing at all.
+                    + ((b.badge || BS) ? ('<span title="' + escA(b.badge || (BS ? BS[4] : '')) + '" '
+                        + 'style="flex:0 1 auto;min-width:0;max-width:58%;overflow:hidden;'
+                        + 'text-overflow:ellipsis;white-space:nowrap;border-radius:999px;'
                         + 'padding:3px 9px;font:700 10.5px Arial;'
-                        + (b.accent === 'run'
-                            ? 'background:#2dd4bf;color:#042f2e;box-shadow:0 0 10px rgba(45,212,191,0.45);'
+                        + (BS
+                            ? ('background:' + BS[0] + ';color:' + BS[1] + ';box-shadow:0 0 10px ' + BS[2] + ';')
                             : ('background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
                                + 'color:' + (A ? A[4] : '#4fd0e6') + ';'))
                         + '">'
-                        + (b.accent === 'run' ? '\u25B6\u2009' : '')
-                        + esc(b.badge || 'run') + '</span>') : '')
+                        + (BS ? BS[3] : '')
+                        + esc(b.badge || (BS ? BS[4] : '')) + '</span>') : '')
                     // WHY it is unavailable, when the book says. "coming soon" is right for a
                     // feature that does not exist yet and wrong for one that is merely missing
                     // a prerequisite -- the user can act on the second and not on the first.
@@ -498,6 +570,7 @@ function (opts) {
                                 try { if (graph && graph.setMessage) graph.setMessage(' ' + b.title + ' has nothing in it yet. '); } catch (e2) { }
                                 return;
                             }
+                            try { level().scrollTop = shelf.scrollTop || 0; } catch (e) { }
                             stack.push({ title: b.title, subtitle: b.subtitle || b.blurb || '', books: sub });
                             q.value = '';
                             render();
@@ -657,7 +730,15 @@ function (opts) {
         // shown pre-filtered by a word that was typed for the child.
         const up = () => {
             if (detailBack) { detailBack(); return; }
-            if (stack.length > 1) { stack.pop(); q.value = ''; render(); try { shelf.scrollTop = 0; } catch (e) { } }
+            if (stack.length > 1) {
+                stack.pop(); q.value = ''; render();
+                // Back to where this level was left. Coming out of a sub-library is a
+                // return, not an arrival: the card just walked into is the one to land on.
+                const top = +((level() && level().scrollTop) || 0) || 0;
+                const put = () => { try { shelf.scrollTop = top; } catch (e) { } };
+                put();
+                try { requestAnimationFrame(put); } catch (e) { setTimeout(put, 0); }
+            }
         };
 
 
@@ -683,6 +764,16 @@ function (opts) {
             }, 220);
         };
         render();
+        if (carriedTop > 0) {
+            // Twice on purpose. The grid is in the document and laid out by now, so the
+            // first assignment usually takes; but a level whose cards are still being
+            // measured can clamp it to a scrollHeight that has not finished growing, and
+            // then setting scrollTop silently does nothing at all. The second runs after
+            // that settles.
+            const put = () => { try { shelf.scrollTop = carriedTop; } catch (e) { } };
+            put();
+            try { requestAnimationFrame(put); } catch (e) { setTimeout(put, 0); }
+        }
         focusUnlessMobile(q);
         return true;
     })();

@@ -205,6 +205,30 @@ function (graph, main_layout, path) {
                                     buttons: [{
 
                                         'label': 'Save', 'function': createIonFunction(async (button_label, input_params) => {
+                                            // ONE SAVE AT A TIME.
+                                            //
+                                            // This crashed the tab. Nothing stopped a second press while the first
+                                            // save was still running, and a save is very slow and very interruptible:
+                                            // stringifyGraphAsync walks the whole graph and AWAITS inside its own
+                                            // loops, so two runs do not queue, they interleave -- over one graph that
+                                            // the first press has already torn the canvas and every mouse listener off
+                                            // of, four lines in. The second run then serialises a half-dismantled
+                                            // object, and whichever finishes last restores mainPanel over the other.
+                                            //
+                                            // A press is easy to repeat, too: serialising a large design blocks long
+                                            // enough that the button looks dead.
+                                            if (window.__bajaSaveObjBusy) {
+                                                try { graph.setMessage(' This design is already being saved. '); } catch (e) { }
+                                                return;
+                                            }
+                                            window.__bajaSaveObjBusy = true;
+                                            // AND IT ALWAYS HANDS THE SCREEN BACK. There was no try/catch anywhere in
+                                            // here, and the last thing the function does is put mainPanel back and
+                                            // re-arm the canvas. So ANY throw on the way -- and there are unchecked
+                                            // server responses below -- left the user on the save screen looking at a
+                                            // graph whose canvas is null, with no way forward. That is the shape of
+                                            // "the app crashed on saving" even when the save itself was fine.
+                                            try {
                                             let name = input_params['Name'];
 
                                             currentPath = comp.currentPath;
@@ -418,6 +442,16 @@ function (graph, main_layout, path) {
 
                                             let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
 
+                                            // A REFUSAL IS AN ANSWER, NOT A CRASH. rs['path'] was read straight off
+                                            // the response: a failed write, a rejected duplicate or anything that
+                                            // returned no path threw a TypeError here, which -- with no catch around
+                                            // any of this -- skipped the restore at the end and left the screen dead.
+                                            if (!rs || !rs['path']) {
+                                                const why = (rs && (rs.error || rs.message || rs.status)) ? (': ' + (rs.error || rs.message || rs.status)) : '';
+                                                try { graph.setMessage(' ' + name + ' was not saved' + why + '. '); } catch (e) { }
+                                                try { infoPrompt(' ' + name + ' was not saved' + why + '. '); } catch (e) { }
+                                                return;
+                                            }
                                             if (rs['path'].indexOf('myfiles') >= 0 && rs['path'].indexOf(getUser()) >= 0) {
                                                 rs['path'] = rs['path'].replace('/' + getUser(), '')
                                             }
@@ -428,11 +462,15 @@ function (graph, main_layout, path) {
                                             progressBar(80)
 
                                             if (rs.status === "saved") {
-                                                let returned = await GETJSON(host_ + '/validate-file?path=/' + rs['path'] + "&key=user&user=" + getUser());
+                                                let returned = null;
+                                                try { returned = await GETJSON(host_ + '/validate-file?path=/' + rs['path'] + "&key=user&user=" + getUser()); } catch (e) { returned = null; }
                                                 let tcount = 0;
                                                 let ocount = 0;
                                                 let snpsc = 0;
-                                                let tracks = returned.track;
+                                                // The file is already written by this point. Reading it back is a
+                                                // confirmation, so a failure here reports less, and never turns a
+                                                // save that worked into an error.
+                                                let tracks = (returned && Array.isArray(returned.track)) ? returned.track : [];
                                                 tcount = tracks.length;
                                                 for (let t of tracks) {
                                                     if (t.oligos) {
@@ -491,6 +529,26 @@ function (graph, main_layout, path) {
                                             try { graph.setMouseMode('navigate'); } catch (e) { }
                                             try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, main_layout); } catch (e) { }
                                             try { if (graph.wake) graph.wake(); } catch (e) { }
+                                            } catch (err) {
+                                                try { graph.setMessage(' The save failed: ' + (err && err.message ? err.message : err) + ' '); } catch (e) { }
+                                                try { infoPrompt(' The save failed: ' + (err && err.message ? err.message : err)); } catch (e) { }
+                                                try { console.error('[save-obj] ', err); } catch (e) { }
+                                            } finally {
+                                                // The flag is released whatever happened; leaving it set would make
+                                                // every later save on this tab a silent no-op, which is worse than
+                                                // the crash it is there to prevent.
+                                                window.__bajaSaveObjBusy = false;
+                                                // And the screen comes back on every path, including the early
+                                                // returns above. Putting mainPanel back twice is harmless; leaving
+                                                // the user on a save card with a dismantled canvas is not.
+                                                try { hideAllModal(); } catch (e) { }
+                                                try { CurrentLayout.clearComponent('mainPanel'); } catch (e) { }
+                                                try { CurrentLayout.setComponent('mainPanel', main_layout); } catch (e) { }
+                                                try { graph.clearMouseListeners(); } catch (e) { }
+                                                try { graph.setMouseMode('navigate'); } catch (e) { }
+                                                try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, main_layout); } catch (e) { }
+                                                try { if (graph.wake) graph.wake(); } catch (e) { }
+                                            }
                                         })
                                     },
 
