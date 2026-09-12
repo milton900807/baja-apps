@@ -2696,6 +2696,20 @@ function (path, config) {
         // inherits a choice made for a different file.
         let loadSide = 0;
         const leftTotal = () => vdata.reduce((a, d) => a + (d ? (d.nL || 0) : 0), 0);
+        // WHAT IS ON EACH SIDE, BY NAME. "left file" and "right file" describe where the
+        // marks sit, which is all that is known until a file is read; afterwards the
+        // person knows these two files by their names, and a comparison card that says
+        // "tumor.vcf against germline.vcf" is read at a glance where "right file against
+        // left file" has to be decoded. Index 0 is the right gutter, 1 the left, matching
+        // loadSide. Set when a load actually puts marks down, cleared with the genome.
+        const sideFile = ['', ''];
+        // The leaf of a path, without the compression suffix a person does not think of
+        // as part of the name, and short enough to sit in a card title.
+        const shortFile = (nm) => {
+            let t = ('' + (nm || '')).split(/[\\/]/).pop().replace(/\.(b?gz|zip)$/i, '');
+            if (t.length > 34) t = t.slice(0, 16) + '\u2026' + t.slice(-15);
+            return t;
+        };
 
         // UNCLASSIFIED IS GREY. A variant with no CLNSIG is the common case in any VCF that
         // is not ClinVar, and drawing it in a hot pink made a whole genome of ordinary
@@ -4463,6 +4477,10 @@ function (path, config) {
                         step('read failed: ' + e);
                     }
                     if (outcome && loadSide && /variants drawn/.test(outcome)) outcome = outcome.replace('variants drawn', 'variants drawn on the left of the chromosomes');
+                    // The side now has a name. Only when marks actually landed: a file that
+                    // drew nothing has not taken the side, and naming it after that file
+                    // would label a gutter that holds someone else's variants.
+                    if (outcome && /variants drawn/.test(outcome) && !/^0 variants/.test(outcome)) sideFile[loadSide] = file.name;
                     loadSide = 0;
                     // A VCF SAVES WITHOUT SAYING SO. It was opened to be drawn, and keeping
                     // a copy is a side effect of that; announcing the copy over the variant
@@ -6097,12 +6115,16 @@ function (path, config) {
         let diffResult = null;          // { spec, A:{label, genes}, B:{label, genes}, onlyA, onlyB, both, at }
         let diffBusy = false;
         const sideCounts = () => { let l = 0, t = 0; for (const d of vdata) { if (!d) continue; t += d.n || 0; l += d.nL || 0; } return { left: l, right: t - l, total: t }; };
-        const sideName = (sd) => (sd ? 'left file' : 'right file');
+        const sideName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : (sd ? 'left file' : 'right file'));
+        // The same name with its side attached, for the one line that has to say both.
+        const sideWhere = (sd) => sideName(sd) + (sideFile[sd] ? ' (' + (sd ? 'left' : 'right') + ')' : '');
         const diffSpecs = () => {
             const specs = [];
             const sc = sideCounts();
             if (sc.left && sc.right) specs.push({ kind: 'side', a: 0, b: 1, labelA: sideName(0), labelB: sideName(1), nA: sc.right, nB: sc.left,
-                blurb: 'The file drawn on the right of the chromosomes against the one loaded on the left.' });
+                blurb: (sideFile[0] || sideFile[1])
+                    ? sideWhere(0) + ' against ' + sideWhere(1) + ': what each has lost that the other has not.'
+                    : 'The file drawn on the right of the chromosomes against the one loaded on the left.' });
             for (let i = 0; i < SAMPLES.length; i++) for (let j = 0; j < SAMPLES.length; j++) {
                 if (i === j) continue;
                 const pa = phaseCounts(i), pb = phaseCounts(j);
@@ -6275,9 +6297,11 @@ function (path, config) {
             const sc = sideCounts();
             if (sc.left && sc.right) {
                 specs.push({ kind: 'side', normal: 1, tumour: 0, labelN: sideName(1), labelT: sideName(0),
-                    blurb: 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left calls heterozygous and the right calls homozygous at the same position.' });
+                    blurb: (sideFile[0] || sideFile[1])
+                        ? sideWhere(1) + ' read as the normal, ' + sideWhere(0) + ' as the tumour: sites the normal calls heterozygous and the tumour calls homozygous at the same position.'
+                        : 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left calls heterozygous and the right calls homozygous at the same position.' });
                 specs.push({ kind: 'side', normal: 0, tumour: 1, labelN: sideName(0), labelT: sideName(1),
-                    blurb: 'The other way round: the right-hand file as the normal.' });
+                    blurb: 'The other way round: ' + (sideFile[0] ? sideWhere(0) + ' as the normal.' : 'the right-hand file as the normal.') });
             }
             for (let i = 0; i < SAMPLES.length; i++) for (let j = 0; j < SAMPLES.length; j++) {
                 if (i === j) continue;
@@ -9523,6 +9547,7 @@ function (path, config) {
                 d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
+            sideFile[0] = ''; sideFile[1] = '';
             regions = []; try { geneCache.clear(); } catch (e) { }
             bookmarks = []; activeRegion = null; hlActive = 0;
             try { SAMPLES.length = 0; } catch (e) { }
@@ -9602,12 +9627,19 @@ function (path, config) {
                 { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + (nLeft ? ', ' + nLeft.toLocaleString() + ' of them on the left' : ', all on the right') + '. Choose where this file\'s marks go.' },
                 // Left before right, as on the chromosome: the card's place in the row says
-                // which side it means.
-                { section: 'Side', title: 'Left side', badge: 'compare', icon: 'west', ready: true,
-                    blurb: 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.',
+                // which side it means. The card names whatever file is already on that side,
+                // because after a load the sides are known by their files, not by their hands.
+                { section: 'Side', title: 'Left side' + (sideFile[1] ? '  \u00b7  ' + shortFile(sideFile[1]) : ''),
+                    badge: sideFile[1] ? 'joins ' + shortFile(sideFile[1]) : 'compare', icon: 'west', ready: true,
+                    blurb: (sideFile[1] ? 'The left gutter already holds ' + shortFile(sideFile[1]) + '; this file joins it there. '
+                        : 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.')
+                        + (sideFile[0] ? 'It will read against ' + shortFile(sideFile[0]) + ' on the right.' : ''),
                     open: () => pickFile(VCF_ACCEPT, 1) },
-                { section: 'Side', title: 'Right side', badge: 'default', icon: 'east', ready: true,
-                    blurb: 'Beside what is already there: the marks share the right gutter of every chromosome.',
+                { section: 'Side', title: 'Right side' + (sideFile[0] ? '  \u00b7  ' + shortFile(sideFile[0]) : ''),
+                    badge: sideFile[0] ? 'joins ' + shortFile(sideFile[0]) : 'default', icon: 'east', ready: true,
+                    blurb: (sideFile[0] ? 'The right gutter already holds ' + shortFile(sideFile[0]) + '; this file joins it there. '
+                        : 'Beside what is already there: the marks share the right gutter of every chromosome.')
+                        + (sideFile[1] ? 'It will read against ' + shortFile(sideFile[1]) + ' on the left.' : ''),
                     open: () => pickFile(VCF_ACCEPT, 0) },
             ];
             const vcfCard = {
