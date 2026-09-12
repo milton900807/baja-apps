@@ -8654,12 +8654,14 @@ function (path, config) {
             const sideBooks = () => [
                 { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
                     + (nLeft ? ', ' + nLeft.toLocaleString() + ' of them on the left' : ', all on the right') + '. Choose where this file\'s marks go.' },
-                { section: 'Side', title: 'Right side', badge: 'default', icon: 'east', ready: true,
-                    blurb: 'Beside what is already there: the marks share the right gutter of every chromosome.',
-                    open: () => pickFile(VCF_ACCEPT, 0) },
+                // Left before right, as on the chromosome: the card's place in the row says
+                // which side it means.
                 { section: 'Side', title: 'Left side', badge: 'compare', icon: 'west', ready: true,
                     blurb: 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.',
                     open: () => pickFile(VCF_ACCEPT, 1) },
+                { section: 'Side', title: 'Right side', badge: 'default', icon: 'east', ready: true,
+                    blurb: 'Beside what is already there: the marks share the right gutter of every chromosome.',
+                    open: () => pickFile(VCF_ACCEPT, 0) },
             ];
             const vcfCard = {
                 title: 'A VCF', badge: vtotal ? 'variants \u00b7 pick a side' : 'variants',
