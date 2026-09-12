@@ -6552,6 +6552,130 @@ function (path, config) {
             if (graph.wake) graph.wake();
             return marked;
         };
+        // ---- THE GENES INSIDE THE TRACTS ----------------------------------------
+        //
+        // A chromosome is where the loss is; a gene is what the loss costs. "chr16 at 41%"
+        // is the finding, and the next question is always which genes sit inside it -- the
+        // tumour suppressor whose second copy has just gone, the gene that is now down to
+        // one allele and can be knocked out by a single hit. So the tracts are turned into
+        // gene lists off the same GENCODE annotation the Regions panel reads, and each gene
+        // is scored on the sites inside its OWN span rather than inheriting the tract's
+        // number: a gene at the edge of a tract may keep both alleles, and the per-gene
+        // count says so.
+        //
+        // The genes go into the microscope's selection with one click, which is the point:
+        // a hemizygous arm is exactly the background BAJA-3 is built to reason from.
+        const LOH_GENE_CHUNK = 10e6;     // one server call per 10 Mb of tract
+        const LOH_GENE_MAX = 1000;       // the lookup's own ceiling per call
+        let lohGeneBusy = false;
+        // The germline-het and lost counts for one span, from the marks already in memory.
+        const lohSpanStats = (ci, lo, hi, spec) => {
+            const d = vdata[ci];
+            const out = { het: 0, lost: 0, kept: 0, uncalled: 0 };
+            if (!d || !d.n) return out;
+            let a = 0, b = d.n - 1;
+            while (a < b) { const m = (a + b) >> 1; if (d.pos[m] < lo) a = m + 1; else b = m; }
+            const bySample = spec.kind === 'sample';
+            const hetAt = new Map();
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                if (bySample) {
+                    if (normalHet(gtOf(d, k, spec.normal), bafOf(d, k, spec.normal)) < 0) continue;
+                    out.het++;
+                    const g2 = gtOf(d, k, spec.tumour);
+                    if (g2 === GT_NONE) { out.uncalled++; continue; }
+                    const b2 = bafOf(d, k, spec.tumour);
+                    if (g2 === GT_REF && b2 < 0) { out.uncalled++; continue; }
+                    if (tumourLost(g2, b2)) out.lost++; else out.kept++;
+                } else {
+                    if ((d.side ? d.side[k] : 0) !== spec.normal) continue;
+                    if (normalHet(gtOfSide(d, k, spec.normal), bafOfSide(d, k, spec.normal)) > 0) hetAt.set(d.pos[k], 1);
+                }
+            }
+            if (bySample) return out;
+            out.het = hetAt.size;
+            const seen = new Set();
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                const pz = d.pos[k];
+                if (!hetAt.has(pz)) continue;
+                seen.add(pz);
+                if (tumourLost(gtOfSide(d, k, spec.tumour), bafOfSide(d, k, spec.tumour))) out.lost++; else out.kept++;
+            }
+            out.uncalled = out.het - seen.size;
+            return out;
+        };
+        const lohFindGenes = async () => {
+            if (!lohResult || lohGeneBusy) return;
+            const spans = [];
+            for (const c2 of lohResult.chroms) for (const run of (c2.runs || [])) spans.push({ ci: c2.ci, name: c2.name, lo: run.lo, hi: run.hi });
+            if (!spans.length) { graph.setMessage(' No tract to read: nothing here is a run of lost sites. '); return; }
+            lohGeneBusy = true;
+            const asks = [];
+            for (const sp of spans) {
+                for (let lo = sp.lo; lo <= sp.hi; lo += LOH_GENE_CHUNK) {
+                    asks.push({ sp: sp, lo: Math.round(lo), hi: Math.round(Math.min(sp.hi, lo + LOH_GENE_CHUNK - 1)) });
+                }
+            }
+            const byGene = new Map();
+            let done = 0, truncated = false;
+            try {
+                for (const a of asks) {
+                    graph.setMessage(' Reading the genes in the tracts\u2026 ' + done + ' of ' + asks.length + ' part'
+                        + (asks.length === 1 ? '' : 's') + '. ');
+                    let gs = [];
+                    try {
+                        const em = new EngineMonitor(() => { });
+                        const res = await exec(server + '/py/bio/genes-in-range.py', em,
+                            a.sp.name.replace(/^chr/, ''), '' + a.lo, '' + a.hi, (r.species || 'human'), '' + LOH_GENE_MAX);
+                        try { gs = JSON.parse((res && res.genes) || '[]'); } catch (e2) { gs = []; }
+                        if (res && (res.truncated === true || res.truncated === 'true')) truncated = true;
+                    } catch (e2) { gs = []; }
+                    for (const g of gs) {
+                        const nm = ('' + (g.gene || '')).toUpperCase();
+                        if (!nm || byGene.has(nm)) continue;
+                        // Protein-coding only: an LOH list is read for what can be lost, and a
+                        // lncRNA in a tract is not what anyone opens this to find.
+                        const bt = ('' + (g.biotype || '')).toLowerCase();
+                        if (bt && bt !== 'protein_coding') continue;
+                        byGene.set(nm, { gene: g.gene, chr: a.sp.name, start: +g.start || 0, end: +g.end || 0,
+                            strand: g.strand || '', ci: a.sp.ci, tract: a.sp.lo + '-' + a.sp.hi });
+                    }
+                    done++;
+                    await new Promise((res2) => setTimeout(res2, 0));
+                }
+                const genes = Array.from(byGene.values());
+                for (const g of genes) {
+                    const st = lohSpanStats(g.ci, g.start, g.end, lohResult.spec);
+                    g.het = st.het; g.lost = st.lost; g.kept = st.kept; g.uncalled = st.uncalled;
+                    g.frac = (st.lost + st.kept) ? st.lost / (st.lost + st.kept) : 0;
+                }
+                // Informative first: the tumour suppressors, then the genes the tract covers
+                // most completely, then the ones with the most sites saying so.
+                genes.sort((x, y) => (lossIsTsg(y) - lossIsTsg(x)) || (y.frac - x.frac) || (y.lost - x.lost)
+                    || ('' + x.gene).localeCompare('' + y.gene));
+                lohResult.genes = genes;
+                lohResult.genesTruncated = truncated;
+                graph.setMessage(' ' + genes.length.toLocaleString() + ' protein-coding gene'
+                    + (genes.length === 1 ? '' : 's') + ' inside ' + spans.length + ' tract' + (spans.length === 1 ? '' : 's') + '. ');
+            } catch (e) {
+                try { graph.setError(' The genes could not be read: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
+            }
+            lohGeneBusy = false;
+            lohMenu();
+        };
+        // What a selected LOH gene looks like to everything downstream: the same shape a
+        // loss-matrix gene has, with the loss named for what it is. It is not a coding hit,
+        // and the selection should not pretend it is one.
+        const lohSelRecord = (g) => ({ gene: g.gene, chr: g.chr, start: g.start, end: g.end,
+            zygosity: 'hemizygous', n_lof: 0, loh: 1, loh_fraction: Math.round(g.frac * 1000) / 1000,
+            variants: [{ effect: 'loss_of_heterozygosity', pos: g.start, ref: '', alt: '' }] });
+        const lohGeneCSV = () => dlToCSV((lohResult.genes || []).map((g) => ({
+            gene: g.gene, chrom: g.chr, start: g.start, end: g.end, strand: g.strand,
+            normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
+            heterozygous_in_normal: g.het, lost_an_allele_in_tumour: g.lost,
+            retained_heterozygous: g.kept, not_called_in_tumour: g.uncalled,
+            loh_fraction: Math.round(g.frac * 1000) / 1000, tract: g.chr + ':' + g.tract,
+        })));
         const lohCSV = () => dlToCSV((lohResult.chroms || []).map((c2) => ({
             chrom: c2.name, normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
             heterozygous_in_normal: c2.het, lost_an_allele_in_tumour: c2.loh, retained_heterozygous: c2.kept,
@@ -6585,7 +6709,51 @@ function (path, config) {
             books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'One row per chromosome: heterozygous sites, how many went homozygous, the fraction, and the tracts.',
                 open: () => { try { dlSaveText(lohCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH') + '.csv', 'text/csv'); dlMsg('LOH table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            const tracts = (R.chroms || []).reduce((a, c2) => a + (c2.runs ? c2.runs.length : 0), 0);
+            books.push({ section: 'Loss of heterozygosity', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
+                badge: R.genes ? R.genes.length + ' genes' : (tracts + ' tract' + (tracts === 1 ? '' : 's')), icon: 'biotech',
+                ready: tracts > 0 && !lohGeneBusy, readyNote: lohGeneBusy ? 'reading' : 'no tract to read',
+                blurb: 'Every protein-coding gene inside a tract, each scored on the heterozygous sites in its own span. '
+                    + 'A gene here has one copy left, so a single hit finishes it.',
+                open: () => { lohFindGenes(); } });
             books.push({ section: 'Loss of heterozygosity', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => lohPickerBooks() });
+            if (R.genes && R.genes.length) {
+                const sel = R.genes.filter((g) => isSelected(g.gene)).length;
+                books.push({ section: 'Genes in the tracts', note: true,
+                    title: R.genes.length.toLocaleString() + ' protein-coding gene' + (R.genes.length === 1 ? '' : 's') + ' inside '
+                        + tracts + ' tract' + (tracts === 1 ? '' : 's') + '. Tumour suppressors first, then by how completely the loss covers the gene. '
+                        + 'The percentage is of the heterozygous sites inside that gene, not of the tract.'
+                        + (R.genesTruncated ? ' Some parts of the annotation were cut at the lookup\'s limit.' : '') });
+                books.push({ section: 'Genes in the tracts', title: 'Select all of them', badge: R.genes.length + ' genes', icon: 'done_all', ready: R.genes.length > 0,
+                    blurb: 'Put every gene in the tracts into the microscope\'s selection, as the background for ' + BAJA3 + '. A hemizygous arm is exactly that kind of background.',
+                    open: () => { R.genes.forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), lohSelRecord(g))); graph.setMessage(' ' + selWord() + ' selected. '); lohMenu(); } });
+                books.push({ section: 'Genes in the tracts', title: 'Deselect all of them', badge: sel ? sel + ' selected' : 'none selected', icon: 'remove_done', ready: sel > 0, readyNote: 'none of them is selected',
+                    blurb: 'Take these genes back out of the selection; anything else selected stays.',
+                    open: () => { R.genes.forEach((g) => selGenes.delete(('' + g.gene).toUpperCase())); graph.setMessage(' ' + selWord() + ' left. '); lohMenu(); } });
+                books.push({ section: 'Genes in the tracts', title: 'Download the genes as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                    blurb: 'One row per gene: its span, the heterozygous sites inside it, how many lost an allele, and the tract it sits in.',
+                    open: () => { try { dlSaveText(lohGeneCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH_genes') + '.csv', 'text/csv'); dlMsg('Gene table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+                R.genes.forEach((g) => {
+                    const on = isSelected(g.gene);
+                    books.push({ section: 'Genes in the tracts', title: (on ? '\u2713 ' : '') + g.gene,
+                        badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : pct(g.frac) + ' LOH'),
+                        swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : (g.frac >= 0.7 ? '#a855f7' : (g.frac >= 0.3 ? '#f97316' : '#94a3b8'))),
+                        selected: on, ready: true,
+                        blurb: g.chr + ':' + human(g.start) + '-' + human(g.end) + (g.strand ? ' (' + g.strand + ')' : '')
+                            + ' · ' + g.lost.toLocaleString() + ' of ' + (g.lost + g.kept).toLocaleString() + ' heterozygous site'
+                            + ((g.lost + g.kept) === 1 ? '' : 's') + ' lost an allele'
+                            + (g.uncalled ? ' · ' + g.uncalled.toLocaleString() + ' not called' : '')
+                            + (g.het ? '' : ' · no heterozygous site inside it, the tract around it carries the call'),
+                        books: () => [
+                            { title: (isSelected(g.gene) ? 'Deselect' : 'Select') + ' ' + g.gene, badge: 'background', icon: isSelected(g.gene) ? 'remove_circle_outline' : 'add_circle_outline', ready: true,
+                                blurb: isSelected(g.gene) ? 'Take it out of the selection.' : 'Add it to the losses ' + BAJA3 + ' reasons from.',
+                                open: () => { const now = toggleGeneSelect(lohSelRecord(g)); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' \u2014 ' + selWord() + '. '); lohMenu(); } },
+                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the karyotype.',
+                                open: () => { try { gotoLostGene(lohSelRecord(g)); } catch (e) { gotoSymbol(g.gene); } } },
+                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + g.gene + ' into the editor.', open: () => openSymbolInEditor(g.gene) },
+                        ] });
+                });
+            }
             books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the karyotype\'s long homozygous stretches are these.' });
             R.chroms.forEach((c2) => books.push({ section: 'By chromosome', title: c2.name, badge: pct(c2.frac) + ' LOH',
                 swatch: c2.frac >= 0.7 ? '#a855f7' : (c2.frac >= 0.3 ? '#f97316' : '#94a3b8'), ready: true,
@@ -7036,7 +7204,8 @@ function (path, config) {
                 const hypo = !g.chr || v.effect === 'hypothetical';
                 books.push({ section: 'Genes', title: g.gene, badge: hypo ? 'hypothetical' : lossWord(v.effect), swatch: hypo ? '#a855f7' : (lossIsTsg(g) ? '#dc2626' : '#f97316'),
                     blurb: hypo ? 'Added from a target list, not lost in this VCF: a what-if loss.'
-                        : (g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : ''))), ready: true,
+                        : (g.chr + ':' + human(v.pos) + ((v.ref || v.alt) ? ' ' + v.ref + '>' + v.alt : '')
+                            + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : ''))), ready: true,
                     books: () => [
                         { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the karyotype.', open: () => (hypo ? gotoSymbol(g.gene) : gotoLostGene(g)) },
                         { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + g.gene + ' into the editor with its variants.', open: () => openSymbolInEditor(g.gene) },
@@ -7362,7 +7531,8 @@ function (path, config) {
             const v = g.variants[0] || {};
             graph.setMessage(' ' + g.gene + ' — ' + drawn[ci].name + ':' + human(lo) + '-' + human(hi)
                 + ' — ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : (v.hgvs_c ? ' ' + v.hgvs_c : ''))
-                + ' at ' + human(v.pos) + ' ' + v.ref + '>' + v.alt + '. ');
+                // A whole-gene loss has no one base to point at: the span above is the answer.
+                + ((v.ref || v.alt) ? ' at ' + human(v.pos) + ' ' + v.ref + '>' + v.alt : '') + '. ');
         };
         // THE FINDINGS AS A PDF. A written summary of what the loss matrix found, and of
         // whatever was run on it -- the selected losses, the synthetic-lethal targets, the
