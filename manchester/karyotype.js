@@ -6643,6 +6643,15 @@ function (path, config) {
             if (allG.length > 10 || activeFilterCount()) books.push({ section: 'Loss matrix', title: 'Refine gene list', badge: activeFilterCount() ? (activeFilterCount() + ' filter' + (activeFilterCount() === 1 ? '' : 's') + ' · ' + genes.length + ' of ' + allG.length) : (allG.length + ' genes'), icon: 'filter_alt',
                 blurb: 'Narrow the list by zygosity, variant consequence, cancer-gene class, therapeutic interpretation, evidence level or expression. Classification and therapeutic evidence are looked up on demand from curated lists, DepMap and the published literature.',
                 ready: true, open: () => refineMenu() });
+            {
+                // SELECT ALL takes the list AS REFINED: with filters on, that is exactly the
+                // set the panel narrowed to, which is what the selection is for.
+                const allOn = genes.length > 0 && genes.every((g) => isSelected(g.gene));
+                books.push({ section: 'Loss matrix', title: allOn ? 'Deselect all ' + genes.length + ' genes' : 'Select all ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's'),
+                    badge: activeFilterCount() ? 'as refined' : 'every gene', icon: allOn ? 'remove_done' : 'done_all', ready: genes.length > 0, readyNote: 'no genes listed',
+                    blurb: allOn ? 'Take every listed gene out of the selection.' : ('Put every gene in the list' + (activeFilterCount() ? ' (after the filters)' : '') + ' into the selection the microscope works on.'),
+                    open: () => { if (allOn) genes.forEach((g) => selGenes.delete(('' + g.gene).toUpperCase())); else genes.forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
+            }
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
                 ready: true, open: () => selectedGenesMenu() });
