@@ -178,13 +178,30 @@ else:
             gtype = a.get("gene_type") or a.get("biotype") or ""
             if gtype == "artifact":
                 continue
-            g = genes.get(name)
+            # KEYED BY THE GENE'S ID, NOT ITS NAME.
+            #
+            # Keyed by name, two genes that merely SHARE a name became one entry spanning
+            # from the first to the last -- and the small RNAs are named in families, not
+            # individually. Y_RNA is three separate 100-base genes in a two-megabase window
+            # and they were merged into a single two-megabase "gene". That fake span then
+            # won the overlap sort below, which ranks by how much of the window a gene
+            # covers, so Y_RNA came back first and was drawn across the whole region. The
+            # same went for U6, 7SK and every other repeated family.
+            #
+            # A gene id is unique per locus, which is exactly the distinction wanted. The
+            # fallback keeps the old behaviour only where there is no id to key on, and
+            # includes the start so two unnamed loci still stay apart.
+            key = gid or (name + "@" + f[0] + ":" + f[3])
+            g = genes.get(key)
             lo, hi = int(f[3]), int(f[4])
             if g is None:
-                genes[name] = {"gene": name, "transcript": "", "biotype": gtype,
-                               "strand": f[6], "start": lo, "end": hi,
-                               "coding": 1 if gtype == "protein_coding" else 0}
+                genes[key] = {"gene": name, "transcript": "", "biotype": gtype,
+                              "strand": f[6], "start": lo, "end": hi,
+                              "coding": 1 if gtype == "protein_coding" else 0,
+                              "__key": key, "__name": name}
             else:
+                # The same locus written twice (a gene row repeated across a join) is still
+                # merged, which is what this was for.
                 g["start"] = min(g["start"], lo)
                 g["end"] = max(g["end"], hi)
         else:
@@ -200,14 +217,24 @@ else:
             elif "basic" in tag:
                 rank = 2
             length = int(f[4]) - int(f[3])
-            cur = tx.get(name)
+            # FILED UNDER THE LOCUS, not the name, to match the genes above. A transcript
+            # points at its gene through gene_id or Parent; without either there is nothing
+            # to attach it to but the name, which is the old behaviour and the best that can
+            # be done for a file that does not say.
+            tgid = (a.get("gene_id") or (a.get("Parent") or "")).replace("gene:", "").split(".")[0]
+            tkey = tgid or name
+            cur = tx.get(tkey)
             if cur is None or (rank, -length) < (cur[0], -cur[2]):
-                tx[name] = (rank, tid, length)
+                tx[tkey] = (rank, tid, length)
 
     rows = []
-    for name, g in genes.items():
-        t = tx.get(name)
+    for key, g in genes.items():
+        # The gene row's key carries a version suffix where the transcript's Parent does
+        # not, so both spellings are tried before falling back to the name.
+        t = tx.get(key) or tx.get(('' + key).split(".")[0]) or tx.get(g.get("__name") or g["gene"])
         g["transcript"] = t[1] if t else ""
+        g.pop("__key", None)
+        g.pop("__name", None)
         rows.append(g)
     # Coding first, then the ones that overlap the window most -- a gene the window sits
     # inside is more likely the reason it was drawn than one clipped at the edge.
