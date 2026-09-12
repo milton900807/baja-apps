@@ -2872,6 +2872,9 @@ function (path, config) {
                     const B = (diffResult && diffResult.B && diffResult.B.label) || 'B';
                     hlRows = sw(HL_COLOR[HL_DIFF_A], 'lost only in ' + A) + sw(HL_COLOR[HL_DIFF_B], 'lost only in ' + B)
                         + sw(HL_COLOR[HL_DIFF_BOTH], 'lost in both') + dimNote;
+                } else if (hlActive === HL_LOH) {
+                    hlTitle = 'Loss of heterozygosity';
+                    hlRows = sw(HL_COLOR[HL_LOH], (lohResult ? 'lost an allele in ' + lohResult.spec.labelT : 'lost an allele')) + dimNote;
                 } else if (hlActive === HL_LOF) {
                     hlTitle = 'Loss of function';
                     hlRows = sw(HL_COLOR[HL_LOF], (lossHlScope === 'background' && selGenes.size)
@@ -5698,7 +5701,7 @@ function (path, config) {
         // Take the loss marks and bands off, leaving the matrix itself for the shelf.
         const clearLossMatrix = (forget) => {
             regions = (regions || []).filter((rg) => !rg.lof);
-            if (hlActive === HL_LOF || hlActive === HL_DIFF_BOTH) {
+            if (hlActive === HL_LOF || hlActive === HL_DIFF_BOTH || hlActive === HL_LOH) {
                 for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
                 hlActive = 0;
                 reindexHighlights();
@@ -6144,6 +6147,214 @@ function (path, config) {
                 blurb: sp.blurb + ' (' + sp.nA.toLocaleString() + ' vs ' + sp.nB.toLocaleString() + ' variants)', ready: true, open: () => computeDiffLossMatrix(sp) }));
             return books;
         };
+        // ---- LOSS OF HETEROZYGOSITY ---------------------------------------------------------
+        //
+        // A site the normal carries on ONE copy and the tumour carries on ALL of them has
+        // lost its other allele. One such site is noise; a tract of them down a chromosome
+        // is a deletion or a copy-neutral loss, and that tract is where a tumour suppressor
+        // needs only one more hit to be gone. This is the picture the long homozygous
+        // stretches on a karyotype actually are.
+        //
+        // Two ways to ask, the same two the differential takes: two FILES on opposite sides
+        // of the chromosomes (the normal's calls against the tumour's, matched by position),
+        // or two SAMPLE columns of one file, which is the cleaner question because the two
+        // genotypes sit in the same record.
+        //
+        // WHAT IT CANNOT SAY: a site the normal calls het and the tumour does not call at
+        // all is either LOH or a coverage gap, and a VCF cannot tell those apart. Those are
+        // counted separately and never drawn as LOH.
+        const HL_LOH = 45;
+        HL_COLOR[HL_LOH] = '#a855f7';
+        HL_NAME[HL_LOH] = 'loss of heterozygosity';
+        let lohResult = null;
+        let lohBusy = false;
+        const LOH_RUN_MIN = 10;          // sites in a row before a tract is worth drawing
+        const LOH_RUN_GAP = 3;           // retained sites tolerated inside a tract
+        const lohSpecs = () => {
+            const specs = [];
+            const sc = sideCounts();
+            if (sc.left && sc.right) {
+                specs.push({ kind: 'side', normal: 1, tumour: 0, labelN: sideName(1), labelT: sideName(0),
+                    blurb: 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left calls heterozygous and the right calls homozygous at the same position.' });
+                specs.push({ kind: 'side', normal: 0, tumour: 1, labelN: sideName(0), labelT: sideName(1),
+                    blurb: 'The other way round: the right-hand file as the normal.' });
+            }
+            for (let i = 0; i < SAMPLES.length; i++) for (let j = 0; j < SAMPLES.length; j++) {
+                if (i === j) continue;
+                if (!phaseCounts(i).all || !phaseCounts(j).all) continue;
+                specs.push({ kind: 'sample', normal: i, tumour: j, labelN: SAMPLES[i], labelT: SAMPLES[j],
+                    blurb: SAMPLES[i] + ' read as the normal, ' + SAMPLES[j] + ' as the tumour.' });
+            }
+            return specs;
+        };
+        const computeLOH = async (spec) => {
+            if (lohBusy) { graph.setMessage(' The scan is still running. '); return; }
+            lohBusy = true;
+            clearWorking();
+            try {
+                const chroms = [];
+                let totHet = 0, totLOH = 0, totKept = 0, totUncalled = 0;
+                hlActive = HL_SCAN; startHlPulse();
+                for (let ci = 0; ci < drawn.length; ci++) {
+                    const d = vdata[ci];
+                    if (!d || !d.n) continue;
+                    graph.setMessage(' Reading ' + drawn[ci].name + ' for loss of heterozygosity… ');
+                    const lohK = [], keptPos = [], lohPos = [];
+                    let het = 0, loh = 0, kept = 0, uncalled = 0;
+                    if (spec.kind === 'sample') {
+                        const ni = spec.normal, ti = spec.tumour;
+                        if (d.gtw > ni && d.gtw > ti) {
+                            for (let k = 0; k < d.n; k++) {
+                                const gn = gtOf(d, k, ni);
+                                if (gn !== GT_HET && gn !== GT_HAP1 && gn !== GT_HAP2) continue;   // normal must be het
+                                het++;
+                                const gt2 = gtOf(d, k, ti);
+                                if (gt2 === GT_HOM || gt2 === GT_HOMP) { loh++; lohK.push(k); lohPos.push(d.pos[k]); }
+                                else if (gt2 === GT_REF || gt2 === GT_NONE) { uncalled++; }
+                                else { kept++; keptPos.push(d.pos[k]); }
+                            }
+                        }
+                    } else {
+                        // TWO FILES: index the normal side's heterozygous positions, then read
+                        // the tumour side's calls at the same positions. Positions are sorted,
+                        // so one walk over each does it.
+                        const nSide = spec.normal, tSide = spec.tumour;
+                        const hetAt = new Map();
+                        for (let k = 0; k < d.n; k++) {
+                            if ((d.side ? d.side[k] : 0) !== nSide) continue;
+                            const g2 = d.gtw ? gtOf(d, k, 0) : GT_NONE;
+                            const isHet = d.gtw ? (g2 === GT_HET || g2 === GT_HAP1 || g2 === GT_HAP2) : false;
+                            if (isHet) hetAt.set(d.pos[k], k);
+                        }
+                        het = hetAt.size;
+                        const seen = new Set();
+                        for (let k = 0; k < d.n; k++) {
+                            if ((d.side ? d.side[k] : 0) !== tSide) continue;
+                            const p = d.pos[k];
+                            if (!hetAt.has(p)) continue;
+                            seen.add(p);
+                            const g2 = d.gtw ? gtOf(d, k, 0) : GT_NONE;
+                            if (g2 === GT_HOM || g2 === GT_HOMP) { loh++; lohK.push(k); lohPos.push(p); }
+                            else { kept++; keptPos.push(p); }
+                        }
+                        uncalled = het - seen.size;
+                    }
+                    if (lohK.length) { markIndices(ci, lohK, HL_LOH); }
+                    // TRACTS: runs of LOH sites with few retained sites between them. A tract
+                    // is what a deletion looks like; single sites are noise.
+                    const runs = [];
+                    if (lohPos.length >= LOH_RUN_MIN) {
+                        const all = lohPos.map((p) => ({ p: p, loh: 1 })).concat(keptPos.map((p) => ({ p: p, loh: 0 })));
+                        all.sort((a, b) => a.p - b.p);
+                        let start = -1, last = -1, n = 0, bad = 0;
+                        for (const x of all) {
+                            if (x.loh) { if (start < 0) { start = x.p; n = 0; bad = 0; } last = x.p; n++; }
+                            else if (start >= 0) { bad++; if (bad > LOH_RUN_GAP) { if (n >= LOH_RUN_MIN) runs.push({ lo: start, hi: last, n: n }); start = -1; n = 0; bad = 0; } }
+                        }
+                        if (start >= 0 && n >= LOH_RUN_MIN) runs.push({ lo: start, hi: last, n: n });
+                    }
+                    if (het) {
+                        chroms.push({ ci: ci, name: drawn[ci].name, het: het, loh: loh, kept: kept, uncalled: uncalled,
+                            frac: het ? loh / het : 0, runs: runs });
+                        totHet += het; totLOH += loh; totKept += kept; totUncalled += uncalled;
+                    }
+                    reindexHighlights();
+                    legendRefresh();
+                    if (graph.wake) graph.wake();
+                    await new Promise((res) => setTimeout(res, 0));
+                }
+                chroms.sort((a, b) => b.frac - a.frac);
+                lohResult = { spec: spec, chroms: chroms, het: totHet, loh: totLOH, kept: totKept, uncalled: totUncalled, at: new Date().toISOString() };
+                const marked = applyLOHHighlights(true);
+                graph.setMessage(' ' + totLOH.toLocaleString() + ' of ' + totHet.toLocaleString() + ' heterozygous site' + (totHet === 1 ? '' : 's')
+                    + ' in ' + spec.labelN + ' are homozygous in ' + spec.labelT + ' (' + Math.round(100 * (totHet ? totLOH / totHet : 0)) + '%); ' + marked + ' marked. ');
+                step('LOH ' + spec.labelN + ' -> ' + spec.labelT + ': ' + totLOH + '/' + totHet);
+                lohBusy = false;
+                lohMenu();
+            } catch (e) {
+                lohBusy = false;
+                clearWorking();
+                try { graph.setError(' The scan failed: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
+            }
+        };
+        const applyLOHHighlights = (withBands) => {
+            if (!lohResult) return 0;
+            for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
+            try { hlSamples.clear(); } catch (e) { }
+            let marked = 0;
+            const spec = lohResult.spec;
+            for (const c2 of lohResult.chroms) {
+                const d = vdata[c2.ci];
+                if (!d || !d.n) continue;
+                for (const run of c2.runs) {
+                    for (let k = 0; k < d.n; k++) {
+                        if (d.pos[k] < run.lo || d.pos[k] > run.hi) continue;
+                        if (spec.kind === 'sample') { const g2 = gtOf(d, k, spec.tumour); if (g2 !== GT_HOM && g2 !== GT_HOMP) continue; }
+                        else if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                        d.hl[k] = HL_LOH; marked++;
+                    }
+                }
+            }
+            if (withBands !== false) {
+                regions = (regions || []).filter((rg) => !rg.lof);
+                const bands = [];
+                for (const c2 of lohResult.chroms) for (const run of c2.runs) bands.push({ ci: c2.ci, run: run, span: run.hi - run.lo });
+                bands.sort((a, b) => b.span - a.span);
+                for (const b of bands.slice(0, LOF_BAND_MAX)) {
+                    regions.push({ i: b.ci, lo: b.run.lo, hi: b.run.hi, lof: true, loh: true,
+                        label: 'LOH — ' + drawn[b.ci].name + ' ' + fmtSpan(b.span) + ', ' + b.run.n + ' sites' });
+                }
+            }
+            hlActive = marked ? HL_LOH : 0;
+            reindexHighlights();
+            if (hlActive) startHlPulse();
+            legendRefresh();
+            if (graph.wake) graph.wake();
+            return marked;
+        };
+        const lohCSV = () => dlToCSV((lohResult.chroms || []).map((c2) => ({
+            chrom: c2.name, normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
+            heterozygous_in_normal: c2.het, homozygous_in_tumour: c2.loh, retained_heterozygous: c2.kept,
+            not_called_in_tumour: c2.uncalled, loh_fraction: (Math.round(c2.frac * 1000) / 1000),
+            tracts: c2.runs.length, longest_tract_mb: c2.runs.length ? (Math.round(Math.max.apply(null, c2.runs.map((r2) => r2.hi - r2.lo)) / 1e5) / 10) : 0,
+        })));
+        const lohPickerBooks = () => {
+            const specs = lohSpecs();
+            const books = [{ section: 'Loss of heterozygosity', note: true, title: specs.length
+                ? 'Choose which side or sample is the NORMAL. A site it calls heterozygous and the tumour calls homozygous has lost an allele; a tract of them is a deletion or a copy-neutral loss.'
+                : 'Nothing to compare yet: load a second VCF on the left of the chromosomes (Upload asks where a new file goes), or load a VCF whose samples both carry calls.' }];
+            specs.forEach((sp) => books.push({ section: 'Loss of heterozygosity', title: sp.labelN + '  →  ' + sp.labelT, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
+                blurb: sp.blurb, ready: true, open: () => computeLOH(sp) }));
+            return books;
+        };
+        const lohMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lohResult) { analysisMenu(); return; }
+            const R = lohResult;
+            const pct = (x) => Math.round(100 * x) + '%';
+            const books = [];
+            books.push({ section: 'Loss of heterozygosity', note: true, title: R.spec.labelN + ' as the normal, ' + R.spec.labelT + ' as the tumour: '
+                + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites are homozygous in the tumour (' + pct(R.het ? R.loh / R.het : 0) + '), '
+                + R.kept.toLocaleString() + ' stay heterozygous'
+                + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumour at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
+            books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the karyotype', badge: hlActive === HL_LOH ? 'on' : 'off', icon: 'highlight', ready: true,
+                blurb: 'Mark the sites that lost an allele and band the tracts, longest first.',
+                open: () => { try { if (hlActive === HL_LOH) clearWorking(); else applyLOHHighlights(true); } catch (e) { } lohMenu(); } });
+            books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                blurb: 'One row per chromosome: heterozygous sites, how many went homozygous, the fraction, and the tracts.',
+                open: () => { try { dlSaveText(lohCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH') + '.csv', 'text/csv'); dlMsg('LOH table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Loss of heterozygosity', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => lohPickerBooks() });
+            books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the karyotype\'s long homozygous stretches are these.' });
+            R.chroms.forEach((c2) => books.push({ section: 'By chromosome', title: c2.name, badge: pct(c2.frac) + ' LOH',
+                swatch: c2.frac >= 0.7 ? '#a855f7' : (c2.frac >= 0.3 ? '#f97316' : '#94a3b8'), ready: true,
+                blurb: c2.loh.toLocaleString() + ' of ' + c2.het.toLocaleString() + ' heterozygous sites lost an allele · ' + c2.kept.toLocaleString() + ' retained'
+                    + (c2.uncalled ? ' · ' + c2.uncalled.toLocaleString() + ' not called' : '')
+                    + (c2.runs.length ? ' · ' + c2.runs.length + ' tract' + (c2.runs.length === 1 ? '' : 's') + ', longest ' + fmtSpan(Math.max.apply(null, c2.runs.map((r2) => r2.hi - r2.lo))) : ' · no tract'),
+                open: () => { const c3 = drawn[c2.ci]; goView({ x0: barLeft(c2.ci) - 0.6 * SLOT, x1: barRight(c2.ci) + 0.6 * SLOT, y0: wy(c3.length) - 2, y1: 2 }); } }));
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Loss of heterozygosity',
+                subtitle: R.spec.labelN + ' → ' + R.spec.labelT, graph: graph, books: books });
+        };
+
         const diffMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!diffResult) { analysisMenu(); return; }
@@ -7388,6 +7599,12 @@ function (path, config) {
                     ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
                 if (diffResult) books.push({ section: 'Loss matrix', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
+                const lspecs = lohSpecs();
+                books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
+                    blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the karyotype actually is.',
+                    ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
+                if (lohResult) books.push({ section: 'Loss matrix', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
+                    blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
             }
             if (lossMatrix) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
