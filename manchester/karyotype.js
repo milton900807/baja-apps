@@ -4794,6 +4794,7 @@ function (path, config) {
                 if (Object.keys(lf).length) out.lossFilters = lf;
             }
             if (selGenes.size) out.selectedGenes = selectedList();
+            if (diffResult) out.diffLoss = diffResult;
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
             // this tomorrow cannot reconstruct.
@@ -4986,10 +4987,12 @@ function (path, config) {
                     applyLossHighlights(false);
                 } catch (e) { }
             }
+            if (doc.diffLoss && doc.diffLoss.A && doc.diffLoss.B) { try { diffResult = doc.diffLoss; } catch (e) { } }
             if (Array.isArray(doc.selectedGenes)) {
                 try { selGenes.clear(); doc.selectedGenes.forEach((g) => { if (g && g.gene) selGenes.set(('' + g.gene).toUpperCase(), g); }); } catch (e) { }
             }
-            if (doc.highlight && doc.highlight !== HL_LOF) {
+            if (doc.diffLoss && doc.highlight === HL_DIFF_BOTH) { try { applyDiffHighlights(false); } catch (e) { } }
+            if (doc.highlight && doc.highlight !== HL_LOF && doc.highlight !== HL_DIFF_BOTH) {
                 const __kmap = { 1: 'coding', 2: 'intronic', 3: 'three_utr', 4: 'five_utr', 5: 'pathogenic' };
                 const __kind = __kmap[doc.highlight];
                 // Best-effort and un-awaited: it re-fetches annotation to re-derive the marks,
@@ -5483,7 +5486,7 @@ function (path, config) {
         // Take the loss marks and bands off, leaving the matrix itself for the shelf.
         const clearLossMatrix = (forget) => {
             regions = (regions || []).filter((rg) => !rg.lof);
-            if (hlActive === HL_LOF) {
+            if (hlActive === HL_LOF || hlActive === HL_DIFF_BOTH) {
                 for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
                 hlActive = 0;
                 reindexHighlights();
@@ -5569,6 +5572,55 @@ function (path, config) {
         // cis. Exon-adjacent variants only go to the server: the exon intervals are the
         // same cached answer the Color filters use.
         let lossBusy = false;
+        // THE CORE: which genes carry a loss-of-function variant among the variants that
+        // `include(d, k)` admits. The loss matrix admits one sample's calls (on one
+        // haplotype or both); the differential admits one side, or one sample, twice.
+        // Returns { genes, scanned, counts, notes, considered, candidates } or throws.
+        const computeLossFor = async (who, include, em) => {
+            const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
+            const batches = [];
+            let cur = {}, curN = 0, candidates = 0, considered = 0;
+            for (let q = 0; q < live.length; q++) {
+                const ci = live[q], d = vdata[ci], c = drawn[ci];
+                graph.setMessage(' ' + who + ': reading ' + c.name + ' exons — ' + (q + 1) + ' of ' + live.length + '… ');
+                const F = await fetchFeatures(ci, 'exon', 1, c.length);
+                const ex = (F && F.exon) || [];
+                const rows = [];
+                for (let k = 0; k < d.n; k++) {
+                    if (!include(d, k)) continue;
+                    considered++;
+                    const p = d.pos[k];
+                    const ab = allelesAt(ci, k);
+                    if (ex.length && !nearFlat(ex, p, 12 + ab[0].length)) continue;
+                    rows.push([p, ab[0], ab[1]]);
+                }
+                if (!rows.length) continue;
+                candidates += rows.length;
+                cur[c.name] = rows; curN += rows.length;
+                if (curN >= LOF_BATCH) { batches.push(cur); cur = {}; curN = 0; }
+                await new Promise((res) => setTimeout(res, 0));
+            }
+            if (curN) batches.push(cur);
+            const genes = [], counts = {}, notes = [];
+            let scanned = 0;
+            for (let b = 0; b < batches.length; b++) {
+                graph.setMessage(' ' + who + ': reading the consequence of ' + candidates.toLocaleString() + ' exonic variant' + (candidates === 1 ? '' : 's')
+                    + (batches.length > 1 ? ' — part ' + (b + 1) + ' of ' + batches.length : '') + '… ');
+                const rs = await exec(server + '/py/bio/loss-matrix.py', em,
+                    JSON.stringify({ species: (r.species || 'human'), variants: batches[b] }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the variants');
+                let gs = [], cs = {}, ns = [];
+                try { gs = JSON.parse(rs.genes || '[]'); } catch (e) { gs = []; }
+                try { cs = JSON.parse(rs.counts || '{}'); } catch (e) { cs = {}; }
+                try { ns = JSON.parse(rs.notes || '[]'); } catch (e) { ns = []; }
+                for (const g of gs) genes.push(g);
+                for (const k in cs) counts[k] = (counts[k] || 0) + cs[k];
+                for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
+                scanned += (+rs.scanned || 0);
+            }
+            return { genes: genes, scanned: scanned, counts: counts, notes: notes, considered: considered, candidates: candidates };
+        };
+
         const computeLossMatrix = async (si, hap) => {
             if (lossBusy) { graph.setMessage(' The loss matrix is still being calculated. '); return; }
             const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
@@ -5581,54 +5633,19 @@ function (path, config) {
             let unphasedLeftOut = 0;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
-                const batches = [];
-                let cur = {}, curN = 0, candidates = 0, considered = 0;
-                for (let q = 0; q < live.length; q++) {
-                    const ci = live[q], d = vdata[ci], c = drawn[ci];
-                    graph.setMessage(' Reading ' + c.name + ' exons — ' + (q + 1) + ' of ' + live.length + '… ');
-                    const F = await fetchFeatures(ci, 'exon', 1, c.length);
-                    const ex = (F && F.exon) || [];
-                    const rows = [];
-                    for (let k = 0; k < d.n; k++) {
-                        if (mask && d.gtw) {
-                            const gt = gtOf(d, k, si);
-                            if (!onHaplotype(gt, hap)) { if (hap && gt === GT_HET) unphasedLeftOut++; continue; }
-                        }
-                        considered++;
-                        const p = d.pos[k];
-                        const ab = allelesAt(ci, k);
-                        if (ex.length && !nearFlat(ex, p, 12 + ab[0].length)) continue;
-                        rows.push([p, ab[0], ab[1]]);
+                const R = await computeLossFor(who, (d, k) => {
+                    if (mask && d.gtw) {
+                        const gt = gtOf(d, k, si);
+                        if (!onHaplotype(gt, hap)) { if (hap && gt === GT_HET) unphasedLeftOut++; return false; }
                     }
-                    if (!rows.length) continue;
-                    candidates += rows.length;
-                    cur[c.name] = rows; curN += rows.length;
-                    if (curN >= LOF_BATCH) { batches.push(cur); cur = {}; curN = 0; }
-                    await new Promise((res) => setTimeout(res, 0));
-                }
-                if (curN) batches.push(cur);
-                if (!candidates) {
-                    graph.setMessage(' ' + who + ': none of the ' + considered.toLocaleString() + ' variants touch an exon, so nothing can be lost by them. ');
+                    return true;
+                }, em);
+                if (!R.candidates) {
+                    graph.setMessage(' ' + who + ': none of the ' + R.considered.toLocaleString() + ' variants touch an exon, so nothing can be lost by them. ');
                     lossBusy = false;
                     return;
                 }
-                const genes = [], counts = {}, notes = [];
-                let scanned = 0;
-                for (let b = 0; b < batches.length; b++) {
-                    graph.setMessage(' Reading the consequence of ' + candidates.toLocaleString() + ' exonic variant' + (candidates === 1 ? '' : 's')
-                        + (batches.length > 1 ? ' — part ' + (b + 1) + ' of ' + batches.length : '') + '… ');
-                    const rs = await exec(server + '/py/bio/loss-matrix.py', em,
-                        JSON.stringify({ species: (r.species || 'human'), variants: batches[b] }));
-                    if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the variants');
-                    let gs = [], cs = {}, ns = [];
-                    try { gs = JSON.parse(rs.genes || '[]'); } catch (e) { gs = []; }
-                    try { cs = JSON.parse(rs.counts || '{}'); } catch (e) { cs = {}; }
-                    try { ns = JSON.parse(rs.notes || '[]'); } catch (e) { ns = []; }
-                    for (const g of gs) genes.push(g);
-                    for (const k in cs) counts[k] = (counts[k] || 0) + cs[k];
-                    for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
-                    scanned += (+rs.scanned || 0);
-                }
+                const genes = R.genes, counts = R.counts, notes = R.notes, scanned = R.scanned, considered = R.considered;
                 if (hap && unphasedLeftOut) notes.push(unphasedLeftOut.toLocaleString() + ' unphased heterozygous variant' + (unphasedLeftOut === 1 ? '' : 's')
                     + ' could not be placed on a haplotype and ' + (unphasedLeftOut === 1 ? 'was' : 'were') + ' left out of this ' + hapWord(hap) + ' matrix.');
                 annotateLossZygosity(genes, si, hap);
@@ -5650,6 +5667,150 @@ function (path, config) {
                 lossBusy = false;
                 try { graph.setError(' The loss matrix could not be calculated: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
             }
+        };
+
+        // ---- THE DIFFERENTIAL LOSS MATRIX ---------------------------------------------------
+        //
+        // TWO GENOMES, ONE QUESTION: what has one lost that the other has not? A tumour
+        // against its normal, a relapse against its primary, two cell lines. The two are
+        // either the two SIDES the viewer draws -- a second file loaded on the left of the
+        // chromosomes -- or two SAMPLE columns of one file. Each side gets the same loss
+        // matrix the microscope calculates, and the genes are then sorted into only-A,
+        // only-B and both, with each side's consequence and zygosity kept.
+        const HL_DIFF_A = 41, HL_DIFF_B = 42, HL_DIFF_BOTH = 43;
+        HL_COLOR[HL_DIFF_A] = '#dc2626'; HL_NAME[HL_DIFF_A] = 'lost in A only';
+        HL_COLOR[HL_DIFF_B] = '#2563eb'; HL_NAME[HL_DIFF_B] = 'lost in B only';
+        HL_COLOR[HL_DIFF_BOTH] = '#7c3aed'; HL_NAME[HL_DIFF_BOTH] = 'lost in both';
+        let diffResult = null;          // { spec, A:{label, genes}, B:{label, genes}, onlyA, onlyB, both, at }
+        let diffBusy = false;
+        const sideCounts = () => { let l = 0, t = 0; for (const d of vdata) { if (!d) continue; t += d.n || 0; l += d.nL || 0; } return { left: l, right: t - l, total: t }; };
+        const sideName = (sd) => (sd ? 'left file' : 'right file');
+        const diffSpecs = () => {
+            const specs = [];
+            const sc = sideCounts();
+            if (sc.left && sc.right) specs.push({ kind: 'side', a: 0, b: 1, labelA: sideName(0), labelB: sideName(1), nA: sc.right, nB: sc.left,
+                blurb: 'The file drawn on the right of the chromosomes against the one loaded on the left.' });
+            for (let i = 0; i < SAMPLES.length; i++) for (let j = 0; j < SAMPLES.length; j++) {
+                if (i === j) continue;
+                const pa = phaseCounts(i), pb = phaseCounts(j);
+                if (!pa.all || !pb.all) continue;
+                specs.push({ kind: 'sample', a: i, b: j, labelA: SAMPLES[i], labelB: SAMPLES[j], nA: pa.all, nB: pb.all,
+                    blurb: SAMPLES[i] + ' (A) against ' + SAMPLES[j] + ' (B): what A has lost that B has not, and the reverse.' });
+            }
+            return specs;
+        };
+        const diffInclude = (spec, which) => {
+            if (spec.kind === 'side') { const sd = which === 'A' ? spec.a : spec.b; return (d, k) => ((d.side ? d.side[k] : 0) === sd); }
+            const si = which === 'A' ? spec.a : spec.b;
+            return (d, k) => (d.gtw > si && gtOf(d, k, si) >= GT_HET);
+        };
+        const computeDiffLossMatrix = async (spec) => {
+            if (diffBusy || lossBusy) { graph.setMessage(' A loss matrix is still being calculated. '); return; }
+            diffBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const RA = await computeLossFor('A · ' + spec.labelA, diffInclude(spec, 'A'), em);
+                const RB = await computeLossFor('B · ' + spec.labelB, diffInclude(spec, 'B'), em);
+                annotateLossZygosity(RA.genes, spec.kind === 'sample' ? spec.a : -1, '');
+                annotateLossZygosity(RB.genes, spec.kind === 'sample' ? spec.b : -1, '');
+                const mapA = new Map(RA.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
+                const mapB = new Map(RB.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
+                const onlyA = [], onlyB = [], both = [];
+                for (const [k, g] of mapA) { if (mapB.has(k)) both.push({ gene: g.gene, A: g, B: mapB.get(k) }); else onlyA.push({ gene: g.gene, A: g, B: null }); }
+                for (const [k, g] of mapB) if (!mapA.has(k)) onlyB.push({ gene: g.gene, A: null, B: g });
+                const byTsg = (x, y) => ((lossIsTsg(x.A || x.B) ? 0 : 1) - (lossIsTsg(y.A || y.B) ? 0 : 1)) || ('' + x.gene).localeCompare('' + y.gene);
+                onlyA.sort(byTsg); onlyB.sort(byTsg); both.sort(byTsg);
+                diffResult = { spec: spec, A: { label: spec.labelA, genes: RA.genes, scanned: RA.scanned, considered: RA.considered },
+                    B: { label: spec.labelB, genes: RB.genes, scanned: RB.scanned, considered: RB.considered },
+                    onlyA: onlyA, onlyB: onlyB, both: both, notes: RA.notes, at: new Date().toISOString() };
+                const marked = applyDiffHighlights(true);
+                graph.setMessage(' ' + spec.labelA + ' vs ' + spec.labelB + ': ' + onlyA.length + ' lost only in A, ' + onlyB.length + ' only in B, ' + both.length + ' in both; ' + marked + ' variants marked. ');
+                step('differential loss ' + spec.labelA + ' vs ' + spec.labelB + ': ' + onlyA.length + '/' + onlyB.length + '/' + both.length);
+                diffBusy = false;
+                diffMenu();
+            } catch (e) {
+                diffBusy = false;
+                try { graph.setError(' The differential loss matrix could not be calculated: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
+            }
+        };
+        // Red for A only, blue for B only, purple for both: the variants of each gene in
+        // its own category's colour, and a band per gene (tumour suppressors and A-only
+        // first, capped like the loss matrix's bands).
+        const applyDiffHighlights = (withBands) => {
+            if (!diffResult) return 0;
+            for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
+            try { hlSamples.clear(); } catch (e) { }
+            let marked = 0;
+            const mark = (g, code) => {
+                if (!g) return;
+                const ci = chromIndexOf(g.chr); if (ci < 0) return;
+                for (const v of (g.variants || [])) { const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt); if (k >= 0) { vdata[ci].hl[k] = code; marked++; } }
+            };
+            for (const x of diffResult.onlyA) mark(x.A, HL_DIFF_A);
+            for (const x of diffResult.onlyB) mark(x.B, HL_DIFF_B);
+            for (const x of diffResult.both) { mark(x.A, HL_DIFF_BOTH); mark(x.B, HL_DIFF_BOTH); }
+            if (withBands !== false) {
+                regions = (regions || []).filter((rg) => !rg.lof);
+                const ordered = [].concat(diffResult.onlyA.map((x) => [x, 'only ' + diffResult.A.label]), diffResult.onlyB.map((x) => [x, 'only ' + diffResult.B.label]), diffResult.both.map((x) => [x, 'both']));
+                ordered.sort((p, q) => ((lossIsTsg(p[0].A || p[0].B) ? 0 : 1) - (lossIsTsg(q[0].A || q[0].B) ? 0 : 1)));
+                for (const [x, word] of ordered.slice(0, LOF_BAND_MAX)) {
+                    const g = x.A || x.B; const ci = chromIndexOf(g.chr); if (ci < 0) continue;
+                    const v = (g.variants || [])[0] || {};
+                    regions.push({ i: ci, lo: +g.start, hi: +g.end, gene: g.gene, lof: true, label: g.gene + ' — ' + word + ' · ' + lossWord(v.effect) + (v.hgvs_p ? ' ' + v.hgvs_p : '') });
+                }
+            }
+            hlActive = marked ? HL_DIFF_BOTH : 0;
+            reindexHighlights();
+            if (hlActive) startHlPulse();
+            if (graph.wake) graph.wake();
+            return marked;
+        };
+        const diffCSV = () => {
+            const rows = [];
+            const R = diffResult;
+            const side = (g) => (g ? { effect: (g.variants[0] || {}).effect || '', hgvs_p: (g.variants[0] || {}).hgvs_p || '', zygosity: g.zygosity || '', n_lof: g.n_lof } : { effect: '', hgvs_p: '', zygosity: '', n_lof: 0 });
+            const push = (x, status) => { const a = side(x.A), b = side(x.B); const g = x.A || x.B; rows.push({ gene: x.gene, status: status, chrom: g.chr, gene_start: g.start, gene_end: g.end, tumour_suppressor: lossIsTsg(g) ? 1 : 0,
+                A: R.A.label, A_effect: a.effect, A_hgvs_p: a.hgvs_p, A_zygosity: a.zygosity, A_n_lof: a.n_lof, B: R.B.label, B_effect: b.effect, B_hgvs_p: b.hgvs_p, B_zygosity: b.zygosity, B_n_lof: b.n_lof }); };
+            R.onlyA.forEach((x) => push(x, 'only A')); R.onlyB.forEach((x) => push(x, 'only B')); R.both.forEach((x) => push(x, 'both'));
+            return dlToCSV(rows);
+        };
+        const diffPickerBooks = () => {
+            const specs = diffSpecs();
+            const books = [{ section: 'Differential', note: true, title: specs.length ? 'Choose the two to compare. A is the reference the report is written from: "only in A" is what A has lost that B has not.'
+                : 'Nothing to compare yet: load a second VCF on the left of the chromosomes (Upload asks where a new file goes), or load a VCF with two samples.' }];
+            specs.forEach((sp) => books.push({ section: 'Differential', title: sp.labelA + '  vs  ' + sp.labelB, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
+                blurb: sp.blurb + ' (' + sp.nA.toLocaleString() + ' vs ' + sp.nB.toLocaleString() + ' variants)', ready: true, open: () => computeDiffLossMatrix(sp) }));
+            return books;
+        };
+        const diffMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!diffResult) { analysisMenu(); return; }
+            const R = diffResult;
+            const books = [];
+            books.push({ section: 'Differential loss matrix', note: true, title: R.A.label + ' (A) vs ' + R.B.label + ' (B): ' + R.onlyA.length + ' gene' + (R.onlyA.length === 1 ? '' : 's') + ' lost only in A, ' + R.onlyB.length + ' only in B, ' + R.both.length + ' in both. '
+                + 'A: ' + R.A.genes.length + ' lost among ' + (R.A.scanned || 0).toLocaleString() + ' exonic variants; B: ' + R.B.genes.length + ' among ' + (R.B.scanned || 0).toLocaleString() + '.' + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') });
+            books.push({ section: 'Differential loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_DIFF_BOTH ? 'on' : 'off', icon: 'highlight',
+                blurb: 'Red for genes lost only in A, blue only in B, purple in both; bands on the first ' + LOF_BAND_MAX + '.', ready: true,
+                open: () => { try { if (hlActive === HL_DIFF_BOTH) { clearLossMatrix(false); } else applyDiffHighlights(true); } catch (e) { } diffMenu(); } });
+            books.push({ section: 'Differential loss matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                blurb: 'One row per gene with its status and each side\'s consequence and zygosity.',
+                open: () => { try { dlSaveText(diffCSV(), dlSafe(dlSpecies() + '_' + R.A.label + '_vs_' + R.B.label + '_differential_loss') + '.csv', 'text/csv'); dlMsg('Differential downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Differential loss matrix', title: 'Select all lost only in A', badge: R.onlyA.length + ' genes', icon: 'done_all', ready: R.onlyA.length > 0, readyNote: 'none',
+                blurb: 'Put A\'s private losses into the microscope\'s selection, for ' + BAJA3 + '.', open: () => { R.onlyA.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.A)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
+            books.push({ section: 'Differential loss matrix', title: 'Select all lost only in B', badge: R.onlyB.length + ' genes', icon: 'done_all', ready: R.onlyB.length > 0, readyNote: 'none',
+                blurb: 'Put B\'s private losses into the selection.', open: () => { R.onlyB.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.B)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
+            books.push({ section: 'Differential loss matrix', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => diffPickerBooks() });
+            const card = (x, sec, sw) => {
+                const g = x.A || x.B; const on = isSelected(x.gene);
+                const one = (h, side) => (h ? side + ': ' + lossWord((h.variants[0] || {}).effect) + ((h.variants[0] || {}).hgvs_p ? ' ' + h.variants[0].hgvs_p : '') + (h.zygosity && h.zygosity !== 'unknown' ? ' (' + h.zygosity + ')' : '') : '');
+                return { section: sec, title: (on ? '✓ ' : '') + x.gene, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
+                    blurb: [one(x.A, 'A'), one(x.B, 'B')].filter(Boolean).join(' · ') + ' · ' + g.chr + ':' + human(g.start) + '-' + human(g.end),
+                    ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + x.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); diffMenu(); } };
+            };
+            if (R.onlyA.length) { books.push({ section: 'Lost only in A — ' + R.A.label, note: true, title: 'Genes with a loss-of-function variant in A and none in B. Click to select.' }); R.onlyA.forEach((x) => books.push(card(x, 'Lost only in A — ' + R.A.label, '#dc2626'))); }
+            if (R.onlyB.length) { books.push({ section: 'Lost only in B — ' + R.B.label, note: true, title: 'Genes lost in B and intact in A.' }); R.onlyB.forEach((x) => books.push(card(x, 'Lost only in B — ' + R.B.label, '#2563eb'))); }
+            if (R.both.length) { books.push({ section: 'Lost in both', note: true, title: 'Shared losses; each side\'s change is shown, they need not be the same variant.' }); R.both.forEach((x) => books.push(card(x, 'Lost in both', '#7c3aed'))); }
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Differential loss matrix', subtitle: R.A.label + ' (A) vs ' + R.B.label + ' (B)', graph: graph, books: books });
         };
 
         // ONE ROW PER LOSS-OF-FUNCTION VARIANT, with the gene it lands in: the same shape
@@ -6590,6 +6751,14 @@ function (path, config) {
                 calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
             }
             books.push(calc);
+            {
+                const specs = diffSpecs();
+                books.push({ section: 'Loss matrix', title: 'Differential loss matrix', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
+                    blurb: 'Two files (one loaded on the left of the chromosomes) or two samples: which genes one has lost that the other has not, and which both have.',
+                    ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
+                if (diffResult) books.push({ section: 'Loss matrix', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
+                    blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
+            }
             if (lossMatrix) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
