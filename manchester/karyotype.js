@@ -11261,6 +11261,7 @@ function (path, config) {
                 // sort -- works because every loader goes down it.
                 const rows = [];
                 const perGene = {};
+                const dzBands = [];
                 let scanned = 0, offMim = 0;
                 for (let i = 0; i < loci.length; i++) {
                     const g = loci[i];
@@ -11310,7 +11311,10 @@ function (path, config) {
                         kept++;
                         if (kept >= DZ_MAX_PER_GENE) break;
                     }
-                    if (kept) perGene[sym] = kept;
+                    if (kept) {
+                        perGene[sym] = kept;
+                        dzBands.push({ ci: ci, lo: Math.round(+g.start), hi: Math.round(+g.end), gene: sym, n: kept });
+                    }
                     await new Promise((res) => setTimeout(res, 0));
                 }
                 if (!rows.length) {
@@ -11335,6 +11339,25 @@ function (path, config) {
                 // naming a side after a source that drew nothing labels a gutter holding
                 // somebody else's variants.
                 try { sideFile[loadSide] = disease; } catch (e) { }
+                // BAND THE GENES THEMSELVES. Marks alone put a few thousand dots inside CFTR
+                // and nothing that says CFTR: at whole-genome zoom they are a smudge on 7q,
+                // and the per-variant labels do not help either, since names are only kept
+                // while the whole genome holds fewer than OBJECT_CAP marks and a loaded VCF
+                // spends that budget long before a disease is asked for. A band is the thing
+                // that survives both -- drawn at any zoom, named, and clickable -- and it is
+                // the same mechanism the loss matrix uses to point at a gene.
+                //
+                // Only the previous DISEASE bands are cleared, not every banded result: asking
+                // for a second disease should not silently throw away a loss matrix.
+                try {
+                    regions = (regions || []).filter((rg) => !(rg.lof && rg.dz));
+                    for (const b of dzBands.slice(0, LOF_BAND_MAX)) {
+                        regions.push({ i: b.ci, lo: b.lo, hi: b.hi, gene: b.gene, lof: true, dz: true,
+                            label: b.gene + ' \u2014 ' + disease + ' \u00b7 ' + b.n.toLocaleString()
+                                + ' mutation' + (b.n === 1 ? '' : 's') });
+                    }
+                    if (graph.wake) graph.wake();
+                } catch (e) { step('disease bands failed: ' + e); }
                 dzLast = disease;
                 try { if (panel && panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
                 const named = Object.keys(perGene).map((k) => k + ' ' + perGene[k]).join(', ');
