@@ -761,6 +761,21 @@ function (path, config) {
             },
         ];
 
+        // RECORDING WORKS HERE TOO. recorder.js watches the canvas and the toolbar, both of
+        // which this screen has, so the header's Record button should reach the genome viewer
+        // and not only the editor. Playback does not: the panel that takes a pasted script
+        // belongs to the editor, and the header says so rather than opening something here
+        // that cannot run it.
+        try {
+            window.__bajaRecordHook = {
+                where: 'karyotype',
+                record: () => {
+                    try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
+                    catch (e) { try { graph.setError(' Recorder failed: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { } }
+                },
+            };
+        } catch (e) { }
+
         // The SAME nesting editor.js uses: a geneGraphPanel card holding the toolbar row and
         // the canvas row, wrapped in a mainPanel card. Flattening the two into one card is
         // the obvious simplification and it is not what the renderer is fed anywhere else, so

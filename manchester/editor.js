@@ -2471,30 +2471,37 @@ function (path, config) {
                         return !!u && RECORDER_USERS.indexOf(u) >= 0;
                     } catch (e) { return false; }
                 })();
+                // THE HEADER CAN REACH THESE TOO. The app's top row is on every screen and
+                // this editor is not, so the editor registers what it can do rather than the
+                // header knowing how to do it. A later screen overwrites the registration and
+                // the header checks it exists before calling, so nothing has to clear it.
+                const __doRecord = () => {
+                    try { graph.hideMenu(); } catch (e) { }
+                    try { graph.showSideMenu(null); } catch (e) { }
+                    try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
+                    catch (e) {
+                        try { graph.setError(' Recorder failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                    }
+                };
+                const __doPlay = () => {
+                    try { graph.hideMenu(); } catch (e) { }
+                    try { graph.showSideMenu(null); } catch (e) { }
+                    try { openPlayScriptPanel(); }
+                    catch (e) {
+                        try { graph.setError(' Could not open the play panel: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                    }
+                };
+                try { window.__bajaRecordHook = { where: 'editor', record: __doRecord, play: __doPlay }; } catch (e) { }
                 const __devButtons = !__isRecorderUser ? [] : [
                     {
                         label: 'Record', icon: 'fiber_manual_record',
                         tooltip: 'Record what you do, then emit a script that replays it',
-                        ionFunction: createIonFunction(() => {
-                            try { graph.hideMenu(); } catch (e) { }
-                            try { graph.showSideMenu(null); } catch (e) { }
-                            try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
-                            catch (e) {
-                                try { graph.setError(' Recorder failed: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
-                            }
-                        })
+                        ionFunction: createIonFunction(() => { __doRecord(); })
                     },
                     {
                         label: 'Play', icon: 'play_arrow',
                         tooltip: 'Paste a recorded script and run it',
-                        ionFunction: createIonFunction(() => {
-                            try { graph.hideMenu(); } catch (e) { }
-                            try { graph.showSideMenu(null); } catch (e) { }
-                            try { openPlayScriptPanel(); }
-                            catch (e) {
-                                try { graph.setError(' Could not open the play panel: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
-                            }
-                        })
+                        ionFunction: createIonFunction(() => { __doPlay(); })
                     }
                 ];
 
