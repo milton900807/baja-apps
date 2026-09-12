@@ -3120,10 +3120,61 @@ function (path, config) {
         };
         // zoomRect takes (x0, x1, yTop, yBottom); y runs negative downward, so the TOP of
         // the view is the larger y.
+        // ---- HOW A ZOOM MOVES ---------------------------------------------------
+        //
+        // Two things were wrong with the way this travelled, and they compounded.
+        //
+        // A zoom is a change of SCALE, and scale is multiplicative. Stepping the span
+        // linearly from a whole genome down to a gene spends most of the animation crawling
+        // across the last few hundred kilobases and then arrives in a rush: the first half
+        // covers almost no visible change and the last few frames cover nearly all of it.
+        // Interpolating the span geometrically -- the same FRACTION of the remaining scale
+        // each frame -- is what makes a zoom read as one movement.
+        //
+        // And the curve on top of it eased in AND out, so the flight also started slowly.
+        // Leaving fast and settling in is the right shape for going somewhere you have
+        // already chosen: the beginning is the part you know, and the end is the part you
+        // need to see arrive.
+        const __easeOut = (t) => 1 - Math.pow(1 - t, 3);
+        const __zmix = (A, B, t) => {
+            const aw = Math.abs(A.x1 - A.x0), bw = Math.abs(B.x1 - B.x0);
+            const ah = Math.abs(A.y1 - A.y0), bh = Math.abs(B.y1 - B.y0);
+            const lin = (a, b) => a + (b - a) * t;
+            if (!(aw > 0 && bw > 0 && ah > 0 && bh > 0)) {
+                return { x0: lin(A.x0, B.x0), x1: lin(A.x1, B.x1), y0: lin(A.y0, B.y0), y1: lin(A.y1, B.y1) };
+            }
+            const W = aw * Math.pow(bw / aw, t), H = ah * Math.pow(bh / ah, t);
+            const X = lin((A.x0 + A.x1) / 2, (B.x0 + B.x1) / 2);
+            const Y = lin((A.y0 + A.y1) / 2, (B.y0 + B.y1) / 2);
+            // The sign of the target's own axes is kept, so a view whose y runs downward
+            // does not get flipped halfway there.
+            const sx = (B.x1 >= B.x0) ? 1 : -1, sy = (B.y1 >= B.y0) ? 1 : -1;
+            return { x0: X - sx * W / 2, x1: X + sx * W / 2, y0: Y - sy * H / 2, y1: Y + sy * H / 2 };
+        };
+        const tweenView = (to, ms) => new Promise((done) => {
+            let from = null;
+            try { from = viewOf(); } catch (e) { from = null; }
+            if (!from || !isFinite(from.x0)) { done(false); return; }
+            try { if (__flyRAF) { cancelAnimationFrame(__flyRAF); __flyRAF = 0; } } catch (e) { }
+            const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+            const t0 = now();
+            const stepFn = () => {
+                const e = now() - t0;
+                const t = Math.min(1, e / ms);
+                try { setViewExact(__zmix(from, to, __easeOut(t))); } catch (er) { __flyRAF = 0; done(false); return; }
+                if (t < 1) { try { __flyRAF = requestAnimationFrame(stepFn); } catch (er) { __flyRAF = 0; done(true); } }
+                else { __flyRAF = 0; done(true); }
+            };
+            try { __flyRAF = requestAnimationFrame(stepFn); } catch (e) { done(false); }
+        });
         const goView = async (v) => {
             if (!v || !isFinite(v.x0) || !isFinite(v.y0)) return false;
             if (!animWouldReshape(v)) {
-                try { await graph.zoomRect(v.x0, v.x1, v.y1, v.y0, 30); } catch (e) { }
+                // Our own tween rather than the library's fixed thirty linear steps, so the
+                // curve above is the one the eye actually gets.
+                let flew = false;
+                try { flew = await tweenView(v, 460); } catch (e) { flew = false; }
+                if (!flew) { try { await graph.zoomRect(v.x0, v.x1, v.y1, v.y0, 30); } catch (e) { } }
             }
             // Set exactly whether or not it animated: the animation walks in a fixed
             // number of increments and stops near the target, not on it, and near is a
@@ -3160,7 +3211,7 @@ function (path, config) {
             const gv = __genomeView();
             const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
             const L = (a, b, t) => a + (b - a) * t;
-            const mix = (A, B, t) => ({ x0: L(A.x0, B.x0, t), x1: L(A.x1, B.x1, t), y0: L(A.y0, B.y0, t), y1: L(A.y1, B.y1, t) });
+            const mix = (A, B, t) => __zmix(A, B, t);
             // Skip the zoom-out leg when the target already IS (about) the whole genome, or
             // when the current view is already framed wider than the genome frame.
             const targetW = Math.abs(tv.x1 - tv.x0), genomeW = Math.abs(gv.x1 - gv.x0);
@@ -3175,8 +3226,10 @@ function (path, config) {
             const stepFn = () => {
                 const e = now() - t0;
                 let v;
+                // Out is eased both ends -- it is a retreat and should start gently. In is
+                // eased out only: away fast, settling onto the target.
                 if (OUT_MS > 0 && e < OUT_MS) v = mix(start, gv, ease(e / OUT_MS));
-                else v = mix(from, tv, ease(Math.min(1, (e - OUT_MS) / IN_MS)));
+                else v = mix(from, tv, __easeOut(Math.min(1, (e - OUT_MS) / IN_MS)));
                 setViewExact(v);
                 if (e < total) { try { __flyRAF = requestAnimationFrame(stepFn); } catch (er) { __flyRAF = 0; setViewExact(tv); pan(); } }
                 else { __flyRAF = 0; setViewExact(tv); pan(); }
@@ -3737,6 +3790,51 @@ function (path, config) {
         // The genotype bytes for one row, for one alt index: null when the row has no
         // sample columns. `count.cols` maps the row's sample columns to SAMPLES slots and
         // is set from the #CHROM line, or from the first row when a paste has no header.
+        // IS THIS MARK ALREADY ON THE GENOME?
+        //
+        // Searches accumulate now, which is what was wanted and also what makes this
+        // necessary: asking for the same condition twice, or for two conditions that share a
+        // gene, used to draw every one of those ClinVar records a second time on top of the
+        // first. Nothing looked different -- the marks land on the same pixel -- but the
+        // counts doubled, the density strips lied, and a differential run over them counted
+        // each site twice.
+        //
+        // A mark is redundant when the same change is already drawn ON THE SAME SIDE and the
+        // incoming row carries no genotype the existing one does not. That last clause is the
+        // careful part: two samples legitimately share positions, and the genotype is the
+        // payload, so a row with a call the stored mark does not have is NOT redundant and
+        // goes in. A sites-only row -- ClinVar, and so every disease search -- has no payload
+        // at all, so a second copy of it can never add anything.
+        //
+        // Positions are sorted, so this is a bisection and a walk over the ties, and it is
+        // skipped entirely on the first load, where nothing can be redundant yet.
+        const dedupeWanted = (count) => {
+            if (count.__dedupe == null) {
+                const l = leftTotal();
+                count.__dedupe = (loadSide ? l : (vtotal - l)) > 0;
+            }
+            return count.__dedupe;
+        };
+        const alreadyDrawn = (ci, pos, refU, altU, gt, cols) => {
+            const d = vdata[ci];
+            if (!d || !d.n) return false;
+            let lo = 0, hi = d.n - 1;
+            while (lo < hi) { const m = (lo + hi) >> 1; if (d.pos[m] < pos) lo = m + 1; else hi = m; }
+            for (let k = lo; k < d.n && d.pos[k] === pos; k++) {
+                if ((d.side ? d.side[k] : 0) !== loadSide) continue;
+                const ab = allelesAt(ci, k);
+                if (ab[0] !== refU || ab[1] !== altU) continue;
+                if (!gt) return true;                       // nothing to add
+                let adds = false;
+                for (let j = 0; j < cols.length; j++) {
+                    const si = cols[j];
+                    if (si < 0) continue;
+                    if (gtOf(d, k, si) !== gt[si]) { adds = true; break; }
+                }
+                if (!adds) return true;
+            }
+            return false;
+        };
         const gtRow = new Uint8Array(GT_MAX);
         const cfRow = new Uint8Array(GT_MAX);
         const bfRow = new Uint8Array(GT_MAX);
@@ -3805,15 +3903,25 @@ function (path, config) {
                 const refU = f[3].toUpperCase();
                 if (alts.indexOf(',') < 0) {
                     if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
-                    if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                    { const gt = genotypesOfRow(f, count, 1); pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++; }
+                    {
+                        const aU = alts.toUpperCase();
+                        const gt = genotypesOfRow(f, count, 1);
+                        if (dedupeWanted(count) && alreadyDrawn(ci, pos, refU, aU, gt, count.cols || [])) { count.dup = (count.dup || 0) + 1; continue; }
+                        if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
+                        pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++;
+                    }
                 } else {
                     const each = alts.split(',');
                     for (let ai = 0; ai < each.length; ai++) {
                         const a = each[ai];
                         if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
-                        if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        { const gt = genotypesOfRow(f, count, ai + 1); pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++; }
+                        {
+                            const aU = a.toUpperCase();
+                            const gt = genotypesOfRow(f, count, ai + 1);
+                            if (dedupeWanted(count) && alreadyDrawn(ci, pos, refU, aU, gt, count.cols || [])) { count.dup = (count.dup || 0) + 1; continue; }
+                            if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
+                            pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++;
+                        }
                     }
                 }
             }
@@ -4000,6 +4108,7 @@ function (path, config) {
                 + (count.cols && count.cols.length ? ' · ' + count.cols.length + ' sample' + (count.cols.length === 1 ? '' : 's')
                     + (count.phased ? ', ' + count.phased.toLocaleString() + ' phased' : '') + modeNote : '')
                 + (count.offGenome ? ' · ' + count.offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
+                + (count.dup ? ' · ' + count.dup.toLocaleString() + ' already on the genome' : '')
                 + (count.skipped ? ' · ' + count.skipped.toLocaleString() + ' symbolic or malformed' : '')
                 + '. ');
             // The sex of each sample that carries calls, said once and then gone.
@@ -11553,7 +11662,13 @@ function (path, config) {
                 const rows = [];
                 const perGene = {};
                 const dzBands = [];
-                let scanned = 0, offMim = 0;
+                // GENES OVERLAP, AND A RECORD IN THE OVERLAP IS ONE RECORD. Two genes whose
+                // spans share bases are read as two windows, and every ClinVar record in the
+                // shared part comes back from both. The ingest test only knows what is
+                // already drawn, not what this same batch has queued, so the batch dedupes
+                // itself here.
+                const seenRow = new Set();
+                let scanned = 0, offMim = 0, dupRows = 0;
                 for (let i = 0; i < loci.length; i++) {
                     const g = loci[i];
                     const sym = ('' + (g.query || g.gene || '')).toUpperCase();
@@ -11595,6 +11710,9 @@ function (path, config) {
                         // the gene locus is a separate lookup and a disagreement between them
                         // should place the variant where ClinVar says it is.
                         const chr = ('' + (v.chr || g.chr || ''));
+                        const rowKey = chr + ':' + v.start + ':' + ref + ':' + alt;
+                        if (seenRow.has(rowKey)) { dupRows++; continue; }
+                        seenRow.add(rowKey);
                         rows.push([chr, '' + v.start, id, ref, alt, '.', '.',
                             'CLNSIG=' + dzSig(v).replace(/[;\t ,]+/g, '_')
                             + ';GENEINFO=' + sym
