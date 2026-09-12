@@ -8123,13 +8123,30 @@ function (path, config) {
         };
         const lofLabelClick = (rg) => {
             if (!rg || !rg.lof || !rg.gene) return false;
+            // THE MENU SHOULD NOT NEED A FAST HAND.
+            //
+            // Clicking a gene band selected it, and the only way to the menu -- zoom into it,
+            // open it in the editor, its statistics, take it off -- was a second click inside
+            // half a second. That is a gesture you have to already know about to find, and
+            // the message saying so went by with everything else. So the second click just
+            // opens the menu, at whatever speed it comes.
+            //
+            // Selecting stays the first click's job, because building a background by
+            // clicking gene after gene is what that is for. Once a gene IS selected there is
+            // nothing another click can toggle that the menu does not do better, and the
+            // menu opens with Deselect at the top.
+            //
+            // A band from a disease search is not part of a background at all -- it is a
+            // search result -- so it goes straight to the menu and never selects.
+            if (rg.dz) return false;
             const key = ('' + rg.gene).toUpperCase();
             const now = Date.now();
-            if (__lofClickKey === key && now - __lofClickAt < 500) { __lofClickKey = ''; return false; }   // second click: the menu
+            if (isSelected(key)) { __lofClickKey = ''; return false; }
+            if (__lofClickKey === key && now - __lofClickAt < 900) { __lofClickKey = ''; return false; }
             __lofClickKey = key; __lofClickAt = now;
             const on = toggleGeneSelect(lofRecordFor(rg));
             graph.setMessage(' ' + rg.gene + (on ? ' selected' : ' deselected') + ' — ' + selWord()
-                + ' for the microscope. Click again quickly for the menu. ');
+                + ' for the microscope. Click it again for the menu. ');
             if (graph.wake) graph.wake();
             return true;
         };
