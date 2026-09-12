@@ -152,7 +152,6 @@ else:
                 keep["target"] = target
                 keep["losses"] = losses
                 keep["source"] = source
-                keep["model"] = ANTHROPIC_MODEL
                 out["ok"] = True
                 out["rationale"] = json.dumps(keep)
                 works.msg("%s: %s confidence" % (target, keep["confidence"]))

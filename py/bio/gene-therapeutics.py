@@ -77,7 +77,7 @@ THERAPEUTIC = ["synthetic_lethal_vulnerability", "remaining_allele_target", "sen
                "resistance_biomarker", "existing_drug", "clinical_trial", "none"]
 EVIDENCE = ["human_clinical", "in_vivo_model", "cell_knockdown", "computational_only"]
 
-out = {"ok": False, "genes": "{}", "notes": "[]", "model": ANTHROPIC_MODEL, "error": None}
+out = {"ok": False, "genes": "{}", "notes": "[]", "error": None}
 
 SYSTEM = (
     "You are a cancer pharmacologist annotating genes a tumour has LOST (loss-of-function variants). "

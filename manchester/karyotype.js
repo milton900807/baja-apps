@@ -6531,7 +6531,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Summary', title: R.target + ' with ' + (R.losses || []).join(' + ') + ' lost', badge: conf + ' confidence', swatch: confColor, icon: 'psychology', ready: true,
                 blurb: R.summary, open: () => { } });
-            books.push({ section: 'Summary', note: true, title: 'General knowledge read around a ' + BAJA3 + ' result by ' + (R.model || 'Claude') + ' — a rationale to test, not a finding.' });
+            books.push({ section: 'Summary', note: true, title: 'General knowledge read around a ' + BAJA3 + ' result — a rationale to test, not a finding.' });
             books.push(...sect('What ' + R.target + ' does', R.target_role));
             books.push(...sect('Why the losses make a cell depend on it', R.mechanism));
             books.push(...sect('What the numbers say', R.evidence));
@@ -6543,7 +6543,7 @@ function (path, config) {
                 open: async () => {
                     const txt = [R.target + ' with ' + (R.losses || []).join(' + ') + ' lost — ' + conf + ' confidence', '', 'Summary: ' + R.summary,
                         'Target role: ' + R.target_role, 'Mechanism: ' + R.mechanism, 'Evidence: ' + R.evidence, 'Precedent: ' + R.precedent,
-                        'Caveats: ' + R.caveats, 'Druggability: ' + R.druggability, '', 'Read by ' + (R.model || 'Claude') + ' around DepMap / paralog-model statistics; general knowledge, not a finding.'].join('\n');
+                        'Caveats: ' + R.caveats, 'Druggability: ' + R.druggability, '', 'Read around DepMap / paralog-model statistics; general knowledge, not a finding.'].join('\n');
                     try { await navigator.clipboard.writeText(txt); graph.setMessage(' Explanation copied. '); } catch (e) { graph.setMessage(' Could not copy: ' + (e && e.message ? e.message : e) + ' '); }
                 } });
             books.push({ section: 'Next', title: 'Back', badge: 'targets', icon: 'arrow_back', ready: true, blurb: 'Back to the list.', open: () => { try { (back || slTargetsMenu)(); } catch (e) { } } });
@@ -7143,7 +7143,6 @@ function (path, config) {
                 const got = JSON.parse(rs.genes || '{}');
                 lossMatrix.ther = Object.assign(lossMatrix.ther || {}, got);
                 try { lossMatrix.therNotes = JSON.parse(rs.notes || '[]'); } catch (e) { lossMatrix.therNotes = []; }
-                lossMatrix.therModel = rs.model || '';
                 graph.setMessage(' Therapeutic evidence read for ' + Object.keys(got).length + ' of ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + '. ');
                 therBusy = false;
                 return true;
