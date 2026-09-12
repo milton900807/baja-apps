@@ -8397,9 +8397,9 @@ function (path, config) {
             if (slWhyCache.has(key)) { slWhyMenu(slWhyCache.get(key), back); return; }
             if (slWhyBusy) { graph.setMessage(' Still reading the previous explanation. '); return; }
             slWhyBusy = true;
-            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            const beat = workBeat('Working out why ' + target + ' would be synthetic-lethal with ' + (losses || []).join(', '));
+            const em = new EngineMonitor((m) => { try { beat.say(m); } catch (e) { } });
             try {
-                graph.setMessage(' Asking why ' + target + ' would be synthetic-lethal with ' + (losses || []).join(', ') + '… ');
                 const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
                     target: target, losses: losses || [], source: source || 'depmap',
                     tissue: (source === 'depmap' && slResult) ? (slResult.tissue || '') : '', stats: stats || {} }));
@@ -8407,9 +8407,11 @@ function (path, config) {
                 let R = null; try { R = JSON.parse(rs.rationale || '{}'); } catch (e) { R = null; }
                 if (!R || !R.summary) throw new Error('the explanation was empty');
                 slWhyCache.set(key, R);
+                beat.stop();
                 slWhyBusy = false;
                 slWhyMenu(R, back);
             } catch (e) {
+                beat.stop();
                 slWhyBusy = false;
                 try { graph.setError(' Could not explain ' + target + ': ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
             }
@@ -8477,7 +8479,8 @@ function (path, config) {
                     const key = 'depmap|' + t.target + '|' + R.genes.join('+') + '|' + (R.tissue || '');
                     let W = slWhyCache.get(key) || null;
                     if (!W) {
-                        dlMsg('Writing up ' + t.target + ' — ' + (i + 1) + ' of ' + ho.length + '…');
+                        const beat = workBeat('Writing up ' + t.target + ' — ' + (i + 1) + ' of ' + ho.length,
+                            (m) => { try { dlMsg(m); } catch (e2) { } });
                         try {
                             const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
                                 target: t.target, losses: R.genes, source: 'depmap', tissue: R.tissue || '',
@@ -8485,6 +8488,7 @@ function (path, config) {
                             if (rs && rs.ok) { try { W = JSON.parse(rs.rationale || '{}'); } catch (e) { W = null; } }
                             if (W && W.summary) slWhyCache.set(key, W); else W = null;
                         } catch (e) { W = null; }
+                        beat.stop();
                     } else {
                         dlMsg(t.target + ' — already written, ' + (i + 1) + ' of ' + ho.length + '…');
                     }
@@ -9644,6 +9648,24 @@ function (path, config) {
         // gene is looked up BEFORE the shelf opens rather than filled in after, because it is
         // a one-base query answering in a fifth of a second and it is what the buttons under
         // it have to name.
+        // A CALL THAT SPEAKS ONCE AND THEN THINKS reads as a call that has died. The server
+        // tools narrate their steps, but the gaps between those steps are several seconds of
+        // nothing, and a line that has not changed is the same thing on screen as a line that
+        // has stopped. This keeps the elapsed count moving under whatever was last said, so
+        // the only question left -- is it still going -- is answered without asking.
+        const workBeat = (base, sink) => {
+            const at = Date.now();
+            let t = null, last = base;
+            const write = sink || ((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            const draw = () => {
+                const secs = Math.round((Date.now() - at) / 1000);
+                try { write(last + (secs >= 3 ? '   ' + secs + 's' : '')); } catch (e) { }
+            };
+            draw();
+            try { t = setInterval(draw, 1000); } catch (e) { }
+            return { say: (m) => { if (m) { last = ('' + m).replace(/[.\u2026\s]+$/, ''); draw(); } },
+                stop: () => { try { if (t) clearInterval(t); } catch (e) { } t = null; } };
+        };
         const showVariant = async (ci, k) => {
             const c = drawn[ci], d = vdata[ci];
             const ab = allelesAt(ci, k);
@@ -9723,6 +9745,48 @@ function (path, config) {
                     graph.setMessage(' ' + (geneWord || where) + ' selected — region ' + regions.length + '. ');
                 },
             });
+            books.push({
+                section: 'Open it',
+                title: 'Zoom into it',
+                badge: 'view', icon: 'zoom_in', ready: true,
+                blurb: 'Frame this base on ' + c.name + ', close enough to read what is around it.',
+                open: () => {
+                    try {
+                        const pad = Math.max((lead ? (+lead.end - +lead.start) : 4000) * 0.6, 4000) / MB;
+                        goView({ x0: barLeft(ci) - 0.5 * SLOT, x1: barRight(ci) + 0.5 * SLOT,
+                            y0: wy(pos) - pad, y1: wy(pos) + pad });
+                    } catch (e) { }
+                },
+            });
+            books.push({
+                section: 'Open it',
+                title: 'Download this variant',
+                badge: 'csv', icon: 'file_download', ready: true,
+                blurb: 'One row: position, alleles, significance and its name.',
+                open: () => {
+                    try {
+                        dlSaveText(dlToCSV([dlVariantRow(ci, k)]), dlSafe(dlSpecies() + '_' + where.replace(/[:]/g, '_')) + '.csv', 'text/csv');
+                        dlMsg('Downloaded.');
+                    } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); }
+                },
+            });
+            // TAKING ONE MARK OFF. The file on disk is not touched -- this is the drawing,
+            // not the data -- and a reload or a fresh load brings it back, which is why it
+            // does not ask first. Matching on the index rather than the position removes
+            // exactly this mark and leaves any other change at the same base alone.
+            books.push({
+                section: 'Open it',
+                title: 'Delete this variant',
+                badge: 'takes it off', icon: 'delete_outline', ready: true,
+                blurb: 'Remove this mark from the genome. Only this one goes; the file it came from is untouched.',
+                open: () => {
+                    try {
+                        rebuildKeeping((ci2, pos2, k2) => !(ci2 === ci && k2 === k), 'removed ' + where);
+                        graph.setMessage(' ' + where + ' ' + change + ' removed \u2014 '
+                            + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's') + ' left. ');
+                    } catch (e) { graph.setError(' That could not be removed: ' + (e && e.message ? e.message : e) + ' ', 8); }
+                },
+            });
             // WHAT IS KNOWN ABOUT IT, asked for only when asked for: it is a model call and
             // most clicks on a mark are not a request for a dossier.
             books.push({
@@ -9732,10 +9796,10 @@ function (path, config) {
                 blurb: 'Ask for a written summary under fixed headings: what the change is, how '
                     + 'it was classified, the conditions it is seen in, and what is not established.',
                 books: async () => {
-                    graph.setMessage(' Reading up on ' + (nm || where) + '… ');
+                    const beat = workBeat('Reading up on ' + (nm || where));
                     let out = [];
                     try {
-                        const em5 = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                        const em5 = new EngineMonitor((m) => { try { beat.say(m); } catch (e) { } });
                         const rs = await exec(server + '/py/bio/variant-dossier.py', em5, JSON.stringify([{
                             key: where, name: nm || where, gene: geneWord, chr: bare, pos: pos,
                             ref: ab[0], alt: ab[1],
@@ -9758,6 +9822,7 @@ function (path, config) {
                     } catch (e) {
                         out = [{ note: true, title: 'error', blurb: 'That could not be read: ' + (e && e.message ? e.message : e) }];
                     }
+                    beat.stop();
                     if (!out.length) out = [{ note: true, title: 'nothing', blurb: 'Nothing came back for this variant.' }];
                     return out;
                 },
@@ -11381,14 +11446,39 @@ function (path, config) {
             if (!query) return;
             if (dzBusy) return;
             dzBusy = true;
-            const say = (m) => {
-                try { graph.setMessage(' ' + m + ' '); } catch (e) { }
+            // A LINE THAT DOES NOT MOVE READS AS A LINE THAT HAS STOPPED.
+            //
+            // The slow parts of this are two server round trips that think for several
+            // seconds and say nothing while they do. A status line holding the same words
+            // for eight seconds is indistinguishable from one that has hung, and the only
+            // thing the user can do about it is press the button again.
+            //
+            // So the line breathes: dots that cycle twice a second, and past three seconds
+            // the elapsed count, which is the part that says "still going" rather than
+            // "still here". Only the panel's own line animates -- the message bar under the
+            // chromosomes is set once per real step, because redrawing that twice a second
+            // for the whole genome is a cost paid for nothing.
+            let beatTimer = null, beatBase = '', beatAt = 0;
+            const beatStop = () => { try { if (beatTimer) clearInterval(beatTimer); } catch (e) { } beatTimer = null; };
+            const beatDraw = () => {
                 try {
                     const el = panel && panel.querySelector('#dz-status');
-                    if (el) el.textContent = m;
+                    if (!el) return;
+                    const ms = Date.now() - beatAt;
+                    el.textContent = beatBase + '.'.repeat(1 + (Math.floor(ms / 500) % 3))
+                        + (ms >= 3000 ? '   ' + Math.round(ms / 1000) + 's' : '');
                 } catch (e) { }
             };
+            const say = (m) => {
+                try { graph.setMessage(' ' + m + ' '); } catch (e) { }
+                beatBase = ('' + m).replace(/[.\u2026\s]+$/, '');
+                beatAt = Date.now();
+                beatStop();
+                beatDraw();
+                try { beatTimer = setInterval(beatDraw, 500); } catch (e) { }
+            };
             const fail = (m) => {
+                beatStop();
                 try { graph.setError(' ' + m + ' ', 12); } catch (e) { }
                 try {
                     const el = panel && panel.querySelector('#dz-status');
@@ -11404,7 +11494,11 @@ function (path, config) {
                 } catch (e) { }
             };
             arm(false);
-            const em = new EngineMonitor(() => { });
+            // EVERY STEP THE SERVER NARRATES REACHES THE PANEL. Both lookups already report
+            // what they are doing -- reading the words, choosing among the phenotypes they
+            // matched, finding the genes -- and that was being dropped on the floor, which
+            // is why the slowest part of the whole operation was also the quietest.
+            const em = new EngineMonitor((m) => { if (m) say('' + m); });
             try {
                 say('Reading "' + query + '"…');
                 const o = await exec(server + '/py/bio/omim-variants.py', em, query, '' + DZ_MAX_GENES);
@@ -11565,6 +11659,7 @@ function (path, config) {
                     if (graph.wake) graph.wake();
                 } catch (e) { step('disease bands failed: ' + e); }
                 dzLast = disease;
+                beatStop();
                 try { if (panel && panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
                 const named = Object.keys(perGene).map((k) => k + ' ' + perGene[k]).join(', ');
                 graph.setResultMessage(' ' + disease + ' — ' + rows.length.toLocaleString() + ' pathogenic mutation'
@@ -11578,6 +11673,7 @@ function (path, config) {
                     + scanned + ' scanned, ' + offMim + ' other phenotypes');
                 dzBusy = false;
             } catch (e) {
+                beatStop();
                 dzBusy = false;
                 arm(true);
                 fail('That did not work: ' + (e && e.message ? e.message : e));
