@@ -6890,7 +6890,10 @@ function (path, config) {
                     JSON.stringify({ sites: sites, species: (r.species || 'human'), flank: 30 }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
                 const J = (x, d2) => { try { return JSON.parse(x || d2); } catch (e) { return JSON.parse(d2); } };
-                lohAlleleResult = { sites: J(rs.sites, '[]'), notes: J(rs.notes, '[]'),
+                const parsed0 = J(rs.sites, '[]');
+                if (!parsed0.length) throw new Error('the sites came back empty from the annotation step, though '
+                    + sites.length + ' were sent');
+                lohAlleleResult = { sites: parsed0, notes: J(rs.notes, '[]'),
                     genes: +rs.n_genes || 0, source: 'loh', at: new Date().toISOString() };
                 lohAlleleResult.inferred = lohAlleleResult.sites.filter((x) => x.evidence === 'inferred').length;
                 const mrna = lohAlleleResult.sites.filter((x) => x.in_mature_transcript).length;
@@ -6949,26 +6952,38 @@ function (path, config) {
                 // THE TEST, on this patient's own reads: is the tumour down to one allele
                 // across the gene? Not "is it inside a tract we drew" -- a gene can be
                 // hemizygous in a stretch too short to band, and the sites themselves say so.
+                // A GENE QUALIFIES ONLY IF IT YIELDS A SITE. The copy-number test and the
+                // site finder do not count the same things -- the first counts every
+                // heterozygous position, the second only single-base ones it can write an
+                // oligo against -- so a gene could pass the first, contribute nothing to the
+                // second, and leave a result with a headline and no genes under it. The two
+                // are now one decision, and every rejection says which test it failed.
                 const qualified = [], rejected = [];
                 for (const g of loci) {
                     const nm = ('' + (g.query || g.gene)).toUpperCase();
                     const x = byName[nm];
                     if (!x) continue;
                     const ci = chromIndexOf(g.chr);
-                    if (ci < 0) continue;
+                    if (ci < 0) { rejected.push({ gene: nm, why: 'not on a chromosome this karyotype draws' }); continue; }
                     const st = lohSpanStats(ci, g.start, g.end, lohResult.spec);
                     const inf = st.lost + st.kept;
                     const frac = inf ? st.lost / inf : 0;
-                    const rec = { gene: nm, kept: x.kept, t: x.t, ci: ci, chr: g.chr, start: g.start, end: g.end,
-                        het: st.het, lost: st.lost, still: st.kept, uncalled: st.uncalled, frac: frac, informative: inf };
-                    if (inf >= AS_MIN_SITES && frac >= AS_MIN_LOST) qualified.push(rec); else rejected.push(rec);
+                    if (inf < AS_MIN_SITES) { rejected.push({ gene: nm, why: 'too few heterozygous sites inside it to judge (' + inf + ')' }); continue; }
+                    if (frac < AS_MIN_LOST) { rejected.push({ gene: nm, why: 'still carries both alleles (' + st.still + ' of ' + inf + ' sites stay heterozygous)' }); continue; }
+                    const got = alleleSitesIn(ci, g.start, g.end, lohResult.spec, nm);
+                    if (!got.length) { rejected.push({ gene: nm, why: 'down to one allele, but no single-base difference to aim at' }); continue; }
+                    got.sort((a, b) => (a.evidence === b.evidence ? a.pos - b.pos : (a.evidence === 'measured' ? -1 : 1)));
+                    qualified.push({ gene: nm, kept: x.kept, t: x.t, ci: ci, chr: g.chr, start: g.start, end: g.end,
+                        het: st.het, lost: st.lost, still: st.kept, frac: frac, informative: inf, sites: got });
                 }
                 if (!qualified.length) {
                     lohAlleleBusy = false;
-                    graph.setError(' None of these targets is down to one allele in this tumour. That is the ordinary case: '
-                        + 'a third-gene hit is usually somewhere the tumour still has both copies, and an allele-selective '
-                        + 'agent has nothing to exploit there. ' + rejected.length + ' target' + (rejected.length === 1 ? ' was' : 's were')
-                        + ' checked against the germline heterozygous sites inside them. ', 14);
+                    const bothKept = rejected.filter((x2) => /both alleles/.test(x2.why)).length;
+                    graph.setError(' None of these targets can be attacked this way. That is the ordinary case: a third-gene '
+                        + 'hit is usually somewhere the tumour still has both copies, and an allele-selective agent has '
+                        + 'nothing to exploit there. Of ' + rejected.length + ' checked, ' + bothKept + ' still carry both '
+                        + 'alleles. The genes this tumour IS down to one copy of are the single-copy list on the '
+                        + 'vulnerabilities shelf, not these. ', 16);
                     return;
                 }
                 qualified.sort((a, b) => (b.frac - a.frac) || (a.t.best_t - b.t.best_t));
@@ -6980,19 +6995,22 @@ function (path, config) {
                         + (q.t.eff_none != null ? ', without the losses ' + fmtT(q.t.eff_none) : '') + '. '
                         + 'In this tumour it is down to one allele: ' + q.lost + ' of ' + q.informative
                         + ' heterozygous sites inside it kept only one side.';
-                    const got = alleleSitesIn(q.ci, q.start, q.end, lohResult.spec, q.gene);
-                    got.sort((a, b) => (a.evidence === b.evidence ? a.pos - b.pos : (a.evidence === 'measured' ? -1 : 1)));
-                    for (const st2 of got) { sites.push(st2); if (sites.length >= AS_MAX_SITES) break; }
+                    for (const st2 of q.sites) { sites.push(st2); if (sites.length >= AS_MAX_SITES) break; }
                     if (sites.length >= AS_MAX_SITES) break;
                 }
-                if (!sites.length) throw new Error('no heterozygous site inside these targets survived as a clean one-sided call');
                 graph.setMessage(' Annotating ' + sites.length + ' site' + (sites.length === 1 ? '' : 's') + ' in ' + qualified.length + ' target… ');
                 const rs = await exec(server + '/py/bio/allele-selective-targets.py', em,
                     JSON.stringify({ sites: sites, species: (r.species || 'human'), flank: 30 }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
                 const J = (x2, d2) => { try { return JSON.parse(x2 || d2); } catch (e) { return JSON.parse(d2); } };
-                lohAlleleResult = { sites: J(rs.sites, '[]'), notes: J(rs.notes, '[]'), genes: +rs.n_genes || 0,
-                    source: 'baja3', why: why, rejected: rejected.length, at: new Date().toISOString() };
+                const parsed = J(rs.sites, '[]');
+                if (!parsed.length) throw new Error('the sites came back empty from the annotation step, though '
+                    + sites.length + ' were sent; nothing is being hidden, the step failed');
+                lohAlleleResult = { sites: parsed, notes: J(rs.notes, '[]'), genes: +rs.n_genes || 0,
+                    source: 'baja3', why: why, rejected: rejected.length,
+                    qualifiedNames: qualified.map((q) => q.gene),
+                    rejectedWhy: rejected.slice(0, 12).map((x2) => x2.gene + ' (' + x2.why + ')'),
+                    at: new Date().toISOString() };
                 lohAlleleResult.inferred = lohAlleleResult.sites.filter((x2) => x2.evidence === 'inferred').length;
                 graph.setMessage(' ' + qualified.length + ' of ' + loci.length + ' ' + BAJA3 + ' target'
                     + (loci.length === 1 ? '' : 's') + ' are down to one allele in this tumour, with '
@@ -7026,8 +7044,12 @@ function (path, config) {
                     + 'once: the dependency is conditional on this tumour\'s losses, the copy number is one, and the allele is a '
                     + 'sequence no normal cell is without. The window objection does not apply, because a normal cell is not asked '
                     + 'to do without the gene, only to do without one of its two alleles.'
-                    + (R.rejected ? ' ' + R.rejected + ' other target(s) were checked and still carry both alleles here, where an '
+                    + (R.qualifiedNames && R.qualifiedNames.length ? ' Qualifying here: ' + R.qualifiedNames.join(', ') + '.' : '')
+                    + (R.rejected ? ' ' + R.rejected + ' other target(s) were checked and are not down to one allele here, where an '
                         + 'allele-selective agent has nothing to exploit.' : '') });
+            if (R.source === 'baja3' && R.rejectedWhy && R.rejectedWhy.length) books.push({ section: 'Allele-selective targets', note: true,
+                title: 'Why the others were passed over: ' + R.rejectedWhy.join('; ')
+                    + (R.rejected > R.rejectedWhy.length ? ', and ' + (R.rejected - R.rejectedWhy.length) + ' more.' : '.') });
             books.push({ section: 'Allele-selective targets', note: true,
                 title: 'Where the tumour carries ONE allele, every normal cell still carries two. Where the '
                     + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the tumour '
