@@ -375,6 +375,37 @@ function (graph, layout) {
                 else if (!editable && e.key === 'Escape') push({ cmd: 'key', key: 'Escape', locator: locate(el, e) });
             } catch (er) { }
         };
+        // ---- 3b) SCROLLING, which is half of what a panel is -------------------------------
+        //
+        // Everything above records WHERE something was clicked. None of it recorded that the
+        // list had been scrolled first, and a shelf, a library, the info panel and the disease
+        // panel are all scrolling boxes: replaying a click on the fortieth row of a list that
+        // is showing the first ten either misses or, worse, hits whatever happens to be at
+        // that point instead. That is the whole of "it does not work on all the panels".
+        //
+        // Scroll does not bubble, so it is caught in the CAPTURE phase on the document, which
+        // sees every scrolling element including ones created after recording started.
+        //
+        // Coalesced per element: a wheel gesture fires dozens of these and only where it came
+        // to rest matters. The last scroll command for the same element is overwritten rather
+        // than appended, so a long scroll is one line in the script instead of eighty.
+        const onDocScroll = (e) => {
+            try {
+                const el = e.target;
+                const isDoc = (el === document || el === document.documentElement || el === document.body);
+                const node = isDoc ? document.scrollingElement || document.documentElement : el;
+                if (!node || (!isDoc && node.nodeType !== 1)) return;
+                if (!isDoc && inOverlay(node)) return;
+                const top = Math.round(node.scrollTop || 0), left = Math.round(node.scrollLeft || 0);
+                const last = rec.events.length ? rec.events[rec.events.length - 1] : null;
+                if (last && last.cmd && last.cmd.cmd === 'domscroll' && last.cmd.__el === node) {
+                    last.cmd.top = top; last.cmd.left = left; last.t = now(); return;
+                }
+                rec.events.push({ t: now(), cmd: { cmd: 'domscroll', window: isDoc ? 1 : 0,
+                    locator: isDoc ? null : locate(node, null), top: top, left: left, __el: node } });
+            } catch (er) { }
+        };
+        try { document.addEventListener('scroll', onDocScroll, { capture: true, passive: true }); rec.docScroll = onDocScroll; } catch (e) { }
         try { document.addEventListener('mousedown', onDocDown, { capture: true, passive: true }); rec.docDown = onDocDown; } catch (e) { }
         try { document.addEventListener('mouseup', onDocUp2, { capture: true, passive: true }); rec.docUp2 = onDocUp2; } catch (e) { }
         try { document.addEventListener('input', onDocInput, { capture: true, passive: true }); rec.docInput = onDocInput; } catch (e) { }
@@ -454,6 +485,7 @@ function (graph, layout) {
             try { if (rec.docClick) document.removeEventListener('click', rec.docClick, { capture: true }); } catch (e) { }
             try { if (rec.docInput) document.removeEventListener('input', rec.docInput, { capture: true }); } catch (e) { }
             try { if (rec.docKey) document.removeEventListener('keydown', rec.docKey, { capture: true }); } catch (e) { }
+            try { if (rec.docScroll) document.removeEventListener('scroll', rec.docScroll, { capture: true }); } catch (e) { }
             try { if (rec.origAdd) graph.add = rec.origAdd; } catch (e) { }
             try { if (rec.orig_showMenu) graph.showMenu = rec.orig_showMenu; } catch (e) { }
             try { if (rec.orig_showSideMenu) graph.showSideMenu = rec.orig_showSideMenu; } catch (e) { }

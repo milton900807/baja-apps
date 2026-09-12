@@ -786,6 +786,42 @@ function (script, config) {
                     }
                     break;
                 }
+                case 'domscroll': case 'scroll': {
+                    // PUT THE PANEL BACK WHERE IT WAS. Everything else here reproduces where
+                    // something was clicked; this reproduces what was visible when it was.
+                    // Without it a click recorded on the fortieth row of a list replays against
+                    // the first ten, and either misses or hits whatever is at that point now.
+                    const top = +(c.top || 0), left = +(c.left || 0);
+                    if (c.window || c.win) {
+                        try { (document.scrollingElement || document.documentElement).scrollTop = top; } catch (e) { }
+                        try { (document.scrollingElement || document.documentElement).scrollLeft = left; } catch (e) { }
+                        await sleep(60);
+                        break;
+                    }
+                    const loc = c.locator || c.loc || (c.by ? { by: c.by, v: c.v, tag: c.tag, path: c.path } : null);
+                    // The same polling the click path uses: the panel being scrolled may still be
+                    // arriving from the step before.
+                    let el = resolveLocator(loc);
+                    for (let tries = 0; !el && tries < 20; tries++) { await sleep(80); el = resolveLocator(loc); }
+                    if (!el) {
+                        const spt = screenClient(c, loc);
+                        if (spt) { try { el = document.elementFromPoint(spt.cx, spt.cy); } catch (e) { } }
+                    }
+                    if (!el) { try { console.warn('demo scroll: element not found', loc); } catch (e) { } break; }
+                    // The locator may land on a child of the box that actually scrolls -- a row
+                    // inside the list rather than the list. Climb to the nearest ancestor that
+                    // can scroll, which is the thing the recording was about.
+                    let box = el;
+                    for (let hop = 0; box && hop < 6; hop++) {
+                        if (box.scrollHeight > box.clientHeight + 2 || box.scrollWidth > box.clientWidth + 2) break;
+                        box = box.parentElement;
+                    }
+                    if (!box) box = el;
+                    try { box.scrollTop = top; } catch (e) { }
+                    try { box.scrollLeft = left; } catch (e) { }
+                    await sleep(60);
+                    break;
+                }
                 case 'set': case 'domset': case 'type': {
                     // Type a value into an input/textarea/contenteditable one character at a time,
                     // firing keydown/keypress/input/keyup per char so fields that react to each
