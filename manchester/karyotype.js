@@ -75,9 +75,15 @@ function (path, config) {
         // acen is the centromere and is drawn as the pinch rather than as a band; stalk and
         // gvar are the satellite/variable regions and get their own tint so they do not read
         // as ordinary heterochromatin.
+        //
+        // FADED ON PURPOSE. The bands are the GROUND: they say where you are, and everything
+        // that matters is painted on top of them -- variants, marks, gene bands, LOH tracts.
+        // At full Giemsa strength a gpos100 band is nearly black and a mark on it has nowhere
+        // to go, so the whole scale is lightened towards white and the darkest end pulled up
+        // hardest. The ordering is untouched, so the banding pattern still reads as itself.
         const STAIN = {
-            gneg: '#f7f9fc', gpos25: '#c7d0da', gpos50: '#9aa7b4',
-            gpos75: '#6b7a89', gpos100: '#44515e', gvar: '#b9c9e6', stalk: '#8fb8d6',
+            gneg: '#fbfcfe', gpos25: '#dde3ea', gpos50: '#c3ccd6',
+            gpos75: '#a7b3c0', gpos100: '#8c99a7', gvar: '#d3dff1', stalk: '#b9d4e8',
         };
 
         // ---- which species -------------------------------------------------------------------
@@ -1252,13 +1258,13 @@ function (path, config) {
                             const by0 = g.Y(wy(b.start)), by1 = g.Y(wy(b.end));
                             const bh = by1 - by0;
                             if (Math.abs(bh) < 0.35) continue;   // sub-pixel: would only alias
-                            ctx.fillStyle = STAIN[b.stain] || '#dfe6ee';
+                            ctx.fillStyle = STAIN[b.stain] || '#e9eef4';
                             ctx.fillRect(x0, by0, w, Math.max(0.35, bh));
                         }
                     } else {
                         // No banding for this assembly. A flat bar is the honest picture: a
                         // decorative pattern here would be an invented cytogenetic map.
-                        ctx.fillStyle = '#e8eef5';
+                        ctx.fillStyle = '#f1f5fa';
                         ctx.fillRect(x0, yTop, w, h);
                     }
                     ctx.restore();
