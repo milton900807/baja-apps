@@ -5088,7 +5088,8 @@ function (path, config) {
             // same colors. One hex per sample column, in sample order.
             out.sampleColors = SAMPLES.map((nm, si) => SAMPLE_COLOR[si] || '');
             out.highlight = hlActive || 0;
-            out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '', lof: rg.lof ? 1 : 0 }));
+            out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '',
+                lof: rg.lof ? 1 : 0, dz: rg.dz ? 1 : 0, disease: rg.disease || '' }));
             // The loss matrix goes with the file: it is a few hundred gene records at most,
             // and recomputing it means re-reading the annotation for every coding variant.
             if (lossMatrix && Array.isArray(lossMatrix.genes)) {
@@ -5289,7 +5290,8 @@ function (path, config) {
             if (Array.isArray(doc.regions)) {
                 try {
                     regions = doc.regions.filter((rg) => rg && rg.i != null && isFinite(+rg.lo) && isFinite(+rg.hi))
-                        .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '', lof: !!rg.lof }));
+                        .map((rg) => ({ i: +rg.i, lo: +rg.lo, hi: +rg.hi, label: rg.label || '', gene: rg.gene || '',
+                            lof: !!rg.lof, dz: !!rg.dz, disease: rg.disease || '' }));
                 } catch (e) { }
             }
             if (Array.isArray(doc.sampleColors)) {
@@ -5878,7 +5880,7 @@ function (path, config) {
 
         // Take the loss marks and bands off, leaving the matrix itself for the shelf.
         const clearLossMatrix = (forget) => {
-            regions = (regions || []).filter((rg) => !rg.lof);
+            regions = (regions || []).filter((rg) => !rg.lof || rg.dz);
             if (hlActive === HL_LOF || hlActive === HL_DIFF_BOTH || hlActive === HL_LOH) {
                 for (const d of vdata) if (d.hl) d.hl = new Uint8Array(d.n);
                 hlActive = 0;
@@ -5919,7 +5921,7 @@ function (path, config) {
                 }
             }
             if (withBands !== false) {
-                regions = (regions || []).filter((rg) => !rg.lof);
+                regions = (regions || []).filter((rg) => !rg.lof || rg.dz);
                 const ordered = lossHlGenes().slice(0, LOF_BAND_MAX);
                 for (const g of ordered) {
                     const ci = chromIndexOf(g.chr);
@@ -5988,7 +5990,7 @@ function (path, config) {
         const clearWorking = () => {
             for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
             try { hlSamples.clear(); } catch (e) { }
-            regions = (regions || []).filter((rg) => !rg.lof);
+            regions = (regions || []).filter((rg) => !rg.lof || rg.dz);
             hlActive = 0;
             reindexHighlights();
             legendRefresh();
@@ -6327,7 +6329,7 @@ function (path, config) {
             for (const x of diffResult.onlyB) mark(x.B, HL_DIFF_B);
             for (const x of diffResult.both) { mark(x.A, HL_DIFF_BOTH); mark(x.B, HL_DIFF_BOTH); }
             if (withBands !== false) {
-                regions = (regions || []).filter((rg) => !rg.lof);
+                regions = (regions || []).filter((rg) => !rg.lof || rg.dz);
                 const ordered = [].concat(diffResult.onlyA.map((x) => [x, 'only ' + diffResult.A.label]), diffResult.onlyB.map((x) => [x, 'only ' + diffResult.B.label]), diffResult.both.map((x) => [x, 'both']));
                 ordered.sort((p, q) => ((lossIsTsg(p[0].A || p[0].B) ? 0 : 1) - (lossIsTsg(q[0].A || q[0].B) ? 0 : 1)));
                 for (const [x, word] of ordered.slice(0, LOF_BAND_MAX)) {
@@ -6545,7 +6547,7 @@ function (path, config) {
                 }
             }
             if (withBands !== false) {
-                regions = (regions || []).filter((rg) => !rg.lof);
+                regions = (regions || []).filter((rg) => !rg.lof || rg.dz);
                 const bands = [];
                 for (const c2 of lohResult.chroms) for (const run of c2.runs) bands.push({ ci: c2.ci, run: run, span: run.hi - run.lo });
                 bands.sort((a, b) => b.span - a.span);
@@ -11350,9 +11352,18 @@ function (path, config) {
                 // Only the previous DISEASE bands are cleared, not every banded result: asking
                 // for a second disease should not silently throw away a loss matrix.
                 try {
-                    regions = (regions || []).filter((rg) => !(rg.lof && rg.dz));
+                    // SEARCHES ACCUMULATE. Asking about a second condition adds to the
+                    // genome, it does not replace what the first one put there: the marks
+                    // already behave that way, and the bands that name them have to as well,
+                    // or the picture and its labels disagree about what is loaded. Only an
+                    // identical band -- same gene, same disease -- is skipped, so asking
+                    // twice does not stack two copies of the same label.
+                    const already = new Set((regions || []).filter((rg) => rg.dz)
+                        .map((rg) => rg.i + ':' + rg.gene + ':' + (rg.disease || '')));
                     for (const b of dzBands.slice(0, LOF_BAND_MAX)) {
+                        if (already.has(b.ci + ':' + b.gene + ':' + disease)) continue;
                         regions.push({ i: b.ci, lo: b.lo, hi: b.hi, gene: b.gene, lof: true, dz: true,
+                            disease: disease,
                             label: b.gene + ' \u2014 ' + disease + ' \u00b7 ' + b.n.toLocaleString()
                                 + ' mutation' + (b.n === 1 ? '' : 's') });
                     }
