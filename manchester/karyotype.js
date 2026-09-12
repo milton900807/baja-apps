@@ -6460,7 +6460,7 @@ function (path, config) {
                 }] });
                 try { const pics = await captureViews(); if (pics && pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics }); } catch (e) { }
                 sheets.push({ name: 'Hits at a glance', rows: written.map((x, i) => ({
-                    'Rank': i + 1, 'Target': x.t.target, 'Confidence': x.W.confidence || '',
+                    'Rank': i + 1, 'Target': x.t.target,
                     'Backgrounds needing both': (x.t.backgrounds || []).filter((b) => isHigherOrder(b.interpretation)).map((b) => (b.genes || []).join('+')).join('; '),
                     'Best t': num(x.t.best_t), 'Min FDR': (x.t.min_fdr == null) ? '' : (+x.t.min_fdr < 1e-3 ? (+x.t.min_fdr).toExponential(1) : num(x.t.min_fdr, 3)),
                     'Effect with the losses': num(x.t.eff_double), 'Effect without them': x.t.eff_none == null ? '' : num(x.t.eff_none),
@@ -6472,7 +6472,6 @@ function (path, config) {
                     sheets.push({ name: (i + 1) + '. ' + t.target, rows: [{
                         'Target': t.target,
                         'Losses': R.genes.join(' + '),
-                        'Model confidence': (W.confidence || '') + ' - the writer\'s own confidence that this is real biology rather than a statistical artefact',
                         'Summary': W.summary || '',
                         'What it does': W.target_role || '',
                         'Why the losses make a cell depend on it': W.mechanism || '',
