@@ -6246,6 +6246,28 @@ function (path, config) {
                 ref: v.ref || '', alt: v.alt || '', hgvs_p: v.hgvs_p || '', hgvs_c: v.hgvs_c || '', transcript: g.transcript || '',
                 tumour_suppressor: lossIsTsg(g) ? 1 : 0 };
         }));
+        // The cancer types worth offering before a run has named the ones in play: the
+        // common DepMap primary diseases. After a run the list comes from the result, and
+        // is exactly the types whose lines carry one of the selected losses.
+        const SL_DISEASES = ['Invasive Breast Carcinoma', 'Non-Small Cell Lung Cancer', 'Small Cell Lung Cancer',
+            'Colorectal Adenocarcinoma', 'Pancreatic Adenocarcinoma', 'Ovarian Epithelial Tumor', 'Melanoma',
+            'Adult-Type Diffuse Glioma', 'Head and Neck Squamous Cell Carcinoma', 'Esophagogastric Adenocarcinoma',
+            'Prostate Adenocarcinoma', 'Bladder Urothelial Carcinoma', 'Renal Cell Carcinoma', 'Hepatocellular Carcinoma',
+            'Acute Myeloid Leukemia', 'Mature B-Cell Neoplasms', 'Neuroblastoma', 'Pleural Mesothelioma',
+            'Endometrial Carcinoma', 'Well-Differentiated Thyroid Cancer', 'Osteosarcoma', 'Ewing Sarcoma',
+            'Rhabdomyosarcoma', 'Diffuse Glioma'];
+        const diseaseBooks = (run) => {
+            const dyn = (slResult && slResult.diseases && slResult.diseases.length)
+                ? slResult.diseases.map((d) => ({ name: d.disease, n: d.n_lines })) : null;
+            const list = dyn || SL_DISEASES.map((d) => ({ name: d, n: null }));
+            const books = [{ section: 'Cancer type', note: true, title: 'A cancer type is the narrower question: Invasive Breast Carcinoma rather than the breast, Pancreatic Adenocarcinoma rather than the pancreas. The ranking stays lineage-corrected across the whole panel; the dependency inside this type\'s lines carrying the losses is reported beside it.'
+                + (dyn ? ' These are the types whose lines carry one of the selected losses.' : '') }];
+            books.push({ section: 'Cancer type', title: 'Any cancer type', badge: 'whole panel', icon: 'public', ready: true,
+                blurb: 'Lineage-corrected across every DepMap line, with no type singled out.', open: () => run('') });
+            list.forEach((d) => books.push({ section: 'Cancer type', title: d.name, badge: d.n != null ? (d.n + ' line' + (d.n === 1 ? '' : 's')) : 'cancer type', ready: true,
+                blurb: 'Spotlight ' + d.name + (d.n != null ? ' — ' + d.n + ' DepMap line' + (d.n === 1 ? '' : 's') + ' with one of these losses.' : '.'), open: () => run(d.name) }));
+            return books;
+        };
         const tissueBooks = (run) => {
             const dyn = (slResult && slResult.lineages && slResult.lineages.length)
                 ? slResult.lineages.filter((l) => l.lineage && l.lineage !== '(unknown)').map((l) => ({ name: l.lineage, n: l.n_lines })) : null;
