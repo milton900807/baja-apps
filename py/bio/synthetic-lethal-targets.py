@@ -29,8 +29,12 @@ Params (after the EngineMonitor):
 Resolves:
     { ok, targets, backgrounds, lineages, notes, n_models, n_genes, error }
   targets     JSON array, best first: { target, n_backgrounds, best_t, min_fdr,
-              eff_double, synergy, interpretation, backgrounds: [{genes, t, fdr,
-              eff_double, eff_in_tissue, interpretation}], eff_in_tissue }
+              eff_double, eff_none, window, synergy, interpretation,
+              backgrounds: [{genes, t, fdr, eff_double, eff_none, window, n_none,
+              eff_in_tissue, interpretation}], eff_in_tissue }
+              eff_none is the mean effect in lines carrying NEITHER loss and window is
+              eff_double - eff_none: the therapeutic window, negative and large being a
+              target the carriers need and everything else can do without.
   backgrounds JSON array: { genes: [...], n_lines, status, n_hits }
   lineages    JSON array of { lineage, n_lines } among the lines carrying any selected loss
 """
@@ -189,6 +193,17 @@ else:
             p = np.array([norm_sf(z) for z in t])
             fdr = bh_fdr(p)
             eff_double = Gd[mask].mean(0)
+            # THE THERAPEUTIC WINDOW. A target is only selective if cells WITHOUT these
+            # losses can do without it: a pan-essential gene is lethal to the tumour and to
+            # the patient alike. eff_none is the mean knockout effect in the lines carrying
+            # NEITHER loss, and window = eff_double - eff_none is how much deeper the
+            # dependency runs in the carriers. Negative and large is what a drug wants.
+            neither = ~mask.copy()
+            for g in bg:
+                neither &= ~lofs[g]
+            eff_none = Gd[neither].mean(0) if neither.sum() >= 5 else np.full(n_genes, np.nan, dtype=np.float32)
+            with np.errstate(invalid="ignore"):
+                window = eff_double - eff_none
             if len(bg) == 2:
                 a_only = lofs[bg[0]] & ~lofs[bg[1]]
                 b_only = ~lofs[bg[0]] & lofs[bg[1]]
@@ -227,6 +242,9 @@ else:
                     interp = "single-loss" if (t[k] < -3 and eff_double[k] < EFF_MAX) else "weak"
                 hit = {"genes": bg, "t": round(float(t[k]), 2), "fdr": float("%.3g" % fdr[k]),
                        "eff_double": round(float(eff_double[k]), 3),
+                       "eff_none": (None if np.isnan(eff_none[k]) else round(float(eff_none[k]), 3)),
+                       "window": (None if np.isnan(window[k]) else round(float(window[k]), 3)),
+                       "n_none": int(neither.sum()),
                        "synergy": (None if np.isnan(synergy[k]) else round(float(synergy[k]), 3)),
                        "eff_in_tissue": (None if eff_t is None or np.isnan(eff_t[k]) else round(float(eff_t[k]), 3)),
                        "interpretation": interp}
@@ -234,7 +252,7 @@ else:
                 if a is None:
                     a = agg[k] = {"target": genes[k], "n_backgrounds": 0, "n_pairs": 0, "best_t": 0.0, "min_fdr": 1.0,
                                   "eff_double": 0.0, "synergy": None, "interpretation": "weak",
-                                  "eff_in_tissue": None, "backgrounds": []}
+                                  "eff_in_tissue": None, "eff_none": None, "window": None, "backgrounds": []}
                 a["n_backgrounds"] += 1
                 if len(bg) == 2:
                     a["n_pairs"] += 1
@@ -243,6 +261,9 @@ else:
                     a["best_t"] = hit["t"]
                     a["eff_double"] = hit["eff_double"]
                     a["eff_in_tissue"] = hit["eff_in_tissue"]
+                    a["eff_none"] = hit["eff_none"]
+                if hit["window"] is not None and (a["window"] is None or hit["window"] < a["window"]):
+                    a["window"] = hit["window"]
                 a["min_fdr"] = min(a["min_fdr"], hit["fdr"])
                 if hit["synergy"] is not None and (a["synergy"] is None or hit["synergy"] < a["synergy"]):
                     a["synergy"] = hit["synergy"]
@@ -267,6 +288,9 @@ else:
                      "cell line needs the gene more. t is the lineage-corrected difference between lines "
                      "carrying the background and the rest; a 'genuine higher-order' target needs BOTH "
                      "losses, a 'driven by X' target is explained by X alone with the other loss a passenger.")
+        notes.append("The therapeutic window is eff_double minus eff_none: how much deeper the dependency runs "
+                     "in cells carrying the losses than in cells carrying neither. A target with a strongly "
+                     "negative eff_none is essential everywhere and would kill normal cells too, whatever its t.")
         out["ok"] = True
         out["targets"] = json.dumps(targets[:top_n])
         out["backgrounds"] = json.dumps(bg_out)

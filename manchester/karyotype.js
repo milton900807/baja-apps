@@ -5803,6 +5803,39 @@ function (path, config) {
             }
             return specs;
         };
+        // WAS THE OTHER SIDE ACTUALLY SEQUENCED HERE? "Lost only in A" is a claim about B
+        // as much as about A, and a VCF is silent about the difference between "B is
+        // reference here" and "B was never covered here". For two SAMPLE columns of one
+        // file the answer is in the row: B has a genotype at that site, with its own depth
+        // and quality, so a confident 0/0 in B is evidence of absence. For two FILES there
+        // is no such row -- a variant absent from B's file could be reference or could be a
+        // coverage gap -- and the honest answer is "unknown", which is said rather than
+        // assumed. gVCFs or a coverage track would settle it; neither is loaded here.
+        const EV_CONFIRMED = 'confirmed absent', EV_WEAK = 'weakly covered', EV_UNKNOWN = 'not evidenced';
+        const otherSideEvidence = (spec, g, si) => {
+            if (spec.kind !== 'sample' || si < 0) return EV_UNKNOWN;
+            const ci = chromIndexOf(g.chr);
+            if (ci < 0) return EV_UNKNOWN;
+            const d = vdata[ci];
+            let worst = '';
+            for (const v of (g.variants || [])) {
+                const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt);
+                if (k < 0 || d.gtw <= si) { worst = EV_UNKNOWN; break; }
+                const gt = gtOf(d, k, si), tier = confOf(d, k, si);
+                let e;
+                if (gt !== GT_REF) e = EV_UNKNOWN;                  // no call at all for that sample
+                else if (tier >= CONF_HIGH) e = EV_CONFIRMED;
+                else if (tier === CONF_MED) e = EV_WEAK;
+                else e = EV_UNKNOWN;                                 // low, or no depth information
+                if (e === EV_UNKNOWN) { worst = EV_UNKNOWN; break; }
+                if (e === EV_WEAK) worst = EV_WEAK;
+                else if (!worst) worst = EV_CONFIRMED;
+            }
+            return worst || EV_UNKNOWN;
+        };
+        // Keep only private losses the other side is evidenced to lack. Default on where it
+        // can be answered; inert for a two-file comparison, which cannot answer it.
+        let diffRequireEvidence = true;
         const diffInclude = (spec, which) => {
             if (spec.kind === 'side') { const sd = which === 'A' ? spec.a : spec.b; return (d, k) => ((d.side ? d.side[k] : 0) === sd && confAdmits(d, k, -1)); }
             const si = which === 'A' ? spec.a : spec.b;
@@ -5819,14 +5852,29 @@ function (path, config) {
                 annotateLossZygosity(RB.genes, spec.kind === 'sample' ? spec.b : -1, '');
                 const mapA = new Map(RA.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
                 const mapB = new Map(RB.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
-                const onlyA = [], onlyB = [], both = [];
-                for (const [k, g] of mapA) { if (mapB.has(k)) both.push({ gene: g.gene, A: g, B: mapB.get(k) }); else onlyA.push({ gene: g.gene, A: g, B: null }); }
-                for (const [k, g] of mapB) if (!mapA.has(k)) onlyB.push({ gene: g.gene, A: null, B: g });
+                let onlyA = [], onlyB = [];
+                const both = [];
+                for (const [k, g] of mapA) { if (mapB.has(k)) both.push({ gene: g.gene, A: g, B: mapB.get(k) }); else onlyA.push({ gene: g.gene, A: g, B: null, evidence: otherSideEvidence(spec, g, spec.kind === 'sample' ? spec.b : -1) }); }
+                for (const [k, g] of mapB) if (!mapA.has(k)) onlyB.push({ gene: g.gene, A: null, B: g, evidence: otherSideEvidence(spec, g, spec.kind === 'sample' ? spec.a : -1) });
+                const unevidencedA = onlyA.filter((x) => x.evidence !== EV_CONFIRMED).length;
+                const unevidencedB = onlyB.filter((x) => x.evidence !== EV_CONFIRMED).length;
+                if (diffRequireEvidence && spec.kind === 'sample') {
+                    onlyA = onlyA.filter((x) => x.evidence === EV_CONFIRMED);
+                    onlyB = onlyB.filter((x) => x.evidence === EV_CONFIRMED);
+                }
                 const byTsg = (x, y) => ((lossIsTsg(x.A || x.B) ? 0 : 1) - (lossIsTsg(y.A || y.B) ? 0 : 1)) || ('' + x.gene).localeCompare('' + y.gene);
                 onlyA.sort(byTsg); onlyB.sort(byTsg); both.sort(byTsg);
+                const evNote = (spec.kind === 'sample')
+                    ? (diffRequireEvidence
+                        ? ('A private loss is kept only where the other sample has a confident reference call at the same site'
+                            + ((unevidencedA + unevidencedB) ? ': ' + (unevidencedA + unevidencedB) + ' gene' + ((unevidencedA + unevidencedB) === 1 ? ' was' : 's were') + ' dropped for want of that evidence.' : '.'))
+                        : ('Private losses are kept whether or not the other sample was sequenced at the site; '
+                            + (unevidencedA + unevidencedB) + ' of them lack a confident reference call there.'))
+                    : 'Two files cannot show whether the other was sequenced at a site, so a private loss here means "no call in that file", which may be a reference call or a coverage gap.';
                 diffResult = { spec: spec, A: { label: spec.labelA, genes: RA.genes, scanned: RA.scanned, considered: RA.considered },
                     B: { label: spec.labelB, genes: RB.genes, scanned: RB.scanned, considered: RB.considered },
-                    onlyA: onlyA, onlyB: onlyB, both: both, notes: RA.notes, at: new Date().toISOString() };
+                    onlyA: onlyA, onlyB: onlyB, both: both, notes: (RA.notes || []).concat([evNote]),
+                    requireEvidence: diffRequireEvidence, unevidenced: unevidencedA + unevidencedB, at: new Date().toISOString() };
                 const marked = applyDiffHighlights(true);
                 graph.setMessage(' ' + spec.labelA + ' vs ' + spec.labelB + ': ' + onlyA.length + ' lost only in A, ' + onlyB.length + ' only in B, ' + both.length + ' in both; ' + marked + ' variants marked. ');
                 step('differential loss ' + spec.labelA + ' vs ' + spec.labelB + ': ' + onlyA.length + '/' + onlyB.length + '/' + both.length);
@@ -5873,7 +5921,7 @@ function (path, config) {
             const rows = [];
             const R = diffResult;
             const side = (g) => (g ? { effect: (g.variants[0] || {}).effect || '', hgvs_p: (g.variants[0] || {}).hgvs_p || '', zygosity: g.zygosity || '', n_lof: g.n_lof } : { effect: '', hgvs_p: '', zygosity: '', n_lof: 0 });
-            const push = (x, status) => { const a = side(x.A), b = side(x.B); const g = x.A || x.B; rows.push({ gene: x.gene, status: status, chrom: g.chr, gene_start: g.start, gene_end: g.end, tumour_suppressor: lossIsTsg(g) ? 1 : 0,
+            const push = (x, status) => { const a = side(x.A), b = side(x.B); const g = x.A || x.B; rows.push({ gene: x.gene, status: status, other_side_evidence: x.evidence || '', chrom: g.chr, gene_start: g.start, gene_end: g.end, tumour_suppressor: lossIsTsg(g) ? 1 : 0,
                 A: R.A.label, A_effect: a.effect, A_hgvs_p: a.hgvs_p, A_zygosity: a.zygosity, A_n_lof: a.n_lof, B: R.B.label, B_effect: b.effect, B_hgvs_p: b.hgvs_p, B_zygosity: b.zygosity, B_n_lof: b.n_lof }); };
             R.onlyA.forEach((x) => push(x, 'only A')); R.onlyB.forEach((x) => push(x, 'only B')); R.both.forEach((x) => push(x, 'both'));
             return dlToCSV(rows);
@@ -5903,12 +5951,17 @@ function (path, config) {
                 blurb: 'Put A\'s private losses into the microscope\'s selection, for ' + BAJA3 + '.', open: () => { R.onlyA.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.A)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Select all lost only in B', badge: R.onlyB.length + ' genes', icon: 'done_all', ready: R.onlyB.length > 0, readyNote: 'none',
                 blurb: 'Put B\'s private losses into the selection.', open: () => { R.onlyB.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.B)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
+            if (R.spec && R.spec.kind === 'sample') books.push({ section: 'Differential loss matrix', title: diffRequireEvidence ? 'Require the other sample to be sequenced there' : 'Accept private losses without coverage evidence', badge: diffRequireEvidence ? 'on' : 'off', icon: 'fact_check', ready: true,
+                blurb: diffRequireEvidence ? 'A gene counts as lost only in one sample only when the other sample has a confident reference call at the same site, so a coverage gap is not read as an intact gene. Click to accept unevidenced ones; recompute to apply.'
+                    : 'Private losses are kept even where the other sample was not confidently sequenced. Click to require the evidence; recompute to apply.',
+                open: () => { diffRequireEvidence = !diffRequireEvidence; graph.setMessage(diffRequireEvidence ? ' Coverage evidence will be required; recompute to apply. ' : ' Coverage evidence will not be required; recompute to apply. '); diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => diffPickerBooks() });
             const card = (x, sec, sw) => {
                 const g = x.A || x.B; const on = isSelected(x.gene);
                 const one = (h, side) => (h ? side + ': ' + lossWord((h.variants[0] || {}).effect) + ((h.variants[0] || {}).hgvs_p ? ' ' + h.variants[0].hgvs_p : '') + (h.zygosity && h.zygosity !== 'unknown' ? ' (' + h.zygosity + ')' : '') : '');
                 return { section: sec, title: (on ? '✓ ' : '') + x.gene, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
-                    blurb: [one(x.A, 'A'), one(x.B, 'B')].filter(Boolean).join(' · ') + ' · ' + g.chr + ':' + human(g.start) + '-' + human(g.end),
+                    blurb: [one(x.A, 'A'), one(x.B, 'B')].filter(Boolean).join(' · ') + ' · ' + g.chr + ':' + human(g.start) + '-' + human(g.end)
+                        + (x.evidence ? ' · other side ' + x.evidence : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + x.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); diffMenu(); } };
             };
             if (R.onlyA.length) { books.push({ section: 'Lost only in A — ' + R.A.label, note: true, title: 'Genes with a loss-of-function variant in A and none in B. Click to select.' }); R.onlyA.forEach((x) => books.push(card(x, 'Lost only in A — ' + R.A.label, '#dc2626'))); }
@@ -6038,7 +6091,7 @@ function (path, config) {
         };
         const slTargetsCSV = () => dlToCSV((slResult.targets || []).map((t) => ({
             target: t.target, interpretation: t.interpretation, n_backgrounds: t.n_backgrounds, n_pairs: t.n_pairs,
-            best_t: t.best_t, min_fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy == null ? '' : t.synergy,
+            best_t: t.best_t, min_fdr: t.min_fdr, eff_double: t.eff_double, eff_without_the_losses: t.eff_none == null ? '' : t.eff_none, therapeutic_window: t.window == null ? '' : t.window, synergy: t.synergy == null ? '' : t.synergy,
             eff_in_tissue: t.eff_in_tissue == null ? '' : t.eff_in_tissue, tissue: slResult.tissue || '',
             backgrounds: (t.backgrounds || []).map((b) => b.genes.join('+') + ' (t ' + b.t + ', ' + b.interpretation + ')').join('; '),
             losses: slResult.genes.join('+'),
@@ -6383,7 +6436,7 @@ function (path, config) {
                         try {
                             const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
                                 target: t.target, losses: R.genes, source: 'depmap', tissue: R.tissue || '',
-                                stats: { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds } }));
+                                stats: { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds } }));
                             if (rs && rs.ok) { try { W = JSON.parse(rs.rationale || '{}'); } catch (e) { W = null; } }
                             if (W && W.summary) slWhyCache.set(key, W); else W = null;
                         } catch (e) { W = null; }
@@ -6410,7 +6463,8 @@ function (path, config) {
                     'Rank': i + 1, 'Target': x.t.target, 'Confidence': x.W.confidence || '',
                     'Backgrounds needing both': (x.t.backgrounds || []).filter((b) => isHigherOrder(b.interpretation)).map((b) => (b.genes || []).join('+')).join('; '),
                     'Best t': num(x.t.best_t), 'Min FDR': (x.t.min_fdr == null) ? '' : (+x.t.min_fdr < 1e-3 ? (+x.t.min_fdr).toExponential(1) : num(x.t.min_fdr, 3)),
-                    'Effect with the losses': num(x.t.eff_double), 'Synergy': x.t.synergy == null ? '' : num(x.t.synergy),
+                    'Effect with the losses': num(x.t.eff_double), 'Effect without them': x.t.eff_none == null ? '' : num(x.t.eff_none),
+                    'Window': x.t.window == null ? '' : num(x.t.window), 'Synergy': x.t.synergy == null ? '' : num(x.t.synergy),
                     'Summary': x.W.summary || '',
                 })) });
                 written.forEach((x, i) => {
@@ -6427,7 +6481,9 @@ function (path, config) {
                         'Caveats': W.caveats || '',
                         'Druggability': W.druggability || '',
                         'Statistics': 't ' + num(t.best_t) + ', FDR ' + ((t.min_fdr == null) ? '' : (+t.min_fdr < 1e-3 ? (+t.min_fdr).toExponential(1) : num(t.min_fdr, 3)))
-                            + ', effect in lines with the losses ' + num(t.eff_double) + (t.synergy == null ? '' : ', synergy ' + num(t.synergy))
+                            + ', effect in lines with the losses ' + num(t.eff_double)
+                            + (t.eff_none == null ? '' : ', in lines with neither ' + num(t.eff_none) + ', window ' + num(t.window))
+                            + (t.synergy == null ? '' : ', synergy ' + num(t.synergy))
                             + (t.eff_in_tissue == null ? '' : ', effect in ' + (R.tissue || 'tissue') + ' ' + num(t.eff_in_tissue))
                             + '. Backgrounds: ' + (t.backgrounds || []).map((b) => (b.genes || []).join('+') + ' (t ' + num(b.t, 1) + ', ' + interpWord(b.interpretation) + ')').join('; '),
                     }] });
@@ -6437,6 +6493,7 @@ function (path, config) {
                     'Higher-order': 'The hit is more essential in cells that have lost BOTH named genes than in cells that have lost either alone. A hit driven by one loss is not reported here.',
                     't': 'The lineage-corrected difference in CRISPR knockout effect between cells carrying the losses and the rest. More negative means more selectively essential.',
                     'Effect': 'The mean DepMap knockout effect (Chronos) in cells carrying the losses. Below -0.4 is a real dependency; around -1 is as essential as a core gene.',
+                    'Window': 'Effect with the losses minus the effect in cells carrying neither. This is the selectivity: a target whose effect without the losses is already strongly negative is essential everywhere and would kill normal cells too, whatever its t.',
                     'Synergy': 'Effect with both losses minus the effect with the worse single loss. Negative means the pair is worse than either alone.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + BAJA3 + '. Documentation: ' + BAJA3_DOC,
                 }] });
@@ -6493,18 +6550,21 @@ function (path, config) {
                 const bgText = bgs.slice(0, 4).map((b) => b.genes.join('+')).join(', ') + (bgs.length > 4 ? ' +' + (bgs.length - 4) : '');
                 books.push({ section: 'Ranked targets', title: (i + 1) + '. ' + t.target, badge: interpWord(t.interpretation), swatch: slInterpColor(t.interpretation), ready: true,
                     blurb: 't ' + fmtT(t.best_t) + ' · FDR ' + fmtP(t.min_fdr) + ' · effect ' + fmtT(t.eff_double)
+                        + (t.eff_none != null ? ' · without the losses ' + fmtT(t.eff_none) : '') + (t.window != null ? ' · window ' + fmtT(t.window) : '')
                         + (t.synergy != null ? ' · synergy ' + fmtT(t.synergy) : '') + (t.eff_in_tissue != null ? ' · in ' + R.tissue + ' ' + fmtT(t.eff_in_tissue) : '')
                         + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText,
                     books: () => [
                         { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
                             blurb: 'The biology behind ' + t.target + ' with ' + R.genes.join(' + ') + ' lost: role, mechanism, what the numbers say, precedent, caveats, druggability.',
-                            open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
+                            open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
                         { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
                         { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
                         { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumour that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
                         { note: true, title: 'Per background:' },
                     ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
-                        + (b.synergy != null ? ', synergy ' + fmtT(b.synergy) : '') + (b.eff_in_tissue != null ? ', in tissue ' + fmtT(b.eff_in_tissue) : '') + ' — ' + b.interpretation }))) });
+                        + (b.eff_none != null ? ', without the losses ' + fmtT(b.eff_none) + (b.n_none ? ' (' + b.n_none + ' lines)' : '') : '')
+                        + (b.window != null ? ', window ' + fmtT(b.window) : '')
+                        + (b.synergy != null ? ', synergy ' + fmtT(b.synergy) : '') + (b.eff_in_tissue != null ? ', in tissue ' + fmtT(b.eff_in_tissue) : '') + ' — ' + interpWord(b.interpretation) }))) });
             });
             books.push(baja3DocCard('Targets'));
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: BAJA3 + ' targets',
@@ -6679,6 +6739,8 @@ function (path, config) {
                     'Best t': num(t.best_t, 2),
                     'Min FDR': (t.min_fdr == null) ? '' : (+t.min_fdr < 1e-3 ? (+t.min_fdr).toExponential(1) : num(t.min_fdr, 3)),
                     'Effect in lines with the losses': num(t.eff_double, 2),
+                    'Effect without the losses': t.eff_none == null ? '' : num(t.eff_none, 2),
+                    'Therapeutic window': t.window == null ? '' : num(t.window, 2),
                     'Synergy': t.synergy == null ? '' : num(t.synergy, 2),
                     'Effect in tissue': t.eff_in_tissue == null ? '' : num(t.eff_in_tissue, 2),
                 }));
