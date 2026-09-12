@@ -6415,6 +6415,16 @@ function (path, config) {
         // minutes for nothing. Answers already in slWhyCache are reused.
         const HO_REPORT_MAX = 20;
         let hoReportBusy = false;
+        // A COMPOUND'S STAGE decides how much the report makes of it: an approved drug
+        // against a target is a different sentence from a tool compound. Ranked, so the
+        // best stage a target has can lead its entry and the clinical ones can be gathered
+        // at the front of the report.
+        const STAGE_RANK = { 'approved': 0, 'phase 3': 1, 'phase 2': 2, 'phase 1': 3, 'preclinical': 4, 'tool compound': 5 };
+        const stageRank = (st) => { const k = ('' + (st || '')).toLowerCase().trim(); return (STAGE_RANK[k] == null) ? 6 : STAGE_RANK[k]; };
+        const isClinicalStage = (st) => stageRank(st) <= 3;
+        const bestInhibitor = (list) => { const a = (list || []).slice().sort((x, y) => stageRank(x.stage) - stageRank(y.stage)); return a[0] || null; };
+        const inhibitorLine = (list) => (list || []).slice().sort((x, y) => stageRank(x.stage) - stageRank(y.stage))
+            .map((x) => x.name + (x.stage ? ' (' + x.stage + ')' : '')).join(', ');
         // The PDF font draws ASCII only; the same gate the loss-matrix summary uses.
         const pdfAscii = (t) => ('' + (t == null ? '' : t)).replace(/\u2212/g, '-').replace(/\u00b7/g, '-').replace(/\u2014/g, '-').replace(/\u2265/g, '>=').replace(/\u2264/g, '<=').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[^\x20-\x7e]/g, '');
         const higherOrderReportPDF = async () => {
@@ -6446,18 +6456,73 @@ function (path, config) {
                     if (W && W.summary) written.push({ t: t, W: W }); else failed.push(t.target);
                 }
                 if (!written.length) throw new Error('no hit could be written up');
+                // WHAT CAN BE GIVEN TO A PATIENT. The write-up argues the biology; this is
+                // the compound list behind it, from the same therapeutic service the Refine
+                // panel uses, cached per gene on the server so a target asked about before
+                // costs nothing. Failure here does not fail the report: the pages simply
+                // carry the prose without the compound rows.
+                const ther = {};
+                try {
+                    dlMsg('Looking up inhibitors and trials…');
+                    const ctx = 'targets for a tumour that has lost ' + R.genes.join(', ') + (R.tissue ? '; tissue ' + R.tissue : '');
+                    const rs2 = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: written.map((x) => x.t.target), context: ctx }));
+                    if (rs2 && rs2.ok) Object.assign(ther, JSON.parse(rs2.genes || '{}'));
+                } catch (e) { step('report: therapeutics lookup failed: ' + e); }
+                const therOf = (sym) => ther[('' + sym).toUpperCase()] || null;
                 const num = (x, dp) => (x == null || x === '') ? '' : (+x).toFixed(dp == null ? 2 : dp);
                 const sheets = [];
                 sheets.push({ name: 'Report', rows: [{
                     'Report': BAJA3 + ' - higher-order hits',
                     'What it is': BAJA3_LONG + '. Every target below needs BOTH of the named losses: its dependency is deeper in cells carrying the pair than in cells carrying either loss alone.',
+                    'The model': 'For each loss and each pair of losses in this tumour, every gene in the DepMap CRISPR screen is scored for how much more essential it is in the cell lines carrying the same losses than in the rest, '
+                        + 'corrected for tissue of origin so a vulnerability of one cancer type is not mistaken for a consequence of the losses. Each hit is then decomposed into its single-loss parts: a higher-order hit is one the pair '
+                        + 'explains and neither loss alone does. Dependency is the Chronos gene effect from DepMap CRISPR knockouts; significance is a lineage-corrected partial correlation with Benjamini-Hochberg FDR.',
+                    'Applied before': 'An earlier application of this model, on 1p/19q-codeleted oligodendroglioma, is written up at ' + BAJA3_DOC,
                     'Losses': R.genes.join(', '),
                     'Tissue': R.tissue || 'any (lineage-corrected across the panel)',
                     'Higher-order hits': R.targets.filter((x) => isHigherOrder(x.interpretation)).length + (written.length < R.targets.filter((x) => isHigherOrder(x.interpretation)).length ? ' (' + written.length + ' reported)' : ''),
                     'Run': R.at ? new Date(R.at).toLocaleString() : '',
                     'Written': new Date().toLocaleString(),
-                    'Caution': 'Each write-up is general knowledge read around this run\'s statistics. It is a rationale to test, not a finding; confirm any paper before relying on it.',
+                    'Compounds': 'Every reported target is checked for inhibitors and trials; the clinical-stage ones are listed first, before the biology.',
+                    'Caution': 'Each write-up is general knowledge read around this run\'s statistics. It is a rationale to test, not a finding; confirm any paper or compound before relying on it.',
                 }] });
+                // THE DRUGGABLE ONES FIRST. A hit with an approved or clinical-stage compound
+                // is the one to read first, so it is listed before the biology rather than
+                // buried in a druggability paragraph twenty pages in.
+                {
+                    const drugged = written.map((x) => ({ x: x, t: therOf(x.t.target) })).filter((d) => d.t && (d.t.inhibitors || []).length);
+                    const clinical = drugged.filter((d) => (d.t.inhibitors || []).some((i) => isClinicalStage(i.stage)));
+                    const rest = drugged.filter((d) => clinical.indexOf(d) < 0);
+                    const sortByStage = (a, b) => stageRank((bestInhibitor(a.t.inhibitors) || {}).stage) - stageRank((bestInhibitor(b.t.inhibitors) || {}).stage);
+                    clinical.sort(sortByStage); rest.sort(sortByStage);
+                    const rowOf = (d) => {
+                        const best = bestInhibitor(d.t.inhibitors) || {};
+                        return {
+                            'Target': d.x.t.target,
+                            'Best stage': best.stage || 'unstated',
+                            'Compound': best.name || '',
+                            'All compounds': inhibitorLine(d.t.inhibitors),
+                            'Trials': d.t.trials || '',
+                            'Why it matters here': d.x.W.summary || '',
+                            'Window': d.x.t.window == null ? '' : num(d.x.t.window),
+                        };
+                    };
+                    const rows = [];
+                    if (clinical.length) {
+                        rows.push({ 'Target': 'CLINICAL STAGE', 'Best stage': clinical.length + ' of ' + written.length + ' reported hits',
+                            'Compound': 'approved or in trials', 'All compounds': '', 'Trials': '', 'Why it matters here': 'These are the hits with a compound a patient could receive today or in a trial.', 'Window': '' });
+                        clinical.forEach((d) => rows.push(rowOf(d)));
+                    }
+                    if (rest.length) {
+                        rows.push({ 'Target': 'PRECLINICAL ONLY', 'Best stage': rest.length + ' hit' + (rest.length === 1 ? '' : 's'),
+                            'Compound': 'tool compounds and preclinical', 'All compounds': '', 'Trials': '', 'Why it matters here': 'A compound exists but has not reached patients.', 'Window': '' });
+                        rest.forEach((d) => rows.push(rowOf(d)));
+                    }
+                    const none = written.filter((x) => { const t = therOf(x.t.target); return !t || !(t.inhibitors || []).length; }).map((x) => x.t.target);
+                    if (none.length) rows.push({ 'Target': 'NO COMPOUND KNOWN', 'Best stage': none.length + ' hit' + (none.length === 1 ? '' : 's'), 'Compound': none.join(', '),
+                        'All compounds': '', 'Trials': '', 'Why it matters here': 'Nothing acts on these yet; an antisense or siRNA approach is the route the editor is for.', 'Window': '' });
+                    if (rows.length) sheets.push({ name: 'Inhibitors and trials', rows: rows });
+                }
                 try { const pics = await captureViews(); if (pics && pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics }); } catch (e) { }
                 sheets.push({ name: 'Hits at a glance', rows: written.map((x, i) => ({
                     'Rank': i + 1, 'Target': x.t.target,
@@ -6465,6 +6530,7 @@ function (path, config) {
                     'Best t': num(x.t.best_t), 'Min FDR': (x.t.min_fdr == null) ? '' : (+x.t.min_fdr < 1e-3 ? (+x.t.min_fdr).toExponential(1) : num(x.t.min_fdr, 3)),
                     'Effect with the losses': num(x.t.eff_double), 'Effect without them': x.t.eff_none == null ? '' : num(x.t.eff_none),
                     'Window': x.t.window == null ? '' : num(x.t.window), 'Synergy': x.t.synergy == null ? '' : num(x.t.synergy),
+                    'Drug': (function () { const t = therOf(x.t.target); const b = t && bestInhibitor(t.inhibitors); return b ? (b.name + (b.stage ? ' (' + b.stage + ')' : '')) : 'none known'; })(),
                     'Summary': x.W.summary || '',
                 })) });
                 written.forEach((x, i) => {
@@ -6478,6 +6544,13 @@ function (path, config) {
                         'What the numbers say': W.evidence || '',
                         'Precedent': W.precedent || '',
                         'Caveats': W.caveats || '',
+                        'Inhibitors': (function () { const th = therOf(t.target); const line = th ? inhibitorLine(th.inhibitors) : ''; return line || 'None known acting on this target.'; })(),
+                        'Clinical stage': (function () {
+                            const th = therOf(t.target); const b = th && bestInhibitor(th.inhibitors);
+                            if (!b) return 'No compound known.';
+                            return isClinicalStage(b.stage) ? ('Yes - ' + b.name + ' is ' + (b.stage || 'in the clinic') + '.') : ('Preclinical only - the furthest is ' + b.name + (b.stage ? ' (' + b.stage + ')' : '') + '.');
+                        })(),
+                        'Trials': (function () { const th = therOf(t.target); return (th && th.trials) || ''; })(),
                         'Druggability': W.druggability || '',
                         'Statistics': 't ' + num(t.best_t) + ', FDR ' + ((t.min_fdr == null) ? '' : (+t.min_fdr < 1e-3 ? (+t.min_fdr).toExponential(1) : num(t.min_fdr, 3)))
                             + ', effect in lines with the losses ' + num(t.eff_double)
@@ -6494,6 +6567,7 @@ function (path, config) {
                     'Effect': 'The mean DepMap knockout effect (Chronos) in cells carrying the losses. Below -0.4 is a real dependency; around -1 is as essential as a core gene.',
                     'Window': 'Effect with the losses minus the effect in cells carrying neither. This is the selectivity: a target whose effect without the losses is already strongly negative is essential everywhere and would kill normal cells too, whatever its t.',
                     'Synergy': 'Effect with both losses minus the effect with the worse single loss. Negative means the pair is worse than either alone.',
+                    'Inhibitors': 'Approved means a licensed drug; phase 1 to 3 means it is in trials; preclinical and tool compound mean it exists but has not reached patients. A target with no compound is not a dead end: it is where an antisense or siRNA design starts.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + BAJA3 + '. Documentation: ' + BAJA3_DOC,
                 }] });
                 for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = pdfAscii(v); }
@@ -6535,7 +6609,7 @@ function (path, config) {
                 const n = Math.min(ho.length, HO_REPORT_MAX);
                 books.push({ section: 'Targets', title: 'Written report on the higher-order hits', badge: ho.length ? (n + (ho.length > HO_REPORT_MAX ? ' of ' + ho.length : '') + ' hits · pdf') : 'none', icon: 'description',
                     ready: ho.length > 0 && !hoReportBusy, readyNote: ho.length ? 'a report is being written' : 'no higher-order hit in this result',
-                    blurb: 'A page for each hit that needs BOTH losses: what the target does, why the losses create the dependency, what the numbers say, precedent, caveats and druggability — written from the statistics of this run'
+                    blurb: 'A page for each hit that needs BOTH losses: what the target does, why the losses create the dependency, what the numbers say, precedent, caveats, and the inhibitors and trials it has, with the clinical-stage ones listed first'
                         + (ho.length > HO_REPORT_MAX ? '. The strongest ' + HO_REPORT_MAX + ' are reported.' : '.') + ' Roughly ' + Math.max(1, Math.round(n * 8 / 60)) + ' minute' + (Math.round(n * 8 / 60) === 1 ? '' : 's') + ' the first time; ones already explained are instant.',
                     open: () => { higherOrderReportPDF().catch((e) => dlErr('Could not build the report: ' + (e && e.message ? e.message : e))); } });
             }
