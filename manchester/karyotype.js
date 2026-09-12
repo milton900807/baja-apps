@@ -6374,6 +6374,13 @@ function (path, config) {
         let lohBusy = false;
         const LOH_RUN_MIN = 10;          // sites in a row before a tract is worth drawing
         const LOH_RUN_GAP = 3;           // retained sites tolerated inside a tract
+        // A LOST ARM IS ONE THING, NOT FORTY. No tumour is pure and no caller is perfect, so
+        // a genuinely single-copy arm still throws a retained site every few hundred, and
+        // four in a row ends a run. Counting those as separate tracts turns one deletion
+        // into a page of fragments. Tracts closer together than this are the same tract:
+        // runs only form where loss is dense, so there is nothing on a normal chromosome
+        // for this to join.
+        const LOH_TRACT_JOIN = 3e6;
         // WHERE THE READS DECIDE AND WHERE THE GENOTYPE DOES. A caller writes 0/1 once and
         // does not revisit it; on a tumour arm that has lost a copy it keeps writing 0/1
         // over reads that are 95% one allele. So a site is judged on its B-allele fraction
@@ -6472,6 +6479,12 @@ function (path, config) {
                             else if (start >= 0) { bad++; if (bad > LOH_RUN_GAP) { if (n >= LOH_RUN_MIN) runs.push({ lo: start, hi: last, n: n }); start = -1; n = 0; bad = 0; } }
                         }
                         if (start >= 0 && n >= LOH_RUN_MIN) runs.push({ lo: start, hi: last, n: n });
+                        for (let r2 = runs.length - 1; r2 > 0; r2--) {
+                            if (runs[r2].lo - runs[r2 - 1].hi >= LOH_TRACT_JOIN) continue;
+                            runs[r2 - 1].hi = runs[r2].hi;
+                            runs[r2 - 1].n += runs[r2].n;
+                            runs.splice(r2, 1);
+                        }
                     }
                     if (het) {
                         chroms.push({ ci: ci, name: drawn[ci].name, het: het, loh: loh, kept: kept, uncalled: uncalled,
