@@ -29,8 +29,12 @@ Params (after the EngineMonitor):
                tissue is the ORGAN (Breast); disease is the CANCER TYPE (Invasive Breast
                Carcinoma). Either may be given; disease wins when both are.
 
+    param(1) also takes { drop_pan_essential: true|false } (default true): move targets that
+               are essential everywhere and have no real window into `dropped` instead of
+               `targets`. Both lists always come back, so nothing disappears silently.
+
 Resolves:
-    { ok, targets, backgrounds, lineages, notes, n_models, n_genes, error }
+    { ok, targets, dropped, backgrounds, lineages, notes, n_models, n_genes, error }
   targets     JSON array, best first: { target, n_backgrounds, best_t, min_fdr,
               eff_double, eff_none, window, synergy, interpretation,
               backgrounds: [{genes, t, fdr, eff_double, eff_none, window, n_none,
@@ -56,9 +60,21 @@ FDR_MAX = 0.25
 EFF_MAX = -0.4           # a target must actually be essential in the background lines
 PER_BACKGROUND = 60      # hits kept per background before aggregation
 MAX_GENES = 12           # 66 pairs; each background is one matrix-vector product
+# PAN-ESSENTIAL TARGETS WITH NO WINDOW. A gene the cell needs whatever it has lost scores a
+# huge t and a huge effect and is worthless as a drug: it kills the tumour and the patient
+# together. The t only says the dependency is DEEPER in the carriers; how much of the
+# killing the losses actually account for is window / eff_double, and when that fraction is
+# small the rest is unconditional lethality. These are set aside rather than deleted, with
+# the reason attached, because a screen that shows no window is not proof there is none --
+# an MTA-cooperative PRMT5 inhibitor makes a window CRISPR knockout cannot show.
+DEP_CUT = -0.5           # a line depends on a gene below this
+PAN_FRAC = 0.85          # dependent in this share of ALL lines: essential everywhere
+PAN_EFF = -0.6           # or this essential in the lines carrying NEITHER loss
+MIN_WINDOW = -0.3        # a window shallower than this is not a window
+MIN_SELECTIVITY = 0.5    # and it must be at least this much of the total killing
 
-out = {"ok": False, "targets": "[]", "backgrounds": "[]", "lineages": "[]", "diseases": "[]",
-       "notes": "[]", "n_models": 0, "n_genes": 0, "error": None}
+out = {"ok": False, "targets": "[]", "dropped": "[]", "backgrounds": "[]", "lineages": "[]",
+       "diseases": "[]", "notes": "[]", "n_models": 0, "n_genes": 0, "error": None}
 
 
 def bundle_dir():
@@ -103,6 +119,8 @@ try:
     top_n = max(5, min(200, int(req.get("top") or 40)))
 except Exception:
     top_n = 40
+drop_pan = req.get("drop_pan_essential")
+drop_pan = True if drop_pan is None else bool(drop_pan)
 
 bd = bundle_dir()
 if not want:
@@ -146,6 +164,11 @@ else:
         for i, c in enumerate(lin):
             D[i, ci[c]] = 1.0
         Gd = np.asarray(G, dtype=np.float32)
+        # How essential every gene is across the WHOLE panel, which is the honest test of
+        # "needed whatever you have lost" -- eff_none is only the lines outside one
+        # background, and a target can look tolerable there and be essential everywhere.
+        eff_all = Gd.mean(0)
+        dep_all = (Gd < DEP_CUT).mean(0)
         beta, _, rank, _ = np.linalg.lstsq(D, Gd.astype(np.float64), rcond=None)
         Xr = (Gd - (D @ beta).astype(np.float32))
         ss_x = (Xr.astype(np.float64) ** 2).sum(0)
@@ -275,7 +298,9 @@ else:
                 if a is None:
                     a = agg[k] = {"target": genes[k], "n_backgrounds": 0, "n_pairs": 0, "best_t": 0.0, "min_fdr": 1.0,
                                   "eff_double": 0.0, "synergy": None, "interpretation": "weak",
-                                  "eff_in_tissue": None, "eff_none": None, "window": None, "backgrounds": []}
+                                  "eff_in_tissue": None, "eff_none": None, "window": None,
+                                  "eff_all": round(float(eff_all[k]), 3),
+                                  "dep_frac_all": round(float(dep_all[k]), 3), "backgrounds": []}
                 a["n_backgrounds"] += 1
                 if len(bg) == 2:
                     a["n_pairs"] += 1
@@ -297,12 +322,59 @@ else:
                     a["interpretation"] = interp
 
         targets = list(agg.values())
+        # THE FILTER. Pan-essential is judged on the whole panel first and on the lines
+        # carrying neither loss second; the window then has to be both deep enough to matter
+        # and a large enough share of the total killing to be what is doing the killing.
+        def verdict(a):
+            # Selectivity is worth knowing for every target, not only the ones this rejects:
+            # it is the share of the killing the losses account for, and a reader comparing
+            # two kept targets wants it as much as the filter does.
+            w, e = a["window"], a["eff_double"]
+            sel = (abs(w) / abs(e)) if (w is not None and e) else 0.0
+            a["selectivity"] = round(float(sel), 3)
+            pan_panel = a["dep_frac_all"] >= PAN_FRAC
+            pan_none = a["eff_none"] is not None and a["eff_none"] <= PAN_EFF
+            if not (pan_panel or pan_none):
+                return None
+            why = ("essential in %d%% of all cell lines" % round(100 * a["dep_frac_all"])) if pan_panel else \
+                  ("effect %.2f in the lines carrying neither loss" % a["eff_none"])
+            if w is None:
+                return why + ", and no window could be measured"
+            if w > MIN_WINDOW:
+                return why + ", and the window is only %.2f" % w
+            if sel < MIN_SELECTIVITY:
+                return (why + ", and the losses account for only %d%% of the killing (window %.2f of effect %.2f)"
+                        % (round(100 * sel), w, e))
+            return None
+
+        dropped = []
+        if drop_pan:
+            kept = []
+            for a in targets:
+                why = verdict(a)
+                if why:
+                    a["dropped_because"] = why
+                    dropped.append(a)
+                else:
+                    kept.append(a)
+            targets = kept
+        else:
+            for a in targets:
+                why = verdict(a)
+                if why:
+                    a["pan_essential_note"] = why
+        if drop_pan:
+            # The kept ones still need their selectivity filled in.
+            for a in targets:
+                if "selectivity" not in a:
+                    verdict(a)
         # A genuine three-way hit first, then how many of this tumor's backgrounds it
         # recurs in, then the strongest t.
         rank_of = lambda a: (0 if a["interpretation"] == "genuine higher-order" else 1,
                              -a["n_pairs"], -a["n_backgrounds"], a["best_t"])
         targets.sort(key=rank_of)
-        for a in targets:
+        dropped.sort(key=rank_of)
+        for a in targets + dropped:
             a["backgrounds"].sort(key=lambda h: h["t"])
         scored = [b for b in bg_out if b["status"] == "scored"]
         if not scored:
@@ -314,14 +386,27 @@ else:
         notes.append("The therapeutic window is eff_double minus eff_none: how much deeper the dependency runs "
                      "in cells carrying the losses than in cells carrying neither. A target with a strongly "
                      "negative eff_none is essential everywhere and would kill normal cells too, whatever its t.")
+        if drop_pan:
+            notes.append("%d target(s) were set aside as essential everywhere with no real window: dependent in "
+                         "%d%% or more of all cell lines (or %.1f or worse in the lines carrying neither loss), "
+                         "and either a window shallower than %.1f or one accounting for less than %d%% of the "
+                         "killing. They are listed separately with the reason, not deleted: a screen that shows "
+                         "no window is not proof there is none."
+                         % (len(dropped), round(100 * PAN_FRAC), PAN_EFF, MIN_WINDOW, round(100 * MIN_SELECTIVITY)))
+        else:
+            notes.append("Pan-essential targets were NOT filtered out; the ones that would have been are marked "
+                         "with pan_essential_note.")
         out["ok"] = True
         out["targets"] = json.dumps(targets[:top_n])
+        out["dropped"] = json.dumps(dropped[:top_n])
         out["backgrounds"] = json.dumps(bg_out)
         out["lineages"] = json.dumps(lineages[:40])
         out["diseases"] = json.dumps(diseases[:60])
         out["notes"] = json.dumps(notes)
         out["n_models"] = int(n_models)
         out["n_genes"] = int(n_genes)
-        works.msg("%d candidate target(s) across %d scored background(s)" % (len(targets), len(scored)))
+        works.msg("%d candidate target(s) across %d scored background(s)%s"
+                  % (len(targets), len(scored),
+                     (", %d set aside as essential everywhere" % len(dropped)) if dropped else ""))
 
 works.resolve(out)

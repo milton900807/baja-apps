@@ -7041,6 +7041,12 @@ function (path, config) {
         let slResult = null;            // last ranking: { genes, tissue, targets, backgrounds, lineages, notes, at }
         let slBusy = false;
         const SL_MAX_GENES = 12;
+        // DROP THE TARGETS THAT KILL EVERYTHING. A gene the cell needs whatever it has lost
+        // scores an enormous t and an enormous effect and is useless as a drug: it takes the
+        // patient with the tumour. On by default, because those hits crowd out the selective
+        // ones and read as the strongest result on the page. They are set aside with the
+        // reason rather than deleted, and one card puts them back.
+        let slDropPan = true;
         const SL_TISSUES = ['Breast', 'Lung', 'Pancreas', 'Bowel', 'Skin', 'Ovary/Fallopian Tube', 'Prostate',
             'Kidney', 'Bladder/Urinary Tract', 'CNS/Brain', 'Lymphoid', 'Myeloid', 'Liver', 'Esophagus/Stomach',
             'Head and Neck', 'Uterus', 'Bone', 'Soft Tissue', 'Peripheral Nervous System', 'Thyroid', 'Biliary Tract',
@@ -7111,13 +7117,14 @@ function (path, config) {
                 const spot = disease || tissue || '';
                 graph.setMessage(' Ranking synthetic-lethal targets for ' + genes.join(', ') + (spot ? ' in ' + spot : '') + '… ');
                 const rs = await exec(server + '/py/bio/synthetic-lethal-targets.py', em,
-                    JSON.stringify({ genes: genes, tissue: tissue || '', disease: disease || '', top: 60 }));
+                    JSON.stringify({ genes: genes, tissue: tissue || '', disease: disease || '', top: 60,
+                        drop_pan_essential: slDropPan }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not rank the targets');
                 const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
                 // `tissue` on the result is the SPOTLIGHT, whichever kind it was, because that
                 // is what every card, report and explanation prints beside an effect.
                 slResult = { genes: genes.slice(), tissue: spot, lineage: tissue || '', disease: disease || '',
-                    targets: J(rs.targets, '[]'), backgrounds: J(rs.backgrounds, '[]'),
+                    targets: J(rs.targets, '[]'), dropped: J(rs.dropped, '[]'), backgrounds: J(rs.backgrounds, '[]'),
                     lineages: J(rs.lineages, '[]'), diseases: J(rs.diseases, '[]'),
                     notes: J(rs.notes, '[]'), nModels: +rs.n_models || 0, at: new Date().toISOString() };
                 const scored = slResult.backgrounds.filter((b) => b.status === 'scored').length;
@@ -7126,6 +7133,7 @@ function (path, config) {
                 if (lossMatrix && selGenes.size) { lossHlScope = 'background'; try { applyLossHighlights(true); } catch (e) { } }
                 graph.setMessage(' ' + slResult.targets.length + ' candidate target' + (slResult.targets.length === 1 ? '' : 's')
                     + ' across ' + scored + ' scored background' + (scored === 1 ? '' : 's')
+                    + (slResult.dropped.length ? '; ' + slResult.dropped.length + ' set aside as essential everywhere' : '')
                     + (lossHlScope === 'background' ? '; the karyotype now marks the ' + selWord() + ' of the background' : '') + '. ');
                 step('sl targets ' + genes.join('+') + ': ' + slResult.targets.length);
                 slBusy = false;
@@ -7135,13 +7143,26 @@ function (path, config) {
                 try { graph.setError(' Targets could not be ranked: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
             }
         };
-        const slTargetsCSV = () => dlToCSV((slResult.targets || []).map((t) => ({
-            target: t.target, interpretation: t.interpretation, n_backgrounds: t.n_backgrounds, n_pairs: t.n_pairs,
-            best_t: t.best_t, min_fdr: t.min_fdr, eff_double: t.eff_double, eff_without_the_losses: t.eff_none == null ? '' : t.eff_none, therapeutic_window: t.window == null ? '' : t.window, synergy: t.synergy == null ? '' : t.synergy,
-            eff_in_tissue: t.eff_in_tissue == null ? '' : t.eff_in_tissue, tissue: slResult.tissue || '',
-            backgrounds: (t.backgrounds || []).map((b) => b.genes.join('+') + ' (t ' + b.t + ', ' + b.interpretation + ')').join('; '),
-            losses: slResult.genes.join('+'),
-        })));
+        // The set-aside targets are rows in the same table, marked. A reader opening the CSV
+        // to check a gene should find it whether or not the filter kept it.
+        const slTargetsCSV = () => {
+            const row = (t, kept) => ({
+                target: t.target, kept: kept ? 'yes' : 'no', set_aside_because: t.dropped_because || t.pan_essential_note || '',
+                interpretation: t.interpretation, n_backgrounds: t.n_backgrounds, n_pairs: t.n_pairs,
+                best_t: t.best_t, min_fdr: t.min_fdr, eff_double: t.eff_double,
+                eff_without_the_losses: t.eff_none == null ? '' : t.eff_none,
+                therapeutic_window: t.window == null ? '' : t.window,
+                share_of_killing_from_the_losses: t.selectivity == null ? '' : t.selectivity,
+                essential_in_fraction_of_all_lines: t.dep_frac_all == null ? '' : t.dep_frac_all,
+                mean_effect_all_lines: t.eff_all == null ? '' : t.eff_all,
+                synergy: t.synergy == null ? '' : t.synergy,
+                eff_in_tissue: t.eff_in_tissue == null ? '' : t.eff_in_tissue, tissue: slResult.tissue || '',
+                backgrounds: (t.backgrounds || []).map((b) => b.genes.join('+') + ' (t ' + b.t + ', ' + b.interpretation + ')').join('; '),
+                losses: slResult.genes.join('+'),
+            });
+            return dlToCSV((slResult.targets || []).map((t) => row(t, true))
+                .concat((slResult.dropped || []).map((t) => row(t, false))));
+        };
         const selectionCSV = () => dlToCSV(selectedList().map((g) => {
             const v = (g.variants || [])[0] || {};
             return { gene: g.gene, chrom: g.chr, gene_start: g.start, gene_end: g.end, effect: v.effect || '', pos: v.pos || '',
@@ -7689,6 +7710,12 @@ function (path, config) {
                 blurb: lossHlScope === 'background' ? 'The karyotype is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'
                     : 'Mark and band only ' + R.genes.join(', ') + ' on the chromosomes, rather than every loss in the file.',
                 open: () => { lossHlScope = (lossHlScope === 'background') ? 'all' : 'background'; try { if (lossMatrix) applyLossHighlights(true); } catch (e) { } slTargetsMenu(); } });
+            books.push({ section: 'Targets', title: slDropPan ? 'Pan-essential targets are being set aside' : 'Pan-essential targets are being kept',
+                badge: slDropPan ? ((R.dropped || []).length + ' set aside') : 'none filtered', icon: 'filter_alt', ready: !slBusy, readyNote: 'a run is in progress',
+                blurb: slDropPan
+                    ? 'A target the cell needs whatever it has lost kills the patient with the tumour, whatever its t. Targets dependent in 85% or more of all cell lines, or already at −0.6 in the lines carrying neither loss, are set aside unless the losses account for at least half the killing. Click to keep them and run again.'
+                    : 'Every target is listed, including the ones that are essential everywhere. Click to set those aside and run again.',
+                open: () => { slDropPan = !slDropPan; slFindTargets(R.lineage || '', R.disease || ''); } });
             books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
             if (!R.targets.length) books.push({ section: 'Ranked targets', note: true, title: 'No gene passed the threshold (t < 0, effect < −0.4, FDR ≤ 0.25) in any scored background.' });
             else books.push({ section: 'Ranked targets', note: true, title: 'Genuine three-way hits first, then by how many of this tumour\'s backgrounds a gene recurs in, then by t. Click a target to go to it or open it in the editor.' });
@@ -7698,8 +7725,10 @@ function (path, config) {
                 books.push({ section: 'Ranked targets', title: (i + 1) + '. ' + t.target, badge: interpWord(t.interpretation), swatch: slInterpColor(t.interpretation), ready: true,
                     blurb: 't ' + fmtT(t.best_t) + ' · FDR ' + fmtP(t.min_fdr) + ' · effect ' + fmtT(t.eff_double)
                         + (t.eff_none != null ? ' · without the losses ' + fmtT(t.eff_none) : '') + (t.window != null ? ' · window ' + fmtT(t.window) : '')
+                        + (t.selectivity != null ? ' · the losses account for ' + Math.round(100 * t.selectivity) + '% of the killing' : '')
                         + (t.synergy != null ? ' · synergy ' + fmtT(t.synergy) : '') + (t.eff_in_tissue != null ? ' · in ' + R.tissue + ' ' + fmtT(t.eff_in_tissue) : '')
-                        + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText,
+                        + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's') + ': ' + bgText
+                        + (t.pan_essential_note ? ' · ESSENTIAL EVERYWHERE: ' + t.pan_essential_note : ''),
                     books: () => [
                         { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
                             blurb: 'The biology behind ' + t.target + ' with ' + R.genes.join(' + ') + ' lost: role, mechanism, what the numbers say, precedent, caveats, druggability.',
@@ -7713,6 +7742,31 @@ function (path, config) {
                         + (b.window != null ? ', window ' + fmtT(b.window) : '')
                         + (b.synergy != null ? ', synergy ' + fmtT(b.synergy) : '') + (b.eff_in_tissue != null ? ', in tissue ' + fmtT(b.eff_in_tissue) : '') + ' — ' + interpWord(b.interpretation) }))) });
             });
+            if ((R.dropped || []).length) {
+                books.push({ section: 'Set aside — essential everywhere', note: true,
+                    title: (R.dropped.length) + ' target' + (R.dropped.length === 1 ? '' : 's') + ' scored well and were set aside, because the cells need them '
+                        + 'whatever they have lost. The reason is on each one. They are shown rather than deleted: a screen that finds no window '
+                        + 'is not proof there is none, and a drug can make one a knockout cannot — an MTA-cooperative PRMT5 inhibitor is exactly that.' });
+                R.dropped.forEach((t, i) => {
+                    const bgs = (t.backgrounds || []);
+                    books.push({ section: 'Set aside — essential everywhere', title: (i + 1) + '. ' + t.target, badge: 'no window', swatch: '#94a3b8', ready: true,
+                        blurb: t.dropped_because + '. t ' + fmtT(t.best_t) + ' · FDR ' + fmtP(t.min_fdr) + ' · effect ' + fmtT(t.eff_double)
+                            + (t.eff_none != null ? ' · without the losses ' + fmtT(t.eff_none) : '')
+                            + (t.window != null ? ' · window ' + fmtT(t.window) : '')
+                            + ' · essential in ' + Math.round(100 * t.dep_frac_all) + '% of all cell lines'
+                            + ' · ' + t.n_backgrounds + ' background' + (t.n_backgrounds === 1 ? '' : 's'),
+                        books: () => [
+                            { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
+                                blurb: 'The biology behind ' + t.target + ', including why the window is this narrow.',
+                                open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, selectivity: t.selectivity, dep_frac_all_lines: t.dep_frac_all, set_aside_because: t.dropped_because, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
+                            { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
+                            { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
+                            { note: true, title: 'Per background:' },
+                        ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
+                            + (b.eff_none != null ? ', without the losses ' + fmtT(b.eff_none) + (b.n_none ? ' (' + b.n_none + ' lines)' : '') : '')
+                            + (b.window != null ? ', window ' + fmtT(b.window) : '') + ' — ' + interpWord(b.interpretation) }))) });
+                });
+            }
             books.push(baja3DocCard('Targets'));
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: BAJA3 + ' targets',
                 subtitle: BAJA3_LONG + ' — third genes that become essential given the selected losses', graph: graph, books: books });
