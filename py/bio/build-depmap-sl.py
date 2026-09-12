@@ -10,6 +10,7 @@ application and are far too large to read as CSV on every request:
     OmicsSomaticMutationsMatrixDamaging.csv  damaging-mutation calls, 24Q4     (~148 MB)
     OmicsSomaticMutationsMatrixHotspot.csv   hotspot-mutation calls, 24Q4       (~4 MB)
     OmicsExpressionProteinCodingGenesTPMLogp1.csv  expression, 24Q4           (~507 MB)
+    OmicsAbsoluteCNGene.csv                  absolute copy number, 24Q4        (~239 MB)
 
 This downloads them from figshare (or reads copies you already have), streams them once
 with the csv module -- no pandas on the server -- and writes a compact bundle:
@@ -24,6 +25,14 @@ with the csv module -- no pandas on the server -- and writes a compact bundle:
     <out>/lof.npy           bool    [models x genes]: damaging mutation OR hotspot mutation
                             OR expression in the gene's bottom 15% across lines
                             (deletion / silencing)
+    <out>/cn.npy            float32 [models x genes]: ABSOLUTE copies of the gene, NaN where
+                            the line was never profiled (~250 of the 1208). This is the
+                            dosage lane: loss of function says a gene is broken, copy number
+                            says how much of it is there, and a single-copy (CYCLOPS)
+                            vulnerability is a question about the second one.
+    <out>/ploidy.npy        float32 [models]: the line's own baseline, the median gene's copy
+                            number. Cell lines are aneuploid, so dosage is only meaningful as
+                            a ratio to this: two copies in a near-triploid line is a loss.
     <out>/meta.json         what went in, and when
 
 Hotspots matter because DepMap's "damaging" matrix is truncating and frameshift changes
@@ -62,7 +71,15 @@ FIGSHARE = {
     "mutations": ("51065747", "OmicsSomaticMutationsMatrixDamaging.csv"),
     "hotspots": ("51065750", "OmicsSomaticMutationsMatrixHotspot.csv"),
     "expression": ("51065489", "OmicsExpressionProteinCodingGenesTPMLogp1.csv"),
+    # ABSOLUTE copy number, not relative: integer copies per gene per line, so "this line
+    # has one copy of PSMC2" is a fact rather than a ratio that has to be argued back
+    # through ploidy. 239 MB against 1.4 GB for OmicsCNGene.csv, and it covers 958 of the
+    # 1208 CRISPR lines, which is enough to test a dosage effect. Lines it does not cover
+    # are NaN and every test drops them.
+    "copy_number": ("51065303", "OmicsAbsoluteCNGene.csv"),
 }
+CN_NEUTRAL = 2           # copies a normal diploid genome carries
+CN_LOSS_MAX = 1          # at or below this the line is down to one copy (0 = both gone)
 LOW_PCT = 15.0
 # Genes for which a recurrent (hotspot) missense is a LOSS: tumour suppressors whose
 # hotspots are dominant-negative or inactivating. The same list the third-gene model
@@ -151,7 +168,14 @@ def main():
     ap.add_argument("--mutations", default=None)
     ap.add_argument("--hotspots", default=None)
     ap.add_argument("--expression", default=None)
+    ap.add_argument("--copy-number", default=None)
     ap.add_argument("--keep-downloads", action="store_true")
+    # ADDING ONE LANE TO A BUNDLE THAT ALREADY EXISTS. A full rebuild re-downloads a
+    # gigabyte to change nothing but a file that was not there before, so copy number can
+    # be added on its own: the gene and model order come from the bundle's own txt files,
+    # which is the only thing the new lane has to agree with.
+    ap.add_argument("--only-cn", action="store_true",
+                    help="add cn.npy to the bundle in --out and leave everything else alone")
     a = ap.parse_args()
 
     out = a.out
@@ -166,11 +190,73 @@ def main():
         downloaded.append(p)
         return p
 
+    def build_cn(models, genes, path):
+        """Absolute copy number aligned to the bundle's model rows and gene columns.
+
+        NaN where the line was never profiled, which is a quarter of the CRISPR panel and
+        has to stay distinguishable from zero: no copies and no measurement are opposite
+        findings, and a zero-filled hole would read as a homozygous deletion in every gene.
+        """
+        midx = {m: i for i, m in enumerate(models)}
+        gidx = {g: i for i, g in enumerate(genes)}
+        C = np.full((len(models), len(genes)), np.nan, dtype=np.float32)
+        cm, cs, CN = read_matrix(path, keep_models=set(models), what="absolute copy number")
+        cols = [(j, gidx[s]) for j, s in enumerate(cs) if s in gidx]
+        rows_ = [midx[m] for m in cm]
+        src = np.array([j for j, _ in cols])
+        dst = np.array([g for _, g in cols])
+        for k, mrow in enumerate(rows_):
+            C[mrow, dst] = CN[k, src]
+        seen = int((~np.isnan(C)).any(axis=1).sum())
+        say("copy number: %d of %d models profiled, %d of %d genes matched"
+            % (seen, len(models), len(cols), len(genes)))
+        # EACH LINE'S OWN BASELINE. Cancer cell lines are aneuploid: two copies of a gene in
+        # a near-triploid line is a relative LOSS, and counting raw copies would call it
+        # normal and call the triploid line's three copies a gain. The median gene's copy
+        # number is the line's ploidy, and every dosage question downstream is asked as a
+        # ratio to it. NaN for a line that was never profiled, so it cannot be divided by.
+        with np.errstate(invalid="ignore"):
+            pl = np.nanmedian(C, axis=1)
+        pl = np.where(np.isfinite(pl) & (pl > 0), pl, np.nan).astype(np.float32)
+        got = np.isfinite(pl)
+        if got.any():
+            say("ploidy: median %.1f, range %.0f-%.0f over %d lines"
+                % (float(np.median(pl[got])), float(pl[got].min()), float(pl[got].max()), int(got.sum())))
+        return C, pl
+
+    if a.only_cn:
+        # The bundle's own files are the authority on order; nothing else is touched.
+        genes = open(os.path.join(out, "genes.txt")).read().rstrip("\n").split("\n")
+        models = open(os.path.join(out, "models.txt")).read().rstrip("\n").split("\n")
+        cn_path = source("copy_number", a.copy_number)
+        C, pl = build_cn(models, genes, cn_path)
+        np.save(os.path.join(out, "cn.npy"), C)
+        np.save(os.path.join(out, "ploidy.npy"), pl)
+        mp = os.path.join(out, "meta.json")
+        meta = json.load(open(mp)) if os.path.exists(mp) else {}
+        meta.setdefault("sources", {})["copy_number"] = os.path.basename(cn_path)
+        meta["figshare"] = FIGSHARE
+        meta["copy_number"] = {"kind": "absolute integer copies per gene",
+                               "neutral": CN_NEUTRAL, "loss_at_or_below": CN_LOSS_MAX,
+                               "models_profiled": int((~np.isnan(C)).any(axis=1).sum()),
+                               "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        with open(mp, "w") as fh:
+            json.dump(meta, fh, indent=2)
+        say("cn.npy added to %s (%d x %d)" % (out, C.shape[0], C.shape[1]))
+        if not a.keep_downloads:
+            for p in downloaded:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        return
+
     ge_path = source("gene_effect", a.gene_effect)
     model_path = source("model", a.model)
     mut_path = source("mutations", a.mutations)
     hot_path = source("hotspots", a.hotspots)
     expr_path = source("expression", a.expression)
+    cn_path = source("copy_number", a.copy_number)
 
     # 1. Dependency: every screened line, every gene.
     models, genes, G = read_matrix(ge_path, what="gene effect")
@@ -255,7 +341,14 @@ def main():
     say("low-expression calls placed: %d" % low_hits)
     del E
 
+    # 3b. Absolute copy number, the dosage lane: how many copies of each gene each line
+    #     carries. Loss of function says a gene is broken; this says how much of it is
+    #     there, which is a different question and the one a CYCLOPS asks.
+    C, pl = build_cn(models, genes, cn_path)
+
     # 4. Write the bundle.
+    np.save(os.path.join(out, "cn.npy"), C)
+    np.save(os.path.join(out, "ploidy.npy"), pl)
     np.save(os.path.join(out, "gene_effect.npy"), G)
     np.save(os.path.join(out, "lof.npy"), lof)
     with open(os.path.join(out, "genes.txt"), "w") as fh:
@@ -273,7 +366,10 @@ def main():
         "lof_calls": int(lof.sum()),
         "sources": {k: os.path.basename(p) for k, p in
                     [("gene_effect", ge_path), ("model", model_path), ("mutations", mut_path),
-                     ("hotspots", hot_path), ("expression", expr_path)]},
+                     ("hotspots", hot_path), ("expression", expr_path), ("copy_number", cn_path)]},
+        "copy_number": {"kind": "absolute integer copies per gene", "neutral": CN_NEUTRAL,
+                        "loss_at_or_below": CN_LOSS_MAX,
+                        "models_profiled": int((~np.isnan(C)).any(axis=1).sum())},
         "figshare": FIGSHARE, "low_expression_percentile": LOW_PCT,
         "hotspot_as_loss": sorted(HOTSPOT_AS_LOSS), "hotspot_calls_added": int(hot),
     }

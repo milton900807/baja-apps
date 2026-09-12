@@ -118,8 +118,14 @@ else:
                "'mechanism' explain what the gene does and why halving its dosage would matter -- complex "
                "stoichiometry, a rate-limiting step, no paralog to compensate. In 'evidence' say what the "
                "essentiality numbers do and do not support, and be explicit that high essentiality is a "
-               "REQUIREMENT here rather than a disqualification, while noting that the copy-number-"
-               "conditioned test is not shown. In 'caveats' address the therapeutic index directly: a "
+               "REQUIREMENT here rather than a disqualification. A 'dosage_test' block is the direct "
+               "evidence: the knockout effect in cell lines that are themselves down to one copy of this "
+               "gene against lines carrying a normal complement, lineage-corrected, with a t and an FDR. "
+               "A negative difference means the lines confirm that half the gene is not enough; say so, "
+               "and say plainly when the test was not run or came back negative, in which case the claim "
+               "rests on the patient's own tract. Note that dosage sensitivity is a property of the gene "
+               "rather than of this tumour -- what makes it specific here is that THIS tumour carries one "
+               "copy. In 'caveats' address the therapeutic index directly: a "
                "partial inhibitor is needed, complete inhibition would kill normal cells too.\n"
                % (target, ", ".join([g for g in losses if g != target]) or "(not given)", json.dumps(stats)))
     elif source == "paralog":

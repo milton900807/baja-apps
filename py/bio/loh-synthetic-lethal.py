@@ -26,11 +26,24 @@ and they want opposite things from a target.
 
 Reads the bundle build-depmap-sl.py wrote to reference_data/depmap (per box).
 
-WHAT THIS CANNOT SAY: the copy-number-conditioned test -- is the dependency measurably
-stronger in the cell lines that are themselves hemizygous for this gene -- needs DepMap's
-copy-number matrix, which is not in the bundle. Essentiality across the panel is the
-standard way CYCLOPS candidates are prioritized, and it is what is reported here; the
-single-copy half of the argument comes from the patient's own tract, not from the screen.
+THE DOSAGE TEST. Essentiality alone only says the gene matters; it does not say that HALF
+of it matters, which is the whole claim. So each candidate is also asked the question
+directly, in the cell lines that are themselves down to one copy of it: is the knockout
+worse there than in the lines that carry a normal complement? That needs copy number, and
+the bundle now carries it -- absolute copies per gene, read against each line's OWN ploidy,
+because cancer lines are aneuploid and two copies in a near-triploid line is a loss, not a
+normal reading. Lines with NO copies are excluded rather than counted as the extreme of
+low dosage: CRISPR has nothing to cut there, and their flat effect would argue the opposite
+of the truth. Lineage is regressed out first, as everywhere else here, so a vulnerability
+of one tissue is not read as a consequence of dosage.
+
+A gene that passes both -- essential across the panel AND measurably more essential in the
+lines that are hemizygous for it -- is the real thing. A gene that is essential with no
+measurable dosage effect is reported and labelled as such, because the patient's tract is
+still evidence and the cell lines may simply be too few.
+
+Bundles built before copy number was added still work: the dosage test is skipped, every
+candidate is labelled "not tested", and a note says why.
 
 Params (after the EngineMonitor):
     param(1) : JSON { loh_genes: [symbol, ...],      every gene inside an LOH tract
@@ -45,6 +58,7 @@ Resolves:
   background JSON array of symbols, ready for synthetic-lethal-targets.py
 """
 import json
+import math
 import os
 
 import numpy as np
@@ -57,9 +71,31 @@ COMMON_FRAC = 0.50
 MAX_BACKGROUND = 12      # what synthetic-lethal-targets.py will accept
 MIN_BG_LINES = 15        # a background gene nothing else carries cannot be scored
 MAX_GENES = 4000
+# The dosage test, in ratios to each line's own ploidy rather than raw copies.
+CN_LOW = 0.60            # at or below: the line is down to roughly one copy of two
+CN_HI_LO, CN_HI_HI = 0.85, 1.15   # a normal complement for that line
+MIN_HEMI = 10            # fewer hemizygous lines than this and the test says nothing
+MIN_NEUTRAL = 20
+CN_FDR = 0.25
 
 out = {"ok": False, "complete": "[]", "cyclops": "[]", "background": "[]",
-       "notes": "[]", "n_models": 0, "n_genes": 0, "error": None}
+       "notes": "[]", "n_models": 0, "n_genes": 0, "cn_models": 0, "error": None}
+
+
+def bh_fdr(p):
+    n = len(p)
+    if not n:
+        return p
+    order = np.argsort(p)
+    ranked = p[order] * n / (np.arange(n) + 1)
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    fdr = np.empty(n)
+    fdr[order] = np.clip(ranked, 0, 1)
+    return fdr
+
+
+def norm_sf(z):
+    return math.erfc(abs(z) / math.sqrt(2.0))
 
 
 def bundle_dir():
@@ -104,7 +140,16 @@ else:
     genes = [g.strip() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
     G = np.load(os.path.join(bd, "gene_effect.npy"), mmap_mode="r")
     L = np.load(os.path.join(bd, "lof.npy"), mmap_mode="r")
+    cn_path = os.path.join(bd, "cn.npy")
+    pl_path = os.path.join(bd, "ploidy.npy")
+    C = np.load(cn_path, mmap_mode="r") if os.path.exists(cn_path) else None
+    PL = np.load(pl_path) if os.path.exists(pl_path) else None
     n_models, n_genes = G.shape
+    lin = []
+    lpath = os.path.join(bd, "lineage.txt")
+    if os.path.exists(lpath):
+        lin = [x.strip() for x in open(lpath).read().rstrip("\n").split("\n")]
+    lin = (lin + [""] * n_models)[:n_models]
     gidx = {g.upper(): i for i, g in enumerate(genes)}
     out["n_models"], out["n_genes"] = int(n_models), int(n_genes)
 
@@ -135,6 +180,53 @@ else:
         E = E[:, back]
         Lo = Lo[:, back]
 
+        # THE DOSAGE TEST. Lineage is regressed out of these columns first (the same
+        # Frisch-Waugh-Lovell step the third-gene model uses, over 350 columns instead of
+        # 18,000), then within the lines that HAVE copy number the hemizygous ones are
+        # compared with the ones carrying a normal complement for their own ploidy.
+        cn_stats = None
+        if C is not None and PL is not None:
+            works.msg("Testing each candidate against the cell lines that are themselves down to one copy…")
+            cats = sorted(set(lin))
+            D = np.zeros((n_models, len(cats) + 1), dtype=np.float64)
+            D[:, 0] = 1.0
+            ci = {c: k + 1 for k, c in enumerate(cats)}
+            for i, c in enumerate(lin):
+                D[i, ci[c]] = 1.0
+            beta, _, _, _ = np.linalg.lstsq(D, E.astype(np.float64), rcond=None)
+            R = E.astype(np.float64) - (D @ beta)
+            CNsel = np.asarray(C[:, np.array(cols)[order]], dtype=np.float32)[:, back]
+            ploidy = np.asarray(PL, dtype=np.float64)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                ratio = CNsel.astype(np.float64) / ploidy[:, None]
+            profiled = np.isfinite(ratio) & np.isfinite(CNsel.astype(np.float64))
+            # A line with NO copies is not the extreme of low dosage: there is nothing for
+            # CRISPR to cut, and its flat effect argues the opposite of the truth.
+            hemi = profiled & (ratio <= CN_LOW) & (CNsel >= 1)
+            neut = profiled & (ratio >= CN_HI_LO) & (ratio <= CN_HI_HI)
+            n_h = hemi.sum(0)
+            n_n = neut.sum(0)
+            testable = (n_h >= MIN_HEMI) & (n_n >= MIN_NEUTRAL)
+            eff_h = np.full(len(known), np.nan)
+            eff_n = np.full(len(known), np.nan)
+            tstat = np.full(len(known), np.nan)
+            pval = np.ones(len(known))
+            for j in range(len(known)):
+                if not testable[j]:
+                    continue
+                a = R[hemi[:, j], j]
+                b = R[neut[:, j], j]
+                ma, mb = a.mean(), b.mean()
+                va, vb = a.var(ddof=1), b.var(ddof=1)
+                se = math.sqrt(max(va / len(a) + vb / len(b), 1e-12))
+                eff_h[j], eff_n[j] = ma, mb
+                tstat[j] = (ma - mb) / se
+                pval[j] = norm_sf(tstat[j])
+            fdr = bh_fdr(pval)
+            cn_stats = {"n_h": n_h, "n_n": n_n, "testable": testable, "eff_h": eff_h,
+                        "eff_n": eff_n, "t": tstat, "fdr": fdr}
+            out["cn_models"] = int(np.isfinite(ploidy).sum())
+
         dep = (E < DEP_CUT)
         dep_n = dep.sum(0)
         dep_frac = dep_n / float(n_models)
@@ -152,14 +244,40 @@ else:
                 klass = "essential in some lines"
             else:
                 klass = "rarely essential"
-            rows.append({"gene": g, "tsg": 1 if g in tsg else 0,
-                         "effect_mean": round(float(eff_mean[j]), 4),
-                         "effect_median": round(float(eff_med[j]), 4),
-                         "dep_frac": round(float(dep_frac[j]), 4),
-                         "n_dependent": int(dep_n[j]),
-                         "n_lost_lines": int(lost_n[j]),
-                         "second_hit": 1 if g in second else 0,
-                         "class": klass})
+            row = {"gene": g, "tsg": 1 if g in tsg else 0,
+                   "effect_mean": round(float(eff_mean[j]), 4),
+                   "effect_median": round(float(eff_med[j]), 4),
+                   "dep_frac": round(float(dep_frac[j]), 4),
+                   "n_dependent": int(dep_n[j]),
+                   "n_lost_lines": int(lost_n[j]),
+                   "second_hit": 1 if g in second else 0,
+                   "class": klass}
+            if cn_stats is None:
+                row.update({"dosage": "not tested", "n_hemizygous": 0, "n_neutral": 0,
+                            "eff_hemizygous": None, "eff_neutral": None, "cn_delta": None,
+                            "cn_t": None, "cn_fdr": None, "cn_confirmed": 0})
+            elif not bool(cn_stats["testable"][j]):
+                row.update({"dosage": "too few hemizygous lines to test",
+                            "n_hemizygous": int(cn_stats["n_h"][j]), "n_neutral": int(cn_stats["n_n"][j]),
+                            "eff_hemizygous": None, "eff_neutral": None, "cn_delta": None,
+                            "cn_t": None, "cn_fdr": None, "cn_confirmed": 0})
+            else:
+                d = float(cn_stats["eff_h"][j] - cn_stats["eff_n"][j])
+                f = float(cn_stats["fdr"][j])
+                ok = (d < 0) and (f <= CN_FDR)
+                if ok:
+                    label = "worse when the line is down to one copy"
+                elif d < 0:
+                    label = "leans the right way, not significant"
+                else:
+                    label = "no worse at one copy"
+                row.update({"dosage": label,
+                            "n_hemizygous": int(cn_stats["n_h"][j]), "n_neutral": int(cn_stats["n_n"][j]),
+                            "eff_hemizygous": round(float(cn_stats["eff_h"][j]), 4),
+                            "eff_neutral": round(float(cn_stats["eff_n"][j]), 4),
+                            "cn_delta": round(d, 4), "cn_t": round(float(cn_stats["t"][j]), 3),
+                            "cn_fdr": round(f, 4), "cn_confirmed": 1 if ok else 0})
+            rows.append(row)
         by_gene = {r["gene"]: r for r in rows}
 
         # 1. COMPLETE LOSSES: LOH plus a broken remaining allele. Ordered tumour
@@ -178,7 +296,9 @@ else:
         #    second hit is NOT a candidate here -- it is already gone, there is no single
         #    copy left to squeeze.
         cyc = [r for r in rows if not r["second_hit"] and r["dep_frac"] >= 0.10]
-        cyc.sort(key=lambda r: (r["effect_mean"], -r["dep_frac"]))
+        # A gene the lines themselves confirm is worse at one copy outranks one that is
+        # merely essential: the first has been asked the question, the second has not.
+        cyc.sort(key=lambda r: (-r["cn_confirmed"], r["effect_mean"], -r["dep_frac"]))
         cyc = cyc[:top_n]
 
         # 3. A BACKGROUND THAT CAN BE SCORED. The third-gene model needs cell lines that
@@ -201,10 +321,29 @@ else:
         notes.append("Single-copy dependence reads the other way round from a third-gene hit: a gene the panel "
                      "cannot live without is the BEST candidate, because normal tissue keeps two copies and "
                      "tolerates partial inhibition while the tumour, on one, does not.")
-        notes.append("Essentiality across the panel is how these are prioritized. Whether the dependency is "
-                     "measurably stronger in lines that are themselves hemizygous needs DepMap's copy-number "
-                     "matrix, which is not in this bundle; the single-copy half of the argument comes from "
-                     "the patient's own tract.")
+        if cn_stats is None:
+            notes.append("This bundle has no copy-number lane, so the dosage question was not asked: the "
+                         "candidates are ranked on essentiality alone. Rebuild with build-depmap-sl.py to "
+                         "add cn.npy and the test runs.")
+        else:
+            conf = sum(1 for r in cyc if r["cn_confirmed"])
+            tested = sum(1 for r in cyc if r["cn_fdr"] is not None)
+            notes.append("The dosage question was asked directly of %d of these %d candidates, in the %d cell "
+                         "lines DepMap has copy number for: is the knockout worse in the lines that are "
+                         "themselves down to one copy? %d came back yes at FDR %.2f. Copies are read against "
+                         "each line's own ploidy, lines with no copies at all are excluded, and lineage is "
+                         "regressed out first."
+                         % (tested, len(cyc), out["cn_models"], conf, CN_FDR))
+            notes.append("A candidate the lines do not confirm is still reported: thirty hemizygous lines is a "
+                         "small test, and the patient's own tract is evidence the panel does not have.")
+            notes.append("The known CRISPR copy-number artefact runs the OTHER way: fewer copies means fewer "
+                         "cut sites and less cutting toxicity, which would make a hemizygous line look LESS "
+                         "dependent. A gene that comes out more dependent there has done so against that bias.")
+            notes.append("Read what the two halves each contribute. Dosage sensitivity is a property of the GENE, "
+                         "not of this tumour: run the same test over the essential genes of a chromosome with no "
+                         "loss at all and roughly half of them confirm too. What makes a candidate here specific "
+                         "to this patient is the tract -- the screen says the gene cannot spare a copy, the "
+                         "patient's genome says this tumour has only one. Neither half is the finding alone.")
         if not background:
             notes.append("No gene in the tracts is lost often enough in DepMap to build a background on, so a "
                          "third-gene run over these would have no lines to score.")

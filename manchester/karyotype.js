@@ -6718,13 +6718,15 @@ function (path, config) {
                 const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
                 lohSlResult = { complete: J(rs.complete, '[]'), cyclops: J(rs.cyclops, '[]'),
                     background: J(rs.background, '[]'), notes: J(rs.notes, '[]'),
-                    nModels: +rs.n_models || 0, hadMatrix: !!lossMatrix, ther: {},
-                    at: new Date().toISOString() };
+                    nModels: +rs.n_models || 0, cnModels: +rs.cn_models || 0,
+                    hadMatrix: !!lossMatrix, ther: {}, at: new Date().toISOString() };
+                const conf = lohSlResult.cyclops.filter((x) => x.cn_confirmed).length;
                 graph.setMessage(' ' + lohSlResult.complete.length + ' complete loss'
                     + (lohSlResult.complete.length === 1 ? '' : 'es') + ', '
                     + lohSlResult.cyclops.length + ' single-copy candidate'
-                    + (lohSlResult.cyclops.length === 1 ? '' : 's') + ' across '
-                    + lohSlResult.nModels.toLocaleString() + ' cell lines. ');
+                    + (lohSlResult.cyclops.length === 1 ? '' : 's')
+                    + (conf ? ', ' + conf + ' of them confirmed worse at one copy in the lines themselves' : '')
+                    + ' across ' + lohSlResult.nModels.toLocaleString() + ' cell lines. ');
                 step('loh sl: ' + lohSlResult.complete.length + ' complete, ' + lohSlResult.cyclops.length + ' cyclops');
                 lohSlBusy = false;
                 lohSlMenu();
@@ -6764,6 +6766,10 @@ function (path, config) {
             .concat((lohSlResult.cyclops || []).map((x) => ({ kind: 'single copy (CYCLOPS)', gene: x.gene,
                 tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
                 depmap_dependent_fraction: x.dep_frac, depmap_lines_lost: x.n_lost_lines,
+                dosage_verdict: x.dosage || '', effect_in_hemizygous_lines: x.eff_hemizygous,
+                effect_in_normal_copy_lines: x.eff_neutral, dosage_difference: x.cn_delta,
+                dosage_t: x.cn_t, dosage_fdr: x.cn_fdr, n_hemizygous_lines: x.n_hemizygous,
+                n_normal_copy_lines: x.n_neutral,
                 what_to_do: 'the gene itself is the target: partial inhibition, ' + x['class'] }))));
         const lohSlMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
@@ -6775,7 +6781,9 @@ function (path, config) {
                 title: 'One copy is left, and that cuts two ways. A gene whose remaining copy is also broken is '
                     + 'completely lost, and is a background to reason from. A gene the cell cannot do without is '
                     + 'now running on half the dosage the patient\'s normal tissue has, and is a target in itself. '
-                    + 'Read against ' + R.nModels.toLocaleString() + ' DepMap cell lines.'
+                    + 'Read against ' + R.nModels.toLocaleString() + ' DepMap cell lines'
+                    + (R.cnModels ? ', ' + R.cnModels.toLocaleString() + ' of them with copy number, so each candidate is also asked '
+                        + 'directly whether its knockout is worse in the lines that are themselves down to one copy.' : '.')
                     + (R.hadMatrix ? '' : ' No loss matrix has been calculated, so nothing can be called a complete loss yet.') });
             if (R.background.length) books.push({ section: 'From the loss of heterozygosity', title: 'Run ' + BAJA3 + ' on this background',
                 badge: R.background.length + ' genes', icon: 'science', ready: !slBusy, readyNote: 'a run is in progress',
@@ -6820,17 +6828,34 @@ function (path, config) {
                     const t = (R.ther || {})[x.gene];
                     const inh = t && t.inhibitors && t.inhibitors.length ? t.inhibitors : null;
                     const clin = inh ? inh.filter((i) => /approved|phase/i.test(i.stage || '')) : null;
+                    // THE DOSAGE VERDICT IS THE HEADLINE. Essential says the gene matters;
+                    // this says that HALF of it matters, which is the actual claim being made.
+                    const dose = x.cn_confirmed
+                        ? ' The lines confirm it: knocking it out is ' + Math.abs(x.cn_delta).toFixed(2)
+                            + ' worse in the ' + x.n_hemizygous + ' lines that are themselves down to one copy than in the '
+                            + x.n_neutral + ' carrying a normal complement (t ' + x.cn_t.toFixed(1) + ', FDR ' + x.cn_fdr.toFixed(2) + ').'
+                        : (x.cn_fdr != null
+                            ? ' The lines do not confirm a dosage effect (' + x.n_hemizygous + ' hemizygous, FDR ' + x.cn_fdr.toFixed(2) + '), so this rests on the tract.'
+                            : ' ' + (x.dosage || 'dosage not tested') + '.');
                     books.push({ section: 'Single-copy dependence — the gene itself is the target', title: x.gene,
-                        badge: (clin && clin.length) ? clin[0].name + ' · ' + clin[0].stage : x.effect_mean.toFixed(2),
-                        swatch: (clin && clin.length) ? '#16a34a' : (x.dep_frac >= 0.9 ? '#a855f7' : (x.dep_frac >= 0.5 ? '#f97316' : '#94a3b8')), ready: true,
+                        badge: (clin && clin.length) ? clin[0].name + ' · ' + clin[0].stage
+                            : (x.cn_confirmed ? 'confirmed at one copy' : x.effect_mean.toFixed(2)),
+                        swatch: (clin && clin.length) ? '#16a34a' : (x.cn_confirmed ? '#a855f7' : (x.dep_frac >= 0.9 ? '#6366f1' : '#94a3b8')), ready: true,
                         blurb: x['class'] + ' (' + pctf(x.dep_frac) + ' of ' + R.nModels.toLocaleString() + ' lines), mean effect ' + x.effect_mean.toFixed(2) + '.'
+                            + dose
                             + (inh ? ' Compounds: ' + inh.slice(0, 3).map((i) => i.name + (i.stage ? ' (' + i.stage + ')' : '')).join(', ') + '.' : '')
                             + (t && t.summary ? ' ' + t.summary : ''),
                         books: () => [
                             { title: 'Why would this work?', badge: 'explain', icon: 'psychology', ready: !slWhyBusy, readyNote: 'an explanation is being written',
                                 blurb: 'The dosage argument for ' + x.gene + ', judged on these numbers.',
                                 open: () => slExplain(x.gene, [x.gene].concat((R.cyclops || []).slice(0, 5).map((y) => y.gene).filter((y) => y !== x.gene)), 'cyclops',
-                                    { effect_mean: x.effect_mean, effect_median: x.effect_median, dep_frac: x.dep_frac, n_dependent: x.n_dependent, n_models: R.nModels, class: x['class'] },
+                                    { effect_mean: x.effect_mean, effect_median: x.effect_median, dep_frac: x.dep_frac,
+                                        n_dependent: x.n_dependent, n_models: R.nModels, class: x['class'],
+                                        dosage_test: x.cn_fdr == null ? 'not tested' : {
+                                            effect_in_hemizygous_lines: x.eff_hemizygous, effect_in_normal_copy_lines: x.eff_neutral,
+                                            difference: x.cn_delta, t: x.cn_t, fdr: x.cn_fdr,
+                                            n_hemizygous: x.n_hemizygous, n_normal_copy: x.n_neutral,
+                                            verdict: x.dosage } },
                                     () => lohSlMenu()) },
                             { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find ' + x.gene + ' on the karyotype.',
                                 open: () => { const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene); if (g) gotoLostGene(lohSelRecord(g)); else gotoSymbol(x.gene); } },
