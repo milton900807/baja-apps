@@ -2831,7 +2831,48 @@ function (path, config) {
                 title = 'Color by ClinVar class';
                 rows = sw(CLS_COLOR[0], 'unclassified') + sw(CLS_COLOR[1], 'pathogenic') + sw(CLS_COLOR[2], 'benign')
                     + sw(CLS_COLOR[3], 'uncertain') + sw(CLS_COLOR[4], 'conflicting');
-            } else { legendWanted = false; return; }
+            } else { title = ''; rows = ''; }
+            // WHAT THE GLOWING MARKS MEAN. A highlight paints over the color mode -- red
+            // for a loss, amber while a chromosome is being read, red and blue and purple
+            // for the two sides of a differential, a sample's own color for its glow, a
+            // filter's color for an annotation class -- and a color nobody can name is a
+            // color that says nothing. Listed under the mode, or alone when there is no
+            // mode to show.
+            // In a try: the legend is built early in the load (setColorMode calls it) while
+            // the constants the highlight section names are still further down the file. A
+            // legend without its highlight half is a smaller loss than no legend at all.
+            let hlTitle = '', hlRows = '';
+            try {
+            if (hlActive) {
+                const dimNote = '<div style="margin-top:6px;color:#9fb3c8;font-size:11px;">'
+                    + esc('Everything not marked is greyed out.') + '</div>';
+                if (hlActive === HL_SCAN) {
+                    hlTitle = 'Working';
+                    hlRows = sw(HL_COLOR[HL_SCAN], 'being read now');
+                } else if (hlActive === HL_DIFF_BOTH || hlActive === HL_DIFF_A || hlActive === HL_DIFF_B) {
+                    hlTitle = 'Differential loss';
+                    const A = (diffResult && diffResult.A && diffResult.A.label) || 'A';
+                    const B = (diffResult && diffResult.B && diffResult.B.label) || 'B';
+                    hlRows = sw(HL_COLOR[HL_DIFF_A], 'lost only in ' + A) + sw(HL_COLOR[HL_DIFF_B], 'lost only in ' + B)
+                        + sw(HL_COLOR[HL_DIFF_BOTH], 'lost in both') + dimNote;
+                } else if (hlActive === HL_LOF) {
+                    hlTitle = 'Loss of function';
+                    hlRows = sw(HL_COLOR[HL_LOF], (lossHlScope === 'background' && selGenes.size)
+                        ? 'the ' + selWord() + ' of the background' : 'a gene with a loss-of-function variant') + dimNote;
+                } else if (hlActive === SAMPLE_HL_MULTI) {
+                    hlTitle = 'Sample glow';
+                    hlRows = Array.from(hlSamples).map((si) => sw(SAMPLE_COLOR[si] || HL_COLOR[SAMPLE_HL_MULTI], SAMPLES[si] || ('sample ' + (si + 1)))).join('')
+                        + sw(HL_COLOR[SAMPLE_HL_MULTI], 'more than one, zoomed out') + dimNote;
+                } else if (hlActive >= SAMPLE_HL_BASE && hlActive < SAMPLE_HL_BASE + GT_MAX) {
+                    hlTitle = 'Sample glow';
+                    hlRows = sw(HL_COLOR[hlActive], HL_NAME[hlActive] || 'a sample') + dimNote;
+                } else {
+                    hlTitle = 'Highlighted';
+                    hlRows = sw(HL_COLOR[hlActive] || '#ee00ee', HL_NAME[hlActive] || 'marked') + dimNote;
+                }
+            }
+            } catch (e) { hlTitle = ''; hlRows = ''; }
+            if (!rows && !hlRows) { legendWanted = false; return; }
             try {
                 const el = document.createElement('div');
                 el.id = 'baja-karyo-legend';
@@ -2840,8 +2881,10 @@ function (path, config) {
                     + 'border-radius:10px;padding:10px 14px 11px;box-shadow:0 10px 30px rgba(0,0,0,0.35);'
                     + 'border:1px solid rgba(255,255,255,0.14);pointer-events:auto;cursor:pointer;max-width:260px;';
                 el.title = 'Click to change how the variants are colored';
-                el.innerHTML = '<div style="font:700 12.5px Arial;">' + esc(title) + '</div>' + rows
-                    + (SAMPLES.length ? '<div style="margin-top:7px;color:#9fb3c8;font-size:11px;">'
+                el.innerHTML = (rows ? '<div style="font:700 12.5px Arial;">' + esc(title) + '</div>' + rows : '')
+                    + (hlRows ? (rows ? '<div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.16);"></div>' : '')
+                        + '<div style="font:700 12.5px Arial;">' + esc(hlTitle) + '</div>' + hlRows : '')
+                    + (rows && SAMPLES.length ? '<div style="margin-top:7px;color:#9fb3c8;font-size:11px;">'
                         + esc(SAMPLES.length + ' sample' + (SAMPLES.length === 1 ? '' : 's') + ': ' + SAMPLES.join(', ')) + '</div>' : '');
                 el.onclick = () => { try { colorMenu(); } catch (e) { } };
                 document.body.appendChild(el);
@@ -5163,6 +5206,9 @@ function (path, config) {
         // cheap -- so a marked variant would never be drawn at the zoom people
         // actually mark at. Drawing from this index costs the number of highlights in
         // view rather than the number of variants.
+        // The legend describes the marks, so it is rebuilt wherever they change. Cheap: it
+        // is a handful of DOM nodes, and only when something is actually highlighted.
+        const legendRefresh = () => { try { if (legendWanted || hlActive) legendShow(); else legendHide(); } catch (e) { } };
         const reindexHighlights = () => {
             for (let ci = 0; ci < drawn.length; ci++) {
                 const d = vdata[ci];
@@ -5210,6 +5256,7 @@ function (path, config) {
             hlActive = 0;
             try { hlSamples.clear(); } catch (e) { }
             reindexHighlights();
+            legendRefresh();
             if (graph.wake) graph.wake();
             graph.setMessage(' Highlights cleared. ');
         };
@@ -5269,6 +5316,7 @@ function (path, config) {
                 : SAMPLE_HL_MULTI) : 0;
             reindexHighlights();
             if (hlActive) startHlPulse();
+            legendRefresh();
             if (graph.wake) graph.wake();
             return marked;
         };
@@ -5380,6 +5428,7 @@ function (path, config) {
             }
             hlActive = marked ? code : 0;
             reindexHighlights();
+            legendRefresh();
             if (graph.wake) graph.wake();
             graph.setMessage(' ' + marked.toLocaleString() + ' ' + HL_NAME[code]
                 + ' variant' + (marked === 1 ? '' : 's') + ' across the whole genome'
@@ -5640,6 +5689,7 @@ function (path, config) {
             hlActive = marked ? HL_LOF : 0;
             reindexHighlights();
             if (hlActive) startHlPulse();
+            legendRefresh();
             if (graph.wake) graph.wake();
             return marked;
         };
@@ -5696,6 +5746,7 @@ function (path, config) {
             regions = (regions || []).filter((rg) => !rg.lof);
             hlActive = 0;
             reindexHighlights();
+            legendRefresh();
             if (graph.wake) graph.wake();
         };
         // Mark a set of variant indices on one chromosome, without reindexing: the caller
@@ -5750,6 +5801,7 @@ function (path, config) {
                 // point is to see the reading head move down the genome.
                 markIndices(ci, ks, HL_SCAN);
                 reindexHighlights();
+                legendRefresh();
                 if (graph.wake) graph.wake();
                 if (!rows.length) { await new Promise((res) => setTimeout(res, 0)); continue; }
                 candidates += rows.length;
@@ -5782,6 +5834,7 @@ function (path, config) {
                     hlActive = foundCode;
                     reindexHighlights();
                     startHlPulse();
+                    legendRefresh();
                     if (graph.wake) graph.wake();
                 }
                 await new Promise((res) => setTimeout(res, 0));
@@ -6000,6 +6053,7 @@ function (path, config) {
             hlActive = marked ? HL_DIFF_BOTH : 0;
             reindexHighlights();
             if (hlActive) startHlPulse();
+            legendRefresh();
             if (graph.wake) graph.wake();
             return marked;
         };
