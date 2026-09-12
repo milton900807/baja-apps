@@ -5404,6 +5404,10 @@ function (path, config) {
         const HL_LOF = 40;
         HL_COLOR[HL_LOF] = '#dc2626';
         HL_NAME[HL_LOF] = 'loss-of-function';
+        // The colour a variant wears while its chromosome is being read (see computeLossFor).
+        const HL_SCAN = 44;
+        HL_COLOR[HL_SCAN] = '#f59e0b';
+        HL_NAME[HL_SCAN] = 'being read';
         let lossMatrix = null;          // { sample, si, genes, scanned, counts, notes, at }
         const LOF_WORDS = { frameshift: 'frameshift', stop_gained: 'stop gained', start_lost: 'start lost',
             splice_donor: 'splice donor', splice_acceptor: 'splice acceptor',
@@ -5669,16 +5673,57 @@ function (path, config) {
         // `include(d, k)` admits. The loss matrix admits one sample's calls (on one
         // haplotype or both); the differential admits one side, or one sample, twice.
         // Returns { genes, scanned, counts, notes, considered, candidates } or throws.
-        const computeLossFor = async (who, include, em) => {
+        // A CLEAN SCREEN BEFORE A NEW CALCULATION. Whatever the last one marked -- loss
+        // marks, differential colours, a filter's highlight -- and the gene bands it drew
+        // come off, so nothing on the karyotype belongs to a result that is being replaced.
+        // The gene SELECTION is left alone: it is the user's, not the calculation's.
+        const clearWorking = () => {
+            for (const d of vdata) if (d.hl && d.hl.length === d.n) d.hl.fill(0); else if (d.n) d.hl = new Uint8Array(d.n);
+            try { hlSamples.clear(); } catch (e) { }
+            regions = (regions || []).filter((rg) => !rg.lof);
+            hlActive = 0;
+            reindexHighlights();
+            if (graph.wake) graph.wake();
+        };
+        // Mark a set of variant indices on one chromosome, without reindexing: the caller
+        // reindexes once a chromosome, which is what makes this cheap enough to do live.
+        const markIndices = (ci, ks, code) => {
+            const d = vdata[ci];
+            if (!d || !d.n) return;
+            if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n);
+            for (let i = 0; i < ks.length; i++) d.hl[ks[i]] = code;
+        };
+        // Mark every variant of these genes, as the server names them.
+        const markGenes = (gs, code) => {
+            let n = 0;
+            for (const g of (gs || [])) {
+                const ci = chromIndexOf(g.chr);
+                if (ci < 0) continue;
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n);
+                for (const v of (g.variants || [])) {
+                    const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt);
+                    if (k >= 0) { d.hl[k] = code; n++; }
+                }
+            }
+            return n;
+        };
+        const computeLossFor = async (who, include, em, opts) => {
+            const O = opts || {};
+            const foundCode = O.code || HL_LOF;
             const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
             const batches = [];
             let cur = {}, curN = 0, candidates = 0, considered = 0;
+            // THE SCAN, chromosome by chromosome, drawn as it goes.
+            hlActive = HL_SCAN;
+            startHlPulse();
             for (let q = 0; q < live.length; q++) {
                 const ci = live[q], d = vdata[ci], c = drawn[ci];
                 graph.setMessage(' ' + who + ': reading ' + c.name + ' exons — ' + (q + 1) + ' of ' + live.length + '… ');
                 const F = await fetchFeatures(ci, 'exon', 1, c.length);
                 const ex = (F && F.exon) || [];
-                const rows = [];
+                const rows = [], ks = [];
                 for (let k = 0; k < d.n; k++) {
                     if (!include(d, k)) continue;
                     considered++;
@@ -5686,8 +5731,14 @@ function (path, config) {
                     const ab = allelesAt(ci, k);
                     if (ex.length && !nearFlat(ex, p, 12 + ab[0].length)) continue;
                     rows.push([p, ab[0], ab[1]]);
+                    ks.push(k);
                 }
-                if (!rows.length) continue;
+                // Light this chromosome's candidates, even when there are none to send: the
+                // point is to see the reading head move down the genome.
+                markIndices(ci, ks, HL_SCAN);
+                reindexHighlights();
+                if (graph.wake) graph.wake();
+                if (!rows.length) { await new Promise((res) => setTimeout(res, 0)); continue; }
                 candidates += rows.length;
                 cur[c.name] = rows; curN += rows.length;
                 if (curN >= LOF_BATCH) { batches.push(cur); cur = {}; curN = 0; }
@@ -5710,6 +5761,17 @@ function (path, config) {
                 for (const k in cs) counts[k] = (counts[k] || 0) + cs[k];
                 for (const n of ns) if (notes.indexOf(n) < 0) notes.push(n);
                 scanned += (+rs.scanned || 0);
+                // EACH ANSWER AS IT LANDS: the genes this batch found turn their own colour
+                // straight away, so the losses accumulate on the chromosomes while the rest
+                // of the file is still being read.
+                if (gs.length) {
+                    markGenes(gs, foundCode);
+                    hlActive = foundCode;
+                    reindexHighlights();
+                    startHlPulse();
+                    if (graph.wake) graph.wake();
+                }
+                await new Promise((res) => setTimeout(res, 0));
             }
             return { genes: genes, scanned: scanned, counts: counts, notes: notes, considered: considered, candidates: candidates };
         };
@@ -5731,6 +5793,7 @@ function (path, config) {
             const mask = (si >= 0) ? (1 << si) : 0;
             let unphasedLeftOut = 0, lowConfLeftOut = 0;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            clearWorking();
             try {
                 const R = await computeLossFor(who, (d, k) => {
                     if (mask && d.gtw) {
@@ -5739,7 +5802,7 @@ function (path, config) {
                     }
                     if (!confAdmits(d, k, si)) { lowConfLeftOut++; return false; }
                     return true;
-                }, em);
+                }, em, { code: HL_LOF });
                 if (!R.candidates) {
                     graph.setMessage(' ' + who + ': none of the ' + R.considered.toLocaleString() + ' variants touch an exon, so nothing can be lost by them. ');
                     lossBusy = false;
@@ -5769,6 +5832,7 @@ function (path, config) {
                 lossMatrixMenu();
             } catch (e) {
                 lossBusy = false;
+                clearWorking();
                 try { graph.setError(' The loss matrix could not be calculated: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
             }
         };
@@ -5781,6 +5845,12 @@ function (path, config) {
         // chromosomes -- or two SAMPLE columns of one file. Each side gets the same loss
         // matrix the microscope calculates, and the genes are then sorted into only-A,
         // only-B and both, with each side's consequence and zygosity kept.
+        // WATCHING IT WORK. A loss matrix reads every chromosome in turn and then asks the
+        // server what each exonic variant does, which on a whole genome is a minute of a
+        // still screen. The karyotype now shows the work as it happens: the variants of the
+        // chromosome being read light amber, and each gene the server calls lost turns red
+        // (or its side's colour) the moment the batch it came in is answered. Whatever the
+        // last calculation left on the screen is taken off first, so what glows is this run.
         const HL_DIFF_A = 41, HL_DIFF_B = 42, HL_DIFF_BOTH = 43;
         HL_COLOR[HL_DIFF_A] = '#dc2626'; HL_NAME[HL_DIFF_A] = 'lost in A only';
         HL_COLOR[HL_DIFF_B] = '#2563eb'; HL_NAME[HL_DIFF_B] = 'lost in B only';
@@ -5845,9 +5915,11 @@ function (path, config) {
             if (diffBusy || lossBusy) { graph.setMessage(' A loss matrix is still being calculated. '); return; }
             diffBusy = true;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            clearWorking();
+            diffResult = null;
             try {
-                const RA = await computeLossFor('A · ' + spec.labelA, diffInclude(spec, 'A'), em);
-                const RB = await computeLossFor('B · ' + spec.labelB, diffInclude(spec, 'B'), em);
+                const RA = await computeLossFor('A · ' + spec.labelA, diffInclude(spec, 'A'), em, { code: HL_DIFF_A });
+                const RB = await computeLossFor('B · ' + spec.labelB, diffInclude(spec, 'B'), em, { code: HL_DIFF_B });
                 annotateLossZygosity(RA.genes, spec.kind === 'sample' ? spec.a : -1, '');
                 annotateLossZygosity(RB.genes, spec.kind === 'sample' ? spec.b : -1, '');
                 const mapA = new Map(RA.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
@@ -5882,6 +5954,7 @@ function (path, config) {
                 diffMenu();
             } catch (e) {
                 diffBusy = false;
+                clearWorking();
                 try { graph.setError(' The differential loss matrix could not be calculated: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
             }
         };
