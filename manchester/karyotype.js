@@ -3520,14 +3520,61 @@ function (path, config) {
         // Split apart because a pasted string and a two-gigabyte file want the same parser
         // and different feeding. The expensive half -- merge, sort, histogram -- runs ONCE at
         // the end either way: doing it per chunk would sort the same array a hundred times.
+        // CONFIDENCE, kept beside the genotype. A VCF says how sure it is of each call --
+        // FILTER, QUAL, and per sample DP, AD and GQ -- and none of that was kept, so the
+        // loss matrix could not tell a PASS call at 60x from a LowEVS call at 3x. One
+        // byte per sample per variant now says: 0 unknown, 1 low, 2 medium, 3 high; and
+        // one byte per variant (rconf) carries the row's own FILTER/QUAL tier for a file
+        // with no sample columns. The tiers:
+        //   high    FILTER PASS or none; QUAL >= 30 or absent; DP >= 8; alt reads >= 3;
+        //           GQ >= 20 -- each only where the file gives it
+        //   medium  PASS, but QUAL 10-30, GQ 10-20, DP 4-8 or 2 alt reads
+        //   low     a FILTER flag, QUAL < 10, DP < 4 or fewer than 2 alt reads
+        const CONF_NONE = 0, CONF_LOW = 1, CONF_MED = 2, CONF_HIGH = 3;
+        const CONF_WORD = ['', 'low confidence', 'medium confidence', 'high confidence'];
+        const rowTierOf = (f) => {
+            let t = CONF_HIGH;
+            const flt = (f.length > 6 ? f[6] : '') || '';
+            if (flt && flt !== 'PASS' && flt !== '.') t = CONF_LOW;
+            const q = (f.length > 5 ? f[5] : '') || '';
+            if (q && q !== '.') { const qv = +q; if (isFinite(qv)) { if (qv < 10) t = CONF_LOW; else if (qv < 30 && t > CONF_MED) t = CONF_MED; } }
+            return t;
+        };
+        // FORMAT is one string per row and the same on nearly every row of a file: the
+        // field positions are looked up once per distinct FORMAT.
+        const __fmtCache = new Map();
+        const fmtIndex = (fmt) => {
+            let ix = __fmtCache.get(fmt);
+            if (ix) return ix;
+            const keys = ('' + (fmt || '')).split(':');
+            ix = { dp: keys.indexOf('DP'), ad: keys.indexOf('AD'), gq: keys.indexOf('GQ') };
+            __fmtCache.set(fmt, ix);
+            return ix;
+        };
+        const sampleTierOf = (cell, ix, altIdx, rowT) => {
+            let t = rowT;
+            if (!cell || (ix.dp < 0 && ix.ad < 0 && ix.gq < 0)) return t;
+            const parts = cell.split(':');
+            if (ix.dp >= 0 && ix.dp < parts.length) { const dp = +parts[ix.dp]; if (isFinite(dp)) { if (dp < 4) t = CONF_LOW; else if (dp < 8 && t > CONF_MED) t = CONF_MED; } }
+            if (ix.ad >= 0 && ix.ad < parts.length) {
+                const ads = parts[ix.ad].split(',');
+                if (ads.length > altIdx) { const alt = +ads[altIdx]; if (isFinite(alt)) { if (alt < 2) t = CONF_LOW; else if (alt < 3 && t > CONF_MED) t = CONF_MED; } }
+            }
+            if (ix.gq >= 0 && ix.gq < parts.length) { const gq = +parts[ix.gq]; if (isFinite(gq)) { if (gq < 10) t = CONF_LOW; else if (gq < 20 && t > CONF_MED) t = CONF_MED; } }
+            return t;
+        };
+        const confOf = (d, k, si) => ((d.conf && si >= 0 && si < d.gtw) ? d.conf[k * d.gtw + si] : (d.rconf ? d.rconf[k] : CONF_NONE));
+
         const newBufs = () => drawn.map(() => ({
             pos: new Float64Array(1024), cls: new Uint8Array(1024),
             ref: new Uint8Array(1024), alt: new Uint8Array(1024),
             gts: new Uint8Array(1024 * GT_MAX),   // GT_MAX wide while reading; packed in finalise
+            conf: new Uint8Array(1024 * GT_MAX),  // the confidence lane, same shape as gts
+            rconf: new Uint8Array(1024),
             side: new Uint8Array(1024),
             cplx: new Map(), n: 0,
         }));
-        const pushInto = (bufs, ci, p2, cl, rs, as, gt) => {
+        const pushInto = (bufs, ci, p2, cl, rs, as, gt, cf, rq) => {
             const b = bufs[ci];
             if (b.n === b.pos.length) {
                 // Doubled rather than pushed: this is the whole reason a genome-sized file
@@ -3537,26 +3584,33 @@ function (path, config) {
                 const nr = new Uint8Array(b.n * 2); nr.set(b.ref); b.ref = nr;
                 const na = new Uint8Array(b.n * 2); na.set(b.alt); b.alt = na;
                 const ng = new Uint8Array(b.n * 2 * GT_MAX); ng.set(b.gts); b.gts = ng;
+                const nq = new Uint8Array(b.n * 2 * GT_MAX); nq.set(b.conf); b.conf = nq;
+                const nrq = new Uint8Array(b.n * 2); nrq.set(b.rconf); b.rconf = nrq;
                 const ns = new Uint8Array(b.n * 2); ns.set(b.side); b.side = ns;
             }
             const rc = codeOf(rs), ac = codeOf(as);
             b.pos[b.n] = p2; b.cls[b.n] = cl; b.ref[b.n] = rc; b.alt[b.n] = ac;
             b.side[b.n] = loadSide;
+            b.rconf[b.n] = rq || 0;
             if (rc === 5 || ac === 5) b.cplx.set(b.n, [rs, as]);
             if (gt) b.gts.set(gt, b.n * GT_MAX);
+            if (cf) b.conf.set(cf, b.n * GT_MAX);
             b.n++;
         };
         // The genotype bytes for one row, for one alt index: null when the row has no
         // sample columns. `count.cols` maps the row's sample columns to SAMPLES slots and
         // is set from the #CHROM line, or from the first row when a paste has no header.
         const gtRow = new Uint8Array(GT_MAX);
+        const cfRow = new Uint8Array(GT_MAX);
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
                 count.cols = [];
                 for (let j = 9; j < f.length && j < 9 + GT_MAX; j++) count.cols.push(sampleSlot('sample ' + (j - 8)));
             }
-            gtRow.fill(0);
+            gtRow.fill(0); cfRow.fill(0);
+            const rowT = rowTierOf(f);
+            const ix = fmtIndex(f[8]);
             let any = false, carriers = 0, known = 0, phased = false;
             for (let j = 0; j < count.cols.length && 9 + j < f.length; j++) {
                 const si = count.cols[j];
@@ -3565,6 +3619,7 @@ function (path, config) {
                 const colon = cell.indexOf(':');
                 const code = gtCode(colon < 0 ? cell : cell.slice(0, colon), altIdx);
                 gtRow[si] = code;
+                cfRow[si] = code ? sampleTierOf(cell, ix, altIdx, rowT) : 0;
                 if (code) { any = true; known++; }
                 if (code >= GT_HET) carriers++;
                 if (code === GT_HAP1 || code === GT_HAP2 || code === GT_HOMP) phased = true;
@@ -3612,14 +3667,14 @@ function (path, config) {
                 if (alts.indexOf(',') < 0) {
                     if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                    pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), genotypesOfRow(f, count, 1)); count.added++;
+                    { const gt = genotypesOfRow(f, count, 1); pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f)); count.added++; }
                 } else {
                     const each = alts.split(',');
                     for (let ai = 0; ai < each.length; ai++) {
                         const a = each[ai];
                         if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
                         if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), genotypesOfRow(f, count, ai + 1)); count.added++;
+                        { const gt = genotypesOfRow(f, count, ai + 1); pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f)); count.added++; }
                     }
                 }
             }
@@ -3638,20 +3693,26 @@ function (path, config) {
                 // new samples, and the rows already here simply have no call for those.
                 const W = SAMPLES.length;
                 const gts = W ? new Uint8Array(total * W) : null;
+                const cfs = W ? new Uint8Array(total * W) : null;
+                const rq = new Uint8Array(total);
                 if (d.n) {
                     pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
                     rf.set(d.ref.subarray(0, d.n)); al.set(d.alt.subarray(0, d.n));
                     if (d.side) sd.set(d.side.subarray(0, d.n));
+                    if (d.rconf) rq.set(d.rconf.subarray(0, d.n));
                     if (d.cplx) for (const [k, v] of d.cplx) cx.set(k, v);
                     if (gts && d.gts) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) gts[k * W + si] = d.gts[k * d.gtw + si];
+                    if (cfs && d.conf) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) cfs[k * W + si] = d.conf[k * d.gtw + si];
                 }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
                 rf.set(b.ref.subarray(0, b.n), d.n);
                 al.set(b.alt.subarray(0, b.n), d.n);
                 sd.set(b.side.subarray(0, b.n), d.n);
+                rq.set(b.rconf.subarray(0, b.n), d.n);
                 for (const [k, v] of b.cplx) cx.set(k + d.n, v);
                 if (gts) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) gts[(d.n + k) * W + si] = b.gts[k * GT_MAX + si];
+                if (cfs) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) cfs[(d.n + k) * W + si] = b.conf[k * GT_MAX + si];
                 // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
@@ -3660,18 +3721,22 @@ function (path, config) {
                 const sr = new Uint8Array(total), sa = new Uint8Array(total);
                 const ss = new Uint8Array(total);
                 const sg = gts ? new Uint8Array(total * W) : null;
+                const sq = cfs ? new Uint8Array(total * W) : null;
+                const srq = new Uint8Array(total);
                 const scx = new Map();
                 const sn = [];
                 const oldNames = d.names, newNames = namesOf[ci];
                 for (let k = 0; k < total; k++) {
                     const o = order[k];
-                    sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o]; ss[k] = sd[o];
+                    sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o]; ss[k] = sd[o]; srq[k] = rq[o];
                     if (sg) for (let si = 0; si < W; si++) sg[k * W + si] = gts[o * W + si];
+                    if (sq) for (let si = 0; si < W; si++) sq[k * W + si] = cfs[o * W + si];
                     if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx; d.side = ss;
                 d.gts = sg; d.gtw = sg ? W : 0;
+                d.conf = sq; d.rconf = srq;
                 d.n = total; d.snps = []; d.names = sn;
                 d.__len = drawn[ci].length; d.histBy = null;
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
@@ -4766,7 +4831,7 @@ function (path, config) {
 
         const stateDoc = () => {
             const out = {
-                type: 'baja-karyotype', version: 3,
+                type: 'baja-karyotype', version: 4,   // 4: confidence digits per variant
                 species: r.species || wanted, assembly: r.assembly || '',
                 saved: new Date().toISOString(),
                 view: null, bookmarks: [], variants: [], truncated: false, total: vtotal,
@@ -4778,6 +4843,7 @@ function (path, config) {
             const __hasGt = SAMPLES.length > 0;
             out.samples = SAMPLES.slice();
             out.hasGt = __hasGt;
+            out.hasConf = true;
             out.colorMode = colorMode;
             // The per-sample colors the user chose, so the by-sample view reopens in the
             // same colors. One hex per sample column, in sample order.
@@ -4840,6 +4906,15 @@ function (path, config) {
                         if (gw) { for (let si = 0; si < gw && si < GT_MAX; si++) gt += (d.gts[k * gw + si] || 0); }
                         e += ':' + gt;
                     }
+                    // VERSION 4: the confidence digits follow -- one per sample slot when the
+                    // file has samples, else the row's own tier -- so a reopened karyotype
+                    // still knows which calls the loss matrix may rely on.
+                    {
+                        let q = '';
+                        if (gw && d.conf) { for (let si = 0; si < gw && si < GT_MAX; si++) q += (d.conf[k * gw + si] || 0); }
+                        else q += (d.rconf ? (d.rconf[k] || 0) : 0);
+                        e += ':' + q;
+                    }
                     if (nm) e += ':' + nm;
                     out.variants.push(e);
                     n++;
@@ -4866,6 +4941,7 @@ function (path, config) {
             // the v1 files are still in people's folders and are the same data.
             const __V = +(doc.version || 1);
             const __HASGT = !!doc.hasGt;
+            const __HASCONF = !!doc.hasConf;
             const asVariant = (raw) => {
                 if (raw && typeof raw === 'object') return raw;      // version 1
                 if (typeof raw !== 'string') return null;
@@ -4873,14 +4949,18 @@ function (path, config) {
                 if (f.length < 4) return null;
                 const o = { c: f[0], p: +f[1], r: f[2], a: f[3] };
                 if (f.length > 4 && f[4] !== '') o.s = +f[4] || 0;
+                let at = 5;
                 if (__V >= 3 && __HASGT) {
-                    // v3 with samples: field 5 is the genotype digits, name is the rest.
+                    // v3+ with samples: field 5 is the genotype digits.
                     if (f.length > 5 && f[5]) o.g = f[5];
-                    if (f.length > 6) { const nm = f.slice(6).join(':'); if (nm) o.n = nm; }
-                } else {
-                    // v1/v2 or v3 without samples: name follows the class.
-                    if (f.length > 5) { const nm = f.slice(5).join(':'); if (nm) o.n = nm; }
+                    at = 6;
                 }
+                if (__V >= 4 && __HASCONF) {
+                    // v4: the confidence digits follow the genotype digits (or the class).
+                    if (f.length > at && f[at]) o.q = f[at];
+                    at++;
+                }
+                if (f.length > at) { const nm = f.slice(at).join(':'); if (nm) o.n = nm; }
                 return o;
             };
             // Restore the sample columns BEFORE placing variants, so finalise packs the
@@ -4889,6 +4969,7 @@ function (path, config) {
                 try { SAMPLES.length = 0; for (const nm of doc.samples.slice(0, GT_MAX)) SAMPLES.push('' + nm); } catch (e) { }
             }
             const __gtScratch = new Uint8Array(GT_MAX);
+            const __cfScratch = new Uint8Array(GT_MAX);
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
             const list = doc.variants || [];
@@ -4928,10 +5009,14 @@ function (path, config) {
                     if (ci == null) { count.offGenome++; continue; }
                     if (!(v.p > 0) || v.p > drawn[ci].length) { count.offGenome++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(v.n || '');
-                    let __gt = null;
+                    let __gt = null, __cf = null, __rq = 0;
                     if (v.g) { __gtScratch.fill(0); for (let si = 0; si < v.g.length && si < GT_MAX; si++) { const c = v.g.charCodeAt(si) - 48; __gtScratch[si] = (c >= 0 && c <= 9) ? c : 0; } __gt = __gtScratch; }
+                    if (v.q) {
+                        if (__gt) { __cfScratch.fill(0); for (let si = 0; si < v.q.length && si < GT_MAX; si++) { const c = v.q.charCodeAt(si) - 48; __cfScratch[si] = (c >= 0 && c <= 3) ? c : 0; } __cf = __cfScratch; }
+                        else { const c = v.q.charCodeAt(0) - 48; __rq = (c >= 0 && c <= 3) ? c : 0; }
+                    }
                     pushInto(bufs, ci, +v.p, +(v.s || 0), ('' + (v.r || 'N')).toUpperCase(),
-                        ('' + (v.a || 'N')).toUpperCase(), __gt);
+                        ('' + (v.a || 'N')).toUpperCase(), __gt, __cf, __rq);
                     count.added++;
                 }
                 if (onProgress) onProgress(total, total);
@@ -5029,16 +5114,24 @@ function (path, config) {
                 const sr = new Uint8Array(total), sa = new Uint8Array(total);
                 const sh = new Uint8Array(total), scx = new Map(), sn = [];
                 const ss = new Uint8Array(total);
+                const gw = d.gtw || 0;
+                const sg = (gw && d.gts) ? new Uint8Array(total * gw) : null;
+                const sq = (gw && d.conf) ? new Uint8Array(total * gw) : null;
+                const srq = new Uint8Array(total);
                 const hadNames = d.names && d.names.length;
                 for (let j = 0; j < total; j++) {
                     const k = idx[j];
                     sp[j] = d.pos[k]; sc[j] = d.cls[k]; sr[j] = d.ref[k]; sa[j] = d.alt[k];
                     if (d.side) ss[j] = d.side[k];
+                    if (d.rconf) srq[j] = d.rconf[k];
+                    if (sg) for (let si = 0; si < gw; si++) sg[j * gw + si] = d.gts[k * gw + si];
+                    if (sq) for (let si = 0; si < gw; si++) sq[j * gw + si] = d.conf[k * gw + si];
                     if (d.hl) sh[j] = d.hl[k];
                     if (d.cplx && d.cplx.has(k)) scx.set(j, d.cplx.get(k));
                     if (hadNames) sn[j] = d.names[k] || '';
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh; d.side = ss;
+                if (sg) d.gts = sg; d.conf = sq; d.rconf = srq;
                 d.cplx = scx; d.names = sn; d.snps = []; d.n = total; d.histBy = null;
                 const hist = new Uint32Array(HIST_BINS);
                 const histL = new Uint32Array(HIST_BINS);
@@ -5621,6 +5714,12 @@ function (path, config) {
             return { genes: genes, scanned: scanned, counts: counts, notes: notes, considered: considered, candidates: candidates };
         };
 
+        // HIGH-CONFIDENCE CALLS ONLY, by default. A loss called on a filtered, shallow or
+        // low-quality variant is a loss the tumour may not have; the matrix is only as
+        // good as its worst call. A variant with no confidence information at all (a
+        // site list, a paste) is let through: absence of evidence is not a low score.
+        let lossConfOnly = true;
+        const confAdmits = (d, k, si) => { if (!lossConfOnly) return true; const t = confOf(d, k, si); return t === CONF_NONE || t >= CONF_HIGH; };
         const computeLossMatrix = async (si, hap) => {
             if (lossBusy) { graph.setMessage(' The loss matrix is still being calculated. '); return; }
             const live = drawn.map((c, i) => i).filter((i) => vdata[i] && vdata[i].n);
@@ -5630,7 +5729,7 @@ function (path, config) {
             lossBusy = true;
             const who = lossSampleName(si) + (hap ? ' · ' + hapWord(hap) : '');
             const mask = (si >= 0) ? (1 << si) : 0;
-            let unphasedLeftOut = 0;
+            let unphasedLeftOut = 0, lowConfLeftOut = 0;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
                 const R = await computeLossFor(who, (d, k) => {
@@ -5638,6 +5737,7 @@ function (path, config) {
                         const gt = gtOf(d, k, si);
                         if (!onHaplotype(gt, hap)) { if (hap && gt === GT_HET) unphasedLeftOut++; return false; }
                     }
+                    if (!confAdmits(d, k, si)) { lowConfLeftOut++; return false; }
                     return true;
                 }, em);
                 if (!R.candidates) {
@@ -5648,7 +5748,11 @@ function (path, config) {
                 const genes = R.genes, counts = R.counts, notes = R.notes, scanned = R.scanned, considered = R.considered;
                 if (hap && unphasedLeftOut) notes.push(unphasedLeftOut.toLocaleString() + ' unphased heterozygous variant' + (unphasedLeftOut === 1 ? '' : 's')
                     + ' could not be placed on a haplotype and ' + (unphasedLeftOut === 1 ? 'was' : 'were') + ' left out of this ' + hapWord(hap) + ' matrix.');
+                if (lossConfOnly) notes.push('High-confidence calls only (PASS, QUAL \u2265 30, depth \u2265 8, \u2265 3 alt reads, GQ \u2265 20 where the file gives them)'
+                    + (lowConfLeftOut ? ': ' + lowConfLeftOut.toLocaleString() + ' lower-confidence variant' + (lowConfLeftOut === 1 ? ' was' : 's were') + ' left out.' : '.'));
+                else notes.push('Every call was admitted, whatever its confidence.');
                 annotateLossZygosity(genes, si, hap);
+                for (const g of genes) { const ci = chromIndexOf(g.chr); if (ci < 0) continue; for (const v of (g.variants || [])) { const k = variantIndexAt(ci, +v.pos, '' + v.ref, '' + v.alt); v.conf = k >= 0 ? confOf(vdata[ci], k, si) : 0; } }
                 lossMatrix = { sample: who, si: si, hap: hap, genes: genes, scanned: scanned, counts: counts, notes: notes,
                     considered: considered, at: new Date().toISOString() };
                 const marked = applyLossHighlights(true);
@@ -5700,9 +5804,9 @@ function (path, config) {
             return specs;
         };
         const diffInclude = (spec, which) => {
-            if (spec.kind === 'side') { const sd = which === 'A' ? spec.a : spec.b; return (d, k) => ((d.side ? d.side[k] : 0) === sd); }
+            if (spec.kind === 'side') { const sd = which === 'A' ? spec.a : spec.b; return (d, k) => ((d.side ? d.side[k] : 0) === sd && confAdmits(d, k, -1)); }
             const si = which === 'A' ? spec.a : spec.b;
-            return (d, k) => (d.gtw > si && gtOf(d, k, si) >= GT_HET);
+            return (d, k) => (d.gtw > si && gtOf(d, k, si) >= GT_HET && confAdmits(d, k, si));
         };
         const computeDiffLossMatrix = async (spec) => {
             if (diffBusy || lossBusy) { graph.setMessage(' A loss matrix is still being calculated. '); return; }
@@ -5821,7 +5925,7 @@ function (path, config) {
                 for (const v of (g.variants || [])) {
                     rows.push({ gene: g.gene, lof: 1, sample: lossMatrix.sample || '', chrom: g.chr, pos: v.pos, ref: v.ref, alt: v.alt,
                         effect: v.effect, hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '', transcript: g.transcript,
-                        genotype: v.gt || '', zygosity: g.zygosity || '', origin: v.origin || '', gene_origin: g.origin || '',
+                        genotype: v.gt || '', confidence: v.conf ? CONF_WORD[v.conf].replace(' confidence', '') : '', zygosity: g.zygosity || '', origin: v.origin || '', gene_origin: g.origin || '',
                         biallelic: ZYG_LOST[g.zygosity] ? 1 : 0,
                         gene_start: g.start, gene_end: g.end, strand: g.strand, biotype: g.biotype,
                         tumour_suppressor: lossIsTsg(g) ? 1 : 0, n_lof: g.n_lof, n_other_coding: g.n_other });
@@ -6574,7 +6678,7 @@ function (path, config) {
                     .concat(t ? (t.therapeutic || []).map((c) => THER_SHORT[c]).filter(Boolean) : [])
                     .concat(t && t.inhibitors && t.inhibitors.length ? [t.inhibitors[0].name] : []);
                 return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : (zyg || lossWord(v.effect)), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
-                    blurb: lossWord(v.effect) + (v.gt ? ' ' + v.gt : '') + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
+                    blurb: lossWord(v.effect) + (v.gt ? ' ' + v.gt : '') + (v.conf ? ' · ' + CONF_WORD[v.conf] : '') + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
                         + (zyg ? ' · ' + zyg : '') + (g.origin ? ' · ' + originWord(g.origin) : '')
                         + (g.n_other ? ' · ' + g.n_other + ' other coding' : '') + (chips.length ? ' · ' + chips.join(' · ') : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
@@ -6751,6 +6855,10 @@ function (path, config) {
                 calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
             }
             books.push(calc);
+            books.push({ section: 'Loss matrix', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', icon: 'verified', ready: true,
+                blurb: lossConfOnly ? 'The matrix relies on PASS calls with QUAL \u2265 30, depth \u2265 8, \u2265 3 alt reads and GQ \u2265 20 where the file gives them; calls with no such information are admitted. Click to admit every call.'
+                    : 'Filtered, shallow and low-quality calls are admitted too. Click to rely on high-confidence calls only.',
+                open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
                 const specs = diffSpecs();
                 books.push({ section: 'Loss matrix', title: 'Differential loss matrix', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
