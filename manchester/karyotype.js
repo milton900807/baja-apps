@@ -2088,8 +2088,21 @@ function (path, config) {
                             let a = 0, z = d.n;
                             while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < lo) a = m + 1; else z = m; }
                             const r = Math.max(3.4, Math.min(7, bw * 0.16));
+                            // A FIXED STACKING ORDER. Two variants a base apart overlap on
+                            // screen, and drawing them in file order let whichever came
+                            // second win -- so the same pair of haplotypes could read blue
+                            // over pink on one chromosome and pink over blue on the next.
+                            // The categories are drawn in passes instead, lowest first, so
+                            // one phase is always the one on top: haplotype 1 over
+                            // haplotype 2, and a homozygous or mixed call over both,
+                            // because that is the call that is true of both copies.
+                            const stackOrder = (colorMode === 'phase' || colorMode === 'sample')
+                                ? (function () { const o = []; for (let c2 = NCAT - 1; c2 >= 0; c2--) o.push(c2); return o; })()
+                                : [-1];
+                            for (const passCat of stackOrder) {
                             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                                 if ((d.side ? d.side[k] : 0) !== side) continue;
+                                if (passCat >= 0 && Math.min(NCAT - 1, catOf(d, k)) !== passCat) continue;
                                 const my = g.Y(wy(d.pos[k]));
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
                                 const col = colorOf(d, k);
@@ -2180,6 +2193,7 @@ function (path, config) {
                                     }
                                 }
                             }
+                            }   // end of the fixed-order stacking pass
                         } else {
                             // DENSITY. One strip per histogram bin that falls in view, its
                             // width scaled by count against the busiest bin on screen, so the
@@ -2217,7 +2231,10 @@ function (path, config) {
                                     // in category order from the edge in, so the colors
                                     // stack the same way down the whole chromosome.
                                     const hb = binsBy(d, side), pal = modePalette();
-                                    const wAll = 2 + maxW * f, alpha = 0.45 + 0.55 * f;
+                                    // A FLAT 0.5: the strips are a density, and letting the
+                                    // alpha rise with the count made a busy bin read as a
+                                    // different colour from a quiet one in the same category.
+                                    const wAll = 2 + maxW * f, alpha = 0.5;
                                     let x2 = base;
                                     for (let cat = 0; cat < NCAT; cat++) {
                                         const cnt = hb[b * NCAT + cat];
