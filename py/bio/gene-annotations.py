@@ -20,8 +20,10 @@ Resolves:
     { ok, genes, notes, error }
   genes JSON: { GENE: { classes: [...], depmap_mean_effect: float|null, depmap_frac_dependent: float|null } }
 """
+import hashlib
 import json
 import os
+import time
 
 from ion import works
 
@@ -111,6 +113,58 @@ def bundle_dir():
     return ""
 
 
+# SERVER-SIDE CACHE, per gene, beside the DepMap bundle. The answer depends on the
+# curated lists and on the bundle, so the cache carries a version made from both: a
+# changed list or a rebuilt bundle simply misses and recomputes.
+def lists_version(bd):
+    h = hashlib.sha1()
+    for name, st in (("tsg", TUMOUR_SUPPRESSORS), ("onc", ONCOGENES), ("rep", DNA_REPAIR), ("imm", IMMUNE_REGULATORY)):
+        h.update((name + ":" + ",".join(sorted(st))).encode())
+    h.update(("cut:%s" % DEPENDENCY_CUTOFF).encode())
+    built = ""
+    try:
+        if bd:
+            built = str(json.load(open(os.path.join(bd, "meta.json"))).get("built") or "")
+    except Exception:
+        built = ""
+    h.update(("built:" + built).encode())
+    return h.hexdigest()[:16]
+
+
+def cache_path():
+    for base in ["/opt/baja-server", os.path.expanduser("~/baja-server"), os.getcwd()]:
+        d = os.path.join(base, "reference_data", "depmap")
+        if os.path.isdir(d):
+            return os.path.join(d, "annotations-cache.json")
+    return ""
+
+
+def cache_load(version):
+    p = cache_path()
+    if not p or not os.path.exists(p):
+        return {}
+    try:
+        c = json.load(open(p))
+        if not isinstance(c, dict) or c.get("version") != version:
+            return {}
+        return c.get("genes") or {}
+    except Exception:
+        return {}
+
+
+def cache_save(version, genes):
+    p = cache_path()
+    if not p:
+        return
+    try:
+        tmp = p + ".%d.part" % os.getpid()
+        with open(tmp, "w") as fh:
+            json.dump({"version": version, "at": time.time(), "genes": genes}, fh)
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
 raw = works.param(1)
 if isinstance(raw, dict):
     req = raw
@@ -128,12 +182,22 @@ else:
     notes = []
     dep = {}
     bd = bundle_dir()
-    if bd and np is not None:
+    version = lists_version(bd)
+    cache = cache_load(version)
+    res = {}
+    for g in want:
+        c = cache.get(g)
+        if isinstance(c, dict) and "classes" in c:
+            res[g] = c
+    todo = [g for g in want if g not in res]
+    if res:
+        works.msg("%d gene(s) from the cache; classifying %d…" % (len(res), len(todo)))
+    if todo and bd and np is not None:
         try:
             genes = [g.strip() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
             gidx = {g.upper(): i for i, g in enumerate(genes)}
             G = np.load(os.path.join(bd, "gene_effect.npy"), mmap_mode="r")
-            for g in want:
+            for g in todo:
                 i = gidx.get(g)
                 if i is None:
                     continue
@@ -141,10 +205,10 @@ else:
                 dep[g] = (float(col.mean()), float((col < DEPENDENCY_CUTOFF).mean()))
         except Exception as e:
             notes.append("DepMap dependency could not be read: %s" % e)
-    else:
+    elif todo and not bd:
         notes.append("The DepMap bundle is not on this server, so 'cancer dependency' could not be assessed.")
-    res = {}
-    for g in want:
+    fresh = {}
+    for g in todo:
         classes = []
         if g in TUMOUR_SUPPRESSORS:
             classes.append("tumour_suppressor")
@@ -159,9 +223,17 @@ else:
             classes.append("immune_regulatory")
         if not any(c in classes for c in ("tumour_suppressor", "oncogene", "dna_repair", "immune_regulatory")):
             classes.append("not_associated")
-        res[g] = {"classes": classes,
-                  "depmap_mean_effect": (round(d[0], 3) if d else None),
-                  "depmap_frac_dependent": (round(d[1], 3) if d else None)}
+        fresh[g] = {"classes": classes,
+                    "depmap_mean_effect": (round(d[0], 3) if d else None),
+                    "depmap_frac_dependent": (round(d[1], 3) if d else None)}
+    if fresh:
+        res.update(fresh)
+        # Only genes the bundle could score are worth remembering when the bundle is
+        # missing; with it present every answer is final for this version.
+        if bd or not todo:
+            cache.update(fresh)
+            cache_save(version, cache)
+    res = {g: res[g] for g in want if g in res}
     notes.append("Classes come from curated lists (COSMIC-census style tumour suppressors and oncogenes, the DNA "
                  "damage response, antigen presentation / interferon / checkpoint genes) and from DepMap: a gene "
                  "is a cancer dependency when its mean CRISPR knockout effect across all screened lines is below "
