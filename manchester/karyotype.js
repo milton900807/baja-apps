@@ -2679,6 +2679,7 @@ function (path, config) {
             // VCF with two samples is two people, or one person twice -- a tumour and its
             // germline -- and which of them carries a change is the first thing to see.
             gts: null,               // Uint8Array(n * gtw): GT_* codes
+            baf: null,               // Uint8Array(n * gtw): 1 + round(B-allele fraction * 200), 0 unknown
             gtw: 0,                  // samples known when this chromosome was last built
             // WHICH SIDE OF THE BAR each mark is drawn on: 0 the right, where everything
             // has always gone, 1 the left. Chosen when the file is loaded, so a second set
@@ -2703,6 +2704,13 @@ function (path, config) {
         // left file" has to be decoded. Index 0 is the right gutter, 1 the left, matching
         // loadSide. Set when a load actually puts marks down, cleared with the genome.
         const sideFile = ['', ''];
+        // WHICH GENOTYPE COLUMN BELONGS TO EACH SIDE. Sample slots are handed out globally,
+        // in the order names are first seen, so the file on a side owns slot 0 only if it
+        // happened to be loaded first. Anything that reads a genotype "for a side" has to
+        // know which slots that side's file actually wrote, or it reads an empty column and
+        // finds nothing -- which is exactly what an LOH scan reported when the tumour was
+        // opened before its normal. Filled from count.cols as each file lands.
+        const sideSlots = [[], []];
         // The leaf of a path, without the compression suffix a person does not think of
         // as part of the name, and short enough to sit in a card title.
         const shortFile = (nm) => {
@@ -3653,17 +3661,46 @@ function (path, config) {
             return t;
         };
         const confOf = (d, k, si) => ((d.conf && si >= 0 && si < d.gtw) ? d.conf[k * d.gtw + si] : (d.rconf ? d.rconf[k] : CONF_NONE));
+        // THE B-ALLELE FRACTION, kept per sample beside the genotype. A caller's GT is a
+        // decision it made once, and on a tumour it is often the wrong one: bcftools leaves
+        // thousands of sites at 0/1 where its own AD says the alternate allele is carried by
+        // 5% of the reads, or by 95% of them. Reading zygosity off GT alone therefore missed
+        // an entire deleted chromosome arm -- the reads said one allele, the genotype column
+        // said two. AD is already parsed here for the confidence tier, so the fraction costs
+        // one more byte per sample per variant and settles the question with the evidence.
+        // Stored as 1 + round(f * 200), so 0 means "this file gave no AD" and never 0.0.
+        const bafOf = (d, k, si) => {
+            if (!d.baf || si < 0 || si >= d.gtw) return -1;
+            const v = d.baf[k * d.gtw + si];
+            return v ? (v - 1) / 200 : -1;
+        };
+        const bafCode = (cell, ix, altIdx) => {
+            if (!cell || ix.ad < 0) return 0;
+            const parts = cell.split(':');
+            if (ix.ad >= parts.length) return 0;
+            const ads = parts[ix.ad].split(',');
+            if (ads.length <= altIdx) return 0;
+            let dp = 0;
+            for (let i = 0; i < ads.length; i++) { const x = +ads[i]; if (isFinite(x) && x > 0) dp += x; }
+            const alt = +ads[altIdx];
+            // A fraction over four reads is not evidence of anything. Below the depth the
+            // confidence rules already use, the lane stays empty and the genotype decides.
+            if (dp < 8 || !isFinite(alt) || alt < 0) return 0;
+            const f = Math.min(1, alt / dp);
+            return 1 + Math.round(f * 200);
+        };
 
         const newBufs = () => drawn.map(() => ({
             pos: new Float64Array(1024), cls: new Uint8Array(1024),
             ref: new Uint8Array(1024), alt: new Uint8Array(1024),
             gts: new Uint8Array(1024 * GT_MAX),   // GT_MAX wide while reading; packed in finalise
             conf: new Uint8Array(1024 * GT_MAX),  // the confidence lane, same shape as gts
+            baf: new Uint8Array(1024 * GT_MAX),   // the allele-fraction lane, same shape again
             rconf: new Uint8Array(1024),
             side: new Uint8Array(1024),
             cplx: new Map(), n: 0,
         }));
-        const pushInto = (bufs, ci, p2, cl, rs, as, gt, cf, rq) => {
+        const pushInto = (bufs, ci, p2, cl, rs, as, gt, cf, rq, bf) => {
             const b = bufs[ci];
             if (b.n === b.pos.length) {
                 // Doubled rather than pushed: this is the whole reason a genome-sized file
@@ -3674,6 +3711,7 @@ function (path, config) {
                 const na = new Uint8Array(b.n * 2); na.set(b.alt); b.alt = na;
                 const ng = new Uint8Array(b.n * 2 * GT_MAX); ng.set(b.gts); b.gts = ng;
                 const nq = new Uint8Array(b.n * 2 * GT_MAX); nq.set(b.conf); b.conf = nq;
+                const nbf = new Uint8Array(b.n * 2 * GT_MAX); nbf.set(b.baf); b.baf = nbf;
                 const nrq = new Uint8Array(b.n * 2); nrq.set(b.rconf); b.rconf = nrq;
                 const ns = new Uint8Array(b.n * 2); ns.set(b.side); b.side = ns;
             }
@@ -3684,6 +3722,7 @@ function (path, config) {
             if (rc === 5 || ac === 5) b.cplx.set(b.n, [rs, as]);
             if (gt) b.gts.set(gt, b.n * GT_MAX);
             if (cf) b.conf.set(cf, b.n * GT_MAX);
+            if (bf) b.baf.set(bf, b.n * GT_MAX);
             b.n++;
         };
         // The genotype bytes for one row, for one alt index: null when the row has no
@@ -3691,13 +3730,14 @@ function (path, config) {
         // is set from the #CHROM line, or from the first row when a paste has no header.
         const gtRow = new Uint8Array(GT_MAX);
         const cfRow = new Uint8Array(GT_MAX);
+        const bfRow = new Uint8Array(GT_MAX);
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
                 count.cols = [];
                 for (let j = 9; j < f.length && j < 9 + GT_MAX; j++) count.cols.push(sampleSlot('sample ' + (j - 8)));
             }
-            gtRow.fill(0); cfRow.fill(0);
+            gtRow.fill(0); cfRow.fill(0); bfRow.fill(0);
             const rowT = rowTierOf(f);
             const ix = fmtIndex(f[8]);
             let any = false, carriers = 0, known = 0, phased = false;
@@ -3709,6 +3749,7 @@ function (path, config) {
                 const code = gtCode(colon < 0 ? cell : cell.slice(0, colon), altIdx);
                 gtRow[si] = code;
                 cfRow[si] = code ? sampleTierOf(cell, ix, altIdx, rowT) : 0;
+                bfRow[si] = code ? bafCode(cell, ix, altIdx) : 0;
                 if (code) { any = true; known++; }
                 if (code >= GT_HET) carriers++;
                 if (code === GT_HAP1 || code === GT_HAP2 || code === GT_HOMP) phased = true;
@@ -3756,14 +3797,14 @@ function (path, config) {
                 if (alts.indexOf(',') < 0) {
                     if (!/^[ACGTNacgtn]+$/.test(alts)) { count.skipped++; continue; }
                     if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                    { const gt = genotypesOfRow(f, count, 1); pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f)); count.added++; }
+                    { const gt = genotypesOfRow(f, count, 1); pushInto(bufs, ci, pos, cl, refU, alts.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++; }
                 } else {
                     const each = alts.split(',');
                     for (let ai = 0; ai < each.length; ai++) {
                         const a = each[ai];
                         if (!/^[ACGTNacgtn]+$/.test(a)) { count.skipped++; continue; }
                         if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        { const gt = genotypesOfRow(f, count, ai + 1); pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f)); count.added++; }
+                        { const gt = genotypesOfRow(f, count, ai + 1); pushInto(bufs, ci, pos, cl, refU, a.toUpperCase(), gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++; }
                     }
                 }
             }
@@ -3783,6 +3824,7 @@ function (path, config) {
                 const W = SAMPLES.length;
                 const gts = W ? new Uint8Array(total * W) : null;
                 const cfs = W ? new Uint8Array(total * W) : null;
+                const bfs = W ? new Uint8Array(total * W) : null;
                 const rq = new Uint8Array(total);
                 if (d.n) {
                     pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
@@ -3792,6 +3834,7 @@ function (path, config) {
                     if (d.cplx) for (const [k, v] of d.cplx) cx.set(k, v);
                     if (gts && d.gts) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) gts[k * W + si] = d.gts[k * d.gtw + si];
                     if (cfs && d.conf) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) cfs[k * W + si] = d.conf[k * d.gtw + si];
+                    if (bfs && d.baf) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) bfs[k * W + si] = d.baf[k * d.gtw + si];
                 }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
@@ -3802,6 +3845,7 @@ function (path, config) {
                 for (const [k, v] of b.cplx) cx.set(k + d.n, v);
                 if (gts) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) gts[(d.n + k) * W + si] = b.gts[k * GT_MAX + si];
                 if (cfs) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) cfs[(d.n + k) * W + si] = b.conf[k * GT_MAX + si];
+                if (bfs) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) bfs[(d.n + k) * W + si] = b.baf[k * GT_MAX + si];
                 // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
@@ -3811,6 +3855,7 @@ function (path, config) {
                 const ss = new Uint8Array(total);
                 const sg = gts ? new Uint8Array(total * W) : null;
                 const sq = cfs ? new Uint8Array(total * W) : null;
+                const sbf = bfs ? new Uint8Array(total * W) : null;
                 const srq = new Uint8Array(total);
                 const scx = new Map();
                 const sn = [];
@@ -3820,12 +3865,13 @@ function (path, config) {
                     sp[k] = pos[o]; sc[k] = cls[o]; sr[k] = rf[o]; sa[k] = al[o]; ss[k] = sd[o]; srq[k] = rq[o];
                     if (sg) for (let si = 0; si < W; si++) sg[k * W + si] = gts[o * W + si];
                     if (sq) for (let si = 0; si < W; si++) sq[k * W + si] = cfs[o * W + si];
+                    if (sbf) for (let si = 0; si < W; si++) sbf[k * W + si] = bfs[o * W + si];
                     if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx; d.side = ss;
                 d.gts = sg; d.gtw = sg ? W : 0;
-                d.conf = sq; d.rconf = srq;
+                d.conf = sq; d.rconf = srq; d.baf = sbf;
                 d.n = total; d.snps = []; d.names = sn;
                 d.__len = drawn[ci].length; d.histBy = null;
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
@@ -3923,6 +3969,9 @@ function (path, config) {
             // question; failing that, phased calls are shown by haplotype. A file with
             // neither keeps whatever mode is on.
             let modeNote = '';
+            if (count.cols && count.cols.length) {
+                for (const sl of count.cols) if (sl >= 0 && sideSlots[loadSide].indexOf(sl) < 0) sideSlots[loadSide].push(sl);
+            }
             if (count.cols && count.cols.length) {
                 if (SAMPLES.length > 1 && count.maskKinds > 1) { setColorMode('sample'); modeNote = ' Colored by sample.'; }
                 else if (count.phased) { setColorMode('phase'); modeNote = ' Colored by haplotype.'; }
@@ -5300,6 +5349,7 @@ function (path, config) {
                 const gw = d.gtw || 0;
                 const sg = (gw && d.gts) ? new Uint8Array(total * gw) : null;
                 const sq = (gw && d.conf) ? new Uint8Array(total * gw) : null;
+                const sbf = (gw && d.baf) ? new Uint8Array(total * gw) : null;
                 const srq = new Uint8Array(total);
                 const hadNames = d.names && d.names.length;
                 for (let j = 0; j < total; j++) {
@@ -5309,12 +5359,13 @@ function (path, config) {
                     if (d.rconf) srq[j] = d.rconf[k];
                     if (sg) for (let si = 0; si < gw; si++) sg[j * gw + si] = d.gts[k * gw + si];
                     if (sq) for (let si = 0; si < gw; si++) sq[j * gw + si] = d.conf[k * gw + si];
+                    if (sbf) for (let si = 0; si < gw; si++) sbf[j * gw + si] = d.baf[k * gw + si];
                     if (d.hl) sh[j] = d.hl[k];
                     if (d.cplx && d.cplx.has(k)) scx.set(j, d.cplx.get(k));
                     if (hadNames) sn[j] = d.names[k] || '';
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh; d.side = ss;
-                if (sg) d.gts = sg; d.conf = sq; d.rconf = srq;
+                if (sg) d.gts = sg; d.conf = sq; d.rconf = srq; d.baf = sbf;
                 d.cplx = scx; d.names = sn; d.snps = []; d.n = total; d.histBy = null;
                 const hist = new Uint32Array(HIST_BINS);
                 const histL = new Uint32Array(HIST_BINS);
@@ -6118,6 +6169,34 @@ function (path, config) {
         const sideName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : (sd ? 'left file' : 'right file'));
         // The same name with its side attached, for the one line that has to say both.
         const sideWhere = (sd) => sideName(sd) + (sideFile[sd] ? ' (' + (sd ? 'left' : 'right') + ')' : '');
+        // THE GENOTYPE A MARK WAS GIVEN BY ITS OWN FILE. Reading slot 0 for both sides is
+        // only right when the side in question happens to hold the first file opened; the
+        // other side's marks have no call in slot 0 at all, and a scan that asks for one
+        // finds nothing and reports zero rather than failing. The slots each side wrote are
+        // recorded at load; a genome restored from a share has none, so the fallback takes
+        // the first slot carrying any call, which with one file per side is the same answer.
+        // The one sample column a side owns, when it owns exactly one: the index the
+        // per-sample routines (zygosity, hemizygosity, carrier masks) are written against.
+        const sideSlot = (sd) => ((sideSlots[sd] && sideSlots[sd].length === 1) ? sideSlots[sd][0] : -1);
+        const gtOfSide = (d, k, sd) => {
+            const slots = sideSlots[sd];
+            if (slots && slots.length) {
+                for (let i = 0; i < slots.length; i++) { const g = gtOf(d, k, slots[i]); if (g !== GT_NONE) return g; }
+                return GT_NONE;
+            }
+            for (let si = 0; si < d.gtw; si++) { const g = gtOf(d, k, si); if (g !== GT_NONE) return g; }
+            return GT_NONE;
+        };
+        // The same walk for the allele fraction: the slot that has the call has the reads.
+        const bafOfSide = (d, k, sd) => {
+            const slots = sideSlots[sd];
+            if (slots && slots.length) {
+                for (let i = 0; i < slots.length; i++) { if (gtOf(d, k, slots[i]) !== GT_NONE) return bafOf(d, k, slots[i]); }
+                return -1;
+            }
+            for (let si = 0; si < d.gtw; si++) { if (gtOf(d, k, si) !== GT_NONE) return bafOf(d, k, si); }
+            return -1;
+        };
         const diffSpecs = () => {
             const specs = [];
             const sc = sideCounts();
@@ -6181,8 +6260,11 @@ function (path, config) {
             try {
                 const RA = await computeLossFor('A · ' + spec.labelA, diffInclude(spec, 'A'), em, { code: HL_DIFF_A });
                 const RB = await computeLossFor('B · ' + spec.labelB, diffInclude(spec, 'B'), em, { code: HL_DIFF_B });
-                annotateLossZygosity(RA.genes, spec.kind === 'sample' ? spec.a : -1, '');
-                annotateLossZygosity(RB.genes, spec.kind === 'sample' ? spec.b : -1, '');
+                // For two FILES the genotypes are there, in each file's own sample column;
+                // passing -1 threw them away and every gene came back "unknown" zygosity,
+                // which also cost the hemizygous read that a single-copy arm depends on.
+                annotateLossZygosity(RA.genes, spec.kind === 'sample' ? spec.a : sideSlot(spec.a), '');
+                annotateLossZygosity(RB.genes, spec.kind === 'sample' ? spec.b : sideSlot(spec.b), '');
                 const mapA = new Map(RA.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
                 const mapB = new Map(RB.genes.map((g) => [('' + g.gene).toUpperCase(), g]));
                 let onlyA = [], onlyB = [];
@@ -6292,14 +6374,28 @@ function (path, config) {
         let lohBusy = false;
         const LOH_RUN_MIN = 10;          // sites in a row before a tract is worth drawing
         const LOH_RUN_GAP = 3;           // retained sites tolerated inside a tract
+        // WHERE THE READS DECIDE AND WHERE THE GENOTYPE DOES. A caller writes 0/1 once and
+        // does not revisit it; on a tumour arm that has lost a copy it keeps writing 0/1
+        // over reads that are 95% one allele. So a site is judged on its B-allele fraction
+        // whenever the file gave allele depths, and only falls back to the genotype when it
+        // did not. A germline call has to look like a real heterozygote to be asked about at
+        // all, which also drops the mapping artefacts that would otherwise pad the total.
+        const G_HET_LO = 0.25, G_HET_HI = 0.75;   // a credible germline heterozygote
+        const T_LOST_LO = 0.20, T_LOST_HI = 0.80; // one allele effectively gone in the tumour
+        const isHetCall = (gt) => (gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2 || gt === GT_OTHER);
+        // -1 not a usable heterozygous call, 1 a heterozygote worth asking about.
+        const normalHet = (gt, b) => (isHetCall(gt) && (b < 0 || (b >= G_HET_LO && b <= G_HET_HI))) ? 1 : -1;
+        // 1 lost an allele, 0 kept both.
+        const tumourLost = (gt, b) => (b >= 0 ? ((b <= T_LOST_LO || b >= T_LOST_HI) ? 1 : 0)
+            : ((gt === GT_HOM || gt === GT_HOMP) ? 1 : 0));
         const lohSpecs = () => {
             const specs = [];
             const sc = sideCounts();
             if (sc.left && sc.right) {
                 specs.push({ kind: 'side', normal: 1, tumour: 0, labelN: sideName(1), labelT: sideName(0),
                     blurb: (sideFile[0] || sideFile[1])
-                        ? sideWhere(1) + ' read as the normal, ' + sideWhere(0) + ' as the tumour: sites the normal calls heterozygous and the tumour calls homozygous at the same position.'
-                        : 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left calls heterozygous and the right calls homozygous at the same position.' });
+                        ? sideWhere(1) + ' read as the normal, ' + sideWhere(0) + ' as the tumour: sites the normal carries two alleles at and the tumour\'s reads carry only one.'
+                        : 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left carries two alleles at and the right\'s reads carry only one.' });
                 specs.push({ kind: 'side', normal: 0, tumour: 1, labelN: sideName(0), labelT: sideName(1),
                     blurb: 'The other way round: ' + (sideFile[0] ? sideWhere(0) + ' as the normal.' : 'the right-hand file as the normal.') });
             }
@@ -6329,12 +6425,13 @@ function (path, config) {
                         const ni = spec.normal, ti = spec.tumour;
                         if (d.gtw > ni && d.gtw > ti) {
                             for (let k = 0; k < d.n; k++) {
-                                const gn = gtOf(d, k, ni);
-                                if (gn !== GT_HET && gn !== GT_HAP1 && gn !== GT_HAP2) continue;   // normal must be het
+                                if (normalHet(gtOf(d, k, ni), bafOf(d, k, ni)) < 0) continue;   // normal must be het
                                 het++;
                                 const gt2 = gtOf(d, k, ti);
-                                if (gt2 === GT_HOM || gt2 === GT_HOMP) { loh++; lohK.push(k); lohPos.push(d.pos[k]); }
-                                else if (gt2 === GT_REF || gt2 === GT_NONE) { uncalled++; }
+                                if (gt2 === GT_NONE) { uncalled++; continue; }
+                                const b2 = bafOf(d, k, ti);
+                                if (gt2 === GT_REF && b2 < 0) { uncalled++; continue; }
+                                if (tumourLost(gt2, b2)) { loh++; lohK.push(k); lohPos.push(d.pos[k]); }
                                 else { kept++; keptPos.push(d.pos[k]); }
                             }
                         }
@@ -6346,9 +6443,8 @@ function (path, config) {
                         const hetAt = new Map();
                         for (let k = 0; k < d.n; k++) {
                             if ((d.side ? d.side[k] : 0) !== nSide) continue;
-                            const g2 = d.gtw ? gtOf(d, k, 0) : GT_NONE;
-                            const isHet = d.gtw ? (g2 === GT_HET || g2 === GT_HAP1 || g2 === GT_HAP2) : false;
-                            if (isHet) hetAt.set(d.pos[k], k);
+                            const g2 = d.gtw ? gtOfSide(d, k, nSide) : GT_NONE;
+                            if (normalHet(g2, bafOfSide(d, k, nSide)) > 0) hetAt.set(d.pos[k], k);
                         }
                         het = hetAt.size;
                         const seen = new Set();
@@ -6357,8 +6453,8 @@ function (path, config) {
                             const p = d.pos[k];
                             if (!hetAt.has(p)) continue;
                             seen.add(p);
-                            const g2 = d.gtw ? gtOf(d, k, 0) : GT_NONE;
-                            if (g2 === GT_HOM || g2 === GT_HOMP) { loh++; lohK.push(k); lohPos.push(p); }
+                            const g2 = d.gtw ? gtOfSide(d, k, tSide) : GT_NONE;
+                            if (tumourLost(g2, bafOfSide(d, k, tSide))) { loh++; lohK.push(k); lohPos.push(p); }
                             else { kept++; keptPos.push(p); }
                         }
                         uncalled = het - seen.size;
@@ -6390,8 +6486,15 @@ function (path, config) {
                 chroms.sort((a, b) => b.frac - a.frac);
                 lohResult = { spec: spec, chroms: chroms, het: totHet, loh: totLOH, kept: totKept, uncalled: totUncalled, at: new Date().toISOString() };
                 const marked = applyLOHHighlights(true);
-                graph.setMessage(' ' + totLOH.toLocaleString() + ' of ' + totHet.toLocaleString() + ' heterozygous site' + (totHet === 1 ? '' : 's')
-                    + ' in ' + spec.labelN + ' are homozygous in ' + spec.labelT + ' (' + Math.round(100 * (totHet ? totLOH / totHet : 0)) + '%); ' + marked + ' marked. ');
+                if (!totHet) {
+                    // Zero of zero is not a result, it is a scan that never started. Say which.
+                    const anyGt = vdata.some((d) => d && d.n && d.gtw);
+                    graph.setError(' Nothing to scan: ' + (!anyGt
+                        ? 'neither file carries a genotype column, so a heterozygous call cannot be told from a homozygous one.'
+                        : spec.labelN + ' has no heterozygous call anywhere, so there is no site at which ' + spec.labelT
+                          + ' could have lost one. Check that ' + spec.labelN + ' is the germline file and not a somatic callset.') + ' ', 12);
+                } else graph.setMessage(' ' + totLOH.toLocaleString() + ' of ' + totHet.toLocaleString() + ' heterozygous site' + (totHet === 1 ? '' : 's')
+                    + ' in ' + spec.labelN + ' lost an allele in ' + spec.labelT + ' (' + Math.round(100 * (totHet ? totLOH / totHet : 0)) + '%); ' + marked + ' marked. ');
                 step('LOH ' + spec.labelN + ' -> ' + spec.labelT + ': ' + totLOH + '/' + totHet);
                 lohBusy = false;
                 lohMenu();
@@ -6413,7 +6516,7 @@ function (path, config) {
                 for (const run of c2.runs) {
                     for (let k = 0; k < d.n; k++) {
                         if (d.pos[k] < run.lo || d.pos[k] > run.hi) continue;
-                        if (spec.kind === 'sample') { const g2 = gtOf(d, k, spec.tumour); if (g2 !== GT_HOM && g2 !== GT_HOMP) continue; }
+                        if (spec.kind === 'sample') { if (!tumourLost(gtOf(d, k, spec.tumour), bafOf(d, k, spec.tumour))) continue; }
                         else if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
                         d.hl[k] = HL_LOH; marked++;
                     }
@@ -6438,7 +6541,7 @@ function (path, config) {
         };
         const lohCSV = () => dlToCSV((lohResult.chroms || []).map((c2) => ({
             chrom: c2.name, normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
-            heterozygous_in_normal: c2.het, homozygous_in_tumour: c2.loh, retained_heterozygous: c2.kept,
+            heterozygous_in_normal: c2.het, lost_an_allele_in_tumour: c2.loh, retained_heterozygous: c2.kept,
             not_called_in_tumour: c2.uncalled, loh_fraction: (Math.round(c2.frac * 1000) / 1000),
             tracts: c2.runs.length, longest_tract_mb: c2.runs.length ? (Math.round(Math.max.apply(null, c2.runs.map((r2) => r2.hi - r2.lo)) / 1e5) / 10) : 0,
         })));
@@ -6458,9 +6561,11 @@ function (path, config) {
             const pct = (x) => Math.round(100 * x) + '%';
             const books = [];
             books.push({ section: 'Loss of heterozygosity', note: true, title: R.spec.labelN + ' as the normal, ' + R.spec.labelT + ' as the tumour: '
-                + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites are homozygous in the tumour (' + pct(R.het ? R.loh / R.het : 0) + '), '
+                + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites lost an allele in the tumour (' + pct(R.het ? R.loh / R.het : 0) + '), '
                 + R.kept.toLocaleString() + ' stay heterozygous'
                 + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumour at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
+            books.push({ section: 'Loss of heterozygosity', note: true, title: 'Each site is judged on its allele depths, not on the caller\'s genotype: a heterozygote whose reads are more than '
+                + Math.round(T_LOST_HI * 100) + '% one allele has lost the other, whatever the GT field still says. Sites with fewer than 8 reads, or no allele depths at all, fall back to the genotype.' });
             books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the karyotype', badge: hlActive === HL_LOH ? 'on' : 'off', icon: 'highlight', ready: true,
                 blurb: 'Mark the sites that lost an allele and band the tracts, longest first.',
                 open: () => { try { if (hlActive === HL_LOH) clearWorking(); else applyLOHHighlights(true); } catch (e) { } lohMenu(); } });
@@ -9542,12 +9647,13 @@ function (path, config) {
                 d.n = 0; d.pos = new Float64Array(0); d.cls = new Uint8Array(0);
                 d.ref = new Uint8Array(0); d.alt = new Uint8Array(0);
                 d.cplx = new Map(); d.names = []; d.snps = [];
-                d.gts = null; d.gtw = 0; d.hl = new Uint8Array(0); d.hlIdx = [];
+                d.gts = null; d.gtw = 0; d.baf = null; d.hl = new Uint8Array(0); d.hlIdx = [];
                 d.side = new Uint8Array(0); d.nL = 0; d.histL = null;
                 d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
             sideFile[0] = ''; sideFile[1] = '';
+            sideSlots[0] = []; sideSlots[1] = [];
             regions = []; try { geneCache.clear(); } catch (e) { }
             bookmarks = []; activeRegion = null; hlActive = 0;
             try { SAMPLES.length = 0; } catch (e) { }
