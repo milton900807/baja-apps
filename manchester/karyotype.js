@@ -11530,6 +11530,95 @@ function (path, config) {
         // many mutations landed.
         let dzBusy = false;
         let dzLast = '';
+        // PAST THIS MANY, ASK. Drawing every pathogenic record a gene or a condition carries
+        // answers a broader question than the one that was asked, and a chromosome painted
+        // with all of them says less than one painted with the ones that matter.
+        const DZ_PROMPT = 50;
+        // THE CHOICE, MADE INSIDE THE PANEL the question was asked in. The subsets are
+        // counted from the records themselves, so every option on offer is one that exists
+        // and none of them can come back empty. A suggestion sits at the top when one can be
+        // had; it is a recommendation over the same counted list, and the manual options are
+        // there whether it arrives or not.
+        const dzChoose = (disease, rows, meta, say, arm, panel) => new Promise((resolve) => {
+            const host = panel && panel.querySelector('#dz-choose-host');
+            if (!host) { resolve({ keep: null }); return; }
+            const esc2 = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const tally = (fn) => {
+                const m = new Map();
+                for (const r of meta) { for (const v of [].concat(fn(r) || [])) { if (v) m.set(v, (m.get(v) || 0) + 1); } }
+                return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+            };
+            const byGene = tally((r) => r.gene);
+            const bySig = tally((r) => r.sig);
+            const byPhen = tally((r) => r.phen).slice(0, 24);
+            let done = false;
+            const finish = (v) => { if (done) return; done = true; try { host.innerHTML = ''; host.style.display = 'none'; } catch (e) { } resolve(v); };
+            const BTN = 'cursor:pointer;border-radius:8px;padding:10px 16px;font:700 13px Arial;border:1px solid #12c2e0;background:#12c2e0;color:#042a33;';
+            const GHOST = 'cursor:pointer;border-radius:8px;padding:10px 16px;font:600 13px Arial;border:1px solid rgba(255,255,255,0.25);background:transparent;color:#eaf6f9;';
+            const OPT = 'cursor:pointer;text-align:left;width:100%;box-sizing:border-box;border-radius:9px;padding:11px 14px;'
+                + 'font:600 13px Arial;border:1px solid rgba(255,255,255,0.16);background:#0a1e3a;color:#eaf6f9;margin-top:8px;';
+            const optionRows = (kind, list) => list.map((kv) =>
+                '<button class="dz-opt" data-kind="' + kind + '" data-val="' + esc2(kv[0]) + '" style="' + OPT + '">'
+                + esc2(kv[0]) + '<span style="float:right;color:#9fb3c8;font-weight:600;">' + kv[1].toLocaleString() + '</span></button>').join('');
+            const wire = () => {
+                try {
+                    Array.prototype.forEach.call(host.querySelectorAll('.dz-opt'), (b) => {
+                        b.onclick = () => {
+                            const kind = b.getAttribute('data-kind'), val = b.getAttribute('data-val');
+                            finish({ keep: (r) => (kind === 'gene' ? r.gene === val
+                                : (kind === 'significance' ? r.sig === val
+                                    : [].concat(r.phen || []).indexOf(val) >= 0)) });
+                        };
+                    });
+                    const all = host.querySelector('#dz-all'); if (all) all.onclick = () => finish({ keep: null });
+                    const cx = host.querySelector('#dz-cancel'); if (cx) cx.onclick = () => finish(null);
+                } catch (e) { }
+            };
+            const showOptions = (rec) => {
+                host.innerHTML = ''
+                    + '<div style="font:700 15px Arial;margin-bottom:4px;">Narrow ' + rows.length.toLocaleString() + ' mutations</div>'
+                    + (rec && rec.why ? '<div style="font:12.5px/1.6 Arial;color:#9fd3ff;margin:8px 0 2px;">' + esc2(rec.why) + '</div>' : '')
+                    + (rec && rec.values && rec.values.length
+                        ? '<div style="font:11px Arial;color:#9fb3c8;margin-top:10px;text-transform:uppercase;letter-spacing:1.2px;">Suggested</div>'
+                          + rec.values.map((v) => { const c = (rec.kind === 'gene' ? byGene : rec.kind === 'significance' ? bySig : byPhen)
+                              .filter((kv) => kv[0] === v); return optionRows(rec.kind, c.length ? c : [[v, 0]]); }).join('')
+                        : '')
+                    + (byGene.length > 1 ? '<div style="font:11px Arial;color:#9fb3c8;margin-top:16px;text-transform:uppercase;letter-spacing:1.2px;">By gene</div>' + optionRows('gene', byGene.slice(0, 12)) : '')
+                    + (bySig.length > 1 ? '<div style="font:11px Arial;color:#9fb3c8;margin-top:16px;text-transform:uppercase;letter-spacing:1.2px;">By classification</div>' + optionRows('significance', bySig) : '')
+                    + (byPhen.length > 1 ? '<div style="font:11px Arial;color:#9fb3c8;margin-top:16px;text-transform:uppercase;letter-spacing:1.2px;">By condition on the record</div>' + optionRows('phenotype', byPhen.slice(0, 12)) : '')
+                    + '<div style="display:flex;gap:10px;margin-top:20px;">'
+                    + '<button id="dz-all" style="' + GHOST + '">Load all ' + rows.length.toLocaleString() + '</button>'
+                    + '<button id="dz-cancel" style="' + GHOST + '">Cancel</button></div>';
+                wire();
+            };
+            host.style.display = 'block';
+            host.innerHTML = ''
+                + '<div style="font:700 15px Arial;">' + rows.length.toLocaleString() + ' pathogenic mutations found</div>'
+                + '<div style="font:12.5px/1.6 Arial;color:#9fb3c8;margin-top:6px;">That is a lot to read at once. '
+                + 'They can all go on, or you can keep the part of them this is really about.</div>'
+                + '<div style="display:flex;gap:10px;margin-top:16px;">'
+                + '<button id="dz-all" style="' + BTN + '">Load all ' + rows.length.toLocaleString() + '</button>'
+                + '<button id="dz-narrow" style="' + GHOST + '">Narrow it down</button>'
+                + '<button id="dz-cancel" style="' + GHOST + '">Cancel</button></div>';
+            wire();
+            try {
+                host.querySelector('#dz-narrow').onclick = async () => {
+                    host.innerHTML = '<div style="font:12.5px Arial;color:#9fb3c8;">Weighing what these records cover…</div>';
+                    let rec = null;
+                    try {
+                        const em2 = new EngineMonitor((m) => { try { say(m); } catch (e) { } });
+                        const rs = await exec(server + '/py/bio/refine-variant-set.py', em2, JSON.stringify({
+                            disease: disease, total: rows.length,
+                            genes: byGene, significances: bySig, phenotypes: byPhen }));
+                        if (rs && rs.ok) {
+                            let vals = []; try { vals = JSON.parse(rs.values || '[]'); } catch (e) { vals = []; }
+                            rec = { kind: '' + (rs.kind || ''), values: vals, why: '' + (rs.why || '') };
+                        }
+                    } catch (e) { rec = null; }
+                    showOptions(rec);
+                };
+            } catch (e) { }
+        });
         const DZ_MAX_GENES = 8;          // genes to read per disease
         const DZ_MAX_PER_GENE = 4000;    // ClinVar records taken from one gene
         // A record has to be pathogenic to be worth drawing. ClinVar's own wording is what
@@ -11723,6 +11812,7 @@ function (path, config) {
                 // already drawn, not what this same batch has queued, so the batch dedupes
                 // itself here.
                 const seenRow = new Set();
+                const rowMeta = [];
                 let scanned = 0, offMim = 0, dupRows = 0;
                 for (let i = 0; i < loci.length; i++) {
                     const g = loci[i];
@@ -11772,6 +11862,11 @@ function (path, config) {
                             'CLNSIG=' + dzSig(v).replace(/[;\t ,]+/g, '_')
                             + ';GENEINFO=' + sym
                             + (clnId ? ';CLNVARID=' + clnId : '')].join('\t'));
+                        // WHAT THIS ROW CAN BE NARROWED ON, kept beside it. Counting these
+                        // afterwards off the VCF text would mean parsing back out what was
+                        // just written, and the phenotype names are not in the text at all.
+                        rowMeta.push({ gene: sym, sig: dzSig(v) || 'not stated',
+                            phen: Array.isArray(v.conditions) ? v.conditions : [] });
                         kept++;
                         if (kept >= DZ_MAX_PER_GENE) break;
                     }
@@ -11786,6 +11881,35 @@ function (path, config) {
                     fail('No pathogenic ClinVar record for ' + disease + ' fell inside '
                         + genes.join(', ') + '. ' + (scanned ? scanned.toLocaleString() + ' records were read.' : ''));
                     return;
+                }
+                // ABOVE A CERTAIN NUMBER, DRAWING THEM ALL ANSWERS A BROADER QUESTION THAN
+                // THE ONE ASKED. A gene or a condition can carry hundreds of pathogenic
+                // records covering every phenotype it has ever been implicated in, and a
+                // chromosome painted with all of them says less than one painted with the
+                // ones that matter. So past DZ_PROMPT the choice goes to the person, with
+                // the subsets counted for them so it is a choice they can actually make.
+                if (rows.length > DZ_PROMPT) {
+                    const pick = await dzChoose(disease, rows, rowMeta, say, arm, panel);
+                    if (!pick) { arm(true); dzBusy = false; beatStop(); return; }   // cancelled
+                    if (pick.keep) {
+                        const kept = [], keptMeta = [];
+                        for (let i2 = 0; i2 < rows.length; i2++) {
+                            if (!pick.keep(rowMeta[i2])) continue;
+                            kept.push(rows[i2]); keptMeta.push(rowMeta[i2]);
+                        }
+                        if (kept.length) {
+                            rows.length = 0; Array.prototype.push.apply(rows, kept);
+                            rowMeta.length = 0; Array.prototype.push.apply(rowMeta, keptMeta);
+                            // The per-gene counts and the bands follow the narrowing, or the
+                            // chromosome would be banded for genes nothing was kept from.
+                            for (const kk of Object.keys(perGene)) delete perGene[kk];
+                            for (const m2 of rowMeta) perGene[m2.gene] = (perGene[m2.gene] || 0) + 1;
+                            for (let bi = dzBands.length - 1; bi >= 0; bi--) {
+                                if (!perGene[dzBands[bi].gene]) dzBands.splice(bi, 1);
+                                else dzBands[bi].n = perGene[dzBands[bi].gene];
+                            }
+                        }
+                    }
                 }
                 say('Placing ' + rows.length.toLocaleString() + ' mutation' + (rows.length === 1 ? '' : 's') + '…');
                 await new Promise((res) => setTimeout(res, 0));
@@ -11888,6 +12012,8 @@ function (path, config) {
                 + 'border:1px solid #12c2e0;background:#12c2e0;color:#042a33;">Find the mutations</button>'
                 + '<div id="dz-status" style="font:12.5px/1.5 Arial;color:#9fb3c8;min-width:0;"></div>'
                 + '</div>'
+                + '<div id="dz-choose-host" style="display:none;margin-top:22px;padding:18px 20px;border-radius:12px;'
+                + 'background:#0a1e3a;border:1px solid rgba(18,194,224,0.35);"></div>'
                 + '<div style="margin-top:26px;font:12px Arial;color:#9fb3c8;">Try one of these</div>'
                 + '<div id="dz-ex" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'
                 + EX.map((e2) => '<button class="dz-e" style="cursor:pointer;border-radius:999px;padding:7px 13px;'
