@@ -2128,9 +2128,18 @@ function (path, config) {
                                 if (my < -10 || my > ctx.canvas.height + 10) continue;
                                 const col = colorOf(d, k);
                                 if (bw > 60) {
+                                    // THE LINE ACROSS THE BAR IS A POINTER, NOT THE FINDING.
+                                    // The mark in the gutter is the variant; this only carries
+                                    // the eye from it to the place on the chromosome. Drawn at
+                                    // a pixel and a half of nearly solid colour it competed
+                                    // with the thing it was pointing at, and a few hundred of
+                                    // them in one band read as a solid red block rather than
+                                    // as separate positions. A hairline at half opacity keeps
+                                    // every one of them separable and lets the bands and the
+                                    // marks stay the things that are actually seen.
                                     ctx.strokeStyle = col;
-                                    ctx.globalAlpha = 0.9;
-                                    ctx.lineWidth = 1.5;
+                                    ctx.globalAlpha = 0.45;
+                                    ctx.lineWidth = 0.75;
                                     ctx.beginPath();
                                     ctx.moveTo(bx0, my); ctx.lineTo(bx1, my);
                                     ctx.stroke();
