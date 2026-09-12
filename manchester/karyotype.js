@@ -1647,30 +1647,36 @@ function (path, config) {
                             ctx.strokeRect(bx0 + 0.5, yA + 0.5, Math.max(2, bx1 - bx0) - 1, hgt - 1);
                         }
                         ctx.restore();
-                        // Symbols on their loci, left edge, with a tick back when nudged.
+                        // SYMBOLS CENTRED ACROSS THE BAR. The name belongs to the whole gene,
+                        // which is the width of the chromosome here, so it sits in the middle
+                        // of that width rather than tucked against the left edge where it read
+                        // as a margin note. A tick still runs back to the true locus when the
+                        // decluttering has nudged a label off it. A name wider than the bar
+                        // keeps its box centred and simply overhangs, which is legible; the
+                        // alternative is truncating a gene symbol, which is not.
                         ctx.save();
                         ctx.font = '700 10px ' + FONT;
-                        ctx.textAlign = 'left';
+                        ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
+                        const cxBar = (bx0 + bx1) / 2;
                         for (const gg of kept) {
                             const sy = gg.sy;
                             const tw = ctx.measureText(gg.sym).width;
-                            const sx = bx0 + 4;
                             if (Math.abs(sy - gg.ay) > 3) {
                                 ctx.strokeStyle = 'rgba(5,150,105,0.6)';
                                 ctx.lineWidth = 1;
                                 ctx.beginPath();
-                                ctx.moveTo(sx - 3, sy);
+                                ctx.moveTo(cxBar - tw / 2 - 3, sy);
                                 ctx.lineTo(bx0 + 1, gg.ay);
                                 ctx.stroke();
                             }
                             ctx.fillStyle = '#ecfdf5';
-                            ctx.fillRect(sx - 2, sy - 6, tw + 4, 12);
+                            ctx.fillRect(cxBar - tw / 2 - 3, sy - 6, tw + 6, 12);
                             ctx.strokeStyle = 'rgba(5,150,105,0.45)';
                             ctx.lineWidth = 1;
-                            ctx.strokeRect(sx - 2 + 0.5, sy - 6 + 0.5, tw + 4 - 1, 12 - 1);
+                            ctx.strokeRect(cxBar - tw / 2 - 3 + 0.5, sy - 6 + 0.5, tw + 6 - 1, 12 - 1);
                             ctx.fillStyle = '#065f46';
-                            ctx.fillText(gg.sym, sx, sy);
+                            ctx.fillText(gg.sym, cxBar, sy);
                         }
                         ctx.restore();
                         ctx.textAlign = 'center';
