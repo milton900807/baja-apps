@@ -7,7 +7,8 @@ function (opts) {
     //       id: 'baja-data-library',          // DOM id, so re-opening replaces rather than stacks
     //       title: 'Data Library',
     //       subtitle: '10 data sources — click one to add it to your tracks',
-    //       books: [{ title, badge, blurb, ready, open, section, note, back, leaf }],
+    //       books: [{ title, badge, blurb, ready, open, section, note, back, leaf,
+    //                 toggle, on }],   toggle: true draws a checkbox; `on` ticks it
     //                                       // back: true  -> the left-pointing tag shape
     //                                       // section: full-width heading when the name changes
     //                                       // note: true  -> a line of prose, not a card
@@ -403,6 +404,19 @@ function (opts) {
                 }
                 card.innerHTML = ''
                     + '<div style="display:flex;align-items:center;gap:8px;">'
+                    // A TOGGLE SAYS SO IN BOTH STATES. A card that switches something on and
+                    // off is a different kind of thing from one that does a job once, and the
+                    // difference has to be visible BEFORE it is clicked rather than inferred
+                    // from a badge reading "off" -- which reads just as easily as the name of
+                    // what the card would do. The box is drawn either way, at the same size,
+                    // so a column of toggles lines up and only the ticks differ. `toggle: true`
+                    // is the book's to say; cards without it are unchanged.
+                    + (b.toggle ? ('<span aria-hidden="true" style="flex:0 0 auto;width:18px;height:18px;'
+                        + 'border-radius:5px;display:inline-flex;align-items:center;justify-content:center;'
+                        + 'font:700 13px/1 Arial;'
+                        + (b.on ? 'background:#16a34a;border:1px solid #4ade80;color:#f0fdf4;'
+                                : 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.34);color:transparent;')
+                        + '">\u2713</span>') : '')
                     // A SWATCH: a filled dot showing an actual color the card stands for (a
                     // sample's color, say), glowing a little in that color so it reads. Purely
                     // additive -- cards without `swatch` are unchanged.

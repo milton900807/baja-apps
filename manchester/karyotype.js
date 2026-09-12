@@ -7163,7 +7163,7 @@ function (path, config) {
                 R.complete.forEach((x) => {
                     const on = isSelected(x.gene);
                     const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene);
-                    books.push({ section: 'Complete losses — both copies gone', title: (on ? '\u2713 ' : '') + x.gene,
+                    books.push({ section: 'Complete losses — both copies gone', title: x.gene, toggle: true, on: on,
                         badge: on ? 'selected' : (x.tsg ? 'tumour suppressor' : 'two hits'), swatch: on ? '#16a34a' : '#dc2626', selected: on, ready: true,
                         blurb: 'One copy lost to the tract, the other broken by a variant.'
                             + (x.effect_mean == null ? ' Not in the DepMap screen.'
@@ -7251,7 +7251,7 @@ function (path, config) {
                 + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumour at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
             books.push({ section: 'Loss of heterozygosity', note: true, title: 'Each site is judged on its allele depths, not on the caller\'s genotype: a heterozygote whose reads are more than '
                 + Math.round(T_LOST_HI * 100) + '% one allele has lost the other, whatever the GT field still says. Sites with fewer than 8 reads, or no allele depths at all, fall back to the genotype.' });
-            books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the karyotype', badge: hlActive === HL_LOH ? 'on' : 'off', icon: 'highlight', ready: true,
+            books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the karyotype', badge: hlActive === HL_LOH ? 'on' : 'off', toggle: true, on: hlActive === HL_LOH, icon: 'highlight', ready: true,
                 blurb: 'Mark the sites that lost an allele and band the tracts, longest first.',
                 open: () => { try { if (hlActive === HL_LOH) clearWorking(); else applyLOHHighlights(true); } catch (e) { } lohMenu(); } });
             books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
@@ -7291,7 +7291,7 @@ function (path, config) {
                     open: () => { try { dlSaveText(lohGeneCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH_genes') + '.csv', 'text/csv'); dlMsg('Gene table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
                 R.genes.forEach((g) => {
                     const on = isSelected(g.gene);
-                    books.push({ section: 'Genes in the tracts', title: (on ? '\u2713 ' : '') + g.gene,
+                    books.push({ section: 'Genes in the tracts', title: g.gene, toggle: true, on: on,
                         badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : pct(g.frac) + ' LOH'),
                         swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : (g.frac >= 0.7 ? '#a855f7' : (g.frac >= 0.3 ? '#f97316' : '#94a3b8'))),
                         selected: on, ready: true,
@@ -7328,7 +7328,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Differential loss matrix', note: true, title: R.A.label + ' (A) vs ' + R.B.label + ' (B): ' + R.onlyA.length + ' gene' + (R.onlyA.length === 1 ? '' : 's') + ' lost only in A, ' + R.onlyB.length + ' only in B, ' + R.both.length + ' in both. '
                 + 'A: ' + R.A.genes.length + ' lost among ' + (R.A.scanned || 0).toLocaleString() + ' exonic variants; B: ' + R.B.genes.length + ' among ' + (R.B.scanned || 0).toLocaleString() + '.' + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') });
-            books.push({ section: 'Differential loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_DIFF_BOTH ? 'on' : 'off', icon: 'highlight',
+            books.push({ section: 'Differential loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_DIFF_BOTH ? 'on' : 'off', toggle: true, on: hlActive === HL_DIFF_BOTH, icon: 'highlight',
                 blurb: 'Red for genes lost only in A, blue only in B, purple in both; bands on the first ' + LOF_BAND_MAX + '.', ready: true,
                 open: () => { try { if (hlActive === HL_DIFF_BOTH) { clearLossMatrix(false); } else applyDiffHighlights(true); } catch (e) { } diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
@@ -7338,7 +7338,7 @@ function (path, config) {
                 blurb: 'Put A\'s private losses into the microscope\'s selection, for ' + BAJA3 + '.', open: () => { R.onlyA.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.A)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Select all lost only in B', badge: R.onlyB.length + ' genes', icon: 'done_all', ready: R.onlyB.length > 0, readyNote: 'none',
                 blurb: 'Put B\'s private losses into the selection.', open: () => { R.onlyB.forEach((x) => selGenes.set(('' + x.gene).toUpperCase(), x.B)); graph.setMessage(' ' + selWord() + ' selected. '); diffMenu(); } });
-            if (R.spec && R.spec.kind === 'sample') books.push({ section: 'Differential loss matrix', title: diffRequireEvidence ? 'Require the other sample to be sequenced there' : 'Accept private losses without coverage evidence', badge: diffRequireEvidence ? 'on' : 'off', icon: 'fact_check', ready: true,
+            if (R.spec && R.spec.kind === 'sample') books.push({ section: 'Differential loss matrix', title: diffRequireEvidence ? 'Require the other sample to be sequenced there' : 'Accept private losses without coverage evidence', badge: diffRequireEvidence ? 'on' : 'off', toggle: true, on: diffRequireEvidence, icon: 'fact_check', ready: true,
                 blurb: diffRequireEvidence ? 'A gene counts as lost only in one sample only when the other sample has a confident reference call at the same site, so a coverage gap is not read as an intact gene. Click to accept unevidenced ones; recompute to apply.'
                     : 'Private losses are kept even where the other sample was not confidently sequenced. Click to require the evidence; recompute to apply.',
                 open: () => { diffRequireEvidence = !diffRequireEvidence; graph.setMessage(diffRequireEvidence ? ' Coverage evidence will be required; recompute to apply. ' : ' Coverage evidence will not be required; recompute to apply. '); diffMenu(); } });
@@ -7346,7 +7346,7 @@ function (path, config) {
             const card = (x, sec, sw) => {
                 const g = x.A || x.B; const on = isSelected(x.gene);
                 const one = (h, side) => (h ? side + ': ' + lossWord((h.variants[0] || {}).effect) + ((h.variants[0] || {}).hgvs_p ? ' ' + h.variants[0].hgvs_p : '') + (h.zygosity && h.zygosity !== 'unknown' ? ' (' + h.zygosity + ')' : '') : '');
-                return { section: sec, title: (on ? '✓ ' : '') + x.gene, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
+                return { section: sec, title: x.gene, toggle: true, on: on, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
                     blurb: [one(x.A, 'A'), one(x.B, 'B')].filter(Boolean).join(' · ') + ' · ' + g.chr + ':' + human(g.start) + '-' + human(g.end)
                         + (x.evidence ? ' · other side ' + x.evidence : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + x.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); diffMenu(); } };
@@ -8066,12 +8066,12 @@ function (path, config) {
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
             books.push({ section: 'Targets', title: 'Run again in a cancer type…', badge: 'cancer type', icon: 'coronavirus', ready: true,
                 blurb: 'The types below are the ones whose DepMap lines carry one of these losses.', books: () => diseaseBooks((d) => slFindTargets('', d)) });
-            books.push({ section: 'Targets', title: lossHlScope === 'background' ? 'Karyotype: mark every lost gene instead' : 'Karyotype: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
+            books.push({ section: 'Targets', toggle: true, on: lossHlScope === 'background', title: lossHlScope === 'background' ? 'Karyotype: mark every lost gene instead' : 'Karyotype: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
                 ready: !!lossMatrix, readyNote: 'no loss matrix to mark',
                 blurb: lossHlScope === 'background' ? 'The karyotype is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'
                     : 'Mark and band only ' + R.genes.join(', ') + ' on the chromosomes, rather than every loss in the file.',
                 open: () => { lossHlScope = (lossHlScope === 'background') ? 'all' : 'background'; try { if (lossMatrix) applyLossHighlights(true); } catch (e) { } slTargetsMenu(); } });
-            books.push({ section: 'Targets', title: slDropPan ? 'Pan-essential targets are being set aside' : 'Pan-essential targets are being kept',
+            books.push({ section: 'Targets', toggle: true, on: slDropPan, title: slDropPan ? 'Pan-essential targets are being set aside' : 'Pan-essential targets are being kept',
                 badge: slDropPan ? ((R.dropped || []).length + ' set aside') : 'none filtered', icon: 'filter_alt', ready: !slBusy, readyNote: 'a run is in progress',
                 blurb: slDropPan
                     ? 'A target the cell needs whatever it has lost kills the patient with the tumour, whatever its t. Targets dependent in 85% or more of all cell lines, or already at −0.6 in the lines carrying neither loss, are set aside unless the losses account for at least half the killing. Click to keep them and run again.'
@@ -8401,7 +8401,7 @@ function (path, config) {
             books.push({ section: 'Loss matrix', title: 'Select all tumour suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
                 blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
                 open: () => { genes.filter(lossIsTsg).forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
-            books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', icon: 'highlight',
+            books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', toggle: true, on: hlActive === HL_LOF, icon: 'highlight',
                 blurb: 'Mark ' + (lossHlScope === 'background' && selGenes.size ? 'the selected background genes' : 'every loss-of-function variant') + ' in red and band the lost genes'
                     + (lossHlGenes().length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
                 ready: !!genes.length, readyNote: 'no lost genes to mark',
@@ -8435,7 +8435,7 @@ function (path, config) {
                 const chips = [].concat(a ? (a.classes || []).map((c) => GCLS_SHORT[c]).filter(Boolean) : [])
                     .concat(t ? (t.therapeutic || []).map((c) => THER_SHORT[c]).filter(Boolean) : [])
                     .concat(t && t.inhibitors && t.inhibitors.length ? [t.inhibitors[0].name] : []);
-                return { section: section, title: (on ? '✓ ' : '') + g.gene, badge: on ? 'selected' : (zyg || lossWord(v.effect)), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
+                return { section: section, title: g.gene, toggle: true, on: on, badge: on ? 'selected' : (zyg || lossWord(v.effect)), swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : '#f97316'), selected: on,
                     blurb: lossWord(v.effect) + (v.gt ? ' ' + v.gt : '') + (v.conf ? ' · ' + CONF_WORD[v.conf] : '') + ' · ' + g.chr + ':' + human(v.pos) + ' ' + v.ref + '>' + v.alt + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : '')) + more
                         + (zyg ? ' · ' + zyg : '') + (g.origin ? ' · ' + originWord(g.origin) : '')
                         + (g.n_other ? ' · ' + g.n_other + ' other coding' : '') + (chips.length ? ' · ' + chips.join(' · ') : ''),
@@ -8530,7 +8530,7 @@ function (path, config) {
                     const on = lossFilters[grp.key].has(val);
                     const n = countOf(grp.key, val);
                     const dead = grp.key === 'expr' && EXPR_UNANSWERABLE[val];
-                    books.push({ section: grp.title, title: label, badge: dead ? 'no data' : (on ? 'on · ' + n : n + (n === 1 ? ' gene' : ' genes')), swatch: on ? '#16a34a' : (dead ? '#94a3b8' : '#64748b'), selected: on,
+                    books.push({ section: grp.title, title: label, toggle: !dead, on: on, badge: dead ? 'no data' : (on ? 'on · ' + n : n + (n === 1 ? ' gene' : ' genes')), swatch: on ? '#16a34a' : (dead ? '#94a3b8' : '#64748b'), selected: on,
                         ready: avail && !dead, readyNote: dead ? 'needs expression data for this tumour' : (grp.needs === 'annot' ? 'classify first' : 'find evidence first'),
                         blurb: on ? 'Ticked — click to untick.' : ('Tick to keep genes that match' + (n ? ' (' + n + ' now)' : '') + '.'),
                         open: () => { if (on) lossFilters[grp.key].delete(val); else lossFilters[grp.key].add(val); refineMenu(); } });
@@ -8617,7 +8617,7 @@ function (path, config) {
                 + 'MEDIUM: PASS but QUAL 10\u201330, DP 4\u20138, only 2 alt reads, or GQ 10\u201320. '
                 + 'LOW: any FILTER flag, QUAL < 10, DP < 4, fewer than 2 alt reads, or GQ < 10. '
                 + 'A field the file does not carry is not counted against a call, and a call with no confidence information at all is admitted.';
-            books.push({ section: 'Loss matrix', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', icon: 'verified', ready: true,
+            books.push({ section: 'Loss matrix', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', toggle: true, on: lossConfOnly, icon: 'verified', ready: true,
                 blurb: (lossConfOnly ? 'The loss matrix and the differential rely on HIGH-tier calls; the note on each result says how many were left out. '
                     : 'Filtered, shallow and low-quality calls are admitted too. ') + CONF_RULES + (lossConfOnly ? ' Click to admit every call.' : ' Click to rely on high-confidence calls only.'),
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
@@ -8659,7 +8659,7 @@ function (path, config) {
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
                 ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
-            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', icon: 'gavel',
+            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
                 blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
                 ready: true, open: () => { try { patLoad(); } catch (e) { } } });
             books.push({ section: 'This karyotype', title: 'What is loaded', badge: 'info', icon: 'info_outline',
@@ -10309,7 +10309,7 @@ function (path, config) {
             const sampleGlowCards = (multi && hasGt) ? SAMPLES.map((nm, si) => ({
                 section: 'By sample (glowing)',
                 title: nm || ('Sample ' + (si + 1)),
-                badge: hlSamples.has(si) ? 'on' : 'off',
+                badge: hlSamples.has(si) ? 'on' : 'off', toggle: true, on: hlSamples.has(si),
                 blurb: 'Glow every variant ' + (nm || ('sample ' + (si + 1))) + ' carries, right across the genome.'
                     + (hlSamples.has(si) ? ' Click to turn it off.' : ''),
                 open: () => {
@@ -10386,14 +10386,14 @@ function (path, config) {
                             open: () => cycleColorView(),
                         }] : []),
                         {
-                            section: 'Color scheme', title: 'By ClinVar class', badge: modeBadge('class'),
+                            section: 'Color scheme', title: 'By ClinVar class', badge: modeBadge('class'), toggle: true, on: colorMode === 'class',
                             blurb: 'Pathogenic red, benign green, uncertain amber, conflicting grey; unclassified in magenta.',
                             open: () => setMode('class'),
                         },
                         // By sample only for a multi-sample VCF; a single-sample file is just
                         // plotted (ClinVar class), which is what the user asked for.
                         ...(multi ? [{
-                            section: 'Color scheme', title: 'By sample', badge: modeBadge('sample'),
+                            section: 'Color scheme', title: 'By sample', badge: modeBadge('sample'), toggle: true, on: colorMode === 'sample',
                             blurb: 'Which sample carries the change: ' + SAMPLES.join(', ')
                                 + '. Slate where more than one does, pale where none does.',
                             open: () => setMode('sample'),
@@ -10401,17 +10401,17 @@ function (path, config) {
                         // By phase whenever there are genotypes — a haplotype view reads a
                         // single sample as well as several.
                         ...(hasGt ? [{
-                            section: 'Color scheme', title: 'By phase', badge: modeBadge('phase'),
+                            section: 'Color scheme', title: 'By phase', badge: modeBadge('phase'), toggle: true, on: colorMode === 'phase',
                             blurb: 'Haplotype 1 blue, haplotype 2 pink, homozygous purple, unphased heterozygous amber.',
                             open: () => setMode('phase'),
                         }] : []),
                         // The annotation highlights: each turns on and off, and only one is on at
                         // a time (a variant shows one mark). The same set the Search window offers.
-                        { section: 'Highlight (annotation)', title: 'Protein coding', badge: hlBadge(1), blurb: 'Mark the variants in coding sequence, genome-wide.', open: () => toggleHl('coding', 1) },
-                        { section: 'Highlight (annotation)', title: 'Intronic', badge: hlBadge(2), blurb: 'Mark the variants that fall in introns.', open: () => toggleHl('intronic', 2) },
-                        { section: 'Highlight (annotation)', title: "3' UTR", badge: hlBadge(3), blurb: "Mark the variants in 3' untranslated regions.", open: () => toggleHl('three_utr', 3) },
-                        { section: 'Highlight (annotation)', title: "5' UTR", badge: hlBadge(4), blurb: "Mark the variants in 5' untranslated regions.", open: () => toggleHl('five_utr', 4) },
-                        { section: 'Highlight (annotation)', title: 'Pathogenic / likely pathogenic', badge: hlBadge(HL_PATHOGENIC), blurb: 'Mark the variants ClinVar calls pathogenic or likely pathogenic.', open: () => toggleHl('pathogenic', HL_PATHOGENIC) },
+                        { section: 'Highlight (annotation)', title: 'Protein coding', badge: hlBadge(1), toggle: true, on: hlActive === 1, blurb: 'Mark the variants in coding sequence, genome-wide.', open: () => toggleHl('coding', 1) },
+                        { section: 'Highlight (annotation)', title: 'Intronic', badge: hlBadge(2), toggle: true, on: hlActive === 2, blurb: 'Mark the variants that fall in introns.', open: () => toggleHl('intronic', 2) },
+                        { section: 'Highlight (annotation)', title: "3' UTR", badge: hlBadge(3), toggle: true, on: hlActive === 3, blurb: "Mark the variants in 3' untranslated regions.", open: () => toggleHl('three_utr', 3) },
+                        { section: 'Highlight (annotation)', title: "5' UTR", badge: hlBadge(4), toggle: true, on: hlActive === 4, blurb: "Mark the variants in 5' untranslated regions.", open: () => toggleHl('five_utr', 4) },
+                        { section: 'Highlight (annotation)', title: 'Pathogenic / likely pathogenic', badge: hlBadge(HL_PATHOGENIC), toggle: true, on: hlActive === HL_PATHOGENIC, blurb: 'Mark the variants ClinVar calls pathogenic or likely pathogenic.', open: () => toggleHl('pathogenic', HL_PATHOGENIC) },
                         ...sampleGlowCards,
                         ...sampleColorCards,
                         { section: 'Highlight (annotation)', title: 'Clear highlights', badge: hlActive ? 'on' : '', ready: !!hlActive, readyNote: 'nothing highlighted', blurb: 'Take every mark off and draw the variants in their own colors again.', open: () => { try { clearHighlights(); } catch (e) { } colorMenu(); } },
