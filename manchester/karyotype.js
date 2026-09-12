@@ -11641,7 +11641,7 @@ function (path, config) {
                 const J = (x) => { try { return JSON.parse(x || '[]'); } catch (e) { return []; } };
                 let genes = J(o.genes), mims = J(o.mims).map((m) => '' + m);
                 let disease = ('' + (o.disease || query)).trim() || query;
-                let byGeneOnly = false;
+                let byGeneOnly = false, bySymbol = false;
                 if (!genes.length) {
                     // NO INHERITED PHENOTYPE IS NOT THE END OF THE QUESTION.
                     //
@@ -11655,6 +11655,35 @@ function (path, config) {
                     //
                     // Only the GENE NAMES come from the second route. No variant is taken from
                     // it, so nothing recalled is ever drawn -- the marks are still ClinVar's.
+                    // A GENE SYMBOL IS NOT A CONDITION, AND IS THE COMMONEST THING TYPED.
+                    //
+                    // The box invites a gene symbol and then had no route for one: the first
+                    // lookup asks which OMIM phenotype the words mean and a gene is not a
+                    // phenotype, the second asks which genes a condition is defined by and a
+                    // gene is not a condition. Both correctly answered nothing, and the
+                    // failure told the user to try the thing they had just tried.
+                    //
+                    // Asked of the annotation instead it is a one-line question with a fact
+                    // for an answer. An EXACT symbol or synonym only: "achondroplasia" must
+                    // not be dragged onto some gene whose name happens to contain it, and a
+                    // real condition should go on to the route below.
+                    if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,24}$/.test(query)) {
+                        say('Looking for the gene ' + query.toUpperCase() + '…');
+                        try {
+                            const gl0 = await exec(server + '/py/bio/gene-locus.py', em, query, (r.species || 'human'), '8');
+                            let hits = [];
+                            try { hits = JSON.parse((gl0 && gl0.genes) || '[]'); } catch (e2) { hits = []; }
+                            const exact = hits.filter((h) => h.matched === 'symbol' || h.matched === 'synonym');
+                            if (exact.length) {
+                                genes = [('' + exact[0].gene).toUpperCase()];
+                                disease = ('' + exact[0].gene).toUpperCase();
+                                mims = [];
+                                byGeneOnly = true; bySymbol = true;
+                            }
+                        } catch (e2) { }
+                    }
+                }
+                if (!genes.length) {
                     say('Finding the genes "' + query + '" is defined by…');
                     let g2 = [];
                     try {
@@ -11809,9 +11838,11 @@ function (path, config) {
                 graph.setResultMessage(' ' + disease + ' — ' + rows.length.toLocaleString() + ' pathogenic mutation'
                     + (rows.length === 1 ? '' : 's') + ' on ' + Object.keys(perGene).length + ' gene'
                     + (Object.keys(perGene).length === 1 ? '' : 's') + ': ' + named + '.'
-                    + (mims.length ? '' : (byGeneOnly
-                        ? ' No inherited phenotype is filed for this, so the genes it is defined by were read instead and every pathogenic record in them was taken.'
-                        : ' No phenotype filter was available, so every pathogenic record in these genes was taken.'))
+                    + (mims.length ? '' : (bySymbol
+                        ? ' Read as a gene rather than a condition, so every pathogenic record in it was taken, whatever phenotype it is filed against.'
+                        : (byGeneOnly
+                            ? ' No inherited phenotype is filed for this, so the genes it is defined by were read instead and every pathogenic record in them was taken.'
+                            : ' No phenotype filter was available, so every pathogenic record in these genes was taken.')))
                     + ' ');
                 step('disease "' + query + '" -> ' + disease + ': ' + rows.length + ' variants, '
                     + scanned + ' scanned, ' + offMim + ' other phenotypes');
