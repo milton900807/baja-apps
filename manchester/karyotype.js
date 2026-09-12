@@ -3833,6 +3833,77 @@ function (path, config) {
             }
             vtotal += count.added;
             vobjects = Math.min(vtotal, OBJECT_CAP);
+            // WHOSE GENOME IS THIS? Two signals, both read from what is already in memory:
+            //   chrY   a sample with calls on Y has a Y. Somatic callers emit few there, so
+            //          a handful is not evidence; a real count is.
+            //   chrX   two X chromosomes give heterozygous calls along X; one gives almost
+            //          none outside the pseudoautosomal regions, where X and Y still pair.
+            // They can disagree, and on a tumour they often do: a female tumour that has
+            // lost one X looks hemizygous on X while the donor is female. So the answer is
+            // hedged when the two signals do not agree, and it names the evidence either way.
+            // PAR coordinates are GRCh38; on another assembly the X test simply includes them.
+            const PAR1 = [10001, 2781479], PAR2 = [155701383, 156030895];
+            const inferSex = (si) => {
+                let yN = 0, xHet = 0, xCalls = 0, auto = 0;
+                for (let ci = 0; ci < drawn.length; ci++) {
+                    const d = vdata[ci];
+                    if (!d || !d.n) continue;
+                    const nm = drawn[ci].name;
+                    const isY = /^chrY$|^Y$/.test(nm), isX = /^chrX$|^X$/.test(nm);
+                    for (let k = 0; k < d.n; k++) {
+                        const gt = (si >= 0 && d.gtw > si) ? gtOf(d, k, si) : GT_HET;
+                        if (gt < GT_HET) continue;
+                        if (isY) { yN++; continue; }
+                        if (isX) {
+                            const p = d.pos[k];
+                            if ((p >= PAR1[0] && p <= PAR1[1]) || (p >= PAR2[0] && p <= PAR2[1])) continue;
+                            xCalls++;
+                            if (gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2) xHet++;
+                            continue;
+                        }
+                        auto++;
+                    }
+                }
+                const xFrac = xCalls ? xHet / xCalls : 0;
+                const pct = Math.round(xFrac * 100) + '% of ' + xCalls.toLocaleString() + ' X calls heterozygous';
+                const enough = xCalls >= 50;
+                const hasY = yN >= 20;
+                // Three bands, with the middle one named rather than hidden: a second X gives
+                // heterozygous calls freely, one X gives almost none, and anything between is a
+                // subclone, a contaminant or a partial loss — worth saying, not worth calling.
+                const twoX = enough && xFrac >= 0.20;
+                const oneX = enough && xFrac < 0.10;
+                let call = 'not determined', why = '';
+                if (!enough) { why = 'too few X calls to judge (' + xCalls + ')'; }
+                else if (twoX && !hasY) { call = 'female'; why = pct + ', and Y is empty'; }
+                else if (oneX && hasY) { call = 'male'; why = yN.toLocaleString() + ' calls on Y and almost none heterozygous on X'; }
+                else if (twoX && hasY) { call = 'uncertain'; why = 'Y carries ' + yN.toLocaleString() + ' calls yet ' + pct + ' — a sample mixture, or a Y that maps spuriously'; }
+                else if (oneX && !hasY) { call = 'uncertain'; why = 'one X and no Y (' + pct + ', ' + yN + ' on Y): a male whose Y went uncalled, or a female sample that has lost an X'; }
+                else if (hasY) { call = 'male'; why = yN.toLocaleString() + ' calls on Y, with X part-heterozygous (' + pct + ')'; }
+                else { call = 'uncertain'; why = pct + ' and Y is empty — between one X and two, so a subclone or a partial loss of X'; }
+                return { call: call, why: why, y: yN, xCalls: xCalls, xHet: xHet, auto: auto };
+            };
+            // A PILL THAT LEAVES ON ITS OWN. This is a fact about the file worth saying once,
+            // not a control and not a panel: it appears under the toolbar, fades, and goes.
+            const sexPill = (lines) => {
+                try {
+                    const id = 'baja-karyo-sex';
+                    const old2 = document.getElementById(id);
+                    if (old2 && old2.parentNode) old2.parentNode.removeChild(old2);
+                    const el = document.createElement('div');
+                    el.id = id;
+                    el.style.cssText = 'position:fixed;left:50%;top:86px;transform:translateX(-50%);z-index:2147481500;'
+                        + 'background:rgba(11,37,69,0.95);color:#e8f0fb;font:13px Arial,Helvetica,sans-serif;'
+                        + 'border:1px solid rgba(255,255,255,0.16);border-radius:11px;padding:9px 15px;'
+                        + 'box-shadow:0 10px 30px rgba(0,0,0,0.35);max-width:min(560px,90vw);text-align:center;'
+                        + 'opacity:0;transition:opacity .25s ease;pointer-events:none;';
+                    el.innerHTML = lines.map((t, i) => '<div style="' + (i ? 'margin-top:3px;color:#9fb3c8;font-size:11.5px;' : 'font-weight:700;') + '">' + esc(t) + '</div>').join('');
+                    document.body.appendChild(el);
+                    requestAnimationFrame(() => { el.style.opacity = '1'; });
+                    setTimeout(() => { try { el.style.opacity = '0'; setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 400); } catch (e) { } }, 9000);
+                } catch (e) { }
+            };
+
             // THE FILE DECIDES HOW IT IS FIRST SEEN. Samples that differ on some rows is
             // the tumour-and-germline shape, and which sample has the change is the
             // question; failing that, phased calls are shown by haplotype. A file with
@@ -3859,6 +3930,23 @@ function (path, config) {
                 + (count.offGenome ? ' · ' + count.offGenome.toLocaleString() + ' on contigs this genome does not draw' : '')
                 + (count.skipped ? ' · ' + count.skipped.toLocaleString() + ' symbolic or malformed' : '')
                 + '. ');
+            // The sex of each sample that carries calls, said once and then gone.
+            try {
+                const who = (SAMPLES.length && count.cols && count.cols.length)
+                    ? SAMPLES.map((nm, si) => ({ nm: nm, si: si })).filter((x) => { const c3 = phaseCounts(x.si); return c3 && c3.all > 0; })
+                    : [{ nm: '', si: -1 }];
+                const said = [];
+                for (const x of who.slice(0, 4)) {
+                    const r2 = inferSex(x.si);
+                    if (r2.call === 'not determined' && r2.xCalls < 50) continue;
+                    said.push({ x: x, r: r2 });
+                }
+                if (said.length) {
+                    const head = said.map((q) => (q.x.nm ? q.x.nm + ': ' : '') + q.r.call).join('   ·   ');
+                    const why = said.map((q) => (q.x.nm ? q.x.nm + ' — ' : '') + q.r.why).join('; ');
+                    sexPill([head.charAt(0).toUpperCase() + head.slice(1), why + '. Read from X heterozygosity and Y calls in this file.']);
+                }
+            } catch (e) { step('sex inference failed: ' + e); }
             step('vcf: ' + count.added + ' placed, ' + count.offGenome + ' off-genome, '
                 + count.skipped + ' skipped, ' + vtotal + ' total');
         };
