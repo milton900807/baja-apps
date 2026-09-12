@@ -6553,11 +6553,6 @@ function (path, config) {
                     'Applied before': 'An earlier application of this model, on 1p/19q-codeleted oligodendroglioma, is written up at ' + BAJA3_DOC,
                     'Losses': R.genes.join(', '),
                     'Tissue': R.tissue || 'any (lineage-corrected across the panel)',
-                    'Higher-order hits': R.targets.filter((x) => isHigherOrder(x.interpretation)).length + (written.length < R.targets.filter((x) => isHigherOrder(x.interpretation)).length ? ' (' + written.length + ' reported)' : ''),
-                    'Run': R.at ? new Date(R.at).toLocaleString() : '',
-                    'Written': new Date().toLocaleString(),
-                    'Compounds': 'Every reported target is checked for inhibitors and trials; the clinical-stage ones are listed first, before the biology.',
-                    'Caution': 'Each write-up is general knowledge read around this run\'s statistics. It is a rationale to test, not a finding; confirm any paper or compound before relying on it.',
                 }] });
                 // THE DRUGGABLE ONES FIRST. A hit with an approved or clinical-stage compound
                 // is the one to read first, so it is listed before the biology rather than
@@ -6591,10 +6586,9 @@ function (path, config) {
                             'Compound': 'tool compounds and preclinical', 'All compounds': '', 'Trials': '', 'Why it matters here': 'A compound exists but has not reached patients.', 'Window': '' });
                         rest.forEach((d) => rows.push(rowOf(d)));
                     }
-                    const none = written.filter((x) => { const t = therOf(x.t.target); return !t || !(t.inhibitors || []).length; }).map((x) => x.t.target);
-                    if (none.length) rows.push({ 'Target': 'NO COMPOUND KNOWN', 'Best stage': none.length + ' hit' + (none.length === 1 ? '' : 's'), 'Compound': none.join(', '),
-                        'All compounds': '', 'Trials': '', 'Why it matters here': 'Nothing acts on these yet; an antisense or siRNA approach is the route the editor is for.', 'Window': '' });
-                    if (rows.length) sheets.push({ name: 'Inhibitors and trials', rows: rows });
+                    // Targets nothing acts on are not listed here: each one's own page already
+                    // says so, and a roll-call of absences is not a finding.
+                    if (drugged.length) sheets.push({ name: 'Inhibitors and trials', rows: rows });
                 }
                 try { const pics = await captureViews(); if (pics && pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics }); } catch (e) { }
                 sheets.push({ name: 'Hits at a glance', rows: written.map((x, i) => ({
