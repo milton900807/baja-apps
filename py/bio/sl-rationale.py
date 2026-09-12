@@ -98,7 +98,31 @@ elif not requests:
 elif not ANTHROPIC_API_KEY:
     out["error"] = "ANTHROPIC_API_KEY is not set on the server"
 else:
-    if source == "paralog":
+    if source == "cyclops":
+        # A DIFFERENT ARGUMENT ENTIRELY. Everywhere else here the target is a gene the tumour
+        # still has and the losses are elsewhere. In a CYCLOPS the target IS the gene the
+        # tumour is down to one copy of, and pan-essentiality -- disqualifying for a
+        # third-gene hit -- is the whole point: the selectivity comes from copy number in
+        # the patient, not from the screen. Told plainly, so the reply is not written as if
+        # this were an ordinary synthetic-lethal pair.
+        ask = ("Target: %s. The tumour carries ONE copy of it: it sits inside a region of loss of "
+               "heterozygosity, and the patient's normal tissue keeps two copies.\n"
+               "Other genes inside the same LOH tract: %s\n"
+               "DepMap CRISPR essentiality of the target across the cell-line panel "
+               "(effect_mean is the average Chronos gene effect, more negative = more essential; "
+               "dep_frac is the share of lines that depend on it): %s\n\n"
+               "The proposal is a CYCLOPS-type vulnerability (Copy-number alterations Yielding Cancer "
+               "Liabilities Owing to Partial losS): a gene that is essential and present at reduced dosage "
+               "can be partially inhibited to a level the one-copy tumour cannot survive and the two-copy "
+               "normal tissue can. Judge THAT proposal, not an ordinary synthetic-lethal pair. In "
+               "'mechanism' explain what the gene does and why halving its dosage would matter -- complex "
+               "stoichiometry, a rate-limiting step, no paralog to compensate. In 'evidence' say what the "
+               "essentiality numbers do and do not support, and be explicit that high essentiality is a "
+               "REQUIREMENT here rather than a disqualification, while noting that the copy-number-"
+               "conditioned test is not shown. In 'caveats' address the therapeutic index directly: a "
+               "partial inhibitor is needed, complete inhibition would kill normal cells too.\n"
+               % (target, ", ".join([g for g in losses if g != target]) or "(not given)", json.dumps(stats)))
+    elif source == "paralog":
         ask = ("Target (the paralog predicted to become essential): %s\nLost gene: %s\n"
                "Paralog synthetic-lethality model (gradient-boosted trees over pair features) output: %s\n"
                % (target, ", ".join(losses) or "(none)", json.dumps(stats)))

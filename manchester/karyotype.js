@@ -6676,6 +6676,175 @@ function (path, config) {
             retained_heterozygous: g.kept, not_called_in_tumour: g.uncalled,
             loh_fraction: Math.round(g.frac * 1000) / 1000, tract: g.chr + ':' + g.tract,
         })));
+        // ---- SYNTHETIC LETHALITY FROM THE LOSS OF HETEROZYGOSITY -----------------
+        //
+        // A tract of LOH is not a list of lost genes, and the whole value of treating it
+        // separately is that it asks a different question. One copy is left. Two things
+        // follow, and they want opposite properties from a target:
+        //
+        //   COMPLETE LOSS   a gene in the tract that ALSO carries a loss-of-function
+        //                   variant has lost both copies. That is a real loss, the two-hit
+        //                   tumour suppressor, and it is the strongest possible background
+        //                   for the third-gene model.
+        //   SINGLE COPY     a gene in the tract that the cell cannot do without is running
+        //                   on one copy where the patient's normal tissue runs on two.
+        //                   Partially inhibit it and the tumour has no headroom. Here the
+        //                   TARGET IS THE GENE ITSELF, and being essential everywhere --
+        //                   which disqualifies a third-gene hit -- is the requirement.
+        //
+        // The second hit comes from the loss matrix, which is why running that first makes
+        // this answer sharper; without it the complete-loss half is simply empty and says so.
+        let lohSlResult = null;         // { complete, cyclops, background, notes, ther, at }
+        let lohSlBusy = false;
+        const lohFindSL = async () => {
+            if (!lohResult || !lohResult.genes || !lohResult.genes.length) {
+                graph.setMessage(' List the genes in the tracts first. '); return;
+            }
+            if (lohSlBusy) { graph.setMessage(' The scan is still running. '); return; }
+            lohSlBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const inTract = lohResult.genes.map((g) => ('' + g.gene).toUpperCase());
+                const tractSet = new Set(inTract);
+                // THE SECOND HIT. A gene is completely lost only when a variant has broken
+                // the copy the LOH left behind, and the loss matrix is what knows that.
+                const second = lossMatrix ? (lossMatrix.genes || []).map((g) => ('' + g.gene).toUpperCase())
+                    .filter((g) => tractSet.has(g)) : [];
+                graph.setMessage(' Reading the dependency profile of ' + inTract.length + ' gene'
+                    + (inTract.length === 1 ? '' : 's') + ' in the tracts… ');
+                const rs = await exec(server + '/py/bio/loh-synthetic-lethal.py', em,
+                    JSON.stringify({ loh_genes: inTract, second_hit: second, top: 60 }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the dependencies');
+                const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
+                lohSlResult = { complete: J(rs.complete, '[]'), cyclops: J(rs.cyclops, '[]'),
+                    background: J(rs.background, '[]'), notes: J(rs.notes, '[]'),
+                    nModels: +rs.n_models || 0, hadMatrix: !!lossMatrix, ther: {},
+                    at: new Date().toISOString() };
+                graph.setMessage(' ' + lohSlResult.complete.length + ' complete loss'
+                    + (lohSlResult.complete.length === 1 ? '' : 'es') + ', '
+                    + lohSlResult.cyclops.length + ' single-copy candidate'
+                    + (lohSlResult.cyclops.length === 1 ? '' : 's') + ' across '
+                    + lohSlResult.nModels.toLocaleString() + ' cell lines. ');
+                step('loh sl: ' + lohSlResult.complete.length + ' complete, ' + lohSlResult.cyclops.length + ' cyclops');
+                lohSlBusy = false;
+                lohSlMenu();
+            } catch (e) {
+                lohSlBusy = false;
+                try { graph.setError(' The vulnerabilities could not be read: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        // Inhibitors and evidence for the single-copy candidates: the same literature pass
+        // the loss matrix uses, kept on this result rather than on the matrix.
+        const lohSlTherapeutics = async () => {
+            if (!lohSlResult || therBusy) return;
+            const want = lohSlResult.cyclops.map((x) => x.gene).filter((g) => !lohSlResult.ther[g]).slice(0, 60);
+            if (!want.length) { graph.setMessage(' Every candidate already has therapeutic evidence. '); lohSlMenu(); return; }
+            therBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const ctx = 'Genes the tumour carries a SINGLE copy of, inside a region of loss of heterozygosity ('
+                    + (lohResult ? lohResult.spec.labelT : 'the tumour') + '). The question is whether each can be '
+                    + 'partially inhibited: a CYCLOPS-type dosage vulnerability, not a lost gene.';
+                const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: want, context: ctx }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no evidence came back');
+                lohSlResult.ther = Object.assign(lohSlResult.ther || {}, JSON.parse(rs.genes || '{}'));
+                graph.setMessage(' Therapeutic evidence read for ' + Object.keys(lohSlResult.ther).length + ' candidate(s). ');
+                therBusy = false;
+                lohSlMenu();
+            } catch (e) {
+                therBusy = false;
+                try { graph.setError(' Therapeutic evidence failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const lohSlCSV = () => dlToCSV(
+            (lohSlResult.complete || []).map((x) => ({ kind: 'complete loss (two hits)', gene: x.gene,
+                tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
+                depmap_dependent_fraction: x.dep_frac, depmap_lines_lost: x.n_lost_lines,
+                what_to_do: 'a genuine biallelic loss: use as a background for the third-gene model' }))
+            .concat((lohSlResult.cyclops || []).map((x) => ({ kind: 'single copy (CYCLOPS)', gene: x.gene,
+                tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
+                depmap_dependent_fraction: x.dep_frac, depmap_lines_lost: x.n_lost_lines,
+                what_to_do: 'the gene itself is the target: partial inhibition, ' + x['class'] }))));
+        const lohSlMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lohSlResult) { lohMenu(); return; }
+            const R = lohSlResult;
+            const books = [];
+            const pctf = (x) => (x == null ? '—' : Math.round(100 * x) + '%');
+            books.push({ section: 'From the loss of heterozygosity', note: true,
+                title: 'One copy is left, and that cuts two ways. A gene whose remaining copy is also broken is '
+                    + 'completely lost, and is a background to reason from. A gene the cell cannot do without is '
+                    + 'now running on half the dosage the patient\'s normal tissue has, and is a target in itself. '
+                    + 'Read against ' + R.nModels.toLocaleString() + ' DepMap cell lines.'
+                    + (R.hadMatrix ? '' : ' No loss matrix has been calculated, so nothing can be called a complete loss yet.') });
+            if (R.background.length) books.push({ section: 'From the loss of heterozygosity', title: 'Run ' + BAJA3 + ' on this background',
+                badge: R.background.length + ' genes', icon: 'science', ready: !slBusy, readyNote: 'a run is in progress',
+                blurb: 'The losses chosen rather than guessed: two hits first, then tumour suppressors, then the genes '
+                    + 'DepMap actually sees lost often enough for a background built on them to have lines to score — '
+                    + R.background.join(', ') + '.',
+                open: () => { selGenes.clear(); R.background.forEach((nm) => { const g = (lohResult.genes || []).find((x) => ('' + x.gene).toUpperCase() === nm); selGenes.set(nm, g ? lohSelRecord(g) : { gene: nm, chr: '', start: 0, end: 0, variants: [{ effect: 'loss_of_heterozygosity', pos: 0, ref: '', alt: '' }] }); }); slFindTargets('', ''); } });
+            books.push({ section: 'From the loss of heterozygosity', title: 'Look up inhibitors and trials',
+                badge: Object.keys(R.ther || {}).length ? Object.keys(R.ther).length + ' read' : 'literature', icon: 'medication',
+                ready: !therBusy && R.cyclops.length > 0, readyNote: therBusy ? 'reading' : 'no candidate',
+                blurb: 'For the single-copy candidates: what acts on each gene today, at what stage, and the papers behind it.',
+                open: () => { lohSlTherapeutics(); } });
+            books.push({ section: 'From the loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                blurb: 'Both lists in one table, with what each one means for a target.',
+                open: () => { try { dlSaveText(lohSlCSV(), dlSafe(dlSpecies() + '_LOH_vulnerabilities') + '.csv', 'text/csv'); dlMsg('Table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'From the loss of heterozygosity', title: 'Back to the tracts', badge: 'loh', icon: 'arrow_back', ready: true,
+                blurb: 'The chromosomes, the tracts and the genes inside them.', open: () => lohMenu() });
+
+            if (R.complete.length) {
+                books.push({ section: 'Complete losses — both copies gone', note: true,
+                    title: 'Loss of heterozygosity took one copy and a loss-of-function variant broke the other. These are '
+                        + 'real losses, and they are what the third-gene model is built to reason from. Click to select one.' });
+                R.complete.forEach((x) => {
+                    const on = isSelected(x.gene);
+                    const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene);
+                    books.push({ section: 'Complete losses — both copies gone', title: (on ? '\u2713 ' : '') + x.gene,
+                        badge: on ? 'selected' : (x.tsg ? 'tumour suppressor' : 'two hits'), swatch: on ? '#16a34a' : '#dc2626', selected: on, ready: true,
+                        blurb: 'One copy lost to the tract, the other broken by a variant.'
+                            + (x.effect_mean == null ? ' Not in the DepMap screen.'
+                                : ' DepMap: knocking it out costs ' + x.effect_mean.toFixed(2) + ' on average, and ' + pctf(x.dep_frac) + ' of lines depend on it.')
+                            + (x.n_lost_lines ? ' ' + x.n_lost_lines + ' lines carry the same loss.' : ''),
+                        open: () => { const now = toggleGeneSelect(g ? lohSelRecord(g) : { gene: x.gene, chr: '', start: 0, end: 0, variants: [{ effect: 'loss_of_heterozygosity', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + x.gene + (now ? ' selected' : ' deselected') + ' \u2014 ' + selWord() + '. '); lohSlMenu(); } });
+                });
+            }
+            if (R.cyclops.length) {
+                books.push({ section: 'Single-copy dependence — the gene itself is the target', note: true,
+                    title: 'These are not lost. The tumour has one working copy of each where normal tissue has two, and the cell '
+                        + 'cannot do without them. A partial inhibitor takes the tumour below what one copy can sustain while the '
+                        + 'patient\'s tissue, on two, holds. Essential everywhere is the REQUIREMENT here, not the disqualification '
+                        + 'it is for a third-gene hit — which is also the risk: the drug has to be partial.' });
+                R.cyclops.forEach((x) => {
+                    const t = (R.ther || {})[x.gene];
+                    const inh = t && t.inhibitors && t.inhibitors.length ? t.inhibitors : null;
+                    const clin = inh ? inh.filter((i) => /approved|phase/i.test(i.stage || '')) : null;
+                    books.push({ section: 'Single-copy dependence — the gene itself is the target', title: x.gene,
+                        badge: (clin && clin.length) ? clin[0].name + ' · ' + clin[0].stage : x.effect_mean.toFixed(2),
+                        swatch: (clin && clin.length) ? '#16a34a' : (x.dep_frac >= 0.9 ? '#a855f7' : (x.dep_frac >= 0.5 ? '#f97316' : '#94a3b8')), ready: true,
+                        blurb: x['class'] + ' (' + pctf(x.dep_frac) + ' of ' + R.nModels.toLocaleString() + ' lines), mean effect ' + x.effect_mean.toFixed(2) + '.'
+                            + (inh ? ' Compounds: ' + inh.slice(0, 3).map((i) => i.name + (i.stage ? ' (' + i.stage + ')' : '')).join(', ') + '.' : '')
+                            + (t && t.summary ? ' ' + t.summary : ''),
+                        books: () => [
+                            { title: 'Why would this work?', badge: 'explain', icon: 'psychology', ready: !slWhyBusy, readyNote: 'an explanation is being written',
+                                blurb: 'The dosage argument for ' + x.gene + ', judged on these numbers.',
+                                open: () => slExplain(x.gene, [x.gene].concat((R.cyclops || []).slice(0, 5).map((y) => y.gene).filter((y) => y !== x.gene)), 'cyclops',
+                                    { effect_mean: x.effect_mean, effect_median: x.effect_median, dep_frac: x.dep_frac, n_dependent: x.n_dependent, n_models: R.nModels, class: x['class'] },
+                                    () => lohSlMenu()) },
+                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find ' + x.gene + ' on the karyotype.',
+                                open: () => { const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene); if (g) gotoLostGene(lohSelRecord(g)); else gotoSymbol(x.gene); } },
+                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + x.gene + ' into the editor.', open: () => openSymbolInEditor(x.gene) },
+                        ] });
+                });
+            }
+            if (R.notes && R.notes.length) {
+                books.push({ section: 'What this does and does not say', note: true, title: R.notes.join(' ') });
+            }
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Single-copy vulnerabilities',
+                subtitle: (lohResult ? lohResult.spec.labelT : '') + '  \u00b7  ' + R.complete.length + ' complete, ' + R.cyclops.length + ' single-copy',
+                graph: graph, books: books });
+        };
         const lohCSV = () => dlToCSV((lohResult.chroms || []).map((c2) => ({
             chrom: c2.name, normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
             heterozygous_in_normal: c2.het, lost_an_allele_in_tumour: c2.loh, retained_heterozygous: c2.kept,
@@ -6716,6 +6885,14 @@ function (path, config) {
                 blurb: 'Every protein-coding gene inside a tract, each scored on the heterozygous sites in its own span. '
                     + 'A gene here has one copy left, so a single hit finishes it.',
                 open: () => { lohFindGenes(); } });
+            books.push({ section: 'Loss of heterozygosity', title: lohSlResult ? 'The vulnerabilities this loss creates' : 'Find what this loss makes the tumour depend on',
+                badge: lohSlResult ? (lohSlResult.complete.length + ' complete · ' + lohSlResult.cyclops.length + ' single-copy') : BAJA3,
+                icon: 'science', ready: !!(R.genes && R.genes.length) && !lohSlBusy,
+                readyNote: lohSlBusy ? 'running' : 'list the genes in the tracts first',
+                blurb: 'One copy left cuts two ways. A gene whose remaining copy a variant has also broken is completely '
+                    + 'lost, and is a background to reason from. A gene the cell cannot do without is now on half the '
+                    + 'dosage normal tissue has, and is a target in itself.',
+                open: () => { if (lohSlResult) lohSlMenu(); else lohFindSL(); } });
             books.push({ section: 'Loss of heterozygosity', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => lohPickerBooks() });
             if (R.genes && R.genes.length) {
                 const sel = R.genes.filter((g) => isSelected(g.gene)).length;
