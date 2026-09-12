@@ -353,7 +353,16 @@ function (opts) {
                     // marked variant is drawn in on the karyotype, so the two agree.
                     variant: ['linear-gradient(160deg,#2a0713 0%,#4a0f24 55%,#6b1636 100%)',
                         'rgba(244,114,182,0.55)', '#f9a8d4',
-                        'rgba(244,114,182,0.20)', '#f9a8d4', '#ffe4f1', '#e7b9cf']
+                        'rgba(244,114,182,0.20)', '#f9a8d4', '#ffe4f1', '#e7b9cf'],
+                    // RUNS SOMETHING. A card that starts a computation is not a card that
+                    // opens a panel, and the difference is what the person is about to spend:
+                    // a server call, a minute of waiting, a result that replaces what is on
+                    // screen. Every other card in a library is free and instant. Teal, which
+                    // nothing else here uses, plus a solid badge with a play mark on it -- so
+                    // the badge stops describing the card and starts looking like a button.
+                    run: ['linear-gradient(160deg,#04232b 0%,#07414f 55%,#0a5f73 100%)',
+                        'rgba(45,212,191,0.60)', '#5eead4',
+                        'rgba(45,212,191,0.22)', '#99f6e4', '#e6fffb', '#a7d8d4']
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so
@@ -436,9 +445,18 @@ function (opts) {
                             ? ('<span class="material-icons" style="font-size:18px;line-height:1;">' + esc(b.icon) + '</span>')
                             : esc(b.icon))
                         + '</span>') : '')
-                    + (b.badge ? ('<span style="flex:0 0 auto;border-radius:999px;padding:3px 9px;font:700 10.5px Arial;'
-                        + 'background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
-                        + 'color:' + (A ? A[4] : '#4fd0e6') + ';">' + esc(b.badge) + '</span>') : '')
+                    // A RUN CARD ALWAYS CARRIES ITS BADGE, even with nothing to say in it:
+                    // the badge is the part that says "this executes", so a run card without
+                    // one would be the only run card that did not look like one.
+                    + ((b.badge || b.accent === 'run') ? ('<span style="flex:0 0 auto;border-radius:999px;'
+                        + 'padding:3px 9px;font:700 10.5px Arial;'
+                        + (b.accent === 'run'
+                            ? 'background:#2dd4bf;color:#042f2e;box-shadow:0 0 10px rgba(45,212,191,0.45);'
+                            : ('background:' + (A ? A[3] : 'rgba(18,194,224,0.16)') + ';'
+                               + 'color:' + (A ? A[4] : '#4fd0e6') + ';'))
+                        + '">'
+                        + (b.accent === 'run' ? '\u25B6\u2009' : '')
+                        + esc(b.badge || 'run') + '</span>') : '')
                     // WHY it is unavailable, when the book says. "coming soon" is right for a
                     // feature that does not exist yet and wrong for one that is merely missing
                     // a prerequisite -- the user can act on the second and not on the first.

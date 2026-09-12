@@ -692,7 +692,7 @@ function (path, config) {
             },
             {
                 title: 'Analyze — the loss matrix',
-                byTitle: 'Analyze the loaded variants: the loss matrix, gene search, patents, and what is loaded',
+                byTitle: 'Analyze the loaded variants: the loss matrix, allele-selective targets, gene search, patents, and what is loaded',
                 byIcon: 'biotech',
                 text: 'Work out which genes a sample has lost — frameshifts, stop codons and '
                     + 'splice-site changes, read off the coding sequence — and light those '
@@ -837,7 +837,7 @@ function (path, config) {
                                         // matrix, gene search and the selected regions, the
                                         // patent landscape, and the Info window as cards.
                                         label: 'Analyze', icon: 'biotech',
-                                        tooltip: 'Analyze the loaded variants: the loss matrix, gene search, patents, and what is loaded',
+                                        tooltip: 'Analyze the loaded variants: the loss matrix, allele-selective targets, gene search, patents, and what is loaded',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); analysisMenu(); })
                                     },
                                     {
@@ -6347,7 +6347,7 @@ function (path, config) {
             const specs = diffSpecs();
             const books = [{ section: 'Differential', note: true, title: specs.length ? 'Choose the two to compare. A is the reference the report is written from: "only in A" is what A has lost that B has not.'
                 : 'Nothing to compare yet: load a second VCF on the left of the chromosomes (Upload asks where a new file goes), or load a VCF with two samples.' }];
-            specs.forEach((sp) => books.push({ section: 'Differential', title: sp.labelA + '  vs  ' + sp.labelB, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
+            specs.forEach((sp) => books.push({ section: 'Differential', accent: 'run', title: sp.labelA + '  vs  ' + sp.labelB, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
                 blurb: sp.blurb + ' (' + sp.nA.toLocaleString() + ' vs ' + sp.nB.toLocaleString() + ' variants)', ready: true, open: () => computeDiffLossMatrix(sp) }));
             return books;
         };
@@ -7023,20 +7023,109 @@ function (path, config) {
                 try { graph.setError(' The allele-selective scan failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
             }
         };
-        const lohAlleleCSV = () => dlToCSV((lohAlleleResult.sites || []).map((x) => ({
-            gene: x.gene, chrom: x.chr, pos: x.pos, ref: x.ref, alt: x.alt,
-            allele_the_tumour_kept: x.retained_allele, allele_the_tumour_lost: x.lost_allele,
-            evidence: x.evidence || 'measured',
-            region: x.region, in_mature_transcript: x.in_mature_transcript ? 'yes' : 'no',
-            coding: x.coding ? 'yes' : 'no', transcript: x.transcript, strand: x.strand,
-            tumour_allele_fraction: x.tumour_baf, germline_allele_fraction: x.germline_baf,
-            sequence_to_target: x.context_retained, sequence_in_normal_cells: x.context_lost,
-            context_start: x.context_start, context_end: x.context_end,
-        })));
+        // ---- ALLELE-SELECTIVE TARGETS AT EVERY LEVEL --------------------------------
+        //
+        // Everything above reaches these sites down ONE path: run the LOH scan, read the
+        // genes out of the tracts, rank the single-copy ones, then ask the survivors for
+        // heterozygous positions. That path answers a good question, but it is four steps
+        // below the Analyze shelf and it only ever asks about the genes that path chose.
+        //
+        // An allele-selective target is not a fact about tumours. It is a fact about TWO
+        // COPIES THAT DIFFER IN SEQUENCE plus knowing which of them to aim at. Three
+        // different things establish that, and only the first needs a tumour:
+        //
+        //   somatic   the tumour kept one parental allele; every normal cell kept both.
+        //             Aim at the retained one. Needs a tumour/normal pair.
+        //   phased    the patient carries a disease allele on one copy, the file is
+        //             phased, and every other heterozygous site on THAT copy is therefore
+        //             a discriminating base for the disease chromosome. This is how an
+        //             allele-selective ASO against mutant huntingtin is actually built:
+        //             not against the CAG repeat, which is present on both copies, but
+        //             against a common SNP that happens to sit on the expanded chromosome
+        //             in that patient. Needs phase, not a tumour.
+        //   mutation  the disease change IS the difference. One base, always available,
+        //             the narrowest margin of the three, and the only one that needs
+        //             neither a second sample nor phase.
+        //
+        // WHERE to look is a separate question from WHICH of those three says which side
+        // to hit, so the two are asked separately: any mechanism over any scope. The
+        // server step is the same for all of them -- allele-selective-targets.py is handed
+        // a position and the allele to aim at, and does not care how that was decided.
+        const AS_MODE = {
+            somatic: {
+                name: 'Somatic retention',
+                needs: 'a tumour and a normal',
+                subtitle: 'aim at the allele the tumour kept',
+                aim: 'the allele the tumour kept',
+                spares: (lost) => 'Normal cells keep ' + lost + ' as well, which is what spares them.',
+                rationale: 'Where the tumour carries ONE allele, every normal cell still carries two. Where the '
+                    + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the '
+                    + 'tumour KEPT destroys its only copy while a normal cell drops to one of two and lives. '
+                    + 'Essentiality stops being the objection here and becomes the mechanism.',
+                csvKept: 'allele_the_tumour_kept', csvLost: 'allele_the_tumour_lost',
+                csvOther: 'sequence_in_normal_cells',
+            },
+            phased: {
+                name: 'Phased germline haplotype',
+                needs: 'a phased sample carrying a disease variant',
+                subtitle: 'aim at the copy that carries the disease allele',
+                aim: 'the base carried by the disease copy',
+                spares: (lost) => 'The healthy copy carries ' + lost + ' there, and is what an oligo built on this must leave alone.',
+                rationale: 'A disease variant sits on ONE of the two copies. Where the file is phased, every other '
+                    + 'heterozygous site on that same copy is a discriminating base for the disease chromosome, and '
+                    + 'a much better one to design against than the mutation itself: it can be chosen for where it '
+                    + 'falls in the message rather than accepted wherever the mutation happens to be. This is how an '
+                    + 'allele-selective ASO against mutant huntingtin is built in practice. The phase is an assertion '
+                    + 'about this patient’s genotype and comes from the file; it is not recoverable from sequence.',
+                csvKept: 'allele_on_the_disease_copy', csvLost: 'allele_on_the_healthy_copy',
+                csvOther: 'sequence_on_the_healthy_copy',
+            },
+            mutation: {
+                name: 'The mutation itself',
+                needs: 'a disease variant, and nothing else',
+                subtitle: 'aim at the mutant allele',
+                aim: 'the mutant allele',
+                spares: (lost) => 'The wild-type allele carries ' + lost + ', and is what must survive.',
+                rationale: 'The disease change is itself the only sequence the mutant allele has and the wild-type '
+                    + 'allele does not. It needs no phasing and no second sample, and it is available in every case, '
+                    + 'which is why it is worth having. It is also the weakest of the three: the discriminating base '
+                    + 'is wherever the mutation put it, so the register cannot be chosen, and for a dominant disease '
+                    + 'a single mismatch has to carry the whole selectivity.',
+                csvKept: 'mutant_allele', csvLost: 'wild_type_allele',
+                csvOther: 'wild_type_sequence',
+            },
+        };
+        const asW = (m) => AS_MODE[m] || AS_MODE.somatic;
+        const lohAlleleCSV = () => {
+            const W = asW(lohAlleleResult && lohAlleleResult.mode);
+            return dlToCSV((lohAlleleResult.sites || []).map((x) => {
+                const row = { gene: x.gene, chrom: x.chr, pos: x.pos, ref: x.ref, alt: x.alt };
+                row[W.csvKept] = x.retained_allele;
+                row[W.csvLost] = x.lost_allele;
+                row.basis = (x.as && x.as.why) || (x.evidence || 'measured');
+                row.evidence = x.evidence || 'measured';
+                row.region = x.region;
+                row.in_mature_transcript = x.in_mature_transcript ? 'yes' : 'no';
+                row.coding = x.coding ? 'yes' : 'no';
+                row.transcript = x.transcript;
+                row.strand = x.strand;
+                if (lohAlleleResult.mode === 'somatic' || !lohAlleleResult.mode) {
+                    row.tumour_allele_fraction = x.tumour_baf;
+                    row.germline_allele_fraction = x.germline_baf;
+                }
+                row.sequence_to_target = x.context_retained;
+                row[W.csvOther] = x.context_lost;
+                row.context_start = x.context_start;
+                row.context_end = x.context_end;
+                return row;
+            }));
+        };
         const lohAlleleMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lohAlleleResult) { lohSlMenu(); return; }
             const R = lohAlleleResult;
+            const W = asW(R.mode);
+            const somatic = !R.mode || R.mode === 'somatic';
             const books = [];
             const mrna = R.sites.filter((x) => x.in_mature_transcript);
             if (R.source === 'baja3') books.push({ section: 'Allele-selective targets', note: true,
@@ -7051,20 +7140,24 @@ function (path, config) {
                 title: 'Why the others were passed over: ' + R.rejectedWhy.join('; ')
                     + (R.rejected > R.rejectedWhy.length ? ', and ' + (R.rejected - R.rejectedWhy.length) + ' more.' : '.') });
             books.push({ section: 'Allele-selective targets', note: true,
-                title: 'Where the tumour carries ONE allele, every normal cell still carries two. Where the '
-                    + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the tumour '
-                    + 'KEPT destroys its only copy while a normal cell drops to one of two and lives. Essentiality stops '
-                    + 'being the objection here and becomes the mechanism. '
+                title: W.rationale + '  '
                     + R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' in ' + R.genes + ' gene'
                     + (R.genes === 1 ? '' : 's') + ', ' + mrna.length + ' of them in the mature transcript'
-                    + (R.inferred ? ', and ' + R.inferred + ' where the retained allele is inferred from the tumour file having no record rather than read off it' : '') + '.' });
+                    + (somatic && R.inferred ? ', and ' + R.inferred + ' where the retained allele is inferred from the tumour file having no record rather than read off it' : '')
+                    + (R.scopeLabel ? '. Read over ' + R.scopeLabel : '') + '.' });
+            if (R.skipped && R.skipped.length) books.push({ section: 'Allele-selective targets', note: true,
+                title: 'Passed over: ' + R.skipped.slice(0, 8).map((s) => s.gene + ' (' + s.why + ')').join('; ')
+                    + (R.skipped.length > 8 ? ', and ' + (R.skipped.length - 8) + ' more.' : '.') });
             books.push({ section: 'Allele-selective targets', title: 'Download the sites as CSV', badge: 'csv', icon: 'file_download', ready: true,
-                blurb: 'Each site with the allele to aim at, the allele normal cells keep, the region, and 61 bases of context on both.',
+                blurb: 'Each site with the allele to aim at, the allele that must survive, the region, and 61 bases of context on both.',
                 open: () => { try { dlSaveText(lohAlleleCSV(), dlSafe(dlSpecies() + '_allele_selective_sites') + '.csv', 'text/csv'); dlMsg('Sites downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Allele-selective targets', title: R.source === 'baja3' ? 'Back to the ' + BAJA3 + ' targets' : 'Back to the vulnerabilities',
-                badge: R.source === 'baja3' ? 'targets' : 'loh', icon: 'arrow_back', ready: true,
-                blurb: R.source === 'baja3' ? 'The ranked third-gene hits this came from.' : 'The complete losses and the single-copy candidates.',
-                open: () => { if (R.source === 'baja3') slTargetsMenu(); else lohSlMenu(); } });
+            books.push({ section: 'Allele-selective targets',
+                title: R.source === 'baja3' ? 'Back to the ' + BAJA3 + ' targets'
+                    : (R.source === 'level' ? 'Back to allele-selective targets' : 'Back to the vulnerabilities'),
+                badge: R.source === 'baja3' ? 'targets' : (R.source === 'level' ? 'levels' : 'loh'), icon: 'arrow_back', ready: true,
+                blurb: R.source === 'baja3' ? 'The ranked third-gene hits this came from.'
+                    : (R.source === 'level' ? 'The three mechanisms and the scopes each can be run over.' : 'The complete losses and the single-copy candidates.'),
+                open: () => { if (R.source === 'baja3') slTargetsMenu(); else if (R.source === 'level') alleleSelectiveMenu(); else lohSlMenu(); } });
             const byGene = {};
             R.sites.forEach((x) => { (byGene[x.gene] = byGene[x.gene] || []).push(x); });
             Object.keys(byGene).forEach((gn) => {
@@ -7076,32 +7169,440 @@ function (path, config) {
                     ? usable + ' of these sit in the mature message, which an siRNA or an exon-directed ASO needs. The rest are in the pre-mRNA, where a gapmer can still reach them.'
                     : 'All of these are intronic. A gapmer acting on pre-mRNA can use them; an siRNA cannot.' });
                 books.push({ section: sec, title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true,
-                    blurb: 'Load its transcripts and design against the allele the tumour kept. The positions are below.',
+                    blurb: 'Load its transcripts and design against ' + W.aim + '. The positions are below.',
                     open: () => openSymbolInEditor(gn) });
                 list.forEach((x) => {
+                    const basis = (x.as && x.as.why) || '';
                     books.push({ section: sec, title: x.chr + ':' + human(x.pos) + '  ' + x.ref + '>' + x.alt,
-                        badge: x.region + (x.evidence === 'inferred' ? ' · inferred' : ''),
+                        badge: x.region + (x.evidence === 'inferred' ? ' · inferred' : (x.as && x.as.anchor ? ' · the mutation' : '')),
                         swatch: x.evidence === 'inferred' ? '#94a3b8' : (x.coding ? '#16a34a' : (x.in_mature_transcript ? '#0ea5e9' : '#f59e0b')), ready: true,
-                        blurb: 'Aim at ' + x.retained_allele + ', the allele the tumour kept. Normal cells keep ' + x.lost_allele
-                            + ' as well, which is what spares them. '
+                        blurb: 'Aim at ' + x.retained_allele + ', ' + W.aim + '. ' + W.spares(x.lost_allele) + ' '
+                            + (basis ? basis + ' ' : '')
                             + (x.evidence === 'inferred'
                                 ? 'INFERRED: the tumour file has no record here at all, which inside a single-copy tract means the '
                                   + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
-                                : 'Tumour allele fraction ' + x.tumour_baf + '.')
-                            + ' Germline ' + x.germline_baf + '. ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
-                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  normal  ' + x.context_lost : ''),
+                                : (somatic ? 'Tumour allele fraction ' + x.tumour_baf + '. Germline ' + x.germline_baf + '.' : ''))
+                            + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
+                            + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
                         books: () => [
                             { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the karyotype.',
                                 open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
-                            { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Design against the retained allele.', open: () => openSymbolInEditor(gn) },
-                            { note: true, title: 'Target (tumour, its only copy): ' + (x.context_retained || 'no sequence available') },
-                            { note: true, title: 'Also present in normal cells: ' + (x.context_lost || 'no sequence available') },
+                            { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
+                            { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available') },
+                            { note: true, title: 'Must survive: ' + (x.context_lost || 'no sequence available') },
                         ] });
                 });
             });
             if (R.notes && R.notes.length) books.push({ section: 'What this does and does not say', note: true, title: R.notes.join(' ') });
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Allele-selective targets',
-                subtitle: R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' \u00b7 aim at the allele the tumour kept',
+                subtitle: R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' · ' + W.subtitle,
+                graph: graph, books: books });
+        };
+
+        // WHICH SAMPLE THE GERMLINE MECHANISMS READ. The loss matrix's own sample when it
+        // has one, because that is the genome the rest of the shelf is already about;
+        // otherwise the first that carries calls. One override, set by a card, so a file
+        // with several people in it can be pointed at a different one without threading a
+        // sample through every scope.
+        let asSample = null;
+        const asPhasedSamples = () => {
+            const out = [];
+            for (let i = 0; i < SAMPLES.length; i++) if (phaseCounts(i).phased > 0) out.push(i);
+            return out;
+        };
+        const asSampleFor = (mode) => {
+            if (asSample != null && asSample >= 0 && asSample < SAMPLES.length) {
+                if (mode !== 'phased' || phaseCounts(asSample).phased > 0) return asSample;
+            }
+            if (mode === 'phased') {
+                const ph = asPhasedSamples();
+                if (lossMatrix && ph.indexOf(lossMatrix.si) >= 0) return lossMatrix.si;
+                return ph.length ? ph[0] : -1;
+            }
+            if (lossMatrix && lossMatrix.si >= 0 && lossMatrix.si < SAMPLES.length) return lossMatrix.si;
+            return SAMPLES.length ? 0 : -1;
+        };
+        const asSampleName = (si) => (si >= 0 && si < SAMPLES.length) ? SAMPLES[si] : 'the file';
+
+        // THE DISEASE VARIANTS IN ONE GENE. What makes a copy the one to hit is that it
+        // carries a change worth hitting, and two things say so independently: the loss
+        // matrix already called the variant loss-of-function, or ClinVar classifies it
+        // pathogenic. Either is enough; neither is inferred from sequence here.
+        const asAnchorsIn = (ci, lo, hi, si, rec) => {
+            const d = vdata[ci];
+            const out = [];
+            if (!d || !d.n) return out;
+            const lofPos = new Set();
+            for (const v of ((rec && rec.variants) || [])) { const p = +v.pos; if (p > 0) lofPos.add(p); }
+            let a = 0, b = d.n - 1;
+            while (a < b) { const m = (a + b) >> 1; if (d.pos[m] < lo) a = m + 1; else b = m; }
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                const isLof = lofPos.has(d.pos[k]);
+                const isPath = !!(d.cls && d.cls[k] === 1);
+                if (!isLof && !isPath) continue;
+                const gt = si < 0 ? GT_OTHER : gtOf(d, k, si);
+                if (si >= 0 && gt < GT_HET) continue;          // this sample does not carry it
+                const ab = allelesAt(ci, k);
+                out.push({ pos: d.pos[k], ref: ab[0], alt: ab[1], gt: gt,
+                    why: isLof ? 'Called loss-of-function by the loss matrix.' : 'ClinVar classifies this change pathogenic.' });
+                if (out.length >= AS_MAX_PER_GENE) break;
+            }
+            return out;
+        };
+
+        // PHASED GERMLINE. One disease variant fixes which copy is the disease copy; every
+        // other heterozygous SNP phased to that same copy is then a discriminating base for
+        // it, and an unphased het is left out rather than guessed onto a side. Disease
+        // variants on BOTH copies means "the disease copy" is not one thing and the gene is
+        // passed over saying so, which for a recessive compound heterozygote is the right
+        // answer rather than a failure.
+        const asSitesPhased = (ci, lo, hi, si, gene, rec) => {
+            const anchors = asAnchorsIn(ci, lo, hi, si, rec);
+            const ph = anchors.filter((x) => x.gt === GT_HAP1 || x.gt === GT_HAP2);
+            if (!ph.length) return { sites: [], why: anchors.length
+                ? 'carries ' + anchors.length + ' disease variant' + (anchors.length === 1 ? '' : 's') + ', none of them phased'
+                : 'no disease variant in it to phase against' };
+            const hap = ph[0].gt;
+            if (ph.some((x) => x.gt !== hap)) return { sites: [], why: 'disease variants on both copies, so there is no single disease haplotype' };
+            const hapName = hap === GT_HAP1 ? 'haplotype 1' : 'haplotype 2';
+            const d = vdata[ci];
+            const sites = [];
+            const meta = {};
+            const chr = drawn[ci].name;
+            const push = (pos, ref, alt, retained, why, anchor) => {
+                sites.push({ gene: gene, chr: chr, pos: pos, ref: ref, alt: alt, retained: retained,
+                    evidence: 'measured', tumour_baf: null, germline_baf: null });
+                meta[chr + ':' + pos] = { why: why, anchor: !!anchor, hap: hapName };
+            };
+            for (const an of ph) {
+                if (an.ref.length !== 1 || an.alt.length !== 1) continue;
+                push(an.pos, an.ref, an.alt, 'alt', an.why + ' It is on ' + hapName + ', which is the disease copy.', true);
+            }
+            let a = 0, b = d.n - 1;
+            while (a < b) { const m = (a + b) >> 1; if (d.pos[m] < lo) a = m + 1; else b = m; }
+            for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
+                if (sites.length >= AS_MAX_PER_GENE) break;
+                const gt = gtOf(d, k, si);
+                if (gt !== GT_HAP1 && gt !== GT_HAP2) continue;
+                if (meta[chr + ':' + d.pos[k]]) continue;                 // already in as an anchor
+                const ab = allelesAt(ci, k);
+                if (ab[0].length !== 1 || ab[1].length !== 1) continue;   // a SNP, not an indel
+                const onDisease = (gt === hap);
+                push(d.pos[k], ab[0], ab[1], onDisease ? 'alt' : 'ref',
+                    'Phased to ' + (onDisease ? hapName + ', the disease copy, so its ' + ab[1] + ' is on the allele to hit.'
+                        : (hap === GT_HAP1 ? 'haplotype 2' : 'haplotype 1') + ', the healthy copy, so the disease copy carries ' + ab[0] + ' here.'),
+                    false);
+            }
+            return { sites: sites, meta: meta, hap: hapName };
+        };
+
+        // THE MUTATION ITSELF. No phase and no second sample: the change is the difference.
+        // Indels are admitted here where the other two mechanisms exclude them -- a
+        // frameshift is often the only thing that distinguishes the two alleles at all, and
+        // a bulge is a larger discrimination than a mismatch, not a smaller one -- but the
+        // server only returns sequence context for a single-base change, and the card says
+        // so rather than showing an empty one.
+        const asSitesMutation = (ci, lo, hi, si, gene, rec) => {
+            const anchors = asAnchorsIn(ci, lo, hi, si, rec);
+            if (!anchors.length) return { sites: [], why: 'no disease variant in it' };
+            const chr = drawn[ci].name;
+            const sites = [];
+            const meta = {};
+            for (const an of anchors) {
+                const hom = (an.gt === GT_HOM || an.gt === GT_HOMP);
+                sites.push({ gene: gene, chr: chr, pos: an.pos, ref: an.ref, alt: an.alt, retained: 'alt',
+                    evidence: 'measured', tumour_baf: null, germline_baf: null });
+                meta[chr + ':' + an.pos] = { why: an.why + (hom
+                    ? ' HOMOZYGOUS here, so there is no wild-type allele left to spare and allele selectivity buys nothing in this patient.'
+                    : ''), anchor: true, hom: hom };
+                if (sites.length >= AS_MAX_PER_GENE) break;
+            }
+            return { sites: sites, meta: meta };
+        };
+
+        // ---- WHERE TO LOOK ----------------------------------------------------------
+        //
+        // A span is a gene with coordinates. The four scopes differ only in how that list
+        // is arrived at, so they all reduce to the same shape and the mechanisms never
+        // learn which one they were handed.
+        const asRecFor = (name) => {
+            const key = ('' + name).toUpperCase();
+            return ((lossMatrix && lossMatrix.genes) || []).find((g) => ('' + g.gene).toUpperCase() === key) || null;
+        };
+        const asSpan = (g) => {
+            const chr = '' + (g.chr || '');
+            const ci = g.ci != null ? g.ci : chromIndexOf(chr);
+            if (ci < 0 || !(+g.start > 0) || !(+g.end > 0)) return null;
+            const nm = ('' + g.gene).toUpperCase();
+            return { gene: nm, chr: drawn[ci].name, ci: ci, start: +g.start, end: +g.end, rec: asRecFor(nm) || (g.variants ? g : null) };
+        };
+        const asDedupe = (list) => {
+            const seen = new Set(), out = [];
+            for (const s of list) { if (!s || seen.has(s.gene)) continue; seen.add(s.gene); out.push(s); }
+            return out;
+        };
+        const asGenesInRegions = async (em) => {
+            const out = [];
+            for (const rg of regions) {
+                const name = (drawn[rg.i] || {}).name || '';
+                if (!name) continue;
+                let gs = [];
+                try {
+                    const res = await exec(server + '/py/bio/genes-in-range.py', em, name.replace(/^chr/, ''),
+                        '' + Math.round(rg.lo), '' + Math.round(rg.hi), (r.species || 'human'), '400');
+                    gs = JSON.parse((res && res.genes) || '[]');
+                } catch (e) { gs = []; }
+                for (const g of gs) {
+                    const bt = ('' + (g.biotype || '')).toLowerCase();
+                    if (bt && bt !== 'protein_coding') continue;
+                    const sp = asSpan({ gene: g.gene, chr: name, ci: rg.i, start: g.start, end: g.end });
+                    if (sp) out.push(sp);
+                }
+            }
+            return asDedupe(out);
+        };
+        // PLACE A LIST OF BARE SYMBOLS ON THE GENOME. Not every selected gene arrives with
+        // coordinates: a gene added as a hypothetical loss, or picked off a BAJA-3 result,
+        // is stored as { gene, chr: '', start: 0, end: 0 } because nothing in that flow
+        // needed a locus. Dropping those silently would make "the genes you have selected"
+        // quietly mean "some of them", so they are looked up instead.
+        const asPlaceSymbols = async (names, em) => {
+            if (!names.length) return [];
+            const gl = await exec(server + '/py/bio/gene-locus.py', em, names.join(','), (r.species || 'human'), '400');
+            let loci = [];
+            try { loci = JSON.parse((gl && gl.genes) || '[]'); } catch (e) { loci = []; }
+            return loci.map((g) => asSpan({ gene: g.query || g.gene, chr: g.chr, start: g.start, end: g.end })).filter(Boolean);
+        };
+        const asSpansFor = async (scope, mode, em, symbol) => {
+            if (scope === 'selected') {
+                const placed = [], unplaced = [];
+                for (const g of selectedList()) {
+                    const sp = asSpan(g);
+                    if (sp) placed.push(sp); else if (g && g.gene) unplaced.push(('' + g.gene).toUpperCase());
+                }
+                if (unplaced.length) {
+                    graph.setMessage(' Placing ' + unplaced.length + ' selected gene' + (unplaced.length === 1 ? '' : 's') + ' on the genome\u2026 ');
+                    try { placed.push.apply(placed, await asPlaceSymbols(unplaced.slice(0, AS_MAX_GENES), em)); } catch (e) { }
+                }
+                return asDedupe(placed);
+            }
+            if (scope === 'regions') return await asGenesInRegions(em);
+            if (scope === 'gene') {
+                const sym = ('' + (symbol || '')).trim().toUpperCase();
+                if (!sym) return [];
+                return asDedupe(await asPlaceSymbols([sym], em));
+            }
+            // genome: whichever whole-genome list the mechanism can actually speak about.
+            if (mode === 'somatic') return asDedupe(((lohResult && lohResult.genes) || []).map(asSpan).filter(Boolean));
+            return asDedupe(((lossMatrix && lossMatrix.genes) || []).map(asSpan).filter(Boolean));
+        };
+        const AS_SCOPE_NAME = { genome: 'the whole genome', selected: 'the selected genes',
+            regions: 'the selected regions', gene: 'one gene' };
+
+        // ---- RUN ONE ----------------------------------------------------------------
+        const asRun = async (mode, scope, symbol) => {
+            if (lohAlleleBusy) { graph.setMessage(' The scan is still running. '); return; }
+            const W = asW(mode);
+            const spec = (lohResult && lohResult.spec) || null;
+            if (mode === 'somatic' && !spec) {
+                graph.setError(' Somatic retention needs the loss-of-heterozygosity scan: it is the normal file that says '
+                    + 'where this person is heterozygous and the tumour file that says which side survived. Run '
+                    + 'Analyze → Loss of heterozygosity first, or use one of the other two mechanisms, which need no tumour. ', 14);
+                return;
+            }
+            const si = mode === 'somatic' ? -1 : asSampleFor(mode);
+            if (mode === 'phased' && si < 0) {
+                graph.setError(' No sample in this file is phased, so there is nothing to say which copy carries the disease '
+                    + 'allele. A phased VCF writes 1|0 and 0|1 rather than 0/1. Without it, the mutation itself is still '
+                    + 'available as a target. ', 14);
+                return;
+            }
+            lohAlleleBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                graph.setMessage(' Finding the genes to read… ');
+                let spans = await asSpansFor(scope, mode, em, symbol);
+                if (!spans.length) {
+                    lohAlleleBusy = false;
+                    graph.setError(' Nothing to read: ' + (scope === 'gene'
+                        ? ('"' + symbol + '" could not be placed on this genome.')
+                        : (scope === 'genome'
+                            ? (mode === 'somatic' ? 'the LOH scan has no genes read out of its tracts yet.' : 'no loss matrix has been calculated yet.')
+                            : 'that scope is empty.')) + ' ', 12);
+                    return;
+                }
+                // THE CAP IS SAID OUT LOUD. Reading a gene is a pass over this chromosome's
+                // variants and the server call after it is capped at 600 sites, so a scope
+                // of hundreds of genes is truncated either way. Truncating it silently is
+                // what makes a result read as "these are the targets" when it is "these are
+                // the targets in the first fourteen genes I looked at".
+                const nWanted = spans.length;
+                if (spans.length > AS_MAX_GENES) spans = spans.slice(0, AS_MAX_GENES);
+                const sites = [];
+                const meta = {};
+                const why = {};
+                const skipped = [];
+                let nGenes = 0;
+                for (const sp of spans) {
+                    if (sites.length >= AS_MAX_SITES) break;
+                    graph.setMessage(' Reading ' + sp.gene + '… ');
+                    let got = [], gmeta = {}, gwhy = '';
+                    if (mode === 'somatic') {
+                        got = alleleSitesIn(sp.ci, sp.start, sp.end, spec, sp.gene);
+                        const st = lohSpanStats(sp.ci, sp.start, sp.end, spec);
+                        const inf = st.lost + st.kept;
+                        gwhy = inf ? (sp.gene + ' is down to one allele at ' + st.lost + ' of ' + inf + ' informative heterozygous sites inside it.') : '';
+                        if (!got.length) skipped.push({ gene: sp.gene, why: inf && st.kept >= st.lost ? 'still carries both alleles' : 'no clean one-sided call inside it' });
+                    } else {
+                        const res = mode === 'phased'
+                            ? asSitesPhased(sp.ci, sp.start, sp.end, si, sp.gene, sp.rec)
+                            : asSitesMutation(sp.ci, sp.start, sp.end, si, sp.gene, sp.rec);
+                        got = res.sites;
+                        gmeta = res.meta || {};
+                        if (!got.length) skipped.push({ gene: sp.gene, why: res.why || 'nothing to aim at' });
+                        else if (mode === 'phased') gwhy = sp.gene + ': the disease copy here is ' + res.hap + ', read from ' + asSampleName(si) + '.';
+                        else gwhy = sp.gene + ': the disease change itself, read from ' + asSampleName(si) + '.';
+                    }
+                    if (!got.length) continue;
+                    nGenes++;
+                    if (gwhy) why[sp.gene] = gwhy;
+                    Object.assign(meta, gmeta);
+                    for (const s of got) { sites.push(s); if (sites.length >= AS_MAX_SITES) break; }
+                }
+                if (!sites.length) {
+                    lohAlleleBusy = false;
+                    graph.setError(' No site in ' + AS_SCOPE_NAME[scope] + ' gives ' + W.name.toLowerCase() + ' anything to aim at. '
+                        + (skipped.length ? 'Checked ' + skipped.length + ': ' + skipped.slice(0, 6).map((s) => s.gene + ' (' + s.why + ')').join('; ') + '.' : ''), 16);
+                    return;
+                }
+                graph.setMessage(' Annotating ' + sites.length + ' site' + (sites.length === 1 ? '' : 's') + '… ');
+                const rs = await exec(server + '/py/bio/allele-selective-targets.py', em,
+                    JSON.stringify({ sites: sites, species: (r.species || 'human'), flank: 30, mode: mode }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the sites could not be annotated');
+                const J = (x, d2) => { try { return JSON.parse(x || d2); } catch (e) { return JSON.parse(d2); } };
+                const parsed = J(rs.sites, '[]');
+                if (!parsed.length) throw new Error('the sites came back empty from the annotation step, though ' + sites.length + ' were sent');
+                parsed.forEach((x) => { x.as = meta[x.chr + ':' + x.pos] || null; });
+                lohAlleleResult = { sites: parsed, notes: J(rs.notes, '[]'), genes: +rs.n_genes || nGenes,
+                    source: 'level', mode: mode, scope: scope,
+                    scopeLabel: AS_SCOPE_NAME[scope] + (scope === 'gene' ? ' (' + spans.map((s) => s.gene).join(', ') + ')' : '')
+                        + (mode === 'somatic' ? '' : ', on ' + asSampleName(si))
+                        + (nWanted > spans.length ? ', and only the first ' + spans.length + ' of ' + nWanted + ' genes in it' : ''),
+                    truncated: nWanted > spans.length ? nWanted : 0,
+                    why: why, skipped: skipped, at: new Date().toISOString() };
+                lohAlleleResult.inferred = parsed.filter((x) => x.evidence === 'inferred').length;
+                const mrna = parsed.filter((x) => x.in_mature_transcript).length;
+                graph.setMessage(' ' + parsed.length + ' allele-selective site' + (parsed.length === 1 ? '' : 's')
+                    + ' across ' + lohAlleleResult.genes + ' gene' + (lohAlleleResult.genes === 1 ? '' : 's')
+                    + ', ' + mrna + ' in the mature transcript. ');
+                step('allele-selective ' + mode + '/' + scope + ': ' + parsed.length + ' sites, ' + mrna + ' in mRNA');
+                lohAlleleBusy = false;
+                lohAlleleMenu();
+            } catch (e) {
+                lohAlleleBusy = false;
+                try { graph.setError(' The allele-selective scan failed: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+
+        // A GENE BY NAME, AS ITS OWN SHELF. `search` is read off the OPTIONS when a shelf
+        // opens (shelf.js:71) and the sub-level push at shelf.js:483 carries no hook, so a
+        // nested book cannot search: the box would render and do nothing. Find a gene has
+        // the same constraint and answers it the same way.
+        const asGeneSearch = (mode) => {
+            const W = asW(mode);
+            exec('baja/lib/shelf.js', {
+                id: 'baja-karyo-as-gene', title: 'A gene by name',
+                subtitle: W.name + ' \u00b7 read one gene on its own',
+                searchPlaceholder: 'Gene symbol\u2026',
+                books: [{ note: true, title: 'Type a gene symbol. It is placed on the genome with gene-locus and read for '
+                    + W.name.toLowerCase() + ', whether or not any scan has touched it.' }],
+                search: async (text) => {
+                    const sym = ('' + text).trim().toUpperCase();
+                    if (sym.length < 2) return [{ note: true, title: 'Keep typing a gene symbol.' }];
+                    return [{ title: sym, badge: W.name.toLowerCase(), icon: 'gps_fixed', ready: true,
+                        blurb: 'Read ' + sym + ' and list every site an oligo could discriminate on.',
+                        open: () => asRun(mode, 'gene', sym) }];
+                },
+                graph: graph,
+            });
+        };
+
+        // ---- THE SHELF: ANY MECHANISM, ANY SCOPE ------------------------------------
+        const alleleSelectiveMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+            const ph = asPhasedSamples();
+            const lohGenes = ((lohResult && lohResult.genes) || []).length;
+            const lmGenes = ((lossMatrix && lossMatrix.genes) || []).length;
+            const avail = {
+                somatic: { ok: !!(lohResult && lohResult.spec), note: lohResult ? 'read the genes in the tracts first' : 'run Loss of heterozygosity first' },
+                phased: { ok: ph.length > 0, note: 'no sample in this file is phased' },
+                mutation: { ok: nV > 0, note: 'load a VCF first' },
+            };
+            const books = [];
+            books.push({ section: 'Allele-selective targets', note: true,
+                title: 'Two copies of a gene that differ in SEQUENCE can be told apart by an oligo; one that is only '
+                    + 'present in a different AMOUNT can only be dosed against. Everything here is about the first kind. '
+                    + 'Three things can establish which of the two copies to hit, and only the first needs a tumour, so '
+                    + 'pick the mechanism your data actually supports and then say where to look.' });
+            const scopeCards = (mode) => {
+                const on = avail[mode].ok;
+                const genomeReady = on && (mode === 'somatic' ? lohGenes > 0 : lmGenes > 0);
+                const genomeNote = !on ? avail[mode].note
+                    : (mode === 'somatic' ? 'read the genes in the LOH tracts first' : 'calculate the loss matrix first');
+                const out = [];
+                out.push({ title: 'Every gene in the ' + (mode === 'somatic' ? 'LOH tracts' : 'loss matrix'),
+                    badge: mode === 'somatic' ? (lohGenes ? lohGenes + ' genes' : 'genome') : (lmGenes ? lmGenes + ' genes' : 'genome'),
+                    icon: 'public', ready: genomeReady, readyNote: genomeNote,
+                    blurb: (mode === 'somatic'
+                        ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumour kept one side.'
+                        : 'Every gene the loss matrix found a loss-of-function change in, asked for a discriminating base on the disease copy.')
+                        + ' The first ' + AS_MAX_GENES + ' are read.',
+                    open: () => asRun(mode, 'genome') });
+                out.push({ title: 'The genes you have selected', badge: selGenes.size ? selGenes.size + ' selected' : 'none',
+                    icon: 'checklist', ready: on && selGenes.size > 0, readyNote: on ? 'click genes in the loss matrix or on the karyotype first' : avail[mode].note,
+                    blurb: selGenes.size ? 'Read ' + selectedList().map((g) => g.gene).join(', ') + '.' : 'Click a gene in the loss matrix, or its band on the karyotype, to select it.',
+                    open: () => asRun(mode, 'selected') });
+                out.push({ title: 'The regions you have selected', badge: regions.length ? regions.length + ' region' + (regions.length === 1 ? '' : 's') : 'none',
+                    icon: 'crop_free', ready: on && regions.length > 0, readyNote: on ? 'drag out a range, or find a gene, first' : avail[mode].note,
+                    blurb: 'Every protein-coding gene inside the selection, whether or not anything else has looked at it.',
+                    open: () => asRun(mode, 'regions') });
+                out.push({ title: 'A gene by name', badge: 'search', icon: 'search', ready: on, readyNote: avail[mode].note,
+                    blurb: 'Type a symbol. The gene is placed on the genome and read on its own, with no scan run first '
+                        + 'and nothing needing to have selected it.',
+                    open: () => asGeneSearch(mode) });
+                return out;
+            };
+            const section = (mode, secName) => {
+                const W = asW(mode);
+                books.push({ section: secName, note: true, title: W.rationale + ' Needs ' + W.needs + '.'
+                    + (mode !== 'somatic' && avail[mode].ok ? ' Reading ' + asSampleName(asSampleFor(mode)) + '.' : '')
+                    + (avail[mode].ok ? '' : ' NOT AVAILABLE: ' + avail[mode].note + '.') });
+                scopeCards(mode).forEach((c) => books.push(Object.assign(c, { section: secName })));
+            };
+            section('somatic', 'Somatic retention · the tumour kept one allele');
+            section('phased', 'Phased germline · the disease copy');
+            section('mutation', 'The mutation itself');
+            if (ph.length > 1) {
+                books.push({ section: 'Which sample', title: 'Read a different sample', badge: asSampleName(asSampleFor('phased')),
+                    icon: 'person', ready: true,
+                    blurb: ph.length + ' samples in this file are phased. The germline mechanisms read one of them; this picks which.',
+                    books: () => ph.map((i) => ({ title: SAMPLES[i], badge: phaseCounts(i).phased.toLocaleString() + ' phased calls',
+                        swatch: SAMPLE_COLOR[i] || '#ee00ee', ready: true,
+                        blurb: 'Read the phased and mutation mechanisms on ' + SAMPLES[i] + '.',
+                        open: () => { asSample = i; graph.setMessage(' Reading ' + SAMPLES[i] + '. '); alleleSelectiveMenu(); } })) });
+            }
+            if (lohAlleleResult) {
+                const W = asW(lohAlleleResult.mode);
+                books.push({ section: 'Last result', title: 'Allele-selective targets', badge: lohAlleleResult.sites.length + ' sites',
+                    icon: 'gps_fixed', ready: true,
+                    blurb: W.name + (lohAlleleResult.scopeLabel ? ' over ' + lohAlleleResult.scopeLabel : '') + '.',
+                    open: () => lohAlleleMenu() });
+            }
+            books.push({ section: 'Last result', title: 'Back to Analyze', badge: 'analyze', icon: 'arrow_back', ready: true,
+                blurb: 'The loss matrix, the differential, loss of heterozygosity and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Allele-selective targets',
+                subtitle: 'Two copies that differ in sequence · any mechanism, any scope',
                 graph: graph, books: books });
         };
         const lohSlCSV = () => dlToCSV(
@@ -7137,12 +7638,12 @@ function (path, config) {
                     + 'DepMap actually sees lost often enough for a background built on them to have lines to score — '
                     + R.background.join(', ') + '.',
                 open: () => { selGenes.clear(); R.background.forEach((nm) => { const g = (lohResult.genes || []).find((x) => ('' + x.gene).toUpperCase() === nm); selGenes.set(nm, g ? lohSelRecord(g) : { gene: nm, chr: '', start: 0, end: 0, variants: [{ effect: 'loss_of_heterozygosity', pos: 0, ref: '', alt: '' }] }); }); slFindTargets('', ''); } });
-            books.push({ section: 'From the loss of heterozygosity', title: 'Look up inhibitors and trials',
+            books.push({ section: 'From the loss of heterozygosity', accent: 'run', title: 'Look up inhibitors and trials',
                 badge: Object.keys(R.ther || {}).length ? Object.keys(R.ther).length + ' read' : 'literature', icon: 'medication',
                 ready: !therBusy && R.cyclops.length > 0, readyNote: therBusy ? 'reading' : 'no candidate',
                 blurb: 'For the single-copy candidates: what acts on each gene today, at what stage, and the papers behind it.',
                 open: () => { lohSlTherapeutics(); } });
-            books.push({ section: 'From the loss of heterozygosity', title: lohAlleleResult ? 'Allele-selective targets' : 'Find allele-selective targets',
+            books.push({ section: 'From the loss of heterozygosity', accent: 'run', title: lohAlleleResult ? 'Allele-selective targets' : 'Find allele-selective targets',
                 badge: lohAlleleResult ? (lohAlleleResult.sites.length + ' sites') : 'sequence, not dose', icon: 'gps_fixed',
                 ready: R.cyclops.length > 0 && !lohAlleleBusy, readyNote: lohAlleleBusy ? 'running' : 'no single-copy candidate',
                 blurb: 'The tumour holds one allele here and every normal cell holds two. Where the germline was '
@@ -7235,7 +7736,7 @@ function (path, config) {
             const books = [{ section: 'Loss of heterozygosity', note: true, title: specs.length
                 ? 'Choose which side or sample is the NORMAL. A site it calls heterozygous and the tumour calls homozygous has lost an allele; a tract of them is a deletion or a copy-neutral loss.'
                 : 'Nothing to compare yet: load a second VCF on the left of the chromosomes (Upload asks where a new file goes), or load a VCF whose samples both carry calls.' }];
-            specs.forEach((sp) => books.push({ section: 'Loss of heterozygosity', title: sp.labelN + '  →  ' + sp.labelT, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
+            specs.forEach((sp) => books.push({ section: 'Loss of heterozygosity', accent: 'run', title: sp.labelN + '  →  ' + sp.labelT, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
                 blurb: sp.blurb, ready: true, open: () => computeLOH(sp) }));
             return books;
         };
@@ -7258,13 +7759,13 @@ function (path, config) {
                 blurb: 'One row per chromosome: heterozygous sites, how many went homozygous, the fraction, and the tracts.',
                 open: () => { try { dlSaveText(lohCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH') + '.csv', 'text/csv'); dlMsg('LOH table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             const tracts = (R.chroms || []).reduce((a, c2) => a + (c2.runs ? c2.runs.length : 0), 0);
-            books.push({ section: 'Loss of heterozygosity', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
                 badge: R.genes ? R.genes.length + ' genes' : (tracts + ' tract' + (tracts === 1 ? '' : 's')), icon: 'biotech',
                 ready: tracts > 0 && !lohGeneBusy, readyNote: lohGeneBusy ? 'reading' : 'no tract to read',
                 blurb: 'Every protein-coding gene inside a tract, each scored on the heterozygous sites in its own span. '
                     + 'A gene here has one copy left, so a single hit finishes it.',
                 open: () => { lohFindGenes(); } });
-            books.push({ section: 'Loss of heterozygosity', title: lohSlResult ? 'The vulnerabilities this loss creates' : 'Find what this loss makes the tumour depend on',
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: lohSlResult ? 'The vulnerabilities this loss creates' : 'Find what this loss makes the tumour depend on',
                 badge: lohSlResult ? (lohSlResult.complete.length + ' complete · ' + lohSlResult.cyclops.length + ' single-copy') : BAJA3,
                 icon: 'science', ready: !!(R.genes && R.genes.length) && !lohSlBusy,
                 readyNote: lohSlBusy ? 'running' : 'list the genes in the tracts first',
@@ -7539,9 +8040,9 @@ function (path, config) {
             const list = dyn || SL_DISEASES.map((d) => ({ name: d, n: null }));
             const books = [{ section: 'Cancer type', note: true, title: 'A cancer type is the narrower question: Invasive Breast Carcinoma rather than the breast, Pancreatic Adenocarcinoma rather than the pancreas. The ranking stays lineage-corrected across the whole panel; the dependency inside this type\'s lines carrying the losses is reported beside it.'
                 + (dyn ? ' These are the types whose lines carry one of the selected losses.' : '') }];
-            books.push({ section: 'Cancer type', title: 'Any cancer type', badge: 'whole panel', icon: 'public', ready: true,
+            books.push({ section: 'Cancer type', accent: 'run', title: 'Any cancer type', badge: 'whole panel', icon: 'public', ready: true,
                 blurb: 'Lineage-corrected across every DepMap line, with no type singled out.', open: () => run('') });
-            list.forEach((d) => books.push({ section: 'Cancer type', title: d.name, badge: d.n != null ? (d.n + ' line' + (d.n === 1 ? '' : 's')) : 'cancer type', ready: true,
+            list.forEach((d) => books.push({ section: 'Cancer type', accent: 'run', title: d.name, badge: d.n != null ? (d.n + ' line' + (d.n === 1 ? '' : 's')) : 'cancer type', ready: true,
                 blurb: 'Spotlight ' + d.name + (d.n != null ? ' — ' + d.n + ' DepMap line' + (d.n === 1 ? '' : 's') + ' with one of these losses.' : '.'), open: () => run(d.name) }));
             return books;
         };
@@ -7550,8 +8051,8 @@ function (path, config) {
                 ? slResult.lineages.filter((l) => l.lineage && l.lineage !== '(unknown)').map((l) => ({ name: l.lineage, n: l.n_lines })) : null;
             const list = dyn || SL_TISSUES.map((t) => ({ name: t, n: null }));
             const books = [{ section: 'Tissue', note: true, title: 'Rank against every DepMap line (lineage-corrected), or spotlight one tissue: the dependency inside that tissue\'s lines carrying the losses is reported beside the genome-wide score.' }];
-            books.push({ section: 'Tissue', title: 'Any tissue', badge: 'all lines', icon: 'public', ready: true, blurb: 'Lineage-corrected across the whole panel.', open: () => run('') });
-            list.forEach((t) => books.push({ section: 'Tissue', title: t.name, badge: t.n != null ? (t.n + ' line' + (t.n === 1 ? '' : 's')) : 'tissue', ready: true,
+            books.push({ section: 'Tissue', accent: 'run', title: 'Any tissue', badge: 'all lines', icon: 'public', ready: true, blurb: 'Lineage-corrected across the whole panel.', open: () => run('') });
+            list.forEach((t) => books.push({ section: 'Tissue', accent: 'run', title: t.name, badge: t.n != null ? (t.n + ' line' + (t.n === 1 ? '' : 's')) : 'tissue', ready: true,
                 blurb: 'Spotlight ' + t.name + (t.n != null ? ' — ' + t.n + ' DepMap line' + (t.n === 1 ? '' : 's') + ' carry one of the selected losses.' : '.'), open: () => run(t.name) }));
             return books;
         };
@@ -7689,7 +8190,7 @@ function (path, config) {
                 + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') + (R.built ? ' Catalogue built ' + R.built.slice(0, 10) + '.' : '') });
             books.push({ section: 'Higher-order model', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true, blurb: 'Every catalogued, one-loss-away, tissue-table and screen row for this selection.',
                 open: () => { try { dlSaveText(hoCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_catalogue') + '.csv', 'text/csv'); dlMsg('Catalogue downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Higher-order model', title: 'Run ' + BAJA3 + ' live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('', '') });
+            books.push({ section: 'Higher-order model', accent: 'run', title: 'Run ' + BAJA3 + ' live instead', badge: 'DepMap', icon: 'biotech', ready: true, blurb: 'Run the same engine now on every pair of the selected losses, any tissue.', open: () => slFindTargets('', '') });
             books.push({ section: 'Higher-order model', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
             const statRow = (r) => 't ' + fmtT(r.t) + ' · FDR ' + fmtP(r.fdr) + (r.eff_double != null ? ' · effect ' + fmtT(r.eff_double) : '') + (r.synergy != null && r.synergy !== '' ? ' · synergy ' + fmtT(r.synergy) : '') + (r.eff_in_tissue != null && r.eff_in_tissue !== '' ? ' · in tissue ' + fmtT(r.eff_in_tissue) : '') + (r.n_double ? ' · ' + r.n_double + ' lines' : '');
             const statsOf = (r, bg) => ({ t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation, backgrounds: [{ genes: bg, t: r.t, fdr: r.fdr, eff_double: r.eff_double, synergy: r.synergy, interpretation: r.interpretation }] });
@@ -7739,7 +8240,7 @@ function (path, config) {
                 ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumour\'s background.')
                 : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
             books.push({ section: 'Find targets', note: true, title: BAJA3 + ' — ' + BAJA3_LONG + '. For each selected loss and each pair of them, the third gene that becomes selectively essential in cells carrying the same losses.' });
-            books.push({ section: 'Find targets', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
+            books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
                 blurb: 'Run the model live on DepMap: lineage-corrected differential dependency across lines carrying these losses, each hit labelled genuine third-gene dependency or driven by one loss.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 open: () => slFindTargets('', '') });
@@ -7755,7 +8256,7 @@ function (path, config) {
                 books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' result', badge: slResult.targets.length + ' targets', icon: 'list',
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
-            books.push({ section: 'Find targets', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
+            books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
                 blurb: 'What ' + BAJA3 + ' has already found for these losses: its systematic scan over every tumour-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => hoFind() });
             if (hoResult) {
@@ -7763,7 +8264,7 @@ function (path, config) {
                     blurb: 'Catalogue for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
             books.push(baja3DocCard('Find targets'));
-            books.push({ section: 'Find targets', title: 'Paralog partners (ML model)', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : '', icon: 'hub',
+            books.push({ section: 'Find targets', accent: 'run', title: 'Paralog partners (ML model)', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : '', icon: 'hub',
                 blurb: 'The trained paralog classifier: for each selected loss, which paralog is predicted to become the surviving copy the cell cannot lose. Works for genes the DepMap panel has too few lines to screen.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => parFind() });
             if (parResult) {
@@ -8055,7 +8556,7 @@ function (path, config) {
                         + (ho.length > HO_REPORT_MAX ? '. The strongest ' + HO_REPORT_MAX + ' are reported.' : '.') + ' Roughly ' + Math.max(1, Math.round(n * 8 / 60)) + ' minute' + (Math.round(n * 8 / 60) === 1 ? '' : 's') + ' the first time; ones already explained are instant.',
                     open: () => { higherOrderReportPDF().catch((e) => dlErr('Could not build the report: ' + (e && e.message ? e.message : e))); } });
             }
-            books.push({ section: 'Targets', title: 'Allele-selective targets among these hits', badge: 'sequence, not dose', icon: 'gps_fixed',
+            books.push({ section: 'Targets', accent: 'run', title: 'Allele-selective targets among these hits', badge: 'sequence, not dose', icon: 'gps_fixed',
                 ready: !lohAlleleBusy, readyNote: 'running',
                 blurb: 'Which of these hits the tumour also carries only ONE allele of. Where that holds, an oligo aimed at the '
                     + 'allele it kept destroys its only copy while a normal cell keeps the other and lives, so the therapeutic '
@@ -8515,10 +9016,10 @@ function (path, config) {
             books.push({ section: 'Look things up', title: hasAnnot ? 'Reclassify genes' : 'Classify genes', badge: hasAnnot ? 'done' : 'needed for class filters', icon: 'category', ready: !annotBusy,
                 blurb: 'Tumor suppressor, oncogene, DNA repair, immune regulation from curated lists; cancer dependency from DepMap knockout effects. Quick, no model.',
                 open: async () => { await runGeneAnnotations(); refineMenu(); } });
-            books.push({ section: 'Look things up', title: 'Find therapeutic evidence — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
+            books.push({ section: 'Look things up', accent: 'run', title: 'Find therapeutic evidence — all ' + allG.length + ' genes', badge: nTher ? nTher + ' done' : 'needed for therapeutic filters', icon: 'psychology', ready: !therBusy && nTher < allG.length, readyNote: nTher >= allG.length ? 'every gene done' : 'running',
                 blurb: 'For each lost gene: is the loss a synthetic-lethal vulnerability, a target through the remaining allele, a biomarker of sensitivity or resistance; existing drugs, trials, and the publications behind it, with an evidence level. Batches run in parallel and genes seen before are instant.',
                 open: async () => { await runGeneTherapeutics(false); refineMenu(); } });
-            books.push({ section: 'Look things up', title: 'Find therapeutic evidence — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
+            books.push({ section: 'Look things up', accent: 'run', title: 'Find therapeutic evidence — ' + selWord() + ' selected', badge: selGenes.size ? selWord() : 'select genes first', icon: 'psychology', ready: !therBusy && selGenes.size > 0, readyNote: 'select genes first',
                 blurb: 'The same lookup for the selection only.', open: async () => { await runGeneTherapeutics(true); refineMenu(); } });
             books.push({ section: 'Look things up', title: 'Show therapeutic evidence', badge: nTher ? nTher + ' genes' : '', icon: 'library_books', ready: nTher > 0, readyNote: 'no evidence read yet',
                 blurb: 'Gene by gene: interpretation, evidence level, inhibitors, trials, publications.', open: () => therMenu() });
@@ -8578,7 +9079,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Loss matrix', note: true,
                 title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
-            const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech',
+            const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
                 badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
@@ -8588,17 +9089,17 @@ function (path, config) {
             const hapBooks = (si, nm, pc) => [
                 { section: 'Haplotype', note: true, title: nm + ' is phased: ' + pc.hap1.toLocaleString() + ' variant' + (pc.hap1 === 1 ? '' : 's') + ' on haplotype 1, ' + pc.hap2.toLocaleString() + ' on haplotype 2, '
                     + pc.hom.toLocaleString() + ' homozygous' + (pc.het ? ', ' + pc.het.toLocaleString() + ' unphased' : '') + '. A one-haplotype matrix says what is lost on that copy alone.' },
-                { section: 'Haplotype', title: 'Both haplotypes', badge: pc.all.toLocaleString() + ' variants', icon: 'join_full', ready: pc.all > 0, readyNote: 'no variants',
+                { section: 'Haplotype', title: 'Both haplotypes', accent: 'run', badge: pc.all.toLocaleString() + ' variants', icon: 'join_full', ready: pc.all > 0, readyNote: 'no variants',
                     blurb: 'Every call ' + nm + ' carries, whichever copy it sits on. Compound heterozygous genes are told from two hits in cis.', open: () => { computeLossMatrix(si, ''); } },
-                { section: 'Haplotype', title: 'Haplotype 1', badge: (pc.hap1 + pc.hom).toLocaleString() + ' variants', icon: 'looks_one', ready: (pc.hap1 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                { section: 'Haplotype', title: 'Haplotype 1', accent: 'run', badge: (pc.hap1 + pc.hom).toLocaleString() + ' variants', icon: 'looks_one', ready: (pc.hap1 + pc.hom) > 0, readyNote: 'nothing on this copy',
                     blurb: 'Calls phased to copy 1 (1|0) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap1'); } },
-                { section: 'Haplotype', title: 'Haplotype 2', badge: (pc.hap2 + pc.hom).toLocaleString() + ' variants', icon: 'looks_two', ready: (pc.hap2 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                { section: 'Haplotype', title: 'Haplotype 2', accent: 'run', badge: (pc.hap2 + pc.hom).toLocaleString() + ' variants', icon: 'looks_two', ready: (pc.hap2 + pc.hom) > 0, readyNote: 'nothing on this copy',
                     blurb: 'Calls phased to copy 2 (0|1) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap2'); } },
             ];
             if (SAMPLES.length > 1) {
                 calc.books = () => SAMPLES.map((nm, si) => {
                     const pc = phaseCounts(si);
-                    const card = { title: nm, badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' · phased' : ''), swatch: SAMPLE_COLOR[si] || '#ee00ee',
+                    const card = { title: nm, accent: pc.phased ? undefined : 'run', badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' · phased' : ''), swatch: SAMPLE_COLOR[si] || '#ee00ee',
                         blurb: 'Calculate the loss matrix for ' + nm + (pc.phased ? ' — both copies, or one haplotype.' : '.'), ready: pc.all > 0, readyNote: 'carries no variants' };
                     if (pc.phased) card.books = () => hapBooks(si, nm, pc); else card.open = () => { computeLossMatrix(si, ''); };
                     return card;
@@ -8623,17 +9124,37 @@ function (path, config) {
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
                 const specs = diffSpecs();
-                books.push({ section: 'Loss matrix', title: 'Differential loss matrix', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
+                books.push({ section: 'Loss matrix', title: 'Differential loss matrix', accent: 'run', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
                     blurb: 'Two files (one loaded on the left of the chromosomes) or two samples: which genes one has lost that the other has not, and which both have.',
                     ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
                 if (diffResult) books.push({ section: 'Loss matrix', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
-                books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
+                books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
                     blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the karyotype actually is.',
                     ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
                 if (lohResult) books.push({ section: 'Loss matrix', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
                     blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
+            }
+            // ALLELE SELECTIVITY IS ITS OWN SECTION, not a leaf of the LOH branch. It was
+            // reachable only four steps down one path -- LOH, then the genes in the tracts,
+            // then the single-copy ranking, then a card at the bottom of it -- and every
+            // one of those steps needs a tumour. Two of the three mechanisms do not, and
+            // none of them is a question about the loss matrix.
+            {
+                const nV2 = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+                const nPh = asPhasedSamples().length;
+                const ways = [(lohResult && lohResult.spec) ? 'somatic retention' : '', nPh ? 'phased germline' : '', nV2 ? 'the mutation itself' : ''].filter(Boolean);
+                books.push({ section: 'Allele-selective targets', title: 'Find allele-selective targets',
+                    badge: lohAlleleResult ? (lohAlleleResult.sites.length + ' sites') : (ways.length ? ways.length + ' of 3 ways' : 'sequence, not dose'),
+                    icon: 'gps_fixed', ready: nV2 > 0, readyNote: 'load a VCF first',
+                    blurb: 'Two copies that differ in SEQUENCE can be told apart by an oligo; two that differ only in '
+                        + 'AMOUNT can only be dosed against. Three things can say which copy to hit — a tumour that kept '
+                        + 'one allele, a phased disease haplotype, or the mutation itself — and only the first needs a '
+                        + 'tumour. Run any of them over the whole genome, the genes or regions you have selected, or a '
+                        + 'gene you name.'
+                        + (ways.length ? ' Available on this data: ' + ways.join(', ') + '.' : ' Nothing is loaded yet.'),
+                    open: () => alleleSelectiveMenu() });
             }
             if (lossMatrix) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
@@ -8667,7 +9188,7 @@ function (path, config) {
                 open: () => { try { infoPanel(); } catch (e) { } } });
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-analysis', title: 'Analyze',
-                subtitle: 'Read the loaded variants — start with the loss matrix',
+                subtitle: 'Read the loaded variants — start with the loss matrix, or go straight to allele-selective targets',
                 graph: graph, books: books
             });
         };
