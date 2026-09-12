@@ -6855,9 +6855,14 @@ function (path, config) {
                 calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
             }
             books.push(calc);
+            const CONF_RULES = 'A call\'s tier is the worst of the checks the file allows, per sample. '
+                + 'HIGH: FILTER is PASS or empty; QUAL \u2265 30 or absent; depth (DP) \u2265 8; \u2265 3 reads carry the alt allele (AD); genotype quality (GQ) \u2265 20. '
+                + 'MEDIUM: PASS but QUAL 10\u201330, DP 4\u20138, only 2 alt reads, or GQ 10\u201320. '
+                + 'LOW: any FILTER flag, QUAL < 10, DP < 4, fewer than 2 alt reads, or GQ < 10. '
+                + 'A field the file does not carry is not counted against a call, and a call with no confidence information at all is admitted.';
             books.push({ section: 'Loss matrix', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', icon: 'verified', ready: true,
-                blurb: lossConfOnly ? 'The matrix relies on PASS calls with QUAL \u2265 30, depth \u2265 8, \u2265 3 alt reads and GQ \u2265 20 where the file gives them; calls with no such information are admitted. Click to admit every call.'
-                    : 'Filtered, shallow and low-quality calls are admitted too. Click to rely on high-confidence calls only.',
+                blurb: (lossConfOnly ? 'The loss matrix and the differential rely on HIGH-tier calls; the note on each result says how many were left out. '
+                    : 'Filtered, shallow and low-quality calls are admitted too. ') + CONF_RULES + (lossConfOnly ? ' Click to admit every call.' : ' Click to rely on high-confidence calls only.'),
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
                 const specs = diffSpecs();
