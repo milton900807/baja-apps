@@ -243,7 +243,18 @@ function (plateManager, progress) {
             timeout;
             setMessage(m, messagex, messagey) {
                 this.centerMessage = false;
-                this.message = m;
+                // A MESSAGE OF NOTHING BUT SPACES IS NO MESSAGE.
+                //
+                // Callers all round this codebase pad what they say -- setMessage(' Copied ')
+                // -- so clearing one by passing ' ' is a natural thing to write, and ' ' is
+                // truthy. The card below then drew for a string four pixels wide: a navy
+                // sliver with a cyan border and a 3px cyan bar, parked at the fixed x=250,
+                // y=25 just under the toolbar. That is the blue line near the top menu. It is
+                // not a line, it is an empty card.
+                //
+                // Normalised here rather than only at the draw, so a blank also CLEARS a
+                // message already showing, which is what passing one was meant to do.
+                this.message = (m == null || !('' + m).trim()) ? null : m;
                 if (messagex != null && messagex > 0) {
                     this.messagex = messagex;
                 }
@@ -261,7 +272,7 @@ function (plateManager, progress) {
             }
 
             setMessageCenter(m, fontSize) {
-                this.message = m;
+                this.message = (m == null || !('' + m).trim()) ? null : m;
                 this.centerMessage = true;
                 let originalFontSize = this.fontSize;
                 this.fontSize = fontSize;
@@ -4087,7 +4098,7 @@ function (plateManager, progress) {
                         }
                     }
 
-                    if (this.message) {
+                    if (this.message && ('' + this.message).trim()) {
                         ctx.shadowBlur = 0;
                         ctx.shadowColor = 'black';
                         ctx.textBaseline = 'top';
