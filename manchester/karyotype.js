@@ -409,7 +409,7 @@ function (path, config) {
                 pendingDoc = (typeof raw === 'string') ? JSON.parse(raw) : raw;
                 setLoadingNote('Fetching the chromosomes…');
                 setProgress(45);            // file down and parsed
-                step('opening saved karyotype ' + savedPath
+                step('opening saved genome ' + savedPath
                     + ' (species ' + JSON.stringify(pendingDoc && pendingDoc.species) + ')');
             } catch (e) {
                 pendingDoc = null;
@@ -440,9 +440,9 @@ function (path, config) {
             if (!R || !R.doc) { try { const raw2 = sessionStorage.getItem('baja.karyoReturn'); if (raw2) R = JSON.parse(raw2); } catch (e) { R = null; } }
             if (R && R.doc) {
                 pendingDoc = R.doc; __resumed = R;
-                showLoading(R.name || 'your karyotype');
+                showLoading(R.name || 'your genome');
                 setProgress(45);
-                step('resuming the karyotype kept when the editor opened');
+                step('resuming the genome kept when the editor opened');
                 try { if (R.path) window.history.replaceState({ karyotype: R.path }, 'karyotype', '/app/manchester/karyotype?path=' + R.path); } catch (e) { }
             } else {
                 step('nothing kept to resume');
@@ -484,7 +484,7 @@ function (path, config) {
         try {
             const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
             r = await exec(server + '/py/bio/karyotype.py', em, wanted);
-        } catch (e) { r = null; step('the karyotype call threw: ' + (e && e.message ? e.message : e)); }
+        } catch (e) { r = null; step('the genome call threw: ' + (e && e.message ? e.message : e)); }
         step('table: ' + (r ? ((r.error ? ('error ' + r.error) : (r.assembly || 'no assembly'))) : 'no result'));
         let chroms = [];
         try { chroms = JSON.parse((r && r.chromosomes) || '[]'); } catch (e) { chroms = []; }
@@ -650,26 +650,26 @@ function (path, config) {
             {
                 title: 'A quick tour',
                 text: '{stops} stops around the chromosome view, saying what each control is '
-                    + 'for. Nothing here changes your karyotype — use Next and Back, or press '
+                    + 'for. Nothing here changes your genome — use Next and Back, or press '
                     + 'Escape to leave at any point.',
             },
             {
                 title: 'The toolbar',
                 sel: '.button-menu__grid',
-                text: 'Everything you can do to a karyotype is in this row. The buttons are '
+                text: 'Everything you can do to a genome is in this row. The buttons are '
                     + 'icons only; hover one to see its name.',
             },
             {
                 title: 'Files — open, save, remove',
-                byTitle: 'Open, save or remove a karyotype in My Files',
+                byTitle: 'Open, save or remove a genome in My Files',
                 byIcon: 'folder_open',
-                text: 'Keep this karyotype in My Files — the view, the bookmarks and the '
+                text: 'Keep this genome in My Files — the view, the bookmarks and the '
                     + 'variants you have loaded go with it — reopen one you kept earlier, or '
                     + 'remove one you no longer need.',
             },
             {
                 title: 'Upload — put a file on the genome',
-                byTitle: 'Read a VCF, a genetic report, or any file carrying genetic information onto the karyotype, and keep it in My Files',
+                byTitle: 'Read a VCF, a genetic report, or any file carrying genetic information onto the genome, and keep it in My Files',
                 byIcon: 'upload_file',
                 text: 'A VCF is read directly. Anything else — a genetic report, a lab PDF, a '
                     + '23andMe export, a gene panel — is read for whatever genetic information '
@@ -794,7 +794,7 @@ function (path, config) {
                                         // THE FOLDER IS THE WHOLE FILE MENU: open, save,
                                         // remove.
                                         label: 'Files', icon: 'folder_open',
-                                        tooltip: 'Open, save or remove a karyotype in My Files',
+                                        tooltip: 'Open, save or remove a genome in My Files',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); filesMenu(); })
                                     },
                                     {
@@ -805,8 +805,17 @@ function (path, config) {
                                         // it carries is placed on the genome.
                                         label: 'Upload', icon: 'upload_file',
                                         tooltip: 'Read a VCF, a genetic report, or any file carrying genetic '
-                                            + 'information onto the karyotype, and keep it in My Files',
+                                            + 'information onto the genome, and keep it in My Files',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); uploadMenu(); })
+                                    },
+                                    {
+                                        // THE SAME ACT AS UPLOAD, FROM A NAME RATHER THAN A FILE.
+                                        // Both put variants on the chromosomes, so they sit
+                                        // together; what differs is only where the variants come
+                                        // from -- a file you have, or a condition you can name.
+                                        label: 'Disease', icon: 'coronavirus',
+                                        tooltip: 'Name a condition and place its pathogenic ClinVar mutations on the genome',
+                                        ionFunction: createIonFunction(() => { if (armed) pan(); diseaseMenu(); })
                                     },
                                     // A POPULATION, NOT A FILE. The 1011 yeast genomes are
                                     // one 5.4 GB VCF that no browser should be handed, so the
@@ -842,7 +851,7 @@ function (path, config) {
                                     },
                                     {
                                         label: 'Share', icon: 'share',
-                                        tooltip: 'Share this karyotype with named people, or as a public view-only link',
+                                        tooltip: 'Share this genome with named people, or as a public view-only link',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); shareMenu(); })
                                     },
                                     {
@@ -5158,7 +5167,7 @@ function (path, config) {
 
         const applyDoc = async (doc, onProgress) => {
             if (!doc || doc.type !== 'baja-karyotype') {
-                graph.setMessage(' That file is not a saved karyotype. ');
+                graph.setMessage(' That file is not a saved genome. ');
                 return false;
             }
             if (doc.species && r.species && ('' + doc.species).toLowerCase() !== ('' + r.species).toLowerCase()) {
@@ -5213,7 +5222,7 @@ function (path, config) {
             const BAR_MIN = 20000;
             const showBar = total >= BAR_MIN;
             if (showBar) {
-                placeShow('Opening ' + (doc.name || 'the karyotype'),
+                placeShow('Opening ' + (doc.name || 'the genome'),
                     'Placing 0 of ' + total.toLocaleString() + ' variants…');
                 await paintTick();
             }
@@ -5657,7 +5666,7 @@ function (path, config) {
         const LOF_TSG = ['TP53', 'RB1', 'PTEN', 'CDKN2A', 'MTAP', 'ARID1A', 'BAP1', 'KEAP1', 'NF1', 'PBRM1',
             'SMAD4', 'SMARCA4', 'STK11', 'VHL', 'BRCA1', 'BRCA2', 'APC', 'ATM', 'NF2', 'CDH1', 'PALB2',
             'CHEK2', 'MLH1', 'MSH2', 'MSH6', 'PMS2', 'KMT2D', 'CREBBP', 'EP300', 'FBXW7'];
-        const LOF_BAND_MAX = 60;        // gene bands drawn on the karyotype; the shelf lists them all
+        const LOF_BAND_MAX = 60;        // gene bands drawn on the genome; the shelf lists them all
         const LOF_BATCH = 20000;        // variants per server call
         // Membership in a flat interval list, padded: a splice-site change sits OUTSIDE
         // the exon, two bases into the intron, so the exon test has to reach past its edge.
@@ -6644,10 +6653,31 @@ function (path, config) {
                     await new Promise((res2) => setTimeout(res2, 0));
                 }
                 const genes = Array.from(byGene.values());
-                for (const g of genes) {
+                // SCORING EVERY GENE IS THE SLOW HALF, AND IT USED TO RUN IN SILENCE.
+                //
+                // The loop above reports each server call, so the visible progress stops at
+                // "N of N parts" and the screen then sits still -- through this scan, through
+                // the sort, and through the shelf building a card per gene -- with nothing
+                // saying anything is happening. On a whole-genome VCF that is thousands of
+                // genes, and lohSpanStats walks that chromosome's variants for every one of
+                // them, so the still period is far longer than the part it does report.
+                //
+                // It was also fully synchronous, which is worse than merely quiet: a message
+                // set inside a loop that never yields is never painted, so adding one alone
+                // would have changed nothing. Chunked, with a yield between chunks, so the
+                // status line actually reaches the screen.
+                const SCORE_CHUNK = 150;
+                for (let i = 0; i < genes.length; i++) {
+                    const g = genes[i];
                     const st = lohSpanStats(g.ci, g.start, g.end, lohResult.spec);
                     g.het = st.het; g.lost = st.lost; g.kept = st.kept; g.uncalled = st.uncalled;
                     g.frac = (st.lost + st.kept) ? st.lost / (st.lost + st.kept) : 0;
+                    if ((i + 1) % SCORE_CHUNK === 0 || i === genes.length - 1) {
+                        graph.setMessage(' Scoring the genes on this tumour\u2019s own sites\u2026 '
+                            + (i + 1).toLocaleString() + ' of ' + genes.length.toLocaleString() + '. ');
+                        try { if (graph.wake) graph.wake(); } catch (e2) { }
+                        await new Promise((res2) => setTimeout(res2, 0));
+                    }
                 }
                 // Informative first: the tumour suppressors, then the genes the tract covers
                 // most completely, then the ones with the most sites saying so.
@@ -6661,6 +6691,19 @@ function (path, config) {
                 try { graph.setError(' The genes could not be read: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
             }
             lohGeneBusy = false;
+            // AND THE MENU ITSELF IS NOT FREE. lohMenu builds one card per gene and the shelf
+            // renders every one into the DOM, which on a few thousand genes is its own visible
+            // pause -- after the work has finished and the counters have stopped moving, which
+            // is exactly when a reader concludes it has hung. Said out loud, and given a tick
+            // to paint, before the build starts.
+            {
+                const n = ((lohResult && lohResult.genes) || []).length;
+                if (n > 400) {
+                    graph.setMessage(' Building the list of ' + n.toLocaleString() + ' genes\u2026 ');
+                    try { if (graph.wake) graph.wake(); } catch (e2) { }
+                    await new Promise((res2) => setTimeout(res2, 0));
+                }
+            }
             lohMenu();
         };
         // What a selected LOH gene looks like to everything downstream: the same shape a
@@ -6964,7 +7007,7 @@ function (path, config) {
                     const x = byName[nm];
                     if (!x) continue;
                     const ci = chromIndexOf(g.chr);
-                    if (ci < 0) { rejected.push({ gene: nm, why: 'not on a chromosome this karyotype draws' }); continue; }
+                    if (ci < 0) { rejected.push({ gene: nm, why: 'not on a chromosome this genome draws' }); continue; }
                     const st = lohSpanStats(ci, g.start, g.end, lohResult.spec);
                     const inf = st.lost + st.kept;
                     const frac = inf ? st.lost / inf : 0;
@@ -7168,7 +7211,7 @@ function (path, config) {
                 books.push({ section: sec, note: true, title: usable
                     ? usable + ' of these sit in the mature message, which an siRNA or an exon-directed ASO needs. The rest are in the pre-mRNA, where a gapmer can still reach them.'
                     : 'All of these are intronic. A gapmer acting on pre-mRNA can use them; an siRNA cannot.' });
-                books.push({ section: sec, title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true,
+                books.push({ section: sec, title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true,
                     blurb: 'Load its transcripts and design against ' + W.aim + '. The positions are below.',
                     open: () => openSymbolInEditor(gn) });
                 list.forEach((x) => {
@@ -7185,9 +7228,9 @@ function (path, config) {
                             + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
                             + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
                         books: () => [
-                            { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the karyotype.',
+                            { title: 'Zoom into the site', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame this base on the genome.',
                                 open: () => { const ci = chromIndexOf(x.chr); if (ci >= 0) goView({ x0: barLeft(ci) - 0.4 * SLOT, x1: barRight(ci) + 0.4 * SLOT, y0: wy(x.pos + 400) , y1: wy(x.pos - 400) }); } },
-                            { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
+                            { title: 'Open ' + gn + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Design against ' + W.aim + '.', open: () => openSymbolInEditor(gn) },
                             { note: true, title: 'Target (' + W.aim + '): ' + (x.context_retained || 'no sequence available') },
                             { note: true, title: 'Must survive: ' + (x.context_lost || 'no sequence available') },
                         ] });
@@ -7527,52 +7570,67 @@ function (path, config) {
             });
         };
 
-        // ---- THE SHELF: ANY MECHANISM, ANY SCOPE ------------------------------------
-        const alleleSelectiveMenu = () => {
-            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+        // WHAT EACH MECHANISM CAN ACTUALLY RUN ON, and the four scopes it runs over.
+        //
+        // Lifted out of the shelf because the shelf is no longer the only way in. Running
+        // Loss of heterozygosity is exactly the moment somatic retention becomes possible,
+        // and being told at that moment to walk back out to the Analyze root and start again
+        // is how a tool that is ready to use reads as one that is not. Both places build the
+        // cards from this, so the wording, the gating and the readiness notes cannot drift
+        // apart -- which they would within a week of being copied.
+        const asAvail = () => {
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const ph = asPhasedSamples();
-            const lohGenes = ((lohResult && lohResult.genes) || []).length;
-            const lmGenes = ((lossMatrix && lossMatrix.genes) || []).length;
-            const avail = {
+            return {
                 somatic: { ok: !!(lohResult && lohResult.spec), note: lohResult ? 'read the genes in the tracts first' : 'run Loss of heterozygosity first' },
                 phased: { ok: ph.length > 0, note: 'no sample in this file is phased' },
                 mutation: { ok: nV > 0, note: 'load a VCF first' },
             };
+        };
+        const asScopeCards = (mode) => {
+            const avail = asAvail();
+            const lohGenes = ((lohResult && lohResult.genes) || []).length;
+            const lmGenes = ((lossMatrix && lossMatrix.genes) || []).length;
+            const on = avail[mode].ok;
+            const genomeReady = on && (mode === 'somatic' ? lohGenes > 0 : lmGenes > 0);
+            const genomeNote = !on ? avail[mode].note
+                : (mode === 'somatic' ? 'read the genes in the LOH tracts first' : 'calculate the loss matrix first');
+            const out = [];
+            out.push({ title: 'Every gene in the ' + (mode === 'somatic' ? 'LOH tracts' : 'loss matrix'), accent: 'run',
+                badge: mode === 'somatic' ? (lohGenes ? lohGenes + ' genes' : 'genome') : (lmGenes ? lmGenes + ' genes' : 'genome'),
+                icon: 'public', ready: genomeReady, readyNote: genomeNote,
+                blurb: (mode === 'somatic'
+                    ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumour kept one side.'
+                    : 'Every gene the loss matrix found a loss-of-function change in, asked for a discriminating base on the disease copy.')
+                    + ' The first ' + AS_MAX_GENES + ' are read.',
+                open: () => asRun(mode, 'genome') });
+            out.push({ title: 'The genes you have selected', badge: selGenes.size ? selGenes.size + ' selected' : 'none', accent: 'run',
+                icon: 'checklist', ready: on && selGenes.size > 0, readyNote: on ? 'click genes in the loss matrix or on the genome first' : avail[mode].note,
+                blurb: selGenes.size ? 'Read ' + selectedList().map((g) => g.gene).join(', ') + '.' : 'Click a gene in the loss matrix, or its band on the genome, to select it.',
+                open: () => asRun(mode, 'selected') });
+            out.push({ title: 'The regions you have selected', badge: regions.length ? regions.length + ' region' + (regions.length === 1 ? '' : 's') : 'none', accent: 'run',
+                icon: 'crop_free', ready: on && regions.length > 0, readyNote: on ? 'drag out a range, or find a gene, first' : avail[mode].note,
+                blurb: 'Every protein-coding gene inside the selection, whether or not anything else has looked at it.',
+                open: () => asRun(mode, 'regions') });
+            out.push({ title: 'A gene by name', badge: 'search', icon: 'search', ready: on, readyNote: avail[mode].note,
+                blurb: 'Type a symbol. The gene is placed on the genome and read on its own, with no scan run first '
+                    + 'and nothing needing to have selected it.',
+                open: () => asGeneSearch(mode) });
+            return out;
+        };
+
+        // ---- THE SHELF: ANY MECHANISM, ANY SCOPE ------------------------------------
+        const alleleSelectiveMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const ph = asPhasedSamples();
+            const avail = asAvail();
             const books = [];
             books.push({ section: 'Allele-selective targets', note: true,
                 title: 'Two copies of a gene that differ in SEQUENCE can be told apart by an oligo; one that is only '
                     + 'present in a different AMOUNT can only be dosed against. Everything here is about the first kind. '
                     + 'Three things can establish which of the two copies to hit, and only the first needs a tumour, so '
                     + 'pick the mechanism your data actually supports and then say where to look.' });
-            const scopeCards = (mode) => {
-                const on = avail[mode].ok;
-                const genomeReady = on && (mode === 'somatic' ? lohGenes > 0 : lmGenes > 0);
-                const genomeNote = !on ? avail[mode].note
-                    : (mode === 'somatic' ? 'read the genes in the LOH tracts first' : 'calculate the loss matrix first');
-                const out = [];
-                out.push({ title: 'Every gene in the ' + (mode === 'somatic' ? 'LOH tracts' : 'loss matrix'),
-                    badge: mode === 'somatic' ? (lohGenes ? lohGenes + ' genes' : 'genome') : (lmGenes ? lmGenes + ' genes' : 'genome'),
-                    icon: 'public', ready: genomeReady, readyNote: genomeNote,
-                    blurb: (mode === 'somatic'
-                        ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumour kept one side.'
-                        : 'Every gene the loss matrix found a loss-of-function change in, asked for a discriminating base on the disease copy.')
-                        + ' The first ' + AS_MAX_GENES + ' are read.',
-                    open: () => asRun(mode, 'genome') });
-                out.push({ title: 'The genes you have selected', badge: selGenes.size ? selGenes.size + ' selected' : 'none',
-                    icon: 'checklist', ready: on && selGenes.size > 0, readyNote: on ? 'click genes in the loss matrix or on the karyotype first' : avail[mode].note,
-                    blurb: selGenes.size ? 'Read ' + selectedList().map((g) => g.gene).join(', ') + '.' : 'Click a gene in the loss matrix, or its band on the karyotype, to select it.',
-                    open: () => asRun(mode, 'selected') });
-                out.push({ title: 'The regions you have selected', badge: regions.length ? regions.length + ' region' + (regions.length === 1 ? '' : 's') : 'none',
-                    icon: 'crop_free', ready: on && regions.length > 0, readyNote: on ? 'drag out a range, or find a gene, first' : avail[mode].note,
-                    blurb: 'Every protein-coding gene inside the selection, whether or not anything else has looked at it.',
-                    open: () => asRun(mode, 'regions') });
-                out.push({ title: 'A gene by name', badge: 'search', icon: 'search', ready: on, readyNote: avail[mode].note,
-                    blurb: 'Type a symbol. The gene is placed on the genome and read on its own, with no scan run first '
-                        + 'and nothing needing to have selected it.',
-                    open: () => asGeneSearch(mode) });
-                return out;
-            };
+            const scopeCards = asScopeCards;
             const section = (mode, secName) => {
                 const W = asW(mode);
                 books.push({ section: secName, note: true, title: W.rationale + ' Needs ' + W.needs + '.'
@@ -7712,9 +7770,9 @@ function (path, config) {
                                             n_hemizygous: x.n_hemizygous, n_normal_copy: x.n_neutral,
                                             verdict: x.dosage } },
                                     () => lohSlMenu()) },
-                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find ' + x.gene + ' on the karyotype.',
+                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find ' + x.gene + ' on the genome.',
                                 open: () => { const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene); if (g) gotoLostGene(lohSelRecord(g)); else gotoSymbol(x.gene); } },
-                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + x.gene + ' into the editor.', open: () => openSymbolInEditor(x.gene) },
+                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + x.gene + ' into the editor.', open: () => openSymbolInEditor(x.gene) },
                         ] });
                 });
             }
@@ -7752,7 +7810,7 @@ function (path, config) {
                 + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumour at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
             books.push({ section: 'Loss of heterozygosity', note: true, title: 'Each site is judged on its allele depths, not on the caller\'s genotype: a heterozygote whose reads are more than '
                 + Math.round(T_LOST_HI * 100) + '% one allele has lost the other, whatever the GT field still says. Sites with fewer than 8 reads, or no allele depths at all, fall back to the genotype.' });
-            books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the karyotype', badge: hlActive === HL_LOH ? 'on' : 'off', toggle: true, on: hlActive === HL_LOH, icon: 'highlight', ready: true,
+            books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the genome', badge: hlActive === HL_LOH ? 'on' : 'off', toggle: true, on: hlActive === HL_LOH, icon: 'highlight', ready: true,
                 blurb: 'Mark the sites that lost an allele and band the tracts, longest first.',
                 open: () => { try { if (hlActive === HL_LOH) clearWorking(); else applyLOHHighlights(true); } catch (e) { } lohMenu(); } });
             books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
@@ -7773,6 +7831,32 @@ function (path, config) {
                     + 'lost, and is a background to reason from. A gene the cell cannot do without is now on half the '
                     + 'dosage normal tissue has, and is a target in itself.',
                 open: () => { if (lohSlResult) lohSlMenu(); else lohFindSL(); } });
+            // THE SHORTCUT. Running this scan is the moment somatic retention becomes
+            // possible: the normal file says where the patient is heterozygous and the
+            // tumour file says which side survived, and until now neither existed. Sending
+            // the reader back out to the Analyze root to start it -- from a shelf they
+            // reached by drilling in three levels -- makes a tool that is ready to use read
+            // as one that is not. The cards are the same ones the root builds, from the
+            // same asScopeCards, so nothing here can say something the root contradicts.
+            books.push({ section: 'Loss of heterozygosity', accent: 'run',
+                title: lohAlleleResult && lohAlleleResult.mode === 'somatic' ? 'Allele-selective targets' : 'Find allele-selective targets',
+                badge: lohAlleleResult && lohAlleleResult.mode === 'somatic' ? (lohAlleleResult.sites.length + ' sites') : 'sequence, not dose',
+                icon: 'gps_fixed', ready: !lohAlleleBusy, readyNote: 'running',
+                blurb: 'This tumour holds ONE allele across these tracts; every normal cell in the patient holds two. '
+                    + 'Wherever the germline was heterozygous inside them the two differ in sequence, so an oligo aimed '
+                    + 'at the allele the tumour KEPT destroys its only copy while a normal cell drops to one of two and '
+                    + 'lives. Essentiality stops being the objection and becomes the mechanism. Pick where to look.',
+                books: () => [{ note: true, title: 'Somatic retention, over whichever of these you want. The other two '
+                        + 'mechanisms -- a phased disease haplotype, and the mutation itself -- need no tumour at all '
+                        + 'and are on the Analyze shelf.' }]
+                    .concat(asScopeCards('somatic'))
+                    .concat(lohAlleleResult ? [{ title: 'Show the last result', badge: lohAlleleResult.sites.length + ' sites',
+                        icon: 'list', ready: true, blurb: asW(lohAlleleResult.mode).name
+                            + (lohAlleleResult.scopeLabel ? ' over ' + lohAlleleResult.scopeLabel : '') + '.',
+                        open: () => lohAlleleMenu() }] : [])
+                    .concat([{ title: 'All three mechanisms', badge: 'analyze', icon: 'gps_fixed', ready: true,
+                        blurb: 'The full shelf: somatic retention, phased germline haplotype, and the mutation itself.',
+                        open: () => alleleSelectiveMenu() }]) });
             books.push({ section: 'Loss of heterozygosity', title: 'Compare something else', badge: 'pick', icon: 'compare', ready: true, blurb: 'Another pair of files or samples.', books: () => lohPickerBooks() });
             if (R.genes && R.genes.length) {
                 const sel = R.genes.filter((g) => isSelected(g.gene)).length;
@@ -7805,13 +7889,13 @@ function (path, config) {
                             { title: (isSelected(g.gene) ? 'Deselect' : 'Select') + ' ' + g.gene, badge: 'background', icon: isSelected(g.gene) ? 'remove_circle_outline' : 'add_circle_outline', ready: true,
                                 blurb: isSelected(g.gene) ? 'Take it out of the selection.' : 'Add it to the losses ' + BAJA3 + ' reasons from.',
                                 open: () => { const now = toggleGeneSelect(lohSelRecord(g)); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' \u2014 ' + selWord() + '. '); lohMenu(); } },
-                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the karyotype.',
+                            { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the genome.',
                                 open: () => { try { gotoLostGene(lohSelRecord(g)); } catch (e) { gotoSymbol(g.gene); } } },
-                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + g.gene + ' into the editor.', open: () => openSymbolInEditor(g.gene) },
+                            { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + g.gene + ' into the editor.', open: () => openSymbolInEditor(g.gene) },
                         ] });
                 });
             }
-            books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the karyotype\'s long homozygous stretches are these.' });
+            books.push({ section: 'By chromosome', note: true, title: 'Most affected first. A chromosome near 100% has lost one copy across its whole length; the genome\'s long homozygous stretches are these.' });
             R.chroms.forEach((c2) => books.push({ section: 'By chromosome', title: c2.name, badge: pct(c2.frac) + ' LOH',
                 swatch: c2.frac >= 0.7 ? '#a855f7' : (c2.frac >= 0.3 ? '#f97316' : '#94a3b8'), ready: true,
                 blurb: c2.loh.toLocaleString() + ' of ' + c2.het.toLocaleString() + ' heterozygous sites lost an allele · ' + c2.kept.toLocaleString() + ' retained'
@@ -7829,7 +7913,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Differential loss matrix', note: true, title: R.A.label + ' (A) vs ' + R.B.label + ' (B): ' + R.onlyA.length + ' gene' + (R.onlyA.length === 1 ? '' : 's') + ' lost only in A, ' + R.onlyB.length + ' only in B, ' + R.both.length + ' in both. '
                 + 'A: ' + R.A.genes.length + ' lost among ' + (R.A.scanned || 0).toLocaleString() + ' exonic variants; B: ' + R.B.genes.length + ' among ' + (R.B.scanned || 0).toLocaleString() + '.' + (R.notes && R.notes.length ? ' ' + R.notes.join(' ') : '') });
-            books.push({ section: 'Differential loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_DIFF_BOTH ? 'on' : 'off', toggle: true, on: hlActive === HL_DIFF_BOTH, icon: 'highlight',
+            books.push({ section: 'Differential loss matrix', title: 'Highlight on the genome', badge: hlActive === HL_DIFF_BOTH ? 'on' : 'off', toggle: true, on: hlActive === HL_DIFF_BOTH, icon: 'highlight',
                 blurb: 'Red for genes lost only in A, blue only in B, purple in both; bands on the first ' + LOF_BAND_MAX + '.', ready: true,
                 open: () => { try { if (hlActive === HL_DIFF_BOTH) { clearLossMatrix(false); } else applyDiffHighlights(true); } catch (e) { } diffMenu(); } });
             books.push({ section: 'Differential loss matrix', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
@@ -7989,7 +8073,7 @@ function (path, config) {
                 graph.setMessage(' ' + slResult.targets.length + ' candidate target' + (slResult.targets.length === 1 ? '' : 's')
                     + ' across ' + scored + ' scored background' + (scored === 1 ? '' : 's')
                     + (slResult.dropped.length ? '; ' + slResult.dropped.length + ' set aside as essential everywhere' : '')
-                    + (lossHlScope === 'background' ? '; the karyotype now marks the ' + selWord() + ' of the background' : '') + '. ');
+                    + (lossHlScope === 'background' ? '; the genome now marks the ' + selWord() + ' of the background' : '') + '. ');
                 step('sl targets ' + genes.join('+') + ': ' + slResult.targets.length);
                 slBusy = false;
                 slTargetsMenu();
@@ -8105,7 +8189,7 @@ function (path, config) {
                 blurb: 'One row per predicted partner with the model probability and every feature it was scored on.',
                 open: () => { try { dlSaveText(parCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_paralog_partners') + '.csv', 'text/csv'); dlMsg('Partners downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Paralog partners', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
-                blurb: 'A written summary with pictures: the karyotype and its bookmarks, the selected losses, these partners'
+                blurb: 'A written summary with pictures: the genome and its bookmarks, the selected losses, these partners'
                     + (lossMatrix ? ', the loss matrix' : '') + (slResult ? ', the synthetic-lethal targets' : '') + ', and how to read it.',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             books.push({ section: 'Paralog partners', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
@@ -8124,8 +8208,8 @@ function (path, config) {
                             { title: 'Why would it become essential?', badge: 'explain', icon: 'psychology', ready: true,
                                 blurb: 'The biology behind ' + x.partner + ' once ' + g + ' is lost: role, buffering, what the model saw, precedent, caveats, druggability.',
                                 open: () => slExplain(x.partner, [g], 'paralog', { pred: x.pred, identity: x.identity, family: x.family, partner_ess: x.partner_ess, loss_freq: x.loss_freq, codep: x.codep, coexpr: x.coexpr, gtex_med: x.gtex_med, gtex_breadth: x.gtex_breadth, bioplex: x.bioplex, label: x.label }, parMenu) },
-                            { title: 'Go to ' + x.partner + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(x.partner) },
-                            { title: 'Open ' + x.partner + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(x.partner) },
+                            { title: 'Go to ' + x.partner + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(x.partner) },
+                            { title: 'Open ' + x.partner + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(x.partner) },
                             { title: 'Select ' + x.partner + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection as a what-if loss.', open: () => { selGenes.set(('' + x.partner).toUpperCase(), { gene: x.partner, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + x.partner + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
                             { note: true, title: 'Model features: co-dependency ' + fmtT(x.codep) + ', co-expression ' + fmtT(x.coexpr) + ', ' + g + ' lost in ' + Math.round(x.loss_freq * 100) + '% of DepMap lines, probability ' + (x.pred * 100).toFixed(1) + '%.' },
                         ] });
@@ -8175,8 +8259,8 @@ function (path, config) {
         const hoTargetBooks = (target, bgGenes, stats) => [
             { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
                 blurb: 'The biology behind ' + target + ' with ' + bgGenes.join(' + ') + ' lost.', open: () => slExplain(target, bgGenes, 'depmap', stats, hoMenu) },
-            { title: 'Go to ' + target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(target) },
-            { title: 'Open ' + target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(target) },
+            { title: 'Go to ' + target + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(target) },
+            { title: 'Open ' + target + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(target) },
             { title: 'Select ' + target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection as a what-if loss.',
                 open: () => { selGenes.set(('' + target).toUpperCase(), { gene: target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
         ];
@@ -8285,8 +8369,8 @@ function (path, config) {
                         : (g.chr + ':' + human(v.pos) + ((v.ref || v.alt) ? ' ' + v.ref + '>' + v.alt : '')
                             + (v.hgvs_p ? ' · ' + v.hgvs_p : (v.hgvs_c ? ' · ' + v.hgvs_c : ''))), ready: true,
                     books: () => [
-                        { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the karyotype.', open: () => (hypo ? gotoSymbol(g.gene) : gotoLostGene(g)) },
-                        { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', ready: true, blurb: 'Load ' + g.gene + ' into the editor with its variants.', open: () => openSymbolInEditor(g.gene) },
+                        { title: 'Zoom into', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Fly to ' + g.gene + ' on the genome.', open: () => (hypo ? gotoSymbol(g.gene) : gotoLostGene(g)) },
+                        { title: 'Open in oligo editor', badge: 'transcripts', icon: 'edit', accent: 'design', ready: true, blurb: 'Load ' + g.gene + ' into the editor with its variants.', open: () => openSymbolInEditor(g.gene) },
                         { title: 'Deselect', badge: 'remove', icon: 'remove_circle_outline', ready: true, blurb: 'Take ' + g.gene + ' out of the selection.', open: () => { selGenes.delete(('' + g.gene).toUpperCase()); graph.setMessage(' ' + g.gene + ' deselected — ' + selWord() + ' left. '); selectedGenesMenu(); } },
                     ] });
             });
@@ -8544,7 +8628,7 @@ function (path, config) {
                 blurb: 'One row per target with t, FDR, effect, synergy, interpretation and the backgrounds it recurs in.',
                 open: () => { try { dlSaveText(slTargetsCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_targets') + '.csv', 'text/csv'); dlMsg('Targets downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Targets', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
-                blurb: 'A written summary with pictures of the karyotype and its bookmarks: the selected losses, these targets with their statistics and backgrounds'
+                blurb: 'A written summary with pictures of the genome and its bookmarks: the selected losses, these targets with their statistics and backgrounds'
                     + (lossMatrix ? ', the loss matrix they came from' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
             {
@@ -8567,9 +8651,9 @@ function (path, config) {
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
             books.push({ section: 'Targets', title: 'Run again in a cancer type…', badge: 'cancer type', icon: 'coronavirus', ready: true,
                 blurb: 'The types below are the ones whose DepMap lines carry one of these losses.', books: () => diseaseBooks((d) => slFindTargets('', d)) });
-            books.push({ section: 'Targets', toggle: true, on: lossHlScope === 'background', title: lossHlScope === 'background' ? 'Karyotype: mark every lost gene instead' : 'Karyotype: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
+            books.push({ section: 'Targets', toggle: true, on: lossHlScope === 'background', title: lossHlScope === 'background' ? 'Genome: mark every lost gene instead' : 'Genome: mark only these losses', badge: lossHlScope === 'background' ? 'background' : 'all losses', icon: 'filter_center_focus',
                 ready: !!lossMatrix, readyNote: 'no loss matrix to mark',
-                blurb: lossHlScope === 'background' ? 'The karyotype is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'
+                blurb: lossHlScope === 'background' ? 'The genome is marking ' + R.genes.join(', ') + ', the background this result came from. Switch back to every loss in the matrix.'
                     : 'Mark and band only ' + R.genes.join(', ') + ' on the chromosomes, rather than every loss in the file.',
                 open: () => { lossHlScope = (lossHlScope === 'background') ? 'all' : 'background'; try { if (lossMatrix) applyLossHighlights(true); } catch (e) { } slTargetsMenu(); } });
             books.push({ section: 'Targets', toggle: true, on: slDropPan, title: slDropPan ? 'Pan-essential targets are being set aside' : 'Pan-essential targets are being kept',
@@ -8595,8 +8679,8 @@ function (path, config) {
                         { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
                             blurb: 'The biology behind ' + t.target + ' with ' + R.genes.join(' + ') + ' lost: role, mechanism, what the numbers say, precedent, caveats, druggability.',
                             open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
-                        { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
-                        { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
+                        { title: 'Go to ' + t.target + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
+                        { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
                         { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumour that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
                         { note: true, title: 'Per background:' },
                     ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
@@ -8621,8 +8705,8 @@ function (path, config) {
                             { title: 'Why is it synthetic-lethal?', badge: 'explain', icon: 'psychology', ready: true,
                                 blurb: 'The biology behind ' + t.target + ', including why the window is this narrow.',
                                 open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, selectivity: t.selectivity, dep_frac_all_lines: t.dep_frac_all, set_aside_because: t.dropped_because, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
-                            { title: 'Go to ' + t.target + ' on the karyotype', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
-                            { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
+                            { title: 'Go to ' + t.target + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
+                            { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
                             { note: true, title: 'Per background:' },
                         ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
                             + (b.eff_none != null ? ', without the losses ' + fmtT(b.eff_none) + (b.n_none ? ' (' + b.n_none + ' lines)' : '') : '')
@@ -8639,7 +8723,7 @@ function (path, config) {
         // without scrolling past a hundred genes.
         const gotoLostGene = async (g) => {
             const ci = chromIndexOf(g.chr);
-            if (ci < 0) { graph.setMessage(' ' + g.chr + ' is not on this karyotype. '); return; }
+            if (ci < 0) { graph.setMessage(' ' + g.chr + ' is not on this genome. '); return; }
             const lo = +g.start, hi = +g.end;
             const pad = Math.max((hi - lo) * 0.25, 2000) / MB;
             await goView({
@@ -8707,7 +8791,7 @@ function (path, config) {
                 setViewExact({ x0: fcx - fhx, x1: fcx + fhx, y0: fcy - fhy, y1: fcy + fhy });
                 const cvW = await settleFrame();
                 const whole = snapshotCanvas(cvW);
-                if (whole) out.push({ title: 'The whole karyotype - ' + dlSpecies() + (vtotal ? ', ' + vtotal.toLocaleString() + ' variants' : ''), jpg_b64: whole });
+                if (whole) out.push({ title: 'The whole genome - ' + dlSpecies() + (vtotal ? ', ' + vtotal.toLocaleString() + ' variants' : ''), jpg_b64: whole });
                 const bms = (bookmarks || []).slice(0, 30);
                 for (let i = 0; i < bms.length; i++) {
                     const b = bms[i];
@@ -8757,7 +8841,7 @@ function (path, config) {
             }
 
             // 1b. The pictures: the whole karyotype, then each bookmark with its title.
-            dlMsg('Picturing the karyotype...');
+            dlMsg('Picturing the genome...');
             const pics = await captureViews();
             if (pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics });
 
@@ -8902,7 +8986,7 @@ function (path, config) {
             books.push({ section: 'Loss matrix', title: 'Select all tumour suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
                 blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
                 open: () => { genes.filter(lossIsTsg).forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
-            books.push({ section: 'Loss matrix', title: 'Highlight on the karyotype', badge: hlActive === HL_LOF ? 'on' : 'off', toggle: true, on: hlActive === HL_LOF, icon: 'highlight',
+            books.push({ section: 'Loss matrix', title: 'Highlight on the genome', badge: hlActive === HL_LOF ? 'on' : 'off', toggle: true, on: hlActive === HL_LOF, icon: 'highlight',
                 blurb: 'Mark ' + (lossHlScope === 'background' && selGenes.size ? 'the selected background genes' : 'every loss-of-function variant') + ' in red and band the lost genes'
                     + (lossHlGenes().length > LOF_BAND_MAX ? ' (bands on the first ' + LOF_BAND_MAX + ')' : '') + '.',
                 ready: !!genes.length, readyNote: 'no lost genes to mark',
@@ -8917,7 +9001,7 @@ function (path, config) {
                 ready: !!genes.length, readyNote: 'nothing to download',
                 open: () => { try { dlSaveText(lossMatrixCSV(), dlSafe(dlSpecies() + '_' + (lossMatrix.sample || 'sample') + '_loss_matrix') + '.csv', 'text/csv'); dlMsg('Loss matrix downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
             books.push({ section: 'Loss matrix', title: 'Download a PDF summary', badge: 'pdf', icon: 'picture_as_pdf',
-                blurb: 'A written summary with pictures of the karyotype and its bookmarks: what was read, the genes lost with their worst hit, the selected losses'
+                blurb: 'A written summary with pictures of the genome and its bookmarks: what was read, the genes lost with their worst hit, the selected losses'
                     + (slResult ? ', the synthetic-lethal targets' : '') + (parResult ? ', the paralog partners' : '') + ', and how to read it.',
                 ready: !!allG.length, readyNote: 'nothing to summarise',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
@@ -9065,7 +9149,7 @@ function (path, config) {
                         (t.publications || []).map((p) => ({ note: true, title: '📄 ' + p.first_author + ' ' + p.year + ' — ' + p.title })),
                         [{ note: true, title: 'Publications are for checking, not proof: confirm a paper before relying on it.' }],
                         [{ title: isSelected(g.gene) ? 'Deselect ' + g.gene : 'Select ' + g.gene, badge: 'selection', icon: 'checklist', ready: true, blurb: 'Add to or remove from the set the microscope works on.', open: () => { toggleGeneSelect(g); therMenu(); } },
-                         { title: 'Go to ' + g.gene, badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on the karyotype.', open: () => gotoLostGene(g) }]) });
+                         { title: 'Go to ' + g.gene, badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on the genome.', open: () => gotoLostGene(g) }]) });
             });
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Therapeutic evidence', subtitle: 'What the loss of each gene means for treatment, from the literature', graph: graph, books: books });
         };
@@ -9131,7 +9215,7 @@ function (path, config) {
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
                 books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
-                    blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the karyotype actually is.',
+                    blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
                     ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
                 if (lohResult) books.push({ section: 'Loss matrix', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
                     blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
@@ -9183,8 +9267,8 @@ function (path, config) {
             books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
                 blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
                 ready: true, open: () => { try { patLoad(); } catch (e) { } } });
-            books.push({ section: 'This karyotype', title: 'What is loaded', badge: 'info', icon: 'info_outline',
-                blurb: 'Variants, samples, regions, highlights and patents on this karyotype.', ready: true,
+            books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
+                blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-analysis', title: 'Analyze',
@@ -9738,7 +9822,7 @@ function (path, config) {
                 const want = ('' + (r.species || 'human')).toLowerCase();
                 if (searched && want.indexOf(searched.toLowerCase()) < 0
                     && searched.toLowerCase().indexOf(want) < 0) {
-                    step('gene-locus searched ' + searched + ' but this karyotype is ' + want);
+                    step('gene-locus searched ' + searched + ' but this genome is ' + want);
                     graph.setMessage(' That lookup searched the ' + searched + ' genome, not '
                         + want + '. Ignoring the result. ');
                     return [];
@@ -9813,7 +9897,7 @@ function (path, config) {
                 return { ci: ci, gene: g, lo: Math.max(0, +g.start), hi: Math.min(drawn[ci].length, +g.end) };
             }
             graph.setMessage(' ' + sym + ' is on ' + hits[0].chr
-                + ', which this karyotype does not draw. ');
+                + ', which this genome does not draw. ');
             return null;
         };
 
@@ -10277,7 +10361,7 @@ function (path, config) {
             const genomeScope = { chroms: dlAllChroms(), base: base + '_variants', title: dlSpecies() + ' — all variants' };
             const books = [];
             const totalN = vtotal || dlCountVariants(dlAllChroms(), null);
-            books.push({ section: 'Download genome', note: true, title: 'Every variant on the karyotype (' + (totalN ? totalN.toLocaleString() : '0') + ') — pick a format:' });
+            books.push({ section: 'Download genome', note: true, title: 'Every variant on the genome (' + (totalN ? totalN.toLocaleString() : '0') + ') — pick a format:' });
             dlFormatBooks(genomeScope).forEach((b) => books.push(Object.assign({}, b, { section: 'Download genome' })));
             if (Array.isArray(regions) && regions.length) {
                 const rScope = { chroms: Array.from(new Set(regions.map((r) => r.i))), regions: regions.slice(), base: base + '_regions', title: dlSpecies() + ' — selected regions' };
@@ -10296,7 +10380,7 @@ function (path, config) {
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-download',
                 title: 'Download',
-                subtitle: 'Download the karyotype variants — whole genome, a chromosome, or the selected regions',
+                subtitle: 'Download the genome variants — whole genome, a chromosome, or the selected regions',
                 graph: graph,
                 books: books
             });
@@ -10328,7 +10412,7 @@ function (path, config) {
                 try { if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(link); } catch (e) { }
                 showModal({ wid: 'html', data: '<div style="padding:18px 20px;font-family:system-ui,-apple-system,Arial;max-width:520px;">'
                     + '<div style="font-size:15px;font-weight:700;margin-bottom:8px;">Public link created</div>'
-                    + '<div style="font-size:12px;color:#475569;margin-bottom:10px;">Copied to your clipboard. Anyone with this link can view this karyotype — no login required.</div>'
+                    + '<div style="font-size:12px;color:#475569;margin-bottom:10px;">Copied to your clipboard. Anyone with this link can view this genome — no login required.</div>'
                     + '<div style="font-size:12px;word-break:break-all;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;"><a href="' + shareEsc(link) + '" target="_blank" style="color:#1d4ed8;">' + shareEsc(link) + '</a></div></div>' }, 560, 220);
                 dlMsg('Public link copied to clipboard.');
             } catch (e) { dlErr('Could not create the link: ' + e); }
@@ -10347,12 +10431,12 @@ function (path, config) {
             const fc = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:10px;font:13px Arial;';
             panel.innerHTML = ''
                 + '<button id="ks-x" title="Close" aria-label="Close" style="position:absolute;top:8px;right:10px;cursor:pointer;border:none;background:transparent;color:#9fb3c8;font:700 18px Arial;line-height:1;padding:4px 8px;">✕</button>'
-                + '<div style="font:700 16px Arial;margin-bottom:4px;padding-right:24px;">Share this karyotype with a person</div>'
-                + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">They get a short link that opens this karyotype once they sign in. No account yet? The link takes them through the free sign-in first.</div>'
+                + '<div style="font:700 16px Arial;margin-bottom:4px;padding-right:24px;">Share this genome with a person</div>'
+                + '<div style="font:13px Arial;color:#9fb3c8;margin-bottom:12px;">They get a short link that opens this genome once they sign in. No account yet? The link takes them through the free sign-in first.</div>'
                 + '<label style="font:12px Arial;color:#9fb3c8;">Email address (one or more, comma-separated)</label>'
                 + '<input id="ks-to" type="text" autocomplete="off" placeholder="name@example.org" style="' + fc + 'margin:4px 0 10px;">'
                 + '<label style="font:12px Arial;color:#9fb3c8;">Message (optional)</label>'
-                + '<textarea id="ks-msg" rows="2" placeholder="A note to go with the karyotype" style="' + fc + 'margin:4px 0 10px;resize:vertical;"></textarea>'
+                + '<textarea id="ks-msg" rows="2" placeholder="A note to go with the genome" style="' + fc + 'margin:4px 0 10px;resize:vertical;"></textarea>'
                 + '<div id="ks-status" style="font:12px Arial;color:#9fb3c8;min-height:16px;margin-bottom:6px;"></div>'
                 + '<div id="ks-results"></div>'
                 + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">'
@@ -10396,17 +10480,17 @@ function (path, config) {
         const shareMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const user = ('' + (getUser() || '')).trim();
-            if (!user) { dlErr('Sign in to share a karyotype.'); return; }
+            if (!user) { dlErr('Sign in to share a genome.'); return; }
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-share',
                 title: 'Share',
-                subtitle: 'Share this karyotype with named people, or as a public view-only link',
+                subtitle: 'Share this genome with named people, or as a public view-only link',
                 graph: graph,
                 books: [
-                    { title: 'Share with people', badge: 'By email', ready: true, leaf: true, blurb: 'Name one or more email addresses; each gets a private link that opens this karyotype once they sign in — free if they have no account.', open: () => { try { shareKaryoWithPerson(); } catch (e) { dlErr('Could not open sharing: ' + e); } } },
+                    { title: 'Share with people', badge: 'By email', ready: true, leaf: true, blurb: 'Name one or more email addresses; each gets a private link that opens this genome once they sign in — free if they have no account.', open: () => { try { shareKaryoWithPerson(); } catch (e) { dlErr('Could not open sharing: ' + e); } } },
                     { title: 'Public view-only link', badge: 'Anyone', ready: true, blurb: 'A link anyone can open, no login, read-only.', books: () => [
-                        { note: true, title: 'A public link needs no login: anyone who has it can VIEW this karyotype, including the variants on it. Do not create a public link for identifiable or sensitive genetic data.' },
-                        { title: 'Create the public link', badge: 'Confirm', ready: true, leaf: true, blurb: 'Publish this karyotype as a read-only public link and copy it to your clipboard.', open: () => { shareKaryoPublic(); } }
+                        { note: true, title: 'A public link needs no login: anyone who has it can VIEW this genome, including the variants on it. Do not create a public link for identifiable or sensitive genetic data.' },
+                        { title: 'Create the public link', badge: 'Confirm', ready: true, leaf: true, blurb: 'Publish this genome as a read-only public link and copy it to your clipboard.', open: () => { shareKaryoPublic(); } }
                     ] }
                 ]
             });
@@ -10451,7 +10535,7 @@ function (path, config) {
                 if (!panel.isConnected) { stopWatch(); return; }
                 const h = hostEl();
                 if (!h) return;                          // no canvas to judge by: leave it to ✕
-                if (!h.isConnected) { close(); return; }  // the karyotype is gone
+                if (!h.isConnected) { close(); return; }  // the genome is gone
                 if (shown(h)) { hiddenTicks = 0; return; }
                 if (++hiddenTicks >= 2) close();
             };
@@ -10552,7 +10636,7 @@ function (path, config) {
             const removeCards = () => bookmarks.map((bk, k) => ({
                 title: 'Remove \u201c' + (bk.name || ('view ' + (k + 1))) + '\u201d',
                 badge: 'remove',
-                blurb: describeView(bk) + '. Gone from this karyotype; save the file to keep the change.',
+                blurb: describeView(bk) + '. Gone from this genome; save the file to keep the change.',
                 open: () => {
                     const at = bookmarks.indexOf(bk);
                     const gone = at >= 0 ? bookmarks.splice(at, 1)[0] : null;
@@ -10563,7 +10647,7 @@ function (path, config) {
             const booksFor = (name) => [panelCard, keepCard(name)].concat(viewCards(), bookmarks.length ? [{
                 section: 'Saved views (' + bookmarks.length + ')',
                 title: 'Remove a bookmark\u2026', badge: bookmarks.length + ' kept',
-                blurb: 'Choose one to take out of this karyotype.',
+                blurb: 'Choose one to take out of this genome.',
                 books: removeCards,
             }] : [{ section: 'Saved views', note: true, title: 'No bookmarks yet. Frame a view on the chromosomes and keep it with the card above.', blurb: '' }]);
             try {
@@ -10750,6 +10834,19 @@ function (path, config) {
                 ['Variants', (vtotal || 0).toLocaleString()],
                 ['Chromosomes with variants', chromsWith + ' of ' + drawn.length],
                 ['Samples', nS ? (nS + ' — ' + SAMPLES.join(', ')) : 'none'],
+                // WHAT PUT THESE MARKS HERE. Samples come from a VCF's genotype columns, and a
+                // sites-only source -- ClinVar, and so the disease loader -- has none, so the
+                // row above says 'none' however much is on the chromosomes. The side names are
+                // the other half of that answer, and the only place a disease load is named.
+                ['Sources', (function () {
+                    try {
+                        const sc = sideCounts();
+                        const out = [];
+                        if (sc.right) out.push(sideName(0) + ' (' + sc.right.toLocaleString() + ')');
+                        if (sc.left) out.push(sideName(1) + ' (' + sc.left.toLocaleString() + ', left)');
+                        return out.length ? esc(out.join('  ·  ')) : 'nothing loaded';
+                    } catch (e) { return 'nothing loaded'; }
+                })()],
                 ['Genotypes', hasGt ? 'yes' : 'no'],
                 ['Color view', modeName],
                 ['Highlighting', esc(hlStr)],
@@ -10956,7 +11053,7 @@ function (path, config) {
             if (vtotal || (regions && regions.length) || (bookmarks && bookmarks.length)) {
                 try {
                     ok = await exec('baja/lib/confirm-leave.js', {
-                        title: 'Start a new karyotype?',
+                        title: 'Start a new genome?',
                         message: 'This clears every variant, region and bookmark now loaded. Save first if you want to keep them.',
                         confirmLabel: 'Start fresh'
                     });
@@ -10984,7 +11081,7 @@ function (path, config) {
             try { window.history.replaceState({ karyotype: '' }, 'karyotype', '/app/manchester/karyotype'); } catch (e) { }
             try { if (graph.wake) graph.wake(); } catch (e) { }
             try { await fit(); pan(); } catch (e) { }
-            graph.setMessage(' Started fresh — the karyotype is empty. Load a VCF to add variants. ');
+            graph.setMessage(' Started fresh — the genome is empty. Load a VCF to add variants. ');
         };
 
         const filesMenu = () => {
@@ -11006,7 +11103,7 @@ function (path, config) {
                     // is the save glyph every toolbar uses.
                     books: [
                         {
-                            title: curName ? 'Save this karyotype' : 'Save this karyotype as…',
+                            title: curName ? 'Save this genome' : 'Save this genome as…',
                             badge: curName ? 'saved as ' + curName : 'unsaved',
                             icon: 'save',
                             blurb: 'Keep this genome, its variants and the selected regions in My Files, to reopen later or share by link.',
@@ -11015,8 +11112,8 @@ function (path, config) {
                             readyNote: 'nothing to save yet',
                         },
                         {
-                            title: 'Open a saved karyotype', badge: 'My Files', icon: 'folder_open',
-                            blurb: 'Browse My Files and open a karyotype you kept. A .baja file there opens in the editor instead.',
+                            title: 'Open a saved genome', badge: 'My Files', icon: 'folder_open',
+                            blurb: 'Browse My Files and open a genome you kept. A .baja file there opens in the editor instead.',
                             open: () => openJson(false),
                         },
                         {
@@ -11025,8 +11122,8 @@ function (path, config) {
                             open: () => newKaryotype(),
                         },
                         {
-                            title: 'Remove a saved karyotype', badge: 'My Files', icon: 'delete_outline',
-                            blurb: 'Browse My Files and delete a karyotype you no longer need. Asked before each one; it is not moved to a bin.',
+                            title: 'Remove a saved genome', badge: 'My Files', icon: 'delete_outline',
+                            blurb: 'Browse My Files and delete a genome you no longer need. Asked before each one; it is not moved to a bin.',
                             open: () => openJson(true),
                         },
                     ],
@@ -11042,6 +11139,284 @@ function (path, config) {
         // picker straight away, which meant the only place that said what could be
         // uploaded was the tooltip. One card per kind, each opening the picker filtered
         // to it, and a card for anything else; the reader still decides from the bytes.
+        // ---- A DISEASE, AS MUTATIONS ON THE GENOME --------------------------------------
+        //
+        // Type a condition; get its pathogenic variants placed on the chromosomes. The
+        // editor already answers this question for one transcript, and the route it takes is
+        // the one worth copying, because the obvious route is wrong: a model asked to recall
+        // which mutations characterise a disease produces plausible, non-existent variants
+        // with plausible, wrong coordinates, and nothing downstream can tell them from real
+        // ones.
+        //
+        // So the model is asked ONLY which OMIM phenotype the words mean -- a small question
+        // with a checkable answer -- and py/bio/omim-variants.py checks every MIM it proposes
+        // against an index built from ClinVar itself, dropping any that is not in it. The
+        // genes come back from that index, and the variants come from the ClinVar VCF by
+        // genomic region. Every mark placed here is a real record at a real coordinate.
+        //
+        // NONE OF THAT IS SHOWN. The MIM numbers, the phenotype names, the per-phenotype
+        // record counts are all machinery, and putting them on screen asks the reader to
+        // audit a lookup they did not make. What is said is the disease, the genes, and how
+        // many mutations landed.
+        let dzBusy = false;
+        let dzLast = '';
+        const DZ_MAX_GENES = 8;          // genes to read per disease
+        const DZ_MAX_PER_GENE = 4000;    // ClinVar records taken from one gene
+        // A record has to be pathogenic to be worth drawing. ClinVar's own wording is what
+        // is tested, not a tidied copy of it: "Pathogenic/Likely_pathogenic" and
+        // "Likely_pathogenic" both count, "Conflicting_classifications_of_pathogenicity"
+        // does not -- a variant the submitters disagree about is not a finding.
+        // clinsig comes back as an ARRAY -- a record can carry several classifications --
+        // so it is joined rather than coerced. '' + ['a','b'] happens to give 'a,b' and
+        // would have worked by accident here; relying on that is how a later record with
+        // one classification and a nested array starts reading as '[object Object]'.
+        const dzSig = (v) => {
+            const c = v && v.clinsig;
+            return (Array.isArray(c) ? c.join(', ') : ('' + (c == null ? '' : c)));
+        };
+        const dzIsPathogenic = (v) => {
+            const t = dzSig(v).toLowerCase();
+            if (!t) return false;
+            if (t.indexOf('conflict') >= 0) return false;
+            return t.indexOf('pathogenic') >= 0;
+        };
+        // READ THE WHOLE GENE, NOT THE FIRST 5,000 RECORDS OF IT.
+        //
+        // read-vcf-variants.py stops at MAX_ROWS = 5000 per call and walks the region in
+        // position order, so a gene denser than that is not sampled -- it is CUT, at a
+        // coordinate, with everything past it missing. CFTR's own span returns exactly 5000,
+        // which is how this was caught: a round number is never a count.
+        //
+        // A window that comes back at the cap is therefore not trusted. It is halved and both
+        // halves read, so density decides the depth rather than a guess at it, and a gene that
+        // fits in one call still costs exactly one call.
+        const DZ_ROW_CAP = 5000;     // must match MAX_ROWS in read-vcf-variants.py
+        const DZ_SPLIT_MAX = 6;      // up to 64 windows for one gene
+        const dzFetch = async (chrBare, lo, hi, depth) => {
+            const em2 = new EngineMonitor(() => { });
+            let vs = [];
+            try {
+                const rv = await exec(server + '/py/bio/read-vcf-variants.py', em2, 'clinvar',
+                    chrBare, '' + lo, '' + hi);
+                vs = JSON.parse((rv && rv.variants) || '[]');
+            } catch (e) { vs = []; }
+            if (vs.length < DZ_ROW_CAP || depth >= DZ_SPLIT_MAX || hi - lo < 2) return vs;
+            const mid = Math.floor((lo + hi) / 2);
+            const a = await dzFetch(chrBare, lo, mid, depth + 1);
+            const b = await dzFetch(chrBare, mid + 1, hi, depth + 1);
+            return a.concat(b);
+        };
+        const dzRun = async (text, panel) => {
+            const query = ('' + (text || '')).trim();
+            if (!query) return;
+            if (dzBusy) return;
+            dzBusy = true;
+            const say = (m) => {
+                try { graph.setMessage(' ' + m + ' '); } catch (e) { }
+                try {
+                    const el = panel && panel.querySelector('#dz-status');
+                    if (el) el.textContent = m;
+                } catch (e) { }
+            };
+            const fail = (m) => {
+                try { graph.setError(' ' + m + ' ', 12); } catch (e) { }
+                try {
+                    const el = panel && panel.querySelector('#dz-status');
+                    if (el) { el.textContent = m; el.style.color = '#ffb020'; }
+                } catch (e) { }
+            };
+            const arm = (on) => {
+                try {
+                    const b = panel && panel.querySelector('#dz-go');
+                    const i = panel && panel.querySelector('#dz-q');
+                    if (b) { b.disabled = !on; b.style.opacity = on ? '' : '0.5'; b.style.cursor = on ? 'pointer' : 'default'; b.textContent = on ? 'Find the mutations' : 'Working…'; }
+                    if (i) i.disabled = !on;
+                } catch (e) { }
+            };
+            arm(false);
+            const em = new EngineMonitor(() => { });
+            try {
+                say('Reading "' + query + '"…');
+                const o = await exec(server + '/py/bio/omim-variants.py', em, query, '' + DZ_MAX_GENES);
+                if (!o || o.error) throw new Error((o && o.error) || 'the condition could not be read');
+                const J = (x) => { try { return JSON.parse(x || '[]'); } catch (e) { return []; } };
+                const genes = J(o.genes), mims = J(o.mims).map((m) => '' + m);
+                const disease = ('' + (o.disease || query)).trim() || query;
+                if (!genes.length) {
+                    arm(true); dzBusy = false;
+                    fail('Nothing in ClinVar is filed against "' + query + '". That happens for a somatic '
+                        + 'tumour, which has no inherited phenotype behind it, and for a description that is not '
+                        + 'a named condition. Try the condition’s clinical name, or a gene symbol.');
+                    return;
+                }
+                say(disease + ' — ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
+                    + ': ' + genes.join(', ') + '. Finding where they sit…');
+                const gl = await exec(server + '/py/bio/gene-locus.py', em, genes.join(','), (r.species || 'human'), '400');
+                let loci = [];
+                try { loci = JSON.parse((gl && gl.genes) || '[]'); } catch (e) { loci = []; }
+                if (!loci.length) throw new Error('none of these genes could be placed on this genome');
+                // The VCF is built rather than the marks placed directly: addVcf is the one
+                // road into the chromosomes, and everything that already works -- the sample
+                // columns, the significance colouring, the object cap, the per-chromosome
+                // sort -- works because every loader goes down it.
+                const rows = [];
+                const perGene = {};
+                let scanned = 0, offMim = 0;
+                for (let i = 0; i < loci.length; i++) {
+                    const g = loci[i];
+                    const sym = ('' + (g.query || g.gene || '')).toUpperCase();
+                    const ci = chromIndexOf(g.chr);
+                    if (ci < 0 || !(+g.start > 0)) continue;
+                    say(disease + ' — reading ClinVar for ' + sym + ' (' + (i + 1) + ' of ' + loci.length + ')…');
+                    let vs = [];
+                    try { vs = await dzFetch(('' + g.chr).replace(/^chr/, ''), Math.round(g.start), Math.round(g.end), 0); }
+                    catch (e) { vs = []; }
+                    let kept = 0;
+                    for (const v of vs) {
+                        scanned++;
+                        if (!dzIsPathogenic(v)) continue;
+                        // THE PHENOTYPE FILTER, when there is one. A gene carries records for
+                        // every condition it is implicated in, and loading all of them would
+                        // answer a different question than the one asked. Matching on the MIM
+                        // ids the lookup resolved is exact where matching on names is guessing
+                        // at wording. With no MIMs resolved the gene's pathogenic records are
+                        // taken whole, which is the honest fallback and is said so below.
+                        if (mims.length) {
+                            const vm = (v.mims || []).map((x) => '' + x);
+                            if (!vm.length || !vm.some((x) => mims.indexOf(x) >= 0)) { offMim++; continue; }
+                        }
+                        const ref = ('' + (v.ref || '')).toUpperCase();
+                        const alt = ('' + (v.alt || '')).toUpperCase();
+                        if (!/^[ACGTN]+$/.test(ref) || !/^[ACGTN]+$/.test(alt)) continue;
+                        // THE NAME A MARK WEARS ON THE CHROMOSOME. The ID column of a VCF
+                        // becomes the label the genome browser draws beside a variant, and
+                        // ClinVar's ID is a variation number -- "925574" says nothing to
+                        // anyone reading a chromosome. The label is therefore the DISEASE,
+                        // put through the same shortening the loader's selectors use, so the
+                        // mark on the bar and the side it belongs to say the same words. The
+                        // ClinVar id is not lost: it moves into INFO, where the info panel
+                        // and the download still carry it.
+                        const clnId = ('' + (v.id || '')).replace(/\s+/g, '');
+                        const id = (function () { try { return shortFile(disease) || disease; } catch (e) { return disease; } })()
+                            .replace(/[\s\t;,]+/g, '_') || '.';
+                        // The record's OWN chromosome, not the gene's. They agree today, but
+                        // the gene locus is a separate lookup and a disagreement between them
+                        // should place the variant where ClinVar says it is.
+                        const chr = ('' + (v.chr || g.chr || ''));
+                        rows.push([chr, '' + v.start, id, ref, alt, '.', '.',
+                            'CLNSIG=' + dzSig(v).replace(/[;\t ,]+/g, '_')
+                            + ';GENEINFO=' + sym
+                            + (clnId ? ';CLNVARID=' + clnId : '')].join('\t'));
+                        kept++;
+                        if (kept >= DZ_MAX_PER_GENE) break;
+                    }
+                    if (kept) perGene[sym] = kept;
+                    await new Promise((res) => setTimeout(res, 0));
+                }
+                if (!rows.length) {
+                    arm(true); dzBusy = false;
+                    fail('No pathogenic ClinVar record for ' + disease + ' fell inside '
+                        + genes.join(', ') + '. ' + (scanned ? scanned.toLocaleString() + ' records were read.' : ''));
+                    return;
+                }
+                say('Placing ' + rows.length.toLocaleString() + ' mutation' + (rows.length === 1 ? '' : 's') + '…');
+                await new Promise((res) => setTimeout(res, 0));
+                await addVcf(rows.join('\n'), disease);
+                // THE SAME LABEL A LOADED FILE GETS.
+                //
+                // ClinVar is a sites-only VCF -- it carries no genotype columns -- so this is
+                // exactly the case of loading a sites-only file, and it is named the same way.
+                // The side takes the source's name, and every selector built on sideName()
+                // then says the disease: the differential picker, the loss-of-heterozygosity
+                // picker, and what is loaded. Without it these marks arrived anonymously and
+                // read as 'right file' beside whatever else was on the chromosomes.
+                //
+                // Set only now, for the same reason readAnyFile sets it only on marks landing:
+                // naming a side after a source that drew nothing labels a gutter holding
+                // somebody else's variants.
+                try { sideFile[loadSide] = disease; } catch (e) { }
+                dzLast = disease;
+                try { if (panel && panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+                const named = Object.keys(perGene).map((k) => k + ' ' + perGene[k]).join(', ');
+                graph.setResultMessage(' ' + disease + ' — ' + rows.length.toLocaleString() + ' pathogenic mutation'
+                    + (rows.length === 1 ? '' : 's') + ' on ' + Object.keys(perGene).length + ' gene'
+                    + (Object.keys(perGene).length === 1 ? '' : 's') + ': ' + named + '.'
+                    + (mims.length ? '' : ' No phenotype filter was available, so every pathogenic record in these genes was taken.')
+                    + ' ');
+                step('disease "' + query + '" -> ' + disease + ': ' + rows.length + ' variants, '
+                    + scanned + ' scanned, ' + offMim + ' other phenotypes');
+                dzBusy = false;
+            } catch (e) {
+                dzBusy = false;
+                arm(true);
+                fail('That did not work: ' + (e && e.message ? e.message : e));
+            }
+        };
+        // THE PANEL. Full screen and in the shelf's own navy, because it is the same kind of
+        // thing a shelf is -- a place you go to do one thing -- and a small box floating over
+        // the chromosomes would read as a filter on what is drawn rather than something that
+        // adds to it.
+        const diseaseMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            try { const old = document.getElementById('baja-karyo-disease'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const panel = document.createElement('div');
+            panel.id = 'baja-karyo-disease';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:#071a30;color:#eaf6f9;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            const EX = ['Cystic fibrosis', 'Sickle cell disease', 'Marfan syndrome',
+                'Familial hypercholesterolaemia', 'Hereditary breast and ovarian cancer',
+                'Duchenne muscular dystrophy', 'Amyotrophic lateral sclerosis', 'Long QT syndrome'];
+            panel.innerHTML = ''
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">A disease, as mutations</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">Name a condition; its pathogenic '
+                + 'variants are placed on the chromosomes</div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;">'
+                + '<button id="dz-x" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
+                + '</div></div>'
+                + '<div style="flex:1 1 auto;overflow:auto;padding:40px 22px;">'
+                + '<div style="width:100%;max-width:720px;margin:0 auto;">'
+                + '<input id="dz-q" placeholder="Cystic fibrosis" autocomplete="off" style="width:100%;box-sizing:border-box;'
+                + 'border-radius:10px;padding:16px 18px;font:600 19px Arial;background:#0a1e3a;color:#eaf6f9;'
+                + 'border:1px solid rgba(18,194,224,0.45);outline:none;"/>'
+                + '<div style="display:flex;gap:10px;margin-top:14px;align-items:center;">'
+                + '<button id="dz-go" style="cursor:pointer;border-radius:8px;padding:11px 20px;font:700 13px Arial;'
+                + 'border:1px solid #12c2e0;background:#12c2e0;color:#042a33;">Find the mutations</button>'
+                + '<div id="dz-status" style="font:12.5px/1.5 Arial;color:#9fb3c8;min-width:0;"></div>'
+                + '</div>'
+                + '<div style="margin-top:26px;font:12px Arial;color:#9fb3c8;">Try one of these</div>'
+                + '<div id="dz-ex" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'
+                + EX.map((e2) => '<button class="dz-e" style="cursor:pointer;border-radius:999px;padding:7px 13px;'
+                    + 'font:600 12px Arial;background:rgba(18,194,224,0.12);color:#7fd9ea;'
+                    + 'border:1px solid rgba(18,194,224,0.35);">' + e2 + '</button>').join('')
+                + '</div>'
+                + '<div style="margin-top:30px;font:12.5px/1.75 Arial;color:#9fb3c8;">'
+                + 'The condition is resolved to its phenotype and the variants are read from ClinVar by genomic '
+                + 'region, so every mark placed is a real record at a real coordinate — nothing here is recalled '
+                + 'from memory. Only variants ClinVar classifies pathogenic or likely pathogenic are drawn; ones the '
+                + 'submitters disagree about are not.<br/><br/>'
+                + 'They land on the chromosomes alongside anything already loaded, and are yours to filter, '
+                + 'download and analyse like any other variants. Save the genome to keep them.'
+                + '</div></div></div>';
+            document.body.appendChild(panel);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
+                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            }
+            const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            const q = panel.querySelector('#dz-q');
+            panel.querySelector('#dz-x').onclick = close;
+            panel.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { close(); return; }
+                if (e.key === 'Enter' && !dzBusy) { dzRun(q.value, panel); }
+            });
+            panel.querySelector('#dz-go').onclick = () => { dzRun(q.value, panel); };
+            Array.prototype.slice.call(panel.querySelectorAll('.dz-e')).forEach((b) => {
+                b.onclick = () => { q.value = b.textContent; dzRun(q.value, panel); };
+            });
+            try { q.value = dzLast || ''; q.focus(); q.select(); } catch (e) { }
+        };
         const uploadMenu = () => {
             const n = SAMPLES.length;
             const nLeft = leftTotal();
@@ -11128,7 +11503,7 @@ function (path, config) {
             const needRegion = { ready: n > 0, readyNote: 'select a region first' };
             const regionBooks = () => [
                 Object.assign({
-                    title: 'Open in the oligo editor', badge: 'transcripts',
+                    title: 'Open in the oligo editor', badge: 'transcripts', accent: 'design',
                     blurb: 'List the transcripts in the selected region' + (n === 1 ? '' : 's') + ', tick the ones you '
                         + 'want, and load them into the editor with the variants that fall inside them.',
                     open: () => openRegions(regions.slice()),
@@ -11256,7 +11631,45 @@ function (path, config) {
             let init_path = '/' + getUser();
             if (init_path.endsWith('/')) init_path = init_path.substring(0, init_path.length - 1);
 
+            // ONE SAVE AT A TIME, AND SAY SO ON A SURFACE THAT IS ACTUALLY ON SCREEN.
+            //
+            // This crashed the tab. The Save button had no busy state and doSave had no
+            // re-entrancy guard, so every click started another one -- and a click was very
+            // easy to repeat, because the only feedback was graph.setMessage(), which draws
+            // on the karyotype canvas that this very widget has just replaced in mainPanel.
+            // Pressing Save did nothing visible whatsoever.
+            //
+            // What each press then costs: stateDoc() plus JSON.stringify over as many as
+            // SAVE_CAP variants, which is on the order of 180 MB of string, held while a POST
+            // of the same string is in flight. One is heavy; three at once is an out-of-memory
+            // kill, and stringify blocks the main thread throughout so the tab is unresponsive
+            // while the reader is clicking -- which is exactly what produces the extra clicks.
+            //
+            // So: a flag that refuses re-entry, and a blocking cover that both reports progress
+            // and physically puts the button out of reach. The cover has to be PAINTED before
+            // the serialisation begins, or it is appended to a document that never gets a frame
+            // to draw it in, and the screen sits unchanged exactly as before.
+            let savingNow = false;
+            const savingCover = (name) => {
+                const el = document.createElement('div');
+                el.id = 'baja-karyo-saving';
+                el.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(7,26,48,0.86);'
+                    + 'color:#eaf6f9;font-family:Arial,Helvetica,sans-serif;display:flex;align-items:center;'
+                    + 'justify-content:center;text-align:center;padding:24px;';
+                el.innerHTML = '<div><div style="font:800 18px Arial;margin-bottom:10px;">Saving ' 
+                    + ('' + name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>'
+                    + '<div id="baja-karyo-saving-sub" style="font:13px/1.6 Arial;color:#9fb3c8;max-width:460px;">'
+                    + 'Writing ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')
+                    + '. A large karyotype takes a while, and the page will not respond while it is '
+                    + 'being written. Please do not press Save again.</div></div>';
+                document.body.appendChild(el);
+                return el;
+            };
+            const paint = () => new Promise((res) => {
+                try { requestAnimationFrame(() => setTimeout(res, 0)); } catch (e) { setTimeout(res, 30); }
+            });
             const doSave = async (raw) => {
+                if (savingNow) { step('save ignored: one is already running'); return; }
                 let name = ('' + (raw || '')).trim().replace(/[\r\n]+/g, ' ');
                 if (!name) { graph.setMessage(' A file name is needed. '); return; }
                 // A trailing .json is dropped rather than kept alongside: it makes
@@ -11270,12 +11683,19 @@ function (path, config) {
                 try { spath = (comp && comp.currentPath) ? comp.currentPath : ''; } catch (e) { spath = ''; }
                 if (spath === '/') spath = '';
                 graph.setMessage(' Saving ' + name + '… ');
+                savingNow = true;
+                const cover = savingCover(name);
+                await paint();
                 try {
                     const doc = stateDoc();
                     doc.name = name;
+                    // Serialised ONCE and held in a local: the value goes to the POST and the
+                    // count comes off `doc`, so nothing re-encodes a 180 MB document to read a
+                    // property back off it.
+                    const value = JSON.stringify(doc);
                     const rs = await POSTJSON({
                         name: name, key: 'user', user: getUser(), spath: spath,
-                        value: JSON.stringify(doc),
+                        value: value,
                     }, window['env']['apiUrl'] + '/save-user-data');
                     if (rs && (rs.status === 'saved' || rs.path)) {
                         restore();
@@ -11295,6 +11715,12 @@ function (path, config) {
                 } catch (e) {
                     graph.setMessage(' ' + name + ' was not saved: ' + (e && e.message ? e.message : e) + ' ');
                     step('save threw: ' + e);
+                } finally {
+                    // Released whether it saved, refused or threw. A flag left set by a failed
+                    // save would make every later attempt a silent no-op, which is a worse bug
+                    // than the one being fixed here.
+                    savingNow = false;
+                    try { if (cover && cover.parentNode) cover.parentNode.removeChild(cover); } catch (e2) { }
                 }
             };
 
@@ -11326,7 +11752,7 @@ function (path, config) {
                                 wid: 'html',
                                 width: '100%',
                                 data: '<div style="padding:10px 14px;font:14px Arial;">'
-                                    + '<b>Save karyotype</b><br>'
+                                    + '<b>Save genome</b><br>'
                                     + '<span style="color:#5b6b7a;">Choose a folder below, name the file, '
                                     + 'then Save. ' + note + ' Saved as <b>' + SAVE_EXT
                                     + '</b> (JSON inside) unless the name already ends in it.'
@@ -11530,7 +11956,7 @@ function (path, config) {
                                             icon: deleting ? 'delete' : 'folder_open',
                                             tooltip: deleting
                                                 ? 'Removing is permanent. Close to leave without removing anything.'
-                                                : 'Open a saved karyotype',
+                                                : 'Open a saved genome',
                                             ionFunction: createIonFunction(() => { })
                                         },
                                     ]
@@ -11588,7 +12014,7 @@ function (path, config) {
                     if (js.length < 3500000) sessionStorage.setItem('baja.karyoReturn', js); else sessionStorage.removeItem('baja.karyoReturn');
                 } catch (e) { }
                 return true;
-            } catch (e) { step('could not keep the karyotype for the way back: ' + (e && e.message ? e.message : e)); return false; }
+            } catch (e) { step('could not keep the genome for the way back: ' + (e && e.message ? e.message : e)); return false; }
         };
         // BACK TO THE EDITOR with the design it kept when its Genome Viewer button was
         // pressed: this screen is kept again first, so the two can be walked between freely.
@@ -11841,6 +12267,14 @@ function (path, config) {
                 + '<div style="margin-left:auto;display:flex;gap:10px;">'
                 + '<button id="kr-cancel" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
                 + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>'
+                // A DURABLE COPY, BEFORE LEAVING. The way back is already safe on its own --
+                // keepForReturn() snapshots the whole document to IndexedDB and sessionStorage
+                // before the editor opens, and the editor offers the return -- but every one of
+                // those dies with the tab. An hour of loading VCFs, scanning for LOH and picking
+                // genes survives a round trip and does not survive a closed browser, and the
+                // moment someone is about to leave the screen is the moment to say so.
+                + '<button id="kr-save" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Save a copy</button>'
                 + '<button id="kr-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
                 + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Open in editor</button>'
                 + '</div></div>'
@@ -11853,7 +12287,10 @@ function (path, config) {
                 + genes.map(row2).join('')
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:16px;">'
                 + 'The ticked transcripts open in the editor. Variants inside them come across '
-                + 'and land on the track they belong to.</div>'
+                + 'and land on the track they belong to.<br/>'
+                + 'This genome is kept as you leave it, and the editor offers the way back, so '
+                + 'nothing here is lost by opening the editor. That copy lives in this browser tab '
+                + 'only \u2014 <b>Save a copy</b> if you want it to outlast the session.</div>'
                 + '</div></div>';
             document.body.appendChild(panel);
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
@@ -11870,12 +12307,55 @@ function (path, config) {
                 e.preventDefault();
                 qa2('.kr-g').forEach((cb) => { cb.checked = !cb.disabled && !!genes[+cb.getAttribute('data-i')].coding; });
             };
+            q2('#kr-save').onclick = () => {
+                try {
+                    const nm = dlSafe(dlSpecies() + '_karyotype') + '.json';
+                    dlSaveText(JSON.stringify(stateDoc()), nm, 'application/json');
+                    const b2 = q2('#kr-save');
+                    if (b2) { b2.textContent = 'Saved'; b2.style.color = '#8ff0b0'; b2.style.borderColor = 'rgba(34,197,94,0.6)'; }
+                } catch (e) {
+                    graph.setMessage(' Could not save a copy: ' + (e && e.message ? e.message : e) + ' ');
+                }
+            };
+            // OPENING THE EDITOR IS SLOW AND USED TO LOOK INSTANT.
+            //
+            // handToEditor waits for the editor to come up and report a graph, polling for as
+            // long as twenty seconds, and only then loads the transcripts. The panel closed
+            // immediately and nothing replaced it, so the screen sat unchanged for seconds
+            // after the click -- which reads as a click that did not register, and invites a
+            // second one. Two hand-offs then race for the same editor.
+            //
+            // So the button is disabled on the way in, says what it is doing, and the panel
+            // stays up until the editor has actually taken the transcripts. If the hand-off
+            // fails the panel is still there with the ticks intact, which is the state worth
+            // being in after a failure -- the old code had already thrown it away.
+            let goBusy = false;
             q2('#kr-go').onclick = async () => {
+                if (goBusy) return;
                 const ids = qa2('.kr-g').filter((cb) => cb.checked)
                     .map((cb) => genes[+cb.getAttribute('data-i')].transcript).filter(Boolean);
                 if (!ids.length) { graph.setMessage(' Tick a transcript to open. '); return; }
-                close2();
-                await handToEditor(ids, inRange, null);
+                goBusy = true;
+                const go = q2('#kr-go'), sv = q2('#kr-save');
+                const arm = (on) => {
+                    for (const b2 of [go, sv]) {
+                        if (!b2) continue;
+                        b2.disabled = !on;
+                        b2.style.cursor = on ? 'pointer' : 'default';
+                        b2.style.opacity = on ? '' : '0.5';
+                    }
+                    if (go) go.textContent = on ? 'Open in editor' : 'Opening\u2026';
+                };
+                arm(false);
+                let ok = false;
+                try { ok = await handToEditor(ids, inRange, null); }
+                catch (e) {
+                    graph.setMessage(' The editor could not open: ' + (e && e.message ? e.message : e) + ' ');
+                    ok = false;
+                }
+                if (ok) { close2(); return; }
+                goBusy = false;
+                arm(true);
             };
         };
 
@@ -11967,7 +12447,7 @@ function (path, config) {
                     });
                     if (nvar) step('placed ' + nvar.toLocaleString() + ' variants');
                     rememberFile(savedPath);
-                    step('restored saved karyotype');
+                    step('restored saved genome');
                     // A karyotype opened from a share: greet the recipient and, if it carries
                     // bookmarks, open the lower-left navigator so the sharer's saved views are
                     // right there.
@@ -11975,14 +12455,14 @@ function (path, config) {
                         try {
                             if (__karyoShareInfo && __karyoShareInfo.failed) { graph.setError(__karyoShareInfo.message, 15); }
                             else if (__karyoShareInfo && __karyoShareInfo.owner && !__karyoShareInfo.mine) {
-                                graph.setMessage(' ' + __karyoShareInfo.owner + ' shared this karyotype with you.'
+                                graph.setMessage(' ' + __karyoShareInfo.owner + ' shared this genome with you.'
                                     + (bookmarks.length ? (' ' + bookmarks.length + ' saved view' + (bookmarks.length === 1 ? '' : 's') + ' — see the Bookmarks panel, lower-left.') : '') + ' ');
                             }
                             if (bookmarks.length) { try { bookmarkNav(); } catch (e) { } }
                         } catch (e) { }
                     }
                 } catch (e) {
-                    step('applying the saved karyotype threw: ' + e);
+                    step('applying the saved genome threw: ' + e);
                     try {
                         graph.setMessage(' That karyotype opened but its contents could not be '
                             + 'restored: ' + (e && e.message ? e.message : e) + ' ');
