@@ -6203,7 +6203,11 @@ function (path, config) {
         const fmtP = (p) => (p == null ? '' : (+p < 1e-3 ? (+p).toExponential(0) : (+p).toFixed(3)));
 
         // RUN THE MODEL over the selection. tissue is an OncotreeLineage or '' for all.
-        const slFindTargets = async (tissue) => {
+        // A SPOTLIGHT is a tissue (the organ) or a CANCER TYPE (what a clinician names):
+        // Breast against Invasive Breast Carcinoma, Pancreas against Pancreatic
+        // Adenocarcinoma. The cancer type is the narrower question and the one a target has
+        // to hold up in, so it wins when both are given.
+        const slFindTargets = async (tissue, disease) => {
             if (slBusy) { graph.setMessage(' The target search is still running. '); return; }
             const genes = selectedList().map((g) => g.gene);
             if (!genes.length) { graph.setMessage(' Select genes in the loss matrix first. '); return; }
@@ -6211,13 +6215,18 @@ function (path, config) {
             slBusy = true;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
-                graph.setMessage(' Ranking synthetic-lethal targets for ' + genes.join(', ') + (tissue ? ' in ' + tissue : '') + '… ');
+                const spot = disease || tissue || '';
+                graph.setMessage(' Ranking synthetic-lethal targets for ' + genes.join(', ') + (spot ? ' in ' + spot : '') + '… ');
                 const rs = await exec(server + '/py/bio/synthetic-lethal-targets.py', em,
-                    JSON.stringify({ genes: genes, tissue: tissue || '', top: 60 }));
+                    JSON.stringify({ genes: genes, tissue: tissue || '', disease: disease || '', top: 60 }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not rank the targets');
                 const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
-                slResult = { genes: genes.slice(), tissue: tissue || '', targets: J(rs.targets, '[]'), backgrounds: J(rs.backgrounds, '[]'),
-                    lineages: J(rs.lineages, '[]'), notes: J(rs.notes, '[]'), nModels: +rs.n_models || 0, at: new Date().toISOString() };
+                // `tissue` on the result is the SPOTLIGHT, whichever kind it was, because that
+                // is what every card, report and explanation prints beside an effect.
+                slResult = { genes: genes.slice(), tissue: spot, lineage: tissue || '', disease: disease || '',
+                    targets: J(rs.targets, '[]'), backgrounds: J(rs.backgrounds, '[]'),
+                    lineages: J(rs.lineages, '[]'), diseases: J(rs.diseases, '[]'),
+                    notes: J(rs.notes, '[]'), nModels: +rs.n_models || 0, at: new Date().toISOString() };
                 const scored = slResult.backgrounds.filter((b) => b.status === 'scored').length;
                 // The karyotype now shows the losses this run reasoned from, and nothing else:
                 // the marks on screen and the result in hand are about the same genes.
