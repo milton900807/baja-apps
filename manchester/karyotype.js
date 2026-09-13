@@ -861,7 +861,7 @@ function (path, config) {
                                         // matrix, gene search and the selected regions, the
                                         // patent landscape, and the Info window as cards.
                                         label: 'Analyze', icon: 'biotech',
-                                        tooltip: 'Synthetic lethality: the losses, the models that read them, and the loss matrix, differential and LOH scan that find them',
+                                        tooltip: 'Analyze the loaded variants: the loss matrix, allele-selective targets, gene search, patents, and what is loaded',
                                         ionFunction: createIonFunction(() => { if (armed) pan(); analysisMenu(); })
                                     },
                                     {
@@ -9325,9 +9325,8 @@ function (path, config) {
         // Nothing here is new. The cards are the same cards, moved, plus the LOH route,
         // which belonged with them from the day it was written and was reachable only from
         // inside the LOH result.
-        // The cards, not a shelf of their own: they open the Analyze library, which IS this
-        // library. See the note on analysisMenu below.
-        const synLethalBooks = () => {
+        const synLethalMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const sel = selectedList();
             const nVsl = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
@@ -9410,34 +9409,39 @@ function (path, config) {
             if (lohSlResult) last.push({ section: 'Last results', title: 'Single-copy vulnerabilities', badge: lohSlResult.cyclops.length + ' candidates', icon: 'list',
                 blurb: 'From the loss-of-heterozygosity tracts.', ready: true, open: () => lohSlMenu() });
             if (last.length) { books.push({ section: 'Last results', note: true, title: 'What each of these last returned, without running anything again.' }); books.push.apply(books, last); }
-            // Its own heading rather than reopening the first one: the shelf prints a
-            // heading whenever the name changes, so reusing it here would draw
-            // "Synthetic lethality" twice with other sections between.
-            books.push(baja3DocCard('How the model works'));
-            return books;
+            books.push(baja3DocCard('Synthetic lethality'));
+            books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The loss matrix, the differential, loss of heterozygosity and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic lethality',
+                subtitle: BAJA3_LONG, graph: graph, books: books });
         };
-        // Kept because other shelves navigate back to it by name.
-        const synLethalMenu = () => analysisMenu();
         const analysisMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
-            // THIS LIBRARY IS THE SYNTHETIC-LETHALITY LIBRARY.
-            //
-            // Everything in it serves one question, and putting that question behind a door
-            // among the things that feed it had it backwards. The loss matrix, the
-            // differential and the loss-of-heterozygosity scan are not siblings of synthetic
-            // lethality; they are how a set of losses is arrived at, and the set of losses is
-            // only interesting because of what is asked of it afterwards.
-            //
-            // So the question leads and everything that answers to it follows, in the order
-            // it is used: the losses, the models that read them, then the three ways of
-            // getting a set of losses in the first place, then the rest of what can be done
-            // to a loaded genome.
-            books.push.apply(books, synLethalBooks());
-            books.push({ section: 'Find the losses', note: true,
+            // THE TOP-LEVEL WORKFLOWS COME FIRST, each one a door rather than a step.
+            // Synthetic lethality leads because it is what the rest of this is FOR: the loss
+            // matrix, the differential and the LOH scan are all ways of arriving at a set of
+            // losses, and this is the question asked of that set. It is listed whether or not
+            // anything is selected, because a menu that hides the destination until you have
+            // already walked to it teaches nobody where they were going.
+            {
+                const done = [slResult && (slResult.targets.length + ' targets'),
+                    hoResult && (hoResult.matched.length + ' in the catalogue'),
+                    parResult && 'paralogs',
+                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
+                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
+                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
+                    ready: true,
+                    blurb: BAJA3_LONG + '. Which gene this tumour cannot survive losing, given what it has already '
+                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
+                        + 'loss of heterozygosity makes it depend on.'
+                        + (selGenes.size ? '' : ' Needs a set of losses; the first card inside says how to get one.'),
+                    open: () => synLethalMenu() });
+            }
+            books.push({ section: 'Loss matrix', note: true,
                 title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
-            const calc = { section: 'Find the losses', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
+            const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
                 badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
@@ -9476,22 +9480,22 @@ function (path, config) {
                 + 'MEDIUM: PASS but QUAL 10\u201330, DP 4\u20138, only 2 alt reads, or GQ 10\u201320. '
                 + 'LOW: any FILTER flag, QUAL < 10, DP < 4, fewer than 2 alt reads, or GQ < 10. '
                 + 'A field the file does not carry is not counted against a call, and a call with no confidence information at all is admitted.';
-            books.push({ section: 'Find the losses', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', toggle: true, on: lossConfOnly, icon: 'verified', ready: true,
+            books.push({ section: 'Loss matrix', title: lossConfOnly ? 'High-confidence calls only' : 'Every call, whatever its confidence', badge: lossConfOnly ? 'on' : 'off', toggle: true, on: lossConfOnly, icon: 'verified', ready: true,
                 blurb: (lossConfOnly ? 'The loss matrix and the differential rely on HIGH-tier calls; the note on each result says how many were left out. '
                     : 'Filtered, shallow and low-quality calls are admitted too. ') + CONF_RULES + (lossConfOnly ? ' Click to admit every call.' : ' Click to rely on high-confidence calls only.'),
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
                 const specs = diffSpecs();
-                books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'run', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
+                books.push({ section: 'Loss matrix', title: 'Differential loss matrix', accent: 'run', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
                     blurb: 'Two files (one loaded on the left of the chromosomes) or two samples: which genes one has lost that the other has not, and which both have.',
                     ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
-                if (diffResult) books.push({ section: 'Find the losses', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
+                if (diffResult) books.push({ section: 'Loss matrix', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
-                books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
+                books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
                     blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
                     ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
-                if (lohResult) books.push({ section: 'Find the losses', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
+                if (lohResult) books.push({ section: 'Loss matrix', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
                     blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
             }
             // ALLELE SELECTIVITY IS ITS OWN SECTION, not a leaf of the LOH branch. It was
@@ -9515,7 +9519,7 @@ function (path, config) {
                     open: () => alleleSelectiveMenu() });
             }
             if (lossMatrix) {
-                books.push({ section: 'Find the losses', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
+                books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
             }
@@ -9529,8 +9533,8 @@ function (path, config) {
                 blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
             exec('baja/lib/shelf.js', {
-                id: 'baja-karyo-analysis', title: 'Synthetic lethality',
-                subtitle: BAJA3_LONG + ' — the losses, the models that read them, and the loss matrix, differential and LOH scan that find them',
+                id: 'baja-karyo-analysis', title: 'Analyze',
+                subtitle: 'Read the loaded variants — the loss matrix, what differs between two, loss of heterozygosity, synthetic lethality and allele-selective targets',
                 graph: graph, books: books
             });
         };
