@@ -8179,6 +8179,45 @@ function (path, config) {
         const BAJA3 = 'BAJA-3';
         const BAJA3_LONG = 'Background-Aware Joint-loss Analysis for Third-Gene Dependencies';
         const BAJA3_DOC = 'https://baja.bio/data/higher-order-synthetic-lethality.html';
+        // TWO MODELS, TWO DOCUMENTS.
+        //
+        // BAJA-3 and the paralog classifier answer different questions from different data
+        // and fail in different ways, and listing them side by side under one heading with
+        // one documentation link said they were two settings of one thing. BAJA-3 reads what
+        // the DepMap panel SHOWS and needs enough cell lines carrying a loss to see anything.
+        // The paralog model PREDICTS from pair features and answers for genes the panel
+        // cannot screen at all. Neither is a fallback for the other.
+        //
+        // BAJA-3's document is a page on baja.bio. The paralog model has none, so rather
+        // than invent a link its documentation is in the application: what it is, what it
+        // reads, what the numbers on a partner card mean, and where it is known to be wrong.
+        const paralogDocCard = (section) => ({ section: section, title: 'Paralog model documentation',
+            badge: 'how it works', icon: 'menu_book', ready: true,
+            blurb: 'What the classifier is, the features behind a prediction, and the case it is known to miss.',
+            books: () => [
+                { note: true, title: 'What it is' },
+                { note: true, title: 'A gradient-boosted classifier from the ppset toolkit, scored once over every human '
+                    + 'paralog pair and shipped as a table. One row per (gene lost, paralog), and the number on a card is '
+                    + 'the model\u2019s probability that the paralog becomes the copy the cell cannot then do without. It is '
+                    + 'read off the table, not re-run: the features need GTEx and BioPlex, which this server does not hold.' },
+                { note: true, title: 'What it reads' },
+                { note: true, title: 'Sequence identity between the pair, how large the family is, the partner\u2019s own '
+                    + 'essentiality across the panel, how often the first gene is lost, co-dependency and co-expression '
+                    + 'between the two, the partner\u2019s expression across normal tissue, and whether they are seen in '
+                    + 'the same complex. Every one of those is on the partner card, so a prediction can be read rather '
+                    + 'than taken.' },
+                { note: true, title: 'How it differs from ' + BAJA3 },
+                { note: true, title: BAJA3 + ' reads what the panel SHOWS and needs enough cell lines carrying a loss to '
+                    + 'see anything at all. This PREDICTS, so it answers for genes the panel has too few lines to screen. '
+                    + 'They are different questions and neither is a fallback for the other: agreement between them is '
+                    + 'evidence, and disagreement is not a tie to be broken.' },
+                { note: true, title: 'Where it is known to be wrong' },
+                { note: true, title: 'It recovers SMARCA4 to SMARCA2 at 0.82 and VPS4B to VPS4A at 0.99. It does NOT '
+                    + 'recover ENO1 to ENO2, scoring it 0.002, and that is the best-known paralog dependency in the '
+                    + 'literature. The pattern is that a pair whose lethality comes from a passenger DELETION rather '
+                    + 'than from the pair\u2019s own redundancy is the case this misses, and the toolkit\u2019s own '
+                    + 'chapter says so. Treat a low score as no information about that class of pair.' },
+            ] });
         const baja3DocCard = (section) => ({ section: section, title: BAJA3 + ' documentation', badge: 'baja.bio', icon: 'menu_book', ready: true,
             blurb: BAJA3_LONG + ': how the model works, what a genuine third-gene dependency is, and the 1p/19q oligodendroglioma case. Opens in a new tab.',
             open: () => { try { window.open(BAJA3_DOC, '_blank', 'noopener'); } catch (e) { graph.setMessage(' ' + BAJA3_DOC + ' '); } } });
@@ -8414,6 +8453,7 @@ function (path, config) {
                 blurb: 'A written summary with pictures: the genome and its bookmarks, the selected losses, these partners'
                     + (lossMatrix ? ', the loss matrix' : '') + (slResult ? ', the synthetic-lethal targets' : '') + ', and how to read it.',
                 open: () => { lossMatrixPDF().catch((e) => dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e))); } });
+            books.push(paralogDocCard('Paralog partners'));
             books.push({ section: 'Paralog partners', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and look up again.', open: () => selectedGenesMenu() });
             R.summary.forEach((gs) => {
                 const g = gs.gene;
@@ -8578,13 +8618,20 @@ function (path, config) {
                     blurb: 'Catalogue for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
             }
             books.push(baja3DocCard('Find targets'));
-            books.push({ section: 'Find targets', accent: 'run', title: 'Paralog partners (ML model)', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : '', icon: 'hub',
-                blurb: 'The trained paralog classifier: for each selected loss, which paralog is predicted to become the surviving copy the cell cannot lose. Works for genes the DepMap panel has too few lines to screen.',
+            // THE SECOND APPROACH, UNDER ITS OWN HEADING. Same selected losses, different
+            // machinery: a prediction from what a paralog pair is, rather than a reading of
+            // what the panel showed. It belongs beside BAJA-3, not inside it.
+            books.push({ section: 'Paralog partners', note: true,
+                title: 'A different approach over the same losses. ' + BAJA3 + ' reads the panel and stops where the '
+                    + 'panel runs out of cell lines; this predicts from the pair itself and answers regardless.' });
+            books.push({ section: 'Paralog partners', accent: 'run', title: 'Predict the surviving paralog', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : 'paralog model', icon: 'hub',
+                blurb: 'For each selected loss, which paralog is predicted to become the copy the cell cannot then lose — with the pair features behind the prediction beside it.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => parFind() });
             if (parResult) {
-                books.push({ section: 'Find targets', title: 'Last paralog result', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'list',
+                books.push({ section: 'Paralog partners', title: 'Last paralog result', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'list',
                     blurb: 'Partners for ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
             }
+            books.push(paralogDocCard('Paralog partners'));
             books.push({ section: 'Selection', title: 'Download the selection as CSV', badge: 'csv', icon: 'file_download', ready: sel.length > 0, readyNote: 'nothing selected',
                 blurb: 'Gene, locus, consequence and HGVS for each selected gene.',
                 open: () => { try { dlSaveText(selectionCSV(), dlSafe(dlSpecies() + '_selected_genes') + '.csv', 'text/csv'); dlMsg('Selection downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
@@ -9539,9 +9586,12 @@ function (path, config) {
                 + '      |\n'
                 + '3  CHOOSE THEM        click genes to build the background\n'
                 + '      |\n'
-                + '4  ASK THE PANEL      BAJA-3 / catalogue / paralogs\n'
+                + '4  ASK THE PANEL      BAJA-3 live, or the catalogue\n'
                 + '      |\n'
-                + '5  READ THE ANSWER    targets, window, why, inhibitors' });
+                + '5  READ THE ANSWER    targets, window, why, inhibitors\n'
+                + '\n'
+                + '  the paralog model is a SEPARATE route from step 3,\n'
+                + '  below: a prediction, not a reading of the panel' });
             // A WORKFLOW NEVER OPENS ON A DISABLED BUTTON.
             //
             // The first card was the selection, greyed out until something was selected, which
@@ -9585,11 +9635,10 @@ function (path, config) {
             // answer to its own question.
             books.push.apply(books, lossMatrixBooks());
             books.push({ section: 'Synthetic lethality', note: true, mono: true, title:
-                  'STEP 4   one background, three ways to ask\n'
+                  'STEP 4   ask the panel what it has seen\n'
                 + '\n'
                 + '  losses --+--> BAJA-3      screened live, every pair\n'
                 + '           +--> catalogue   already published\n'
-                + '           +--> paralogs    the copy left behind\n'
                 + '                     |\n'
                 + '                     +--> target, window, why, drugs' });
             books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
@@ -9612,10 +9661,37 @@ function (path, config) {
                 ready: sel.length > 0, readyNote: 'select genes first',
                 blurb: 'What has already been found for these losses: the systematic scan over tumor-suppressor pairs, '
                     + 'the tissue tables and the single and pair screens.', open: () => hoFind() });
-            books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Paralog partners (ML model)', badge: 'step 4 \u00b7 paralogs', icon: 'hub',
+            // A SECTION OF ITS OWN, BECAUSE IT IS NOT THE SAME APPROACH.
+            //
+            // This sat under the same heading as the two cards above it, one more way to ask
+            // the same question, and it is not. Those read what the DepMap panel SHOWS and
+            // stop where the panel runs out of lines. This PREDICTS from what a paralog pair
+            // IS, and so it answers where the panel is silent -- and can be confidently wrong
+            // in a way a screen cannot. Same selected losses going in, different machinery,
+            // different failure, its own documentation.
+            books.push({ section: 'Paralog partners', note: true,
+                title: 'A second approach over the same losses, and a different question. Not a fallback for '
+                    + BAJA3 + ' and not a confirmation of it: where the two agree that is evidence, and where they '
+                    + 'disagree neither one settles it.' });
+            books.push({ section: 'Paralog partners', note: true, mono: true, title:
+                  'TWO WAYS TO REACH A TARGET\n'
+                + '\n'
+                + '  ' + BAJA3 + '    reads the panel\n'
+                + '            needs cell lines carrying the loss\n'
+                + '            silent when there are too few\n'
+                + '\n'
+                + '  paralogs  reads the gene pair itself\n'
+                + '            identity, family, the partner\u2019s own\n'
+                + '            essentiality, co-expression, complexes\n'
+                + '            answers with no lines at all' });
+            books.push({ section: 'Paralog partners', accent: 'run', title: 'Predict the surviving paralog', badge: 'paralog model \u00b7 ' + (sel.length ? (sel.length + ' loss' + (sel.length === 1 ? '' : 'es')) : 'choose losses first'), icon: 'hub',
                 ready: sel.length > 0, readyNote: 'select genes first',
-                blurb: 'A different model and a different question: for each loss, which paralog is predicted to become '
-                    + 'the surviving copy the cell cannot then do without.', open: () => parFind() });
+                blurb: 'For each selected loss, the paralog predicted to become the copy the cell cannot then do '
+                    + 'without, with the pair features behind each prediction shown beside it.', open: () => parFind() });
+            if (parResult) books.push({ section: 'Paralog partners', title: 'Last paralog result',
+                badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'list',
+                blurb: 'For ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
+            books.push(paralogDocCard('Paralog partners'));
             // FROM A TRACT RATHER THAN FROM A MATRIX. This was reachable only from inside the
             // LOH result, which meant finding it required already being three steps into a
             // different analysis.
@@ -9645,8 +9721,6 @@ function (path, config) {
                 blurb: 'For ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             if (hoResult) last.push({ section: 'Last results', title: BAJA3 + ' catalogue', badge: hoResult.matched.length + ' within', icon: 'library_books',
                 blurb: 'For ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
-            if (parResult) last.push({ section: 'Last results', title: 'Paralog partners', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'hub',
-                blurb: 'For ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
             if (lohSlResult) last.push({ section: 'Last results', title: 'Single-copy vulnerabilities', badge: lohSlResult.cyclops.length + ' candidates', icon: 'list',
                 blurb: 'From the loss-of-heterozygosity tracts.', ready: true, open: () => lohSlMenu() });
             if (last.length) { books.push({ section: 'Last results', note: true, title: 'What each of these last returned, without running anything again.' }); books.push.apply(books, last); }
