@@ -142,14 +142,25 @@ function (server, graph, genegraph_panel_layout, text) {
                     const sig = sigOf(v.info);
                     const label = v.id || (g.gene + ' ' + v.pos);
                     try {
-                        const snp = new SnpIndel(type, placeXi, ref, alt, 0, track.strand,
+                        // WHICH COPY IT IS ON. The editor draws haplotype 1 above the track
+                        // and everything else below, and a pasted VCF used to arrive with
+                        // every variant on one side because the genotype was thrown away
+                        // before it got here. For a compound heterozygote that discards the
+                        // answer: two hits matter because one is on each copy.
+                        const phase = (v.phase === 'hap1') ? 1 : 0;
+                        const snp = new SnpIndel(type, placeXi, ref, alt, phase, track.strand,
                             label, null, colorFor(sig));
                         snp.name = label;
                         snp.source = 'VCF';
+                        if (v.phase) snp.phaseWord = v.phase;
+                        if (v.gt) snp.genotypes = [v.gt];
                         // The INFO column, through the class's own parser: a ClinVar-derived
                         // VCF then carries its significance, its condition and its consequence
                         // into the detail box and the callout like anything else.
                         const annots = ('' + (v.info || '')).split(';').filter(Boolean);
+                        // The genotype travels as an annotation field too, so the detail box
+                        // and anything reading annotations sees what the file said.
+                        if (v.gt) annots.push('GT=' + v.gt);
                         if (annots.length) { try { snp.setAnnotation(annots); } catch (e) { } }
                         if (sig) snp.clinsig = sig;
                         if (v.qual) snp.quality = 'QUAL=' + v.qual;

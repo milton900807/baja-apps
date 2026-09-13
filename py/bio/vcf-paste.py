@@ -115,6 +115,34 @@ for line in text.splitlines():
         continue
     chrom = f[0].strip()
     info = f[7] if len(f) > 7 else ""
+    # THE GENOTYPE, AND WHICH COPY IT IS ON.
+    #
+    # The sample columns were dropped here, so a pasted VCF arrived on the track with no
+    # genotype at all and every variant was drawn on one side of it. For a compound
+    # heterozygote that is the whole answer thrown away: the point of two hits is that one
+    # is on each copy, and the editor draws haplotype 1 above the track and haplotype 2
+    # below precisely so that reads at a glance.
+    #
+    #   1|0 -> hap1   0|1 -> hap2   1/1 or 1|1 -> hom   0/1 -> het (unphased)
+    #
+    # The first sample only: a pasted VCF with a panel of samples is a different question,
+    # and guessing which of them the track is about would be worse than saying nothing.
+    gt = ""
+    phase = ""
+    if len(f) > 9 and f[8]:
+        keys = f[8].split(":")
+        if keys and keys[0] == "GT":
+            gt = (f[9].split(":")[0] or "").strip()
+            if gt and gt not in (".", "./.", ".|."):
+                al = re.split(r"[/|]", gt)
+                phased = "|" in gt
+                if len(al) == 2 and al[0] not in (".", "") and al[1] not in (".", ""):
+                    if al[0] == al[1]:
+                        phase = "hom" if al[0] != "0" else ""
+                    elif phased:
+                        phase = "hap1" if al[0] != "0" else "hap2"
+                    else:
+                        phase = "het"
     for alt in str(f[4] or "").split(","):
         alt = alt.upper().strip()
         if not re.match(r"^[ACGTN]+$", alt):
@@ -131,6 +159,7 @@ for line in text.splitlines():
                      "ref": ref, "alt": alt,
                      "qual": (f[5] if len(f) > 5 and f[5] != "." else ""),
                      "filter": (f[6] if len(f) > 6 and f[6] != "." else ""),
+                     "gt": gt, "phase": phase,
                      "info": info})
         if len(rows) >= MAX_VARIANTS:
             break
