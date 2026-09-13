@@ -1193,10 +1193,55 @@ function () {
                 return { color: '#9aa0a6', glow: null };                                          // other -> grey
             }
 
-            draw(graph, tgraph, y, lane = 0) {
+            // IS THIS CHANGE ON BOTH COPIES?
+            //
+            // Three ways a loader can say so, because three of them exist: the word the
+            // genome viewer hands over with each variant, a PHASE= field in the annotations,
+            // and the genotype itself. Any one of them is enough; none of them being present
+            // is not evidence of anything, so the answer is no rather than unknown.
+            isHomozygous() {
+                try {
+                    if (('' + (this.phaseWord || '')).toLowerCase() === 'hom') return true;
+                    if (('' + (this._annotationField('PHASE') || '')).toLowerCase() === 'hom') return true;
+                    const gs = this.genotypes;
+                    if (Array.isArray(gs) && gs.length) {
+                        const g = ('' + gs[0]).trim();
+                        if (g === '1/1' || g === '1|1') return true;
+                    }
+                } catch (e) { }
+                return false;
+            }
+
+            draw(graph, tgraph, y, lane = 0, forcePhase) {
                 if (!graph) return;
 
-                const phase1 = this.phase === 1;
+                // A HOMOZYGOUS CHANGE IS ON BOTH COPIES, SO IT IS DRAWN ON BOTH SIDES.
+                //
+                // The editor puts haplotype 1 above the track and everything else below, and
+                // a homozygous call went below with the unphased ones -- which draws it as
+                // one allele of two and reads, next to a genuine heterozygote on the same
+                // side, as the same kind of thing. It is not: both copies carry it, and both
+                // sides of the baseline are true.
+                //
+                // The mirrored lollipop is drawn FIRST and the real one second, so the hit
+                // region and the stored y that every click test reads belong to the marker on
+                // this variant's own side. forcePhase is what stops the mirror mirroring.
+                if (forcePhase == null && this.isHomozygous()) {
+                    try {
+                        this.draw(graph, tgraph, y, lane, (this.phase === 1) ? 0 : 1);
+                        // The mirror's hit region is kept before the real pass overwrites it,
+                        // so BOTH lollipops can be clicked. Drawing something that cannot be
+                        // pressed where its twin can is the kind of difference nobody can see
+                        // and everybody trips over.
+                        this._hitScreenTwin = this._hitScreen;
+                        this._headScreenTwin = this._headScreen;
+                    } catch (e) { }
+                } else if (forcePhase == null) {
+                    this._hitScreenTwin = null;
+                    this._headScreenTwin = null;
+                }
+
+                const phase1 = (forcePhase != null) ? (forcePhase === 1) : (this.phase === 1);
                 const drawY = phase1 ? y : -y;
                 this.y = drawY;
 
@@ -1353,9 +1398,10 @@ function () {
             // unconverted world values -- comparing pixels against those could only ever
             // match by accident. The caller keeps a real proximity fallback of its own.
             over(sx, sy, graph, tgraph) {
-                const h = this._hitScreen;
-                if (!h) return false;
-                return (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h);
+                const inside = (h) => !!h && (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h);
+                // A homozygous change is drawn on both sides of the baseline, so it has two
+                // regions and either one is it.
+                return inside(this._hitScreen) || inside(this._hitScreenTwin);
             }
 
             // Pixels from the pointer to this marker's HEAD. Used to choose between several
@@ -1363,6 +1409,14 @@ function () {
             // Infinity when the marker was not drawn on the last frame, so a marker with no
             // known head never wins a comparison against one that has one.
             headDistance(sx, sy) {
+                // The nearer of the two heads, for a change drawn on both copies.
+                const t = this._headScreenTwin;
+                if (t && isFinite(t.x) && isFinite(t.y)) {
+                    const h0 = this._headScreen;
+                    const dT = Math.hypot(sx - t.x, sy - t.y);
+                    if (!h0 || !isFinite(h0.x) || !isFinite(h0.y)) return dT;
+                    return Math.min(dT, Math.hypot(sx - h0.x, sy - h0.y));
+                }
                 const h = this._headScreen;
                 if (!h) return Infinity;
                 const dx = sx - h.x, dy = sy - h.y;
