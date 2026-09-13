@@ -10554,6 +10554,33 @@ function (path, config) {
             books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
                 blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
+            // CLEARING WHAT IS SELECTED, where what is selected is described.
+            //
+            // Genes chosen for the model and regions dragged out on the chromosomes are two
+            // different selections made in two different places, and both are cleared from
+            // two different panels one level in. Someone who wants to start again wants
+            // both gone at once, and Analyze is the one place that sees both.
+            {
+                const nSel = selGenes.size, nReg = (regions && regions.length) || 0;
+                const parts = [];
+                if (nSel) parts.push(nSel + ' gene' + (nSel === 1 ? '' : 's'));
+                if (nReg) parts.push(nReg + ' region' + (nReg === 1 ? '' : 's'));
+                books.push({ section: 'This genome', title: 'Deselect all', badge: parts.length ? parts.join(' \u00b7 ') : 'nothing selected',
+                    icon: 'remove_done', ready: parts.length > 0, readyNote: 'nothing is selected',
+                    blurb: parts.length
+                        ? 'Clears ' + parts.join(' and ') + '. The variants, the loss matrix and every result are kept \u2014 this only undoes the choosing.'
+                        : 'Clears the genes chosen for the model and the regions dragged out on the chromosomes. Nothing is chosen at the moment.',
+                    open: () => {
+                        try { selGenes.clear(); } catch (e) { }
+                        try { regions = []; activeRegion = null; } catch (e) { }
+                        try { reindexHighlights(); } catch (e) { }
+                        try { legendRefresh(); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                        graph.setMessage(' Deselected ' + (parts.length ? parts.join(' and ') : 'nothing') + '. '
+                            + 'The variants and every result are still here. ');
+                        try { analysisMenu(); } catch (e) { }
+                    } });
+            }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
                 ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
