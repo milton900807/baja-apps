@@ -9073,6 +9073,16 @@ pattern, GGGG | Required`
                 // nucleotide rows reads as a base change. Its name (G93A) already carries
                 // the substitution, so the change is left to the name there.
                 parts.push((real && !peptide) ? (ref + '>' + alt + '  ' + kind) : kind);
+                // WHAT IT DOES, where it is known. The background scan
+                // (baja/manchester/menu/variant-impact.js) reads the transcript and works
+                // out whether this change breaks a splice site, shifts the frame or stops
+                // translation early; a list of variants that does not say which of them do
+                // that is a list that has to be opened one row at a time.
+                try {
+                    if (s.impactFlags && s.impactFlags.length) {
+                        parts.push((s.warn ? '\u26a0 ' : '') + s.impactFlags.join(' \u00b7 '));
+                    }
+                } catch (e) { }
                 if (s.clinsig) { parts.push('' + s.clinsig); }
                 // Only when it adds something. An id that repeats the change, or that is
                 // the coordinate the row already ends with, is noise -- a VCF with no ID

@@ -1176,6 +1176,16 @@ function () {
                 // wins over the clinical one while it is set. Cleared by the same view.
                 if (this.sampleColor) return { color: this.sampleColor, glow: null };
                 const c = ('' + (this.clinsig || '')).toLowerCase();
+                // A PROFOUND EFFECT SAYS SO IN THE COLOUR, when the record itself says nothing.
+                //
+                // A variant that breaks a splice site, shifts the frame or introduces a stop
+                // is not a grey dot. Most such variants are not in ClinVar at all -- they come
+                // off somebody's own VCF -- and drawing them the same as an untested missense
+                // is how a reader scrolls past the one that mattered. Amber rather than the
+                // pathogenic red, because this is a consequence read off the transcript and
+                // not a clinical classification, and the two must not be confused.
+                // baja/manchester/menu/variant-impact.js sets it; a real ClinVar call still wins.
+                if (!c && this.warn) return { color: '#e08a00', glow: 'rgba(224,138,0,0.85)' };
                 if (!c) return { color: '#9aa0a6', glow: null };                                  // null -> grey
                 if (/\bpathogenic\b/.test(c)) return { color: '#d1342f', glow: 'rgba(209,52,47,0.9)' }; // pathogenic -> red + glow
                 if (/\bbenign\b/.test(c)) return { color: '#2a6fd6', glow: null };                // benign -> blue

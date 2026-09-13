@@ -3594,6 +3594,62 @@ function (path, config) {
                 // for the one editor most users actually have open.
                 try { CurrentLayout.stash('graph', graph) } catch (e) { }
 
+                // WHAT THE VARIANTS ON A TRACK ACTUALLY DO, worked out in the background.
+                //
+                // A variant arrives as a lollipop at a position, and whether that position
+                // is the second base of an intron, the start codon, or a base that turns a
+                // codon into a stop is the difference between a change worth designing
+                // against and one worth ignoring. The track carries what settles it -- its
+                // sequence, its exons, the span it translates -- so nothing needs to be
+                // fetched; it only needs doing, and it is done off the critical path.
+                //
+                // A WATCHER RATHER THAN A CALL AT EACH LOADING SITE. Variants arrive by a
+                // dozen routes (a paste, ClinVar, a search, the hand-off from the genome
+                // viewer, one typed in by hand) and annotations arrive separately again, so
+                // hooking every one of them would mean finding every one of them, and
+                // missing the next. This watches the shape of what is loaded -- how many
+                // variants, how many annotations, how long the sequence -- and scans when it
+                // changes. The scan itself skips every variant it has already judged against
+                // the same track, so the steady state is a comparison per variant.
+                try {
+                    let __impactSig = '';
+                    let __impactBusy = false;
+                    const __impactShape = () => {
+                        let sig = '';
+                        try {
+                            for (const t of (graph.track || [])) {
+                                sig += ((t.snpindels || []).length) + '/' + ((t.annotations || []).length)
+                                    + '/' + ((t.sequence || '').length) + ';';
+                            }
+                        } catch (e) { sig = ''; }
+                        return sig;
+                    };
+                    const __impactTick = async () => {
+                        if (__impactBusy) return;
+                        const sig = __impactShape();
+                        if (!sig || sig === __impactSig) return;
+                        // Only when there is something to judge AND something to judge it
+                        // against: variants on a track that carries annotations.
+                        let ready = false;
+                        try {
+                            for (const t of (graph.track || [])) {
+                                if ((t.snpindels || []).length && (t.annotations || []).length && (t.sequence || '').length) { ready = true; break; }
+                            }
+                        } catch (e) { ready = false; }
+                        if (!ready) { __impactSig = sig; return; }
+                        __impactBusy = true;
+                        __impactSig = sig;
+                        try { await exec('baja/manchester/menu/variant-impact.js', graph); }
+                        catch (e) { try { console.warn('[editor] variant impact scan failed', e); } catch (e2) { } }
+                        __impactBusy = false;
+                    };
+                    setInterval(__impactTick, 1500);
+                    setTimeout(__impactTick, 1200);
+                    // So a tool that has just changed a track can ask for it immediately
+                    // rather than waiting for the next tick.
+                    graph.rescanVariantImpact = () => { __impactSig = ''; return __impactTick(); };
+                } catch (e) { }
+
                 // A HAND-OFF FROM THE GENOME VIEWER, IN ANOTHER TAB.
                 //
                 // The viewer opens the editor in a new tab now so the genome it built stays
