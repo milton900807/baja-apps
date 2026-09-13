@@ -8124,7 +8124,7 @@ function (path, config) {
                 const gt = si < 0 ? GT_OTHER : gtOf(d, k, si);
                 if (si >= 0 && gt < GT_HET) continue;          // this sample does not carry it
                 const ab = allelesAt(ci, k);
-                out.push({ pos: d.pos[k], ref: ab[0], alt: ab[1], gt: gt,
+                out.push({ pos: d.pos[k], ref: ab[0], alt: ab[1], gt: gt, ps: (si >= 0 ? psOf(d, k, si) : 0),
                     why: isLof ? 'Called loss-of-function by the loss matrix.' : 'ClinVar classifies this change pathogenic.' });
                 if (out.length >= AS_MAX_PER_GENE) break;
             }
@@ -8138,15 +8138,45 @@ function (path, config) {
         // passed over saying so, which for a recessive compound heterozygote is the right
         // answer rather than a failure.
         const asSitesPhased = (ci, lo, hi, si, gene, rec) => {
+            const d = vdata[ci];
             const anchors = asAnchorsIn(ci, lo, hi, si, rec);
             const ph = anchors.filter((x) => x.gt === GT_HAP1 || x.gt === GT_HAP2);
             if (!ph.length) return { sites: [], why: anchors.length
                 ? 'carries ' + anchors.length + ' disease variant' + (anchors.length === 1 ? '' : 's') + ', none of them phased'
                 : 'no disease variant in it to phase against' };
-            const hap = ph[0].gt;
-            if (ph.some((x) => x.gt !== hap)) return { sites: [], why: 'disease variants on both copies, so there is no single disease haplotype' };
+            // WHICH BLOCK THE DISEASE COPY IS KNOWN IN.
+            //
+            // A phased genotype says which copy carries the alt only inside its own phase
+            // set. This used to read the orientation across the whole gene, which broke in
+            // both directions on real long-read data: two disease variants in DIFFERENT
+            // sets, one 1|0 and one 0|1, were read as "disease variants on both copies" and
+            // the gene was dropped -- and every other heterozygous site in the gene was
+            // assigned to a copy whether or not it was in the same set as the anchor.
+            //
+            // With a median phase block of about 20 kb, a gene routinely spans several
+            // sets, so this was the common case rather than an edge one. The disease copy
+            // is established WITHIN ONE SET: the set holding the most disease variants, and
+            // only sites in that same set can be placed relative to it. The rest of the
+            // gene is not wrong, it is unknown, and the note says how much was left out.
+            //
+            // A file with no phase sets at all -- statistical phasing, whole chromosomes --
+            // has ps 0 everywhere, and then one block IS the whole gene, which is exactly
+            // what this then does.
+            const byPS = {};
+            ph.forEach((x) => { const k = '' + (x.ps || 0); (byPS[k] = byPS[k] || []).push(x); });
+            const keys = Object.keys(byPS);
+            keys.sort((a, b) => byPS[b].length - byPS[a].length);
+            const usePS = +keys[0];
+            const inSet = byPS[keys[0]];
+            const elsewhere = ph.length - inSet.length;
+            const hap = inSet[0].gt;
+            // Opposite orientations INSIDE one set is a real compound heterozygote: there is
+            // no single disease copy, and saying so is the right answer rather than a
+            // failure. Across sets it says nothing, and no longer pretends to.
+            if (inSet.some((x) => x.gt !== hap)) return { sites: [], why: 'disease variants on both copies (phase set '
+                + usePS + '), so there is no single disease haplotype — which is what a compound heterozygote is' };
             const hapName = hap === GT_HAP1 ? 'haplotype 1' : 'haplotype 2';
-            const d = vdata[ci];
+            const setName = usePS ? ' in phase set ' + usePS : '';
             const sites = [];
             const meta = {};
             const chr = drawn[ci].name;
@@ -8155,26 +8185,37 @@ function (path, config) {
                     evidence: 'measured', tumor_baf: null, germline_baf: null });
                 meta[chr + ':' + pos] = { why: why, anchor: !!anchor, hap: hapName };
             };
-            for (const an of ph) {
+            for (const an of inSet) {
                 if (an.ref.length !== 1 || an.alt.length !== 1) continue;
-                push(an.pos, an.ref, an.alt, 'alt', an.why + ' It is on ' + hapName + ', which is the disease copy.', true);
+                push(an.pos, an.ref, an.alt, 'alt', an.why + ' It is on ' + hapName + setName + ', which is the disease copy.', true);
             }
             let a = 0, b = d.n - 1;
             while (a < b) { const m = (a + b) >> 1; if (d.pos[m] < lo) a = m + 1; else b = m; }
+            let offSet = 0;
             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                 if (sites.length >= AS_MAX_PER_GENE) break;
                 const gt = gtOf(d, k, si);
                 if (gt !== GT_HAP1 && gt !== GT_HAP2) continue;
                 if (meta[chr + ':' + d.pos[k]]) continue;                 // already in as an anchor
+                // A site phased in a DIFFERENT set cannot be placed against the anchor at
+                // all. Counted, so the result can say how much of the gene that was.
+                if ((psOf(d, k, si) || 0) !== usePS) { offSet++; continue; }
                 const ab = allelesAt(ci, k);
                 if (ab[0].length !== 1 || ab[1].length !== 1) continue;   // a SNP, not an indel
                 const onDisease = (gt === hap);
                 push(d.pos[k], ab[0], ab[1], onDisease ? 'alt' : 'ref',
                     'Phased to ' + (onDisease ? hapName + ', the disease copy, so its ' + ab[1] + ' is on the allele to hit.'
-                        : (hap === GT_HAP1 ? 'haplotype 2' : 'haplotype 1') + ', the healthy copy, so the disease copy carries ' + ab[0] + ' here.'),
+                        : (hap === GT_HAP1 ? 'haplotype 2' : 'haplotype 1') + ', the healthy copy, so the disease copy carries ' + ab[0] + ' here.')
+                    + (usePS ? ' Same phase set as the disease variant (' + usePS + ').' : ''),
                     false);
             }
-            return { sites: sites, meta: meta, hap: hapName };
+            return { sites: sites, meta: meta, hap: hapName + setName,
+                note: (elsewhere || offSet)
+                    ? (elsewhere ? elsewhere + ' disease variant' + (elsewhere === 1 ? '' : 's') + ' in other phase sets' : '')
+                        + (elsewhere && offSet ? ', and ' : '')
+                        + (offSet ? offSet + ' heterozygous site' + (offSet === 1 ? '' : 's') + ' in the gene but in another phase set' : '')
+                        + ' could not be placed against this one.'
+                    : '' };
         };
 
         // THE MUTATION ITSELF. No phase and no second sample: the change is the difference.
@@ -8341,7 +8382,11 @@ function (path, config) {
                         got = res.sites;
                         gmeta = res.meta || {};
                         if (!got.length) skipped.push({ gene: sp.gene, why: res.why || 'nothing to aim at' });
-                        else if (mode === 'phased') gwhy = sp.gene + ': the disease copy here is ' + res.hap + ', read from ' + asSampleName(si) + '.';
+                        else if (mode === 'phased') gwhy = sp.gene + ': the disease copy here is ' + res.hap + ', read from ' + asSampleName(si) + '.'
+                            // How much of the gene could NOT be placed against it. A result
+                            // that quietly covers one phase set of a gene that spans four
+                            // reads as a result about the gene.
+                            + (res.note ? ' ' + res.note : '');
                         else gwhy = sp.gene + ': the disease change itself, read from ' + asSampleName(si) + '.';
                     }
                     if (!got.length) continue;
