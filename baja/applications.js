@@ -38,8 +38,7 @@ function (options) {
 
         const GROUPS = [
             {
-                name: 'Design',
-                blurb: 'Three modalities over one sequence layer.',
+                name: '_',
                 apps: [
                     {
                         label: 'Oligo Design',
