@@ -8059,6 +8059,17 @@ function (path, config) {
                         + tracts + ' tract' + (tracts === 1 ? '' : 's') + '. Tumor suppressors first, then by how completely the loss covers the gene. '
                         + 'The percentage is of the heterozygous sites inside that gene, not of the tract.'
                         + (R.genesTruncated ? ' Some parts of the annotation were cut at the lookup\'s limit.' : '') });
+                // THE SAME FORWARD STEP THE LOSS MATRIX CARRIES. This is the other route to
+                // a background, and it had the same gap: a shelf that lets you choose genes
+                // and never says what choosing them is for.
+                if (selGenes.size) {
+                    books.push({ section: 'Genes in the tracts', accent: 'run', icon: 'biotech',
+                        title: 'Next: ask the panel about these ' + selWord(),
+                        badge: 'step 4 \u00b7 ' + selWord(), ready: true,
+                        blurb: 'Take them as the background and find what a tumor carrying those losses cannot then '
+                            + 'survive losing. Keep choosing here first if the set is not finished.',
+                        open: () => selectedGenesMenu() });
+                }
                 books.push({ section: 'Genes in the tracts', title: 'Select all of them', badge: R.genes.length + ' genes', icon: 'done_all', ready: R.genes.length > 0,
                     blurb: 'Put every gene in the tracts into the microscope\'s selection, as the background for ' + BAJA3 + '. A hemizygous arm is exactly that kind of background.',
                     open: () => { R.genes.forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), lohSelRecord(g))); graph.setMessage(' ' + selWord() + ' selected. '); lohMenu(); } });
@@ -8534,6 +8545,14 @@ function (path, config) {
             books.push({ section: 'Selected genes', note: true, title: sel.length
                 ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumor\'s background.')
                 : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
+            books.push({ section: 'Find targets', note: true, mono: true, title:
+                  'YOU ARE HERE\n'
+                + '\n'
+                + '  step 3  losses chosen        done\n'
+                + '             |\n'
+                + '  step 4  ask the panel        the cards below\n'
+                + '             |\n'
+                + '  step 5  read the answer      target, window, why, drugs' });
             books.push({ section: 'Find targets', note: true, title: BAJA3 + ' — ' + BAJA3_LONG + '. For each selected loss and each pair of them, the third gene that becomes selectively essential in cells carrying the same losses.' });
             books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
                 blurb: 'Run the model live on DepMap: lineage-corrected differential dependency across lines carrying these losses, each hit labelled genuine third-gene dependency or driven by one loss.',
@@ -9179,6 +9198,37 @@ function (path, config) {
                     + (other ? ' (' + other + ' left in place)' : '') + '.' + zygLine
                     + (activeFilterCount() ? ' Refined to ' + genes.length + ' of ' + allG.length + ' (' + filtersSummary() + ').' : '')
                     + (lossMatrix.notes && lossMatrix.notes.length ? ' ' + lossMatrix.notes.join(' ') : '') });
+            // WHERE THE READER IS, AND WHAT COMES NEXT.
+            //
+            // Choosing genes here is step 3 of a workflow whose remaining steps are on
+            // another shelf, and nothing on this one said so. Someone who had just clicked
+            // six genes had no reason to believe anything further existed: the selection
+            // card sat below Refine and Select all, titled as a place rather than as a move,
+            // and read as somewhere to go and look at what you had done.
+            //
+            // So the state and the next move go at the top, before anything that edits the
+            // list, and the card that carries them says what pressing it does.
+            if (selGenes.size) {
+                books.push({ section: 'Loss matrix', note: true, mono: true, title:
+                      'YOU ARE HERE\n'
+                    + '\n'
+                    + '  step 2  the loss matrix     done\n'
+                    + '  step 3  ' + selWord() + ' chosen\n'
+                    + '             |\n'
+                    + '  step 4  ask the panel       BAJA-3 / catalogue / paralogs' });
+                books.push({ section: 'Loss matrix', accent: 'run', icon: 'biotech',
+                    title: 'Next: ask the panel about these ' + selWord(),
+                    badge: 'step 4 \u00b7 ' + selWord(), ready: true,
+                    blurb: 'Take ' + selectedList().map((g) => g.gene).join(', ') + ' as the background and find what a '
+                        + 'tumor carrying those losses cannot then survive losing. Keep clicking here first if the set '
+                        + 'is not finished \u2014 nothing is spent until the panel is asked.',
+                    open: () => selectedGenesMenu() });
+            } else {
+                books.push({ section: 'Loss matrix', note: true,
+                    title: 'Click a gene below to choose it, and again to drop it. The genes chosen here become the '
+                        + 'background the models reason from, which is step 3 of four; the card at the top will say '
+                        + 'where to go next as soon as one is chosen.' });
+            }
             if (allG.length > 10 || activeFilterCount()) books.push({ section: 'Loss matrix', title: 'Refine gene list', badge: activeFilterCount() ? (activeFilterCount() + ' filter' + (activeFilterCount() === 1 ? '' : 's') + ' · ' + genes.length + ' of ' + allG.length) : (allG.length + ' genes'), icon: 'filter_alt',
                 blurb: 'Narrow the list by zygosity, variant consequence, cancer-gene class, therapeutic interpretation, evidence level or expression. Classification and therapeutic evidence are looked up on demand from curated lists, DepMap and the published literature.',
                 ready: true, open: () => refineMenu() });
