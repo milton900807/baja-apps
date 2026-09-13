@@ -533,6 +533,16 @@ function (graph, layout) {
                     return b;
                 };
                 const runBtn = mkBtn('▶ Run', true), copyBtn = mkBtn('⧉ Copy', false), closeBtn = mkBtn('✕ Close', false);
+                // THE MOMENT A RECORDING IS WORTH KEEPING is the moment it stops, while the
+                // person who made it still knows what it was for. Saving it here means a
+                // tutorial costs one click more than doing the work did.
+                const saveBtn = mkBtn('☆ Save as tutorial', false);
+                saveBtn.onclick = () => {
+                    const script = ta.value;
+                    try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
+                    try { exec('manchester/tutorials.js', { mode: 'save', script: script, graph: graph }); }
+                    catch (e) { try { graph.setMessage(' The tutorial panel could not be opened: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                };
                 runBtn.onclick = () => {
                     const script = ta.value;
                     try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { }
@@ -545,7 +555,7 @@ function (graph, layout) {
                     copyBtn.textContent = '✓ Copied'; setTimeout(() => { copyBtn.textContent = '⧉ Copy'; }, 1200);
                 };
                 closeBtn.onclick = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
-                row.appendChild(copyBtn); row.appendChild(closeBtn); row.appendChild(runBtn);
+                row.appendChild(copyBtn); row.appendChild(saveBtn); row.appendChild(closeBtn); row.appendChild(runBtn);
                 panel.appendChild(h); panel.appendChild(sub); panel.appendChild(ta); panel.appendChild(row);
                 document.body.appendChild(panel);
             } catch (e) { }

@@ -1461,6 +1461,8 @@ function (path, config) {
                             + '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">'
                             + '  <label style="opacity:.8;">step delay <input id="baja-play-gap" type="number" value="0" min="0" step="100" style="width:70px;background:#0a1e3a;color:#fff;border:1px solid rgba(255,255,255,0.18);border-radius:6px;padding:4px;"> ms</label>'
                             + '  <span style="flex:1;"></span>'
+                            + '  <button id="baja-play-write" style="background:transparent;color:#cfe3f2;border:1px solid rgba(255,255,255,0.35);border-radius:999px;padding:7px 16px;cursor:pointer;font-weight:700;">Write one in words</button>'
+                            + '  <button id="baja-play-save" style="background:transparent;color:#5eead4;border:1px solid rgba(45,212,191,0.55);border-radius:999px;padding:7px 16px;cursor:pointer;font-weight:700;">Save as tutorial</button>'
                             + '  <button id="baja-play-cancel" style="background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:7px 16px;cursor:pointer;">Cancel</button>'
                             + '  <button id="baja-play-run" style="background:#22c55e;color:#06230f;font-weight:700;border:none;border-radius:999px;padding:7px 20px;cursor:pointer;">Play ▶</button>'
                             + '</div>';
@@ -1468,6 +1470,25 @@ function (path, config) {
                         const ta = document.getElementById('baja-play-text'); focusUnlessMobile(ta);
                         const close = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
                         document.getElementById('baja-play-cancel').onclick = close;
+                        // THE SCRIPT IN THIS BOX IS THE TUTORIAL. It was already pasted here to
+                        // be run once and thrown away; naming it is the difference between a
+                        // thing someone did and a thing someone else can be shown. The keywords
+                        // are not asked for -- the server reads them out of the operations.
+                        // THE OTHER WAY TO WRITE ONE. A recorded script is exact and
+                        // unreadable; a written one is readable and approximate. Both end up
+                        // as the same commands, so they belong behind the same button.
+                        document.getElementById('baja-play-write').onclick = () => {
+                            close();
+                            try { exec('manchester/text-script.js', { graph: graph }); }
+                            catch (e) { try { graph.setMessage(' The script writer could not be opened: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                        };
+                        document.getElementById('baja-play-save').onclick = () => {
+                            const text = ta.value;
+                            if (!('' + text).trim()) { try { graph.setMessage(' Paste a script first. '); } catch (e) { } return; }
+                            close();
+                            try { exec('manchester/tutorials.js', { mode: 'save', script: text, screen: 'editor', graph: graph }); }
+                            catch (e) { try { graph.setMessage(' The tutorial panel could not be opened: ' + (e && e.message ? e.message : e)); } catch (e2) { } }
+                        };
                         document.getElementById('baja-play-run').onclick = () => {
                             const text = ta.value;
                             if (!('' + text).trim()) { try { graph.setMessage(' Paste a script first. '); } catch (e) { } return; }
@@ -2491,7 +2512,41 @@ function (path, config) {
                         try { graph.setError(' Could not open the play panel: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
                     }
                 };
-                try { window.__bajaRecordHook = { where: 'editor', record: __doRecord, play: __doPlay }; } catch (e) { }
+                // WHAT IS ON SCREEN, in words. The tutorial library ranks by context, and the
+                // screen is the only thing that knows what it is currently holding: the tracks
+                // loaded and the genes they are. Everything is best-effort -- a context that
+                // throws is a ranking that falls back to the route, not a library that fails.
+                const __context = () => {
+                    const w = ['editor', 'oligo', 'transcript'];
+                    try {
+                        (graph.tracks || []).slice(0, 24).forEach((t) => {
+                            if (!t) return;
+                            if (t.name) w.push('' + t.name);
+                            if (t.geneName) w.push('' + t.geneName);
+                            if (t.accession) w.push('' + t.accession);
+                        });
+                    } catch (e) { }
+                    return w.join(' ');
+                };
+                // THE VERBS THIS SCREEN OWNS, for a script written in words rather than
+                // recorded. Anything with a label can be clicked by name already; these are
+                // the things with no label to click.
+                const __actions = {
+                    load: async (arg) => { const v = ('' + (arg || '')).trim(); if (v) { try { await graph.add(v); } catch (e) { } } },
+                    fit: () => {
+                        try { if (graph.fitYAxis) graph.fitYAxis(); } catch (e) { }
+                        try { if (graph.rescale) graph.rescale(); } catch (e) { }
+                        try { if (graph.wake) graph.wake(); } catch (e) { }
+                    },
+                    // In the editor "zoom into X" is a gene, and loading one frames it: the
+                    // track arrives zoomed to itself. A bare `zoom` is the fit above.
+                    zoom: async (arg) => {
+                        const v = ('' + (arg || '')).trim();
+                        if (!v || /^(out|all|everything)$/i.test(v)) { try { if (graph.fitYAxis) graph.fitYAxis(); if (graph.rescale) graph.rescale(); if (graph.wake) graph.wake(); } catch (e) { } return; }
+                        try { await graph.add(v); } catch (e) { }
+                    },
+                };
+                try { window.__bajaRecordHook = { where: 'editor', record: __doRecord, play: __doPlay, context: __context, actions: __actions, graph: graph }; } catch (e) { }
                 const __devButtons = !__isRecorderUser ? [] : [
                     {
                         label: 'Record', icon: 'fiber_manual_record',

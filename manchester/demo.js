@@ -412,10 +412,58 @@ function (script, config) {
             } catch (e) { }
             return best;
         };
+        // A TARGET DESCRIBED IN WORDS RATHER THAN RECORDED.
+        //
+        // Every locator above comes from the recorder, which saw the element and wrote down
+        // its exact text. A script somebody TYPED has neither -- "click the box-zoom icon"
+        // is a description, not an identity, and an exact-match test rejects it for a
+        // capital letter. This matches the way a person reads a screen: find the things
+        // whose label, tooltip, aria-label or visible text contains all the words asked
+        // for, and take the smallest one that is actually on screen, preferring an element
+        // that can be pressed. It is deliberately forgiving; the compiled script is shown
+        // before it runs, so a wrong guess is visible rather than mysterious.
+        const NEAR_CLICKABLE = 'button,a,[role="button"],[mat-button],mat-icon,.mat-icon,[title],[aria-label],[data-rec],li,label,span,div';
+        const nearText = (el) => {
+            try {
+                const a = [el.getAttribute && el.getAttribute('data-rec'), el.getAttribute && el.getAttribute('aria-label'),
+                    el.getAttribute && el.getAttribute('title'), el.getAttribute && el.getAttribute('name'),
+                    el.getAttribute && el.getAttribute('placeholder'), el.innerText || el.textContent];
+                return a.filter(Boolean).join(' \u00b7 ').replace(/\s+/g, ' ').trim().toLowerCase();
+            } catch (e) { return ''; }
+        };
+        const nearWords = (v) => ('' + (v || '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+        const resolveNear = (v) => {
+            const want = nearWords(v);
+            if (!want.length) return null;
+            let best = null, bestScore = -1, bestArea = Infinity;
+            try {
+                for (const el of document.querySelectorAll(NEAR_CLICKABLE)) {
+                    const area = visibleArea(el);
+                    if (area < 0 || area > 400000) continue;          // off-screen, or the whole page
+                    const t = nearText(el);
+                    if (!t) continue;
+                    let hits = 0;
+                    for (const w of want) if (t.indexOf(w) >= 0) hits++;
+                    if (hits < want.length) continue;                 // every word, or it is not this
+                    // A shorter label containing the same words is the more specific element,
+                    // and a real control beats the box that happens to contain one.
+                    const tag = (el.tagName || '').toLowerCase();
+                    const pressable = (tag === 'button' || tag === 'a' || (el.getAttribute && el.getAttribute('role') === 'button')
+                        || (el.closest && el.closest('button,a,[role="button"]'))) ? 1 : 0;
+                    const score = pressable * 2 + (t.length <= (v.length + 24) ? 1 : 0);
+                    if (score > bestScore || (score === bestScore && area < bestArea)) {
+                        best = (pressable && el.closest) ? (el.closest('button,a,[role="button"]') || el) : el;
+                        bestScore = score; bestArea = area;
+                    }
+                }
+            } catch (e) { }
+            return best;
+        };
         const resolveLocator = (loc) => {
             if (!loc) return null;
             try {
                 if (loc.by === 'id' && loc.v) { const el = document.getElementById(loc.v); if (el) return el; }
+                if (loc.by === 'near' && loc.v) { const el = resolveNear(loc.v); if (el) return el; }
                 if (loc.by === 'path' && loc.v) { try { const el = document.querySelector(loc.v); if (el && visibleArea(el) > 0) return el; } catch (e) { } }
                 if (loc.by === 'label' && loc.v) {
                     const el = smallestMatch(loc.tag || '[aria-label],[title],[name],[placeholder],[data-rec]', (e) => {
@@ -430,6 +478,9 @@ function (script, config) {
                 }
                 // Structural path as a secondary attempt regardless of primary strategy.
                 if (loc.path) { try { const el = document.querySelector(loc.path); if (el && visibleArea(el) > 0) return el; } catch (e) { } }
+                // And the forgiving match as a second-to-last chance: a recorded label whose
+                // wording has since changed still finds its button if the words are there.
+                if (loc.v && loc.by !== 'near') { const el = resolveNear(loc.v); if (el) return el; }
                 // Last resort: whatever element sits at the recorded screen point.
                 if (loc.wx != null && loc.wy != null) {
                     try {
@@ -917,6 +968,30 @@ function (script, config) {
                     }
                     try { if (typeof item.click === 'function') item.click(); } catch (e) { try { console.warn('demo menuclick failed:', e); } catch (e2) { } }
                     if (menuType === 'center') { try { if (graph.wake) graph.wake(); } catch (e) { } }
+                    break;
+                }
+                // WHAT THE SCREEN CAN DO, BY NAME.
+                //
+                // Every other command here drives the application from the outside: a click
+                // at a point, a key in a field. Some things have no button to press -- "zoom
+                // into the mutation on screen" is a thing the genome viewer knows how to do
+                // and nothing in the DOM says so -- and driving those from the outside means
+                // reproducing coordinates, which is exactly what a written script cannot
+                // know. So a screen registers its own verbs on the record hook, and this
+                // calls them. A verb the current screen does not have is reported and
+                // skipped, never faked.
+                case 'action': {
+                    const nm = ('' + (c.name || c.action || a[0] || '')).trim().toLowerCase();
+                    const arg = (c.arg != null) ? c.arg : a.slice(1).join(' ');
+                    let acts = null;
+                    try { acts = (window.__bajaRecordHook && window.__bajaRecordHook.actions) || null; } catch (e) { }
+                    const fn = acts && (acts[nm] || acts[nm.replace(/\s+/g, '')]);
+                    if (typeof fn !== 'function') {
+                        say('This screen cannot "' + nm + '".');
+                        try { console.warn('demo action: not available here', nm, Object.keys(acts || {})); } catch (e) { }
+                        break;
+                    }
+                    try { await fn(arg); } catch (e) { say('"' + nm + '" failed: ' + (e && e.message ? e.message : e)); }
                     break;
                 }
                 case 'message': case 'msg': case 'say': { say(c.text || c.value || a.join(' ')); break; }

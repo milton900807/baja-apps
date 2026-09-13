@@ -769,9 +769,89 @@ function (path, config) {
         try {
             window.__bajaRecordHook = {
                 where: 'karyotype',
+                graph: graph,
                 record: () => {
                     try { exec('manchester/recorder.js', graph, genegraph_panel_layout); }
                     catch (e) { try { graph.setError(' Recorder failed: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { } }
+                },
+                // WHAT THIS SCREEN IS CURRENTLY HOLDING, in words, for the tutorial library to
+                // rank against: the species, the files loaded, the genes chosen, and which of
+                // the analyses have actually been run. Someone standing in front of a loss
+                // matrix should be offered the tutorials about loss matrices first.
+                context: () => {
+                    const w = ['karyotype', 'genome', 'viewer'];
+                    try { if (r && r.species) w.push('' + r.species); } catch (e) { }
+                    try { (sideFile || []).forEach((f) => { if (f) w.push('' + f); }); } catch (e) { }
+                    try { if (vtotal) w.push('variants', 'vcf'); } catch (e) { }
+                    try { if (lossMatrix) w.push('loss', 'matrix'); } catch (e) { }
+                    try { if (lohResult) w.push('loh', 'heterozygosity'); } catch (e) { }
+                    try { if (slResult || hoResult) w.push('synthetic', 'lethality', 'depmap'); } catch (e) { }
+                    try { if (parResult) w.push('paralog', 'partners'); } catch (e) { }
+                    try { if (lohAlleleResult) w.push('allele', 'selective'); } catch (e) { }
+                    try { selectedList().slice(0, 20).forEach((g) => { if (g && g.gene) w.push('' + g.gene); }); } catch (e) { }
+                    return w.join(' ');
+                },
+                // WHAT THIS SCREEN CAN BE ASKED TO DO, BY NAME.
+                //
+                // A written script (manchester/text-script.js) can click anything that has a
+                // label, and there are things here with no label to click: framing a gene,
+                // framing the mutation someone is looking at, going back to the whole genome.
+                // Those are verbs this screen owns, so it registers them under the names
+                // someone would write, and the script runner calls them. Every one takes the
+                // rest of the line as its argument, or nothing.
+                actions: {
+                    zoom: async (arg) => {
+                        const a = ('' + (arg || '')).trim();
+                        if (!a || /^(out|all|everything|genome|whole genome)$/i.test(a)) { try { await fit(); } catch (e) { } return; }
+                        // A mutation rather than a gene: frame the marks nearest the middle of
+                        // what is on screen, which is what "the mutation on screen" means to
+                        // the person looking at it.
+                        if (/^(mutation|variant|marks?|mutations|variants)$/i.test(a)) {
+                            // The one nearest the middle of what is currently framed, which is
+                            // what "the mutation on screen" means to the person looking at it.
+                            // Positions are base pairs in a typed array; world y is wy(pos).
+                            const V = viewOf();
+                            if (!V) { graph.setMessage(' The view is not ready yet. '); return; }
+                            const yLo = Math.min(V.y0, V.y1), yHi = Math.max(V.y0, V.y1);
+                            const midY = (V.y0 + V.y1) / 2, midX = (V.x0 + V.x1) / 2;
+                            let best = null, bestD = Infinity;
+                            try {
+                                vdata.forEach((d, ci) => {
+                                    if (!d || !d.n || !d.pos) return;
+                                    const bx = (barLeft(ci) + barRight(ci)) / 2;
+                                    const xOff = Math.abs(bx - midX) * 0.25;
+                                    for (let k = 0; k < d.n; k++) {
+                                        const y = wy(d.pos[k]);
+                                        if (y < yLo || y > yHi) continue;
+                                        const dist = Math.abs(y - midY) + xOff;
+                                        if (dist < bestD) { bestD = dist; best = { ci: ci, y: y }; }
+                                    }
+                                });
+                            } catch (e) { }
+                            if (!best) { graph.setMessage(' There is no mutation in view to zoom into. '); return; }
+                            const pad = 0.35;   // world y is megabases, so this frames ~700 kb
+                            goView({ x0: barLeft(best.ci) - 0.5 * SLOT, x1: barRight(best.ci) + 0.5 * SLOT,
+                                y0: best.y - pad, y1: best.y + pad });
+                            return;
+                        }
+                        // A chromosome by name, then a gene by symbol -- in that order,
+                        // because 'X' is a chromosome before it is anything else.
+                        const ci = chromIndexOf(a);
+                        if (ci >= 0) {
+                            const len = (drawn[ci] && (drawn[ci].len || drawn[ci].length)) || 0;
+                            goView({ x0: barLeft(ci) - 0.6 * SLOT, x1: barRight(ci) + 0.6 * SLOT, y0: wy(len), y1: wy(0) });
+                            return;
+                        }
+                        const ok = await gotoSymbol(a);
+                        if (!ok) graph.setMessage(' Nothing here is called ' + a + '. ');
+                    },
+                    fit: async () => { try { await fit(); } catch (e) { } },
+                    pan: () => { try { pan(); } catch (e) { } },
+                    upload: () => { try { uploadMenu(); } catch (e) { } },
+                    analyze: () => { try { analysisMenu(); } catch (e) { } },
+                    search: () => { try { searchMenu(); } catch (e) { } },
+                    info: () => { try { infoPanel(); } catch (e) { } },
+                    bookmarks: () => { try { bookmarkNav(); } catch (e) { } },
                 },
             };
         } catch (e) { }
