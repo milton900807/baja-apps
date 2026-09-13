@@ -312,33 +312,40 @@ function (opts) {
                     }
                 }
                 if (b.note) {
+                    const txt = ('' + (b.blurb || b.title || ''));
+                    if (b.mono) {
+                        // A DIAGRAM, AND NOTHING ABOUT THE GRID GETS TO DECIDE ITS HEIGHT.
+                        //
+                        // Styling the grid item directly produced a box one row tall: the
+                        // lines drew over each other and over the cards beneath. Which rule
+                        // did it is beside the point -- the fix is not to depend on the
+                        // answer. The text goes in a <pre>, which has an intrinsic block
+                        // height of its own, inside a wrapper whose min-height is computed
+                        // from the number of lines. Whatever the grid decides, the box is at
+                        // least as tall as the drawing in it.
+                        const body = txt.replace(/^\n+/, '').replace(/\s+$/, '');
+                        const LH = 17;                       // 12px text on a 1.4 line box
+                        const rows = body.split('\n').length;
+                        const wrap = document.createElement('div');
+                        wrap.style.cssText = 'grid-column:1/-1;align-self:start;justify-self:stretch;'
+                            + 'display:block;box-sizing:border-box;width:100%;'
+                            + 'min-height:' + (rows * LH + 28) + 'px;height:auto;max-height:none;'
+                            + 'overflow:visible;margin:2px 0 10px;padding:13px 14px;border-radius:9px;'
+                            + 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10);';
+                        const pre = document.createElement('pre');
+                        pre.style.cssText = 'margin:0;padding:0;display:block;white-space:pre-wrap;'
+                            + 'overflow-wrap:anywhere;color:#cfe3f2;'
+                            + 'font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;'
+                            + 'font-size:12px;line-height:' + LH + 'px;';
+                        pre.textContent = body;
+                        wrap.appendChild(pre);
+                        shelf.appendChild(wrap);
+                        continue;
+                    }
                     const nt = document.createElement('div');
-                    // A DIAGRAM IS A NOTE THAT KEEPS ITS SHAPE. Prose is wrapped and its
-                    // whitespace collapsed, which is right for a sentence and destroys a
-                    // drawing: every line of a flow diagram lands on the one before it.
-                    // `mono: true` keeps the newlines and the column widths, and sets the
-                    // block apart so it reads as a picture of the steps rather than as more
-                    // text. Purely additive -- a note without it renders exactly as before.
-                    // EVERY SIZING RULE SPELLED OUT. This sits in a grid whose rows are sized
-                    // by the cards in them, and a multi-line block dropped into one came out a
-                    // single row tall with scrollbars on it rather than growing to fit. So the
-                    // height is explicitly automatic with no ceiling, the box is aligned to the
-                    // start of its row instead of stretching to it, and overflow is visible
-                    // rather than scrollable: a diagram that does not fit should wrap, never
-                    // hide behind a scrollbar the reader has to find.
-                    nt.style.cssText = b.mono
-                        ? 'grid-column:1/-1;align-self:start;justify-self:stretch;display:block;'
-                          + 'box-sizing:border-box;width:100%;height:auto;max-height:none;min-height:0;'
-                          + 'overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;'
-                          + 'color:#bcd3e6;font:12px/1.55 "SFMono-Regular",Consolas,'
-                          + '"Liberation Mono",Menlo,monospace;'
-                          + 'padding:12px 14px;margin:2px 0 10px;border-radius:9px;'
-                          + 'background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.10);'
-                        : 'grid-column:1/-1;align-self:start;height:auto;max-height:none;overflow:visible;'
-                          + 'color:#9fb3c8;font:13px/1.6 Arial;padding:2px 2px 6px;';
-                    nt.textContent = b.mono
-                        ? ('' + (b.blurb || b.title || '')).replace(/^\n+|\s+$/g, '')
-                        : ('' + (b.blurb || b.title || '')).trim();
+                    nt.style.cssText = 'grid-column:1/-1;align-self:start;height:auto;max-height:none;'
+                        + 'overflow:visible;color:#9fb3c8;font:13px/1.6 Arial;padding:2px 2px 6px;';
+                    nt.textContent = txt.trim();
                     shelf.appendChild(nt);
                     continue;
                 }

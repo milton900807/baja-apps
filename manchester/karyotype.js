@@ -9335,14 +9335,14 @@ function (path, config) {
             books.push({ section: 'Find the losses', note: true,
                 title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumor suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
             books.push({ section: 'Find the losses', note: true, mono: true, title:
-                  'STEP 2  three routes; the one to take depends on what is loaded\n'
+                  'STEP 2   which route depends on what is loaded\n'
                 + '\n'
-                + '  one file    --> loss matrix     genes broken in this sample\n'
-                + '  two files   --> differential    what one lost and the other did not\n'
-                + '  tumor+normal--> LOH scan        where one allele is gone\n'
-                + '                       |\n'
-                + '                       +--> a list of genes, each clickable\n'
-                + '                            clicking one puts it in the background' });
+                + '  one file      --> loss matrix    genes broken here\n'
+                + '  two files     --> differential   what only one lost\n'
+                + '  tumor+normal  --> LOH scan       one allele gone\n'
+                + '                        |\n'
+                + '                        +--> a list of genes\n'
+                + '                             click one to choose it' });
             // One badge, not two: a second `badge` key in the same literal silently replaces
             // the first, which is how the step number went missing from this card.
             const calc = { section: 'Find the losses', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
@@ -9424,15 +9424,15 @@ function (path, config) {
             // order that matters: a background chosen badly makes every number after it
             // meaningless. The diagram is the one place that order is stated.
             books.push({ section: 'Synthetic lethality', note: true, mono: true, title:
-                  '1  A genome on the chromosomes        a VCF, or a disease search\n'
-                + '         |\n'
-                + '2  FIND THE LOSSES                    loss matrix, differential, LOH\n'
-                + '         |\n'
-                + '3  CHOOSE them                        click genes; they become the background\n'
-                + '         |\n'
-                + '4  ASK THE PANEL                      BAJA-3 live, catalogue, paralogs\n'
-                + '         |\n'
-                + '5  READ THE ANSWER                    targets, the window, why, inhibitors' });
+                  '1  A GENOME           a VCF, or a disease search\n'
+                + '      |\n'
+                + '2  FIND THE LOSSES    loss matrix / differential / LOH\n'
+                + '      |\n'
+                + '3  CHOOSE THEM        click genes to build the background\n'
+                + '      |\n'
+                + '4  ASK THE PANEL      BAJA-3 / catalogue / paralogs\n'
+                + '      |\n'
+                + '5  READ THE ANSWER    targets, window, why, inhibitors' });
             // A WORKFLOW NEVER OPENS ON A DISABLED BUTTON.
             //
             // The first card was the selection, greyed out until something was selected, which
@@ -9476,14 +9476,13 @@ function (path, config) {
             // answer to its own question.
             books.push.apply(books, lossMatrixBooks());
             books.push({ section: 'Synthetic lethality', note: true, mono: true, title:
-                  'STEP 4  three ways to ask, over the same background\n'
+                  'STEP 4   one background, three ways to ask\n'
                 + '\n'
-                + '  background --+--> BAJA-3 live    1,208 cell lines, screened now\n'
-                + '               |                   every loss, and every pair of them\n'
-                + '               +--> catalogue      what has already been published\n'
-                + '               +--> paralogs       the copy that becomes essential\n'
-                + '                          |\n'
-                + '                          +--> a target, its window, why, inhibitors' });
+                + '  losses --+--> BAJA-3      screened live, every pair\n'
+                + '           +--> catalogue   already published\n'
+                + '           +--> paralogs    the copy left behind\n'
+                + '                     |\n'
+                + '                     +--> target, window, why, drugs' });
             books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
                 badge: 'step 4 \u00b7 ' + (sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'choose losses first'),
                 icon: 'biotech',
@@ -9514,15 +9513,15 @@ function (path, config) {
             if (lohResult) books.push({ section: 'From loss of heterozygosity', note: true, mono: true, title:
                   'ONE COPY LEFT CUTS TWO WAYS\n'
                 + '\n'
-                + '  a tract  --> the genes inside it\n'
-                + '                     |\n'
-                + '                     +--> a variant broke the copy that remains\n'
-                + '                     |        = both copies gone, a real loss\n'
-                + '                     |          -> use it as a background (step 3)\n'
-                + '                     |\n'
-                + '                     +--> the copy that remains still works\n'
-                + '                              = half the dosage normal tissue has\n'
-                + '                                -> the gene ITSELF is the target' });
+                + '  a tract --> the genes in it\n'
+                + '                   |\n'
+                + '                   +--> a variant broke the copy left\n'
+                + '                   |      = both gone, a real loss\n'
+                + '                   |        -> use as a background (step 3)\n'
+                + '                   |\n'
+                + '                   +--> the copy left still works\n'
+                + '                          = half the normal dosage\n'
+                + '                            -> the gene ITSELF is the target' });
             if (lohResult) books.push({ section: 'From loss of heterozygosity', accent: lohSlResult ? undefined : 'run',
                 title: lohSlResult ? 'The vulnerabilities this loss creates' : 'What the loss of heterozygosity makes the tumor depend on',
                 badge: lohSlResult ? (lohSlResult.complete.length + ' complete \u00b7 ' + lohSlResult.cyclops.length + ' single-copy') : 'from the tracts',
