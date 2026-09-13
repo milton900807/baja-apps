@@ -212,7 +212,7 @@ else:
     # This label used to be written "tumour_suppressor", and the cache beside the DepMap
     # bundle is full of entries that still say so. The Refine panel filters on the exact
     # string, so a cached gene would quietly stop matching the filter that is about it --
-    # no error, just a tumour suppressor that is no longer one. Rewritten on the way out of
+    # no error, just a tumor suppressor that is no longer one. Rewritten on the way out of
     # the cache, which costs one pass over what was already in memory and means nothing
     # has to be re-asked.
     def _spell(entry):
