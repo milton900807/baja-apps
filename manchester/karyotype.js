@@ -9343,8 +9343,11 @@ function (path, config) {
                 + '                       |\n'
                 + '                       +--> a list of genes, each clickable\n'
                 + '                            clicking one puts it in the background' });
-            const calc = { section: 'Find the losses', badge: 'step 2', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
-                badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
+            // One badge, not two: a second `badge` key in the same literal silently replaces
+            // the first, which is how the step number went missing from this card.
+            const calc = { section: 'Find the losses', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
+                badge: 'step 2 \u00b7 ' + (SAMPLES.length > 1 ? (SAMPLES.length + ' samples')
+                    : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : 'load a VCF'))),
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumor/normal pair, the tumor.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
                 ready: !!nV, readyNote: 'load a VCF first' };
@@ -9430,11 +9433,43 @@ function (path, config) {
                 + '4  ASK THE PANEL                      BAJA-3 live, catalogue, paralogs\n'
                 + '         |\n'
                 + '5  READ THE ANSWER                    targets, the window, why, inhibitors' });
-            books.push({ section: 'Synthetic lethality', badge: 'step 3', title: 'The losses to reason from',
-                badge: selGenes.size ? selWord() : 'nothing selected', icon: 'checklist',
-                blurb: selGenes.size ? ('Currently ' + sel.map((g) => g.gene).join(', ') + '. Edit the set, run the model over it, or clear it.')
-                    : 'Click genes in a loss matrix or in an LOH tract to select them. Every card below reasons from that set.',
-                ready: selGenes.size > 0, readyNote: 'get a set of losses first \u2014 the card below says how', open: () => selectedGenesMenu() });
+            // A WORKFLOW NEVER OPENS ON A DISABLED BUTTON.
+            //
+            // The first card was the selection, greyed out until something was selected, which
+            // is the one state a first-time reader is guaranteed to be in. A greyed card at the
+            // top of a workflow tells someone they are in the wrong place without telling them
+            // where the right one is. There is always at least one thing that can be pressed,
+            // and what it is depends only on how far along they already are.
+            if (selGenes.size) {
+                books.push({ section: 'Synthetic lethality', title: 'The losses to reason from',
+                    badge: 'step 3 \u00b7 ' + selWord(), icon: 'checklist', ready: true,
+                    blurb: 'Currently ' + sel.map((g) => g.gene).join(', ') + '. Edit the set, run the model over it, or clear it.',
+                    open: () => selectedGenesMenu() });
+            } else if (nVsl > 0) {
+                // Variants are loaded, so the enabled cards are the ones directly below: the
+                // loss matrix, the differential and the LOH scan. Saying so is enough.
+                books.push({ section: 'Synthetic lethality', note: true,
+                    title: 'Nothing is chosen yet. Step 2 below finds what this genome has lost; clicking a gene in '
+                        + 'the result makes it one of the losses everything after step 3 reasons from.' });
+            } else {
+                books.push({ section: 'Synthetic lethality', note: true,
+                    title: 'Nothing is loaded yet. Any one of these starts the workflow \u2014 it needs a genome before it '
+                        + 'can find what that genome has lost.' });
+                books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Upload a VCF',
+                    badge: 'start \u00b7 option 1', icon: 'upload_file', ready: true,
+                    blurb: 'A file of variants, plain or bgzipped. Every variant in it is drawn on the chromosomes and '
+                        + 'the loss matrix is read from the ones that fall in coding sequence.',
+                    open: () => uploadMenu() });
+                books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Find a disease',
+                    badge: 'start \u00b7 option 2', icon: 'coronavirus', ready: true,
+                    blurb: 'Name a condition or a gene and its pathogenic ClinVar records are placed on the chromosomes. '
+                        + 'A way to see the shape of a disease without having a file of your own.',
+                    open: () => diseaseMenu() });
+                books.push({ section: 'Synthetic lethality', title: 'Open a saved genome',
+                    badge: 'start \u00b7 option 3', icon: 'folder_open', ready: true,
+                    blurb: 'One kept in My Files, with its variants, regions, loss matrix and selection as they were.',
+                    open: () => filesMenu() });
+            }
             // AND HOW A SET OF LOSSES IS FOUND, here rather than in a neighbouring library.
             // These used to be pointer cards saying where the loss matrix lived; the matrix
             // itself is now on this shelf, so the pointers are gone and the machinery is the
@@ -9449,8 +9484,9 @@ function (path, config) {
                 + '               +--> paralogs       the copy that becomes essential\n'
                 + '                          |\n'
                 + '                          +--> a target, its window, why, inhibitors' });
-            books.push({ section: 'Synthetic lethality', accent: 'run', badge: 'step 4', title: BAJA3 + ': find synthetic-lethal targets',
-                badge: sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'select first', icon: 'biotech',
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
+                badge: 'step 4 \u00b7 ' + (sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'choose losses first'),
+                icon: 'biotech',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES && !slBusy,
                 readyNote: slBusy ? 'a run is in progress' : (sel.length ? 'at most ' + SL_MAX_GENES + ' genes at a time' : 'select genes first'),
                 blurb: 'Run the model live on DepMap: for each loss and each pair of them, the gene that becomes '

@@ -319,12 +319,23 @@ function (opts) {
                     // `mono: true` keeps the newlines and the column widths, and sets the
                     // block apart so it reads as a picture of the steps rather than as more
                     // text. Purely additive -- a note without it renders exactly as before.
+                    // EVERY SIZING RULE SPELLED OUT. This sits in a grid whose rows are sized
+                    // by the cards in them, and a multi-line block dropped into one came out a
+                    // single row tall with scrollbars on it rather than growing to fit. So the
+                    // height is explicitly automatic with no ceiling, the box is aligned to the
+                    // start of its row instead of stretching to it, and overflow is visible
+                    // rather than scrollable: a diagram that does not fit should wrap, never
+                    // hide behind a scrollbar the reader has to find.
                     nt.style.cssText = b.mono
-                        ? 'grid-column:1/-1;color:#bcd3e6;font:12px/1.55 "SFMono-Regular",Consolas,'
-                          + '"Liberation Mono",Menlo,monospace;white-space:pre-wrap;overflow-x:auto;'
-                          + 'padding:10px 12px;margin:2px 2px 10px;border-radius:9px;'
+                        ? 'grid-column:1/-1;align-self:start;justify-self:stretch;display:block;'
+                          + 'box-sizing:border-box;width:100%;height:auto;max-height:none;min-height:0;'
+                          + 'overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;'
+                          + 'color:#bcd3e6;font:12px/1.55 "SFMono-Regular",Consolas,'
+                          + '"Liberation Mono",Menlo,monospace;'
+                          + 'padding:12px 14px;margin:2px 0 10px;border-radius:9px;'
                           + 'background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.10);'
-                        : 'grid-column:1/-1;color:#9fb3c8;font:13px/1.6 Arial;padding:2px 2px 6px;';
+                        : 'grid-column:1/-1;align-self:start;height:auto;max-height:none;overflow:visible;'
+                          + 'color:#9fb3c8;font:13px/1.6 Arial;padding:2px 2px 6px;';
                     nt.textContent = b.mono
                         ? ('' + (b.blurb || b.title || '')).replace(/^\n+|\s+$/g, '')
                         : ('' + (b.blurb || b.title || '')).trim();
