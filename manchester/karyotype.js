@@ -7274,6 +7274,74 @@ function (path, config) {
             },
         };
         const asW = (m) => AS_MODE[m] || AS_MODE.somatic;
+
+        // ITS OWN DOCUMENTATION, FOR THE SAME REASON THE PARALOG MODEL HAS ITS OWN.
+        //
+        // This is a third approach again, and it is not a variety of synthetic lethality:
+        // BAJA-3 and the paralog model both look for ANOTHER GENE to hit, and this looks
+        // for another SEQUENCE of the same gene. Nothing on baja.bio describes it, so the
+        // document is written here rather than linked: what a discriminating base is, what
+        // each of the three mechanisms needs before its answer means anything, the numbers
+        // the scan actually applies, and the line where this work stops and oligo design
+        // begins -- which is the place this is most likely to be over-read.
+        const alleleSelectiveDocCard = (section) => ({ section: section, title: 'Allele-selective targeting documentation',
+            badge: 'how it works', icon: 'menu_book', ready: true,
+            blurb: 'What a discriminating base is, what each mechanism needs, the thresholds applied, and where this stops.',
+            books: () => [
+                { note: true, title: 'What it is' },
+                { note: true, title: 'Two copies of a gene that differ in SEQUENCE can be told apart by an oligo. One that '
+                    + 'differs only in AMOUNT can only be dosed against, and dose is a ratio a normal cell shares. This looks '
+                    + 'for a single base where the two copies read differently, so an agent built on it destroys one copy and '
+                    + 'leaves the other intact. The margin is sequence, not dose, and it does not narrow as the gene becomes '
+                    + 'more essential — which is why essentiality stops being the objection here and becomes the mechanism.' },
+                { note: true, title: 'Not another gene — another sequence of the same gene' },
+                { note: true, title: BAJA3 + ' and the paralog model both answer “which OTHER gene does this tumor now '
+                    + 'depend on”. This answers “which COPY of this gene can be hit on its own”. They can be run '
+                    + 'over the same losses and they are not competing: a ' + BAJA3 + ' hit that this tumor also carries a '
+                    + 'single allele of is the case where both margins apply at once.' },
+                { note: true, title: 'Three mechanisms, and what each one needs' },
+                { note: true, mono: true, title:
+                      'somatic   a tumor AND its normal\n'
+                    + '          the tumor kept one parental allele;\n'
+                    + '          every normal cell kept both\n'
+                    + '\n'
+                    + 'phased    a phased file carrying a disease allele\n'
+                    + '          every het site on THAT copy discriminates\n'
+                    + '          for the disease chromosome\n'
+                    + '\n'
+                    + 'mutation  the disease change, and nothing else\n'
+                    + '          always available, narrowest margin' },
+                { note: true, title: 'Only the first needs a tumor. The phased route is how an allele-selective ASO against '
+                    + 'mutant huntingtin is actually built — not against the CAG repeat, which both copies carry, but '
+                    + 'against a common SNP that happens to sit on the expanded chromosome in that patient. The phase is an '
+                    + 'assertion about that patient’s genotype, read from the file; it cannot be recovered from sequence, '
+                    + 'so a file that does not carry it closes this route entirely.' },
+                { note: true, title: 'The numbers the scan applies' },
+                { note: true, title: 'A site counts as one the tumor kept one side of when the tumor allele fraction is at or '
+                    + 'above ' + AS_RETAIN_HI.toFixed(2) + ' (aim at the alt allele) or at or below ' + AS_RETAIN_LO.toFixed(2)
+                    + ' (aim at the ref allele); anything between the two is read as still carrying both and is not used. '
+                    + 'Judging a whole gene needs at least ' + AS_MIN_SITES + ' informative heterozygous sites inside it, with '
+                    + 'at least ' + Math.round(AS_MIN_LOST * 100) + '% of them down to one side. At most ' + AS_MAX_GENES
+                    + ' genes are read per run, ' + AS_MAX_PER_GENE + ' sites within a gene and ' + AS_MAX_SITES + ' in total: '
+                    + 'this is meant to hand over designable sites, not to enumerate every one.' },
+                { note: true, title: 'What comes back for each site' },
+                { note: true, title: 'The allele to aim at and the allele that must survive, which transcript the site sits in '
+                    + 'and on which strand, the region, whether it is coding, whether it is in the mature message, and 30 bases '
+                    + 'either side on BOTH alleles — the sequence to design against and the sequence to design away from. '
+                    + 'A site in the mature message is what an siRNA or an exon-directed ASO needs; an intronic one is still '
+                    + 'reachable by a gapmer acting on pre-mRNA, and nothing else.' },
+                { note: true, title: 'Where this stops' },
+                { note: true, title: 'It hands over a site. It does not design the oligo, check it against the rest of the '
+                    + 'transcriptome, or score how well it discriminates — and ONE BASE is a real but small margin. An '
+                    + 'agent that fails to discriminate hits the patient’s copy too, and for a dominant disease that single '
+                    + 'mismatch is carrying the entire selectivity. That is the oligo designer’s work, and every site here '
+                    + 'opens into it.' },
+                { note: true, title: 'And one case to check on the reads' },
+                { note: true, title: 'Inside a single-copy tract a site the tumor file has NO record of is read as the allele '
+                    + 'having gone, and such sites are marked inferred rather than measured. That inference is sound where '
+                    + 'coverage is even and wrong where the tumor was simply not sequenced deeply there. Confirm an inferred '
+                    + 'site on the reads before designing against it.' },
+            ] });
         const lohAlleleCSV = () => {
             const W = asW(lohAlleleResult && lohAlleleResult.mode);
             return dlToCSV((lohAlleleResult.sites || []).map((x) => {
@@ -7372,6 +7440,7 @@ function (path, config) {
                 });
             });
             if (R.notes && R.notes.length) books.push({ section: 'What this does and does not say', note: true, title: R.notes.join(' ') });
+            books.push(alleleSelectiveDocCard('What this does and does not say'));
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Allele-selective targets',
                 subtitle: R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' · ' + W.subtitle,
                 graph: graph, books: books });
@@ -7844,6 +7913,7 @@ function (path, config) {
                         blurb: 'Read the phased and mutation mechanisms on ' + SAMPLES[i] + '.',
                         open: () => { asSample = i; graph.setMessage(' Reading ' + SAMPLES[i] + '. '); alleleSelectiveMenu(); } })) });
             }
+            books.push(alleleSelectiveDocCard('How this works'));
             if (lohAlleleResult) {
                 const W = asW(lohAlleleResult.mode);
                 books.push({ section: 'Last result', title: 'Allele-selective targets', badge: lohAlleleResult.sites.length + ' sites',
