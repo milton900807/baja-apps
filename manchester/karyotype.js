@@ -13024,20 +13024,30 @@ function (path, config) {
                                 data: {
                                     buttons: [
                                         {
-                                            label: 'Close', icon: 'close',
-                                            tooltip: 'Back to the chromosomes',
+                                            // CANCEL, the same word the save panel uses, so
+                                            // leaving a panel is one word in this application
+                                            // rather than one per panel. Not in the removing
+                                            // case: files already removed are not un-removed
+                                            // by leaving, and Cancel would say they were.
+                                            label: deleting ? 'Done' : 'Cancel', icon: 'close',
+                                            tooltip: deleting
+                                                ? 'Back to the chromosomes. Files already removed stay removed.'
+                                                : 'Back to the chromosomes without opening anything',
                                             ionFunction: createIonFunction(() => { restore(); })
                                         },
                                         {
                                             // Not a control -- a label. Clicking a file in this
                                             // browser does two very different things depending
                                             // on how it was opened, and the browser itself looks
-                                            // identical either way.
+                                            // identical either way. `static` is what keeps it
+                                            // from being drawn as something to press now that
+                                            // the real buttons in this bar are.
+                                            static: true,
                                             label: deleting ? 'Click a file to REMOVE it'
                                                 : 'Click a file to open it',
                                             icon: deleting ? 'delete' : 'folder_open',
                                             tooltip: deleting
-                                                ? 'Removing is permanent. Close to leave without removing anything.'
+                                                ? 'Removing is permanent. Leave without removing anything with Done.'
                                                 : 'Open a saved genome',
                                             ionFunction: createIonFunction(() => { })
                                         },
