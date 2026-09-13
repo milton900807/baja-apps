@@ -2900,6 +2900,58 @@ function (path, config) {
             }
             return ph;
         };
+        // A SAMPLE THE CALLER NEVER GENOTYPED.
+        //
+        // MuTect2 writes 0/0 on the normal at EVERY somatic site -- its job is to say the
+        // tumor differs, not to genotype the normal -- so colouring by sample found one
+        // carrier on a two-sample file and drew the normal as carrying nothing anywhere. The
+        // evidence is in the row all the same, in the allele depths: on one SEQC2 callset
+        // 44% of rows have alt reads in the normal, and 2.9% have enough of them to be
+        // called on.
+        //
+        // So a sample whose genotype column says 0/0 on every row it appears in is read from
+        // its READS instead -- the same lane the loss-of-heterozygosity scan judges on, for
+        // the same reason. A sample the caller DID genotype is untouched: its genotypes are
+        // what it said, and they are not second-guessed.
+        //
+        // The threshold is a caller's, not a hint: a tenth of the reads and the depth the
+        // confidence rules already demand. One or two stray reads in a normal is
+        // contamination or noise, and drawing it as a carrier would be worse than silence.
+        const SAMPLE_DEPTH_BAF = 0.10;
+        let gtSilent = null;             // per slot: the caller never called this sample
+        const gtSilentSlots = () => {
+            if (gtSilent) return gtSilent;
+            const w = Math.min(SAMPLES.length, GT_MAX);
+            const seen = new Uint8Array(w);
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n || !d.gtw) continue;
+                for (let k = 0; k < d.n; k++) {
+                    for (let si = 0; si < w && si < d.gtw; si++) {
+                        if (!seen[si] && gtOf(d, k, si) >= GT_HET) seen[si] = 1;
+                    }
+                }
+            }
+            // Silent means: appears as a column, and never once carries anything.
+            gtSilent = [];
+            for (let si = 0; si < w; si++) gtSilent.push(!seen[si]);
+            return gtSilent;
+        };
+        // Carriers for the COLOUR, which is the one place a read-based answer belongs: the
+        // genotype bits as the file gave them, plus the silent samples their own depths
+        // vouch for. Everything that reasons -- the differential, the dedupe, the models --
+        // keeps reading carriersOf, which is the file's own word and nothing else.
+        const carriersForColor = (d, k) => {
+            let m = carriersOf(d, k);
+            const sil = gtSilentSlots();
+            for (let si = 0; si < sil.length && si < d.gtw; si++) {
+                if (!sil[si] || (m & (1 << si))) continue;
+                const b = bafOf(d, k, si);
+                if (b >= SAMPLE_DEPTH_BAF && confOf(d, k, si) !== CONF_LOW) m |= (1 << si);
+            }
+            return m;
+        };
+        const anyGtSilent = () => { try { return gtSilentSlots().some(Boolean); } catch (e) { return false; } };
         const PHASE_COLOR = { hap1: '#1d9bf0', hap2: '#ff2d78', hom: '#a855f7', het: '#ffa400', other: '#94a3b8', mixed: '#94a3b8' };
         const PHASE_NAME = { hap1: 'haplotype 1 (1|0)', hap2: 'haplotype 2 (0|1)', hom: 'homozygous', het: 'heterozygous, unphased', other: 'other allele', mixed: 'differs between samples' };
         const SAMPLE_COLOR = ['#1d9bf0', '#ff2d78', '#ffa400', '#12c95a', '#a855f7', '#f97316', '#14b8a6', '#e11d48'];
@@ -2912,7 +2964,7 @@ function (path, config) {
             if (d.hl && d.hl[k] && HL_COLOR[d.hl[k]]) return HL_COLOR[d.hl[k]];
             if (hlActive) return DIM_COLOR;
             if (colorMode === 'sample' && d.gtw) {
-                const m = carriersOf(d, k);
+                const m = carriersForColor(d, k);
                 if (!m) return ABSENT_COLOR;
                 if (m & (m - 1)) return SHARED_COLOR;
                 return SAMPLE_COLOR[Math.log2(m) | 0] || SHARED_COLOR;
@@ -2925,7 +2977,7 @@ function (path, config) {
         // The word that goes inside the bar beside the change, in the current mode.
         const modeAnnot = (d, k) => {
             if (colorMode === 'sample' && d.gtw) {
-                const m = carriersOf(d, k);
+                const m = carriersForColor(d, k);
                 if (!m) return 'in no sample';
                 const who = SAMPLES.filter((_, si) => m & (1 << si));
                 return who.length === SAMPLES.length && who.length > 1 ? 'all samples' : who.join(' + ');
@@ -2988,7 +3040,9 @@ function (path, config) {
             let title = '', rows = '';
             if (colorMode === 'sample' && SAMPLES.length) {
                 title = 'Color by sample';
-                rows = SAMPLES.map((nm, si) => sw(SAMPLE_COLOR[si], nm + ' only')).join('');
+                const __sil = (() => { try { return gtSilentSlots(); } catch (e) { return []; } })();
+                rows = SAMPLES.map((nm, si) => sw(SAMPLE_COLOR[si], nm + ' only'
+                    + (__sil[si] ? ' (read from its depths \u2014 the caller left it 0/0)' : ''))).join('');
                 if (SAMPLES.length > 1) rows += sw(SHARED_COLOR, 'in more than one sample') + sw(ABSENT_COLOR, 'in none (0/0)');
             } else if (colorMode === 'phase' && SAMPLES.length) {
                 title = 'Color by phase';
@@ -3076,7 +3130,7 @@ function (path, config) {
         const PH_ORDER = ['', 'hap1', 'hap2', 'hom', 'het', 'other', 'mixed'];
         const catOf = (d, k) => {
             if (colorMode === 'sample' && d.gtw) {
-                const m = carriersOf(d, k);
+                const m = carriersForColor(d, k);
                 if (!m) return 0;
                 if (m & (m - 1)) return 9;
                 return 1 + (Math.log2(m) | 0);
@@ -4489,6 +4543,9 @@ function (path, config) {
                 d.histL = histL; d.nL = nL;
             }
             vtotal += count.added;
+            // A new file can bring a sample the old ones never had, and rows that make a
+            // silent sample speak. The answer is recomputed on the next question.
+            gtSilent = null;
             vobjects = Math.min(vtotal, OBJECT_CAP);
             // WHOSE GENOME IS THIS? Two signals, both read from what is already in memory:
             //   chrY   a sample with calls on Y has a Y. Somatic callers emit few there, so
@@ -6058,6 +6115,7 @@ function (path, config) {
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh; d.side = ss;
                 if (sg) d.gts = sg; d.conf = sq; d.rconf = srq; d.baf = sbf; d.ps = sps;
+                gtSilent = null;
                 d.cplx = scx; d.names = sn; d.snps = []; d.n = total; d.histBy = null;
                 const hist = new Uint32Array(HIST_BINS);
                 const histL = new Uint32Array(HIST_BINS);
@@ -13050,6 +13108,7 @@ function (path, config) {
                 d.hist = new Uint32Array(HIST_BINS); d.histBy = null;
             }
             vtotal = 0; vobjects = 0;
+            gtSilent = null;
             sideFile[0] = ''; sideFile[1] = '';
             sideSlots[0] = []; sideSlots[1] = [];
             regions = []; try { geneCache.clear(); } catch (e) { }
