@@ -7765,13 +7765,72 @@ function (path, config) {
                     + 'present in a different AMOUNT can only be dosed against. Everything here is about the first kind. '
                     + 'Three things can establish which of the two copies to hit, and only the first needs a tumor, so '
                     + 'pick the mechanism your data actually supports and then say where to look.' });
+            // THE SHAPE OF IT, before the three mechanisms. The order is the same whichever
+            // mechanism is used, and it is the order that decides whether the answer means
+            // anything: knowing WHICH copy to hit has to come before choosing where to look.
+            books.push({ section: 'Allele-selective targets', note: true, mono: true, title:
+                  '1  WHICH COPY TO HIT    somatic / phased / the mutation\n'
+                + '      |\n'
+                + '2  WHERE TO LOOK        tracts, matrix, selection, or a gene\n'
+                + '      |\n'
+                + '3  THE SITES            a base the two copies differ at\n'
+                + '      |\n'
+                + '4  DESIGN               the oligo editor, on the retained allele' });
             const scopeCards = asScopeCards;
+            // THE DIAGRAM FOR ONE MECHANISM: what makes it possible, and what it yields.
+            const MODE_ART = {
+                somatic:
+                      'tumor + normal --> LOH scan --> tracts --> genes\n'
+                    + '                                              |\n'
+                    + '   germline het site in one of them <----------+\n'
+                    + '                   |\n'
+                    + '                   +--> the tumor kept ONE side\n'
+                    + '                        normal cells keep both',
+                phased:
+                      'a phased VCF --> the disease copy is known\n'
+                    + '                        |\n'
+                    + '   any het site on that copy <--+\n'
+                    + '                   |\n'
+                    + '                   +--> a base unique to that copy\n'
+                    + '                        the other copy is untouched',
+                mutation:
+                      'the change itself IS the difference\n'
+                    + '                   |\n'
+                    + '                   +--> needs no phase, no second sample\n'
+                    + '                        the narrowest margin of the three',
+            };
             const section = (mode, secName) => {
                 const W = asW(mode);
                 books.push({ section: secName, note: true, title: W.rationale + ' Needs ' + W.needs + '.'
                     + (mode !== 'somatic' && avail[mode].ok ? ' Reading ' + asSampleName(asSampleFor(mode)) + '.' : '')
                     + (avail[mode].ok ? '' : ' NOT AVAILABLE: ' + avail[mode].note + '.') });
-                scopeCards(mode).forEach((c) => books.push(Object.assign(c, { section: secName })));
+                if (MODE_ART[mode]) books.push({ section: secName, note: true, mono: true, title: MODE_ART[mode] });
+                // NEVER A SECTION OF NOTHING BUT GREYED CARDS. A mechanism this data cannot
+                // support still gets one card that can be pressed: the thing that would make
+                // it possible. Being told a route is closed is only useful with the way to
+                // open it beside it.
+                if (!avail[mode].ok) {
+                    if (mode === 'somatic') {
+                        books.push({ section: secName, accent: 'run', title: lohResult ? 'Read the genes in the tracts' : 'Run the loss-of-heterozygosity scan',
+                            badge: 'makes this possible', icon: 'compress', ready: true,
+                            blurb: lohResult ? 'The scan has run; its tracts have not been read out into genes yet, and the genes are what this needs.'
+                                : 'It needs a tumor and its normal, one on each side of the chromosomes. The scan finds where the tumor kept one allele.',
+                            open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
+                    } else if (mode === 'phased') {
+                        books.push({ section: secName, accent: 'run', title: 'Load a phased VCF', badge: 'makes this possible',
+                            icon: 'upload_file', ready: true,
+                            blurb: 'This reads the genotype column for phase — 1|0 rather than 0/1. A file without it cannot say which copy '
+                                + 'a change sits on, and nothing else here can supply that.',
+                            open: () => uploadMenu() });
+                    } else {
+                        books.push({ section: secName, accent: 'run', title: 'Load a VCF', badge: 'makes this possible',
+                            icon: 'upload_file', ready: true,
+                            blurb: 'Any file of variants. This mechanism needs only the change itself, so it is the one that works on the least data.',
+                            open: () => uploadMenu() });
+                    }
+                }
+                scopeCards(mode).forEach((c, i2) => books.push(Object.assign(c, { section: secName,
+                    badge: 'step 2 \u00b7 ' + (c.badge || 'scope') })));
             };
             section('somatic', 'Somatic retention · the tumor kept one allele');
             section('phased', 'Phased germline · the disease copy');
@@ -9557,25 +9616,19 @@ function (path, config) {
             // losses, and this is the question asked of that set. It is listed whether or not
             // anything is selected, because a menu that hides the destination until you have
             // already walked to it teaches nobody where they were going.
-            {
-                const done = [slResult && (slResult.targets.length + ' targets'),
-                    hoResult && (hoResult.matched.length + ' in the catalogue'),
-                    parResult && 'paralogs',
-                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
-                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
-                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
-                    ready: true,
-                    blurb: BAJA3_LONG + '. Which gene this tumor cannot survive losing, given what it has already '
-                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
-                        + 'loss of heterozygosity makes it depend on.'
-                        + (selGenes.size ? '' : ' Needs a set of losses; the first card inside says how to get one.'),
-                    open: () => synLethalMenu() });
-            }
-            // ALLELE SELECTIVITY IS ITS OWN SECTION, not a leaf of the LOH branch. It was
-            // reachable only four steps down one path -- LOH, then the genes in the tracts,
-            // then the single-copy ranking, then a card at the bottom of it -- and every
-            // one of those steps needs a tumor. Two of the three mechanisms do not, and
-            // none of them is a question about the loss matrix.
+            // THE ORDER IS OUTWARD, from what is in front of you to what is furthest
+            // from it: what this genome IS, then looking something up in it, then the two
+            // analyses, with the deepest last. A library read top to bottom should get
+            // further from the file with every section rather than jumping about.
+            books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
+                blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
+                open: () => { try { infoPanel(); } catch (e) { } } });
+            books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
+                blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
+                ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
+            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
+                blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
+                ready: true, open: () => { try { patLoad(); } catch (e) { } } });
             {
                 const nV2 = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
                 const nPh = asPhasedSamples().length;
@@ -9591,15 +9644,20 @@ function (path, config) {
                         + (ways.length ? ' Available on this data: ' + ways.join(', ') + '.' : ' Nothing is loaded yet.'),
                     open: () => alleleSelectiveMenu() });
             }
-            books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
-                blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
-                ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
-            books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
-                blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
-                ready: true, open: () => { try { patLoad(); } catch (e) { } } });
-            books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
-                blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
-                open: () => { try { infoPanel(); } catch (e) { } } });
+            {
+                const done = [slResult && (slResult.targets.length + ' targets'),
+                    hoResult && (hoResult.matched.length + ' in the catalogue'),
+                    parResult && 'paralogs',
+                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
+                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
+                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
+                    ready: true,
+                    blurb: BAJA3_LONG + '. Which gene this tumor cannot survive losing, given what it has already '
+                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
+                        + 'loss of heterozygosity makes it depend on.'
+                        + (selGenes.size ? '' : ' Needs a set of losses; the first card inside says how to get one.'),
+                    open: () => synLethalMenu() });
+            }
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-analysis', title: 'Analyze',
                 subtitle: 'Read the loaded variants — the loss matrix, what differs between two, loss of heterozygosity, synthetic lethality and allele-selective targets',
