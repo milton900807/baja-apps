@@ -4268,8 +4268,12 @@ function (path, config) {
                 badge: 'cis or trans', icon: 'call_split', ready: true,
                 blurb: 'Two damaging hits in one gene mean a broken gene when they are on opposite copies and an intact one when '
                     + 'they share a copy. Phase is the only thing that separates the two without sequencing a parent.'
-                    + (lossMatrix ? '' : ' The loss matrix finds the hits first.'),
-                open: () => { try { if (lossMatrix) compoundHetMenu(); else analysisMenu(); } catch (e) { } } });
+                    + (lossMatrix ? '' : ' The damaging variants are found first, and this starts that.'),
+                // IT DOES THE WHOLE THING, or it is a link to a library and not a button.
+                // Without a matrix this used to open Analyze and stop, which is where the
+                // reader started; now it runs the step it names and comes back to the
+                // check when that step is done.
+                open: () => { try { compoundHetStart(); } catch (e) { } } });
             if (V.phased) books.push({ section: 'Phased \u2014 and what that makes possible', accent: 'run',
                 title: 'Find allele-selective targets on the phased copy', badge: 'phased route', icon: 'gps_fixed', ready: true,
                 blurb: 'A base where the two copies differ, on the copy carrying the disease allele: an oligo built on it '
@@ -6538,6 +6542,57 @@ function (path, config) {
             });
             return dlToCSV(rows);
         };
+        // THE WHOLE THING, FROM WHEREVER SOMEBODY PRESSED IT.
+        //
+        // The check needs the loss matrix, and a card that names a prerequisite and then
+        // drops the reader at the top of a library has not done anything for them: they
+        // were already there. This runs the step it names. With a single sample and no
+        // haplotype question it starts the calculation itself and opens the check when it
+        // finishes; where there is a choice to make -- which sample, which copy -- it
+        // offers exactly that choice and then comes back here.
+        const compoundHetStart = () => {
+            if (lossMatrix) { compoundHetMenu(); return; }
+            const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+            if (!nV) { graph.setMessage(' Load a VCF first: the check reads the damaging variants in it. '); uploadMenu(); return; }
+            lossThen = () => { try { compoundHetMenu(); } catch (e) { } };
+            const oneSample = SAMPLES.length <= 1;
+            const phased = oneSample && phaseCounts(0).phased > 0;
+            if (oneSample && !phased) {
+                graph.setMessage(' Reading the damaging variants first \u2014 the check opens when they are in. ');
+                computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, '');
+                return;
+            }
+            // A choice has to be made, so it is made here rather than in another library:
+            // both copies is what the check wants (it compares hits ACROSS the two), and
+            // the one-haplotype matrices are offered for completeness with that said.
+            const books = [];
+            books.push({ section: 'Before the check', note: true,
+                title: 'The check reads the genes with a damaging change, which is the loss matrix, and that has not been '
+                    + 'calculated yet. It takes about a minute on a whole genome. Both copies is the one this check wants: '
+                    + 'it compares the hits ACROSS the two copies, so a matrix of one copy has nothing to compare.' });
+            if (oneSample) {
+                const pc = phaseCounts(0);
+                books.push({ section: 'Before the check', accent: 'run', title: 'Both copies', icon: 'join_full',
+                    badge: pc.all.toLocaleString() + ' variants', ready: pc.all > 0, readyNote: 'no variants',
+                    blurb: 'Every call ' + (SAMPLES[0] || 'this genome') + ' carries, whichever copy it sits on. The check opens when it is done.',
+                    open: () => { lossThen = () => { try { compoundHetMenu(); } catch (e) { } }; computeLossMatrix(0, ''); } });
+            } else {
+                SAMPLES.forEach((nm, si) => {
+                    const pc = phaseCounts(si);
+                    books.push({ section: 'Before the check', accent: 'run', title: nm, icon: 'person',
+                        badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' \u00b7 phased' : ''),
+                        swatch: SAMPLE_COLOR[si] || '#ee00ee', ready: pc.all > 0, readyNote: 'carries no variants',
+                        blurb: 'Read ' + nm + '\u2019s damaging variants, both copies, and open the check on them.',
+                        open: () => { lossThen = () => { try { compoundHetMenu(); } catch (e) { } }; computeLossMatrix(si, ''); } });
+                });
+            }
+            books.push({ section: 'Back', title: 'Not now', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'Leave it \u2014 the check is in Analyze whenever the matrix exists.',
+                open: () => { lossThen = null; try { analysisMenu(); } catch (e) { } } });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Compound heterozygotes',
+                subtitle: 'one step first \u00b7 the genes with a damaging change',
+                graph: graph, books: books });
+        };
         const compoundHetMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lossMatrix) { graph.setMessage(' Calculate the loss matrix first: it is what finds the damaging variants. '); analysisMenu(); return; }
@@ -6746,6 +6801,9 @@ function (path, config) {
         // cis. Exon-adjacent variants only go to the server: the exon intervals are the
         // same cached answer the Color filters use.
         let lossBusy = false;
+        // Set by a workflow that needs the matrix before it can run; cleared the moment it
+        // is used, so it can never fire for a matrix somebody calculated for another reason.
+        let lossThen = null;
         // THE CORE: which genes carry a loss-of-function variant among the variants that
         // `include(d, k)` admits. The loss matrix admits one sample's calls (on one
         // haplotype or both); the differential admits one side, or one sample, twice.
@@ -6915,6 +6973,12 @@ function (path, config) {
                     + '; ' + marked + ' marked in red. ');
                 step('loss matrix ' + who + ': ' + genes.length + ' genes, ' + scanned + ' scanned');
                 lossBusy = false;
+                // WHOEVER ASKED FOR IT GETS IT BACK. The matrix is usually the destination,
+                // and sometimes it is a prerequisite somebody was sent to fetch -- and in
+                // that case landing on the matrix leaves them to find their way back to
+                // what they were actually doing.
+                const then = lossThen; lossThen = null;
+                if (typeof then === 'function') { try { then(); return; } catch (e) { } }
                 lossMatrixMenu();
             } catch (e) {
                 lossBusy = false;
@@ -10488,6 +10552,16 @@ function (path, config) {
                         + 'which leaves no working copy, or on the same one, which leaves the gene intact. Read from the phase sets, '
                         + 'and it says so where the file cannot settle it.',
                     open: () => compoundHetMenu() });
+            } else if (asPhasedSamples().length) {
+                // LISTED BEFORE THE MATRIX EXISTS TOO, because a phased file is exactly the
+                // file this question is for, and a card that appears only after the
+                // prerequisite is a card nobody knows to want. It carries the prerequisite.
+                books.push({ section: 'Find the losses', accent: 'run', title: 'Compound heterozygotes — same copy, or one each?',
+                    badge: 'cis or trans', icon: 'call_split', ready: true,
+                    blurb: 'This file is phased, which is what tells two damaging hits on opposite copies — no working copy left '
+                        + '— from two on the same copy, which leaves the gene intact. It reads the genes with a damaging change '
+                        + 'first, then opens the check.',
+                    open: () => compoundHetStart() });
             }
             return books;
         };
