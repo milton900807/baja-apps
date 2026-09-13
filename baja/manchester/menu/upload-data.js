@@ -136,6 +136,14 @@ function (graph, genegraph_panel_layout) {
                                 wid: 'simple-file-upload',
                                 data: {
                                     'showUploadButton': false,
+                                    // The widget draws Cancel only when it is told what
+                                    // leaving means, so the way back out of the upload
+                                    // window sits beside Upload rather than only at the
+                                    // bottom of the panel.
+                                    'cancelFunction': createIonFunction(() => {
+                                        graph.setMessage(' Nothing was uploaded. ');
+                                        restorePanel();
+                                    }),
                                     'getUploadFolder': createIonFunction(() => {
                                     }),
                                     'getRef': createIonFunction((ref) => {
