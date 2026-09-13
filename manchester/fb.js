@@ -690,7 +690,7 @@ function (__path, __header) {
                                 },
 
                                 {
-                                    // Liverpool: pick the peptides a tumour's mutations present,
+                                    // Liverpool: pick the peptides a tumor's mutations present,
                                     // then design the mRNA that carries them. Opens blank; a saved
                                     // .liverpool design opens by clicking the file itself.
                                     'label': 'Neoantigen Designer', 'ionfunction': createIonFunction(async () => {

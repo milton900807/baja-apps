@@ -121,7 +121,7 @@ CLASSIFY_SYSTEM = (
     'Use "variant" when the text names a specific change, however informally -- K27M, '
     'p.Arg175His, c.83A>T, "TP53 R175H", rs113488022, a genomic coordinate. Use "gene" when it '
     'names only a gene or transcript and no change and no disease. Use "context" ONLY when it '
-    "names a disease, syndrome, tumour type or comparable biological context and contains no "
+    "names a disease, syndrome, tumor type or comparable biological context and contains no "
     "specific change: DIPG, Li-Fraumeni syndrome, lung adenocarcinoma, cystic fibrosis. A text "
     "that names both a disease and a specific change is \"variant\", not \"context\"."
 )

@@ -153,7 +153,7 @@ else:
     gidx = {g.upper(): i for i, g in enumerate(genes)}
     out["n_models"], out["n_genes"] = int(n_models), int(n_genes)
 
-    # The curated tumour-suppressor list the bundle was built with: for these a recurrent
+    # The curated tumor-suppressor list the bundle was built with: for these a recurrent
     # missense is a loss, which is the same judgement that makes them worth naming here.
     tsg = set()
     try:
@@ -280,7 +280,7 @@ else:
             rows.append(row)
         by_gene = {r["gene"]: r for r in rows}
 
-        # 1. COMPLETE LOSSES: LOH plus a broken remaining allele. Ordered tumour
+        # 1. COMPLETE LOSSES: LOH plus a broken remaining allele. Ordered tumor
         #    suppressors first, then by how much the panel says the gene matters.
         complete = [by_gene[g] for g in known if g in second]
         complete.sort(key=lambda r: (-r["tsg"], r["effect_mean"]))
@@ -304,7 +304,7 @@ else:
         # 3. A BACKGROUND THAT CAN BE SCORED. The third-gene model needs cell lines that
         #    carry the same losses; a background of genes DepMap never sees lost returns
         #    nothing, and there is no way to know that before running it. Two hits first
-        #    (those are real losses), then tumour suppressors, then whatever the panel
+        #    (those are real losses), then tumor suppressors, then whatever the panel
         #    actually carries -- and only genes with lines behind them.
         def bg_rank(r):
             return (-r["second_hit"], -r["tsg"], -r["n_lost_lines"])
@@ -320,7 +320,7 @@ else:
                      "A gene here is a complete loss only where a variant has also broken the copy that remains.")
         notes.append("Single-copy dependence reads the other way round from a third-gene hit: a gene the panel "
                      "cannot live without is the BEST candidate, because normal tissue keeps two copies and "
-                     "tolerates partial inhibition while the tumour, on one, does not.")
+                     "tolerates partial inhibition while the tumor, on one, does not.")
         if cn_stats is None:
             notes.append("This bundle has no copy-number lane, so the dosage question was not asked: the "
                          "candidates are ranked on essentiality alone. Rebuild with build-depmap-sl.py to "
@@ -340,10 +340,10 @@ else:
                          "cut sites and less cutting toxicity, which would make a hemizygous line look LESS "
                          "dependent. A gene that comes out more dependent there has done so against that bias.")
             notes.append("Read what the two halves each contribute. Dosage sensitivity is a property of the GENE, "
-                         "not of this tumour: run the same test over the essential genes of a chromosome with no "
+                         "not of this tumor: run the same test over the essential genes of a chromosome with no "
                          "loss at all and roughly half of them confirm too. What makes a candidate here specific "
                          "to this patient is the tract -- the screen says the gene cannot spare a copy, the "
-                         "patient's genome says this tumour has only one. Neither half is the finding alone.")
+                         "patient's genome says this tumor has only one. Neither half is the finding alone.")
         if not background:
             notes.append("No gene in the tracts is lost often enough in DepMap to build a background on, so a "
                          "third-gene run over these would have no lines to score.")

@@ -61,7 +61,7 @@ EFF_MAX = -0.4           # a target must actually be essential in the background
 PER_BACKGROUND = 60      # hits kept per background before aggregation
 MAX_GENES = 12           # 66 pairs; each background is one matrix-vector product
 # PAN-ESSENTIAL TARGETS WITH NO WINDOW. A gene the cell needs whatever it has lost scores a
-# huge t and a huge effect and is worthless as a drug: it kills the tumour and the patient
+# huge t and a huge effect and is worthless as a drug: it kills the tumor and the patient
 # together. The t only says the dependency is DEEPER in the carriers; how much of the
 # killing the losses actually account for is window / eff_double, and when that fraction is
 # small the rest is unconditional lethality. These are set aside rather than deleted, with
@@ -240,7 +240,7 @@ else:
             fdr = bh_fdr(p)
             eff_double = Gd[mask].mean(0)
             # THE THERAPEUTIC WINDOW. A target is only selective if cells WITHOUT these
-            # losses can do without it: a pan-essential gene is lethal to the tumour and to
+            # losses can do without it: a pan-essential gene is lethal to the tumor and to
             # the patient alike. eff_none is the mean knockout effect in the lines carrying
             # NEITHER loss, and window = eff_double - eff_none is how much deeper the
             # dependency runs in the carriers. Negative and large is what a drug wants.

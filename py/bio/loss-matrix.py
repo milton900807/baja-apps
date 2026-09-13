@@ -12,13 +12,13 @@ coding sequence:
     splice_donor / splice_acceptor
                     an intronic change within two bases of a coding exon's edge
     hotspot_missense
-                    a missense at a recurrent inactivating codon of a TUMOUR SUPPRESSOR
+                    a missense at a recurrent inactivating codon of a TUMOR SUPPRESSOR
                     (TP53 R175/R248/R273, PTEN R130, SMAD4 R361 ...)
     pathogenic_missense
                     a missense that ClinVar classifies Pathogenic / Likely pathogenic,
-                    again only in a tumour suppressor
+                    again only in a tumor suppressor
 
-Those are LOSS OF FUNCTION. The two missense classes are restricted to tumour suppressors
+Those are LOSS OF FUNCTION. The two missense classes are restricted to tumor suppressors
 because in an oncogene a hotspot is a GAIN -- KRAS G12D activates -- and calling it a loss
 would put the wrong genes in the background. Other missense, in-frame indels, synonymous,
 UTR and intronic changes are counted but not called lost: a matrix that called every
@@ -86,7 +86,7 @@ SEVERITY = {"frameshift": 0, "stop_gained": 1, "start_lost": 2, "splice_donor": 
             "synonymous": 10, "coding_unresolved": 11, "utr": 12, "non_coding_exon": 13,
             "intronic": 14, "intergenic": 15}
 
-# Genes in which a recurrent or ClinVar-pathogenic MISSENSE is a loss: tumour suppressors
+# Genes in which a recurrent or ClinVar-pathogenic MISSENSE is a loss: tumor suppressors
 # whose hotspots are dominant-negative or inactivating. The same list build-depmap-sl.py
 # uses for the DepMap hotspot matrix, so the karyotype's loss set and the model's loss
 # calls agree about what a hotspot means.
@@ -98,7 +98,7 @@ HOTSPOT_AS_LOSS = {
     "TSC2", "WT1", "AXIN1", "CASP8", "ZFHX3", "SMARCB1", "SPOP", "FUBP1",
 }
 # Recurrent inactivating codons (protein position on the MANE transcript), the ones that
-# recur across tumours often enough to be hotspots in their own right. ClinVar covers the
+# recur across tumors often enough to be hotspots in their own right. ClinVar covers the
 # long tail; this list catches a hotspot even where ClinVar has no exact record.
 HOTSPOT_CODONS = {
     "TP53": {175, 245, 248, 249, 273, 282, 220, 213, 196, 306, 337, 158, 163, 176, 179, 205, 234,
@@ -651,7 +651,7 @@ else:
                         counts["intergenic"] = counts.get("intergenic", 0) + 1
                         continue
                     _sv, eff, hc, hp, t = worst
-                    # A MISSENSE IN A TUMOUR SUPPRESSOR may be a loss: at a known hotspot
+                    # A MISSENSE IN A TUMOR SUPPRESSOR may be a loss: at a known hotspot
                     # codon, or where ClinVar has the exact change as pathogenic. Only in
                     # those genes -- the same missense in an oncogene is a gain.
                     if eff == "missense" and t.gene in HOTSPOT_AS_LOSS:
@@ -690,7 +690,7 @@ else:
         lost.sort(key=lambda g: (SEVERITY.get(g["variants"][0]["effect"], 99), -g["n_lof"], g["gene"]))
         if not genome.ok():
             pass
-        notes.append("Hotspot and ClinVar-pathogenic missense changes count as loss in tumour suppressors only; "
+        notes.append("Hotspot and ClinVar-pathogenic missense changes count as loss in tumor suppressors only; "
                      "a hotspot in an oncogene is a gain and is not called."
                      + ((" %d such missense change(s) were counted." % hotspot_n) if hotspot_n else ""))
         notes.append("Deletions and silencing are not visible in a VCF: a gene lost by copy number "

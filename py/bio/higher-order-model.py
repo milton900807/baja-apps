@@ -1,9 +1,9 @@
 """What the ppset higher-order synthetic-lethality model has ALREADY found for these losses.
 
 Two ways to ask the third-gene model. synthetic-lethal-targets.py re-runs its engine live
-on the DepMap bundle for whatever pairs a tumour has lost. This one consults the model's
+on the DepMap bundle for whatever pairs a tumor has lost. This one consults the model's
 own published output instead -- the systematic scan across every pair of the fourteen
-tumour suppressors it screens (FDR < 0.1, one row per target, each hit classified genuine
+tumor suppressors it screens (FDR < 0.1, one row per target, each hit classified genuine
 3-way or driven by one loss), the per-tissue application tables (breast and pancreas
 backgrounds, with the dependency inside that tissue), the single-loss screens for PTEN,
 ARID1A and SMARCA4, and the full pair screens for TP53+RB1 and MTAP+CDKN2A -- which is
@@ -117,7 +117,7 @@ else:
         screened = sorted(set(g for b in bgs.values() for g in b["genes"]))
         not_screened = [g for g in want if g not in screened and g not in singles]
         if not_screened:
-            notes.append("Not among the tumour suppressors the model's systematic scan covers, so no catalogued "
+            notes.append("Not among the tumor suppressors the model's systematic scan covers, so no catalogued "
                          "background includes them: " + ", ".join(not_screened) + ". The live screen can still take them.")
         if not matched and not tt and not singles and not pairs:
             notes.append("No catalogued background lies within this selection." + (" Backgrounds one loss away are listed." if partial else ""))

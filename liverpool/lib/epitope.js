@@ -258,8 +258,8 @@ function () {
         // multipliers that only ever push a candidate DOWN, so the score never claims more
         // than the presentation model supports.
         //
-        //   clonality    a subclonal mutation is present in a fraction of the tumour, and a
-        //                vaccine against it treats a fraction of the tumour. Variant allele
+        //   clonality    a subclonal mutation is present in a fraction of the tumor, and a
+        //                vaccine against it treats a fraction of the tumor. Variant allele
         //                frequency scales the score directly when it is known.
         //   expression   a mutation in a gene that is not transcribed produces no protein
         //                and no peptide. Applied as a soft floor, not a cliff, because TPM

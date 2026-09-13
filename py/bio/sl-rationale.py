@@ -76,9 +76,9 @@ SYSTEM = (
     "needed with or without the losses -- say that plainly, it decides whether the hit is "
     "selective at all.\n"
     "- precedent: any published synthetic-lethal relationship, screen, or clinical program "
-    "involving this target and these losses (e.g. PRMT5 inhibitors in MTAP-deleted tumours). "
+    "involving this target and these losses (e.g. PRMT5 inhibitors in MTAP-deleted tumors). "
     "If you know of none, write 'No precedent I know of.' Do not invent citations.\n"
-    "- caveats: why this could be wrong: cell-line versus tumour, lineage confounding, "
+    "- caveats: why this could be wrong: cell-line versus tumor, lineage confounding, "
     "essential-everywhere targets, expression rather than deletion, small n, hotspot versus "
     "loss, and anything specific to these genes.\n"
     "- druggability: is the target druggable today (approved or clinical inhibitors, PROTACs, "
@@ -99,13 +99,13 @@ elif not ANTHROPIC_API_KEY:
     out["error"] = "ANTHROPIC_API_KEY is not set on the server"
 else:
     if source == "cyclops":
-        # A DIFFERENT ARGUMENT ENTIRELY. Everywhere else here the target is a gene the tumour
+        # A DIFFERENT ARGUMENT ENTIRELY. Everywhere else here the target is a gene the tumor
         # still has and the losses are elsewhere. In a CYCLOPS the target IS the gene the
-        # tumour is down to one copy of, and pan-essentiality -- disqualifying for a
+        # tumor is down to one copy of, and pan-essentiality -- disqualifying for a
         # third-gene hit -- is the whole point: the selectivity comes from copy number in
         # the patient, not from the screen. Told plainly, so the reply is not written as if
         # this were an ordinary synthetic-lethal pair.
-        ask = ("Target: %s. The tumour carries ONE copy of it: it sits inside a region of loss of "
+        ask = ("Target: %s. The tumor carries ONE copy of it: it sits inside a region of loss of "
                "heterozygosity, and the patient's normal tissue keeps two copies.\n"
                "Other genes inside the same LOH tract: %s\n"
                "DepMap CRISPR essentiality of the target across the cell-line panel "
@@ -113,7 +113,7 @@ else:
                "dep_frac is the share of lines that depend on it): %s\n\n"
                "The proposal is a CYCLOPS-type vulnerability (Copy-number alterations Yielding Cancer "
                "Liabilities Owing to Partial losS): a gene that is essential and present at reduced dosage "
-               "can be partially inhibited to a level the one-copy tumour cannot survive and the two-copy "
+               "can be partially inhibited to a level the one-copy tumor cannot survive and the two-copy "
                "normal tissue can. Judge THAT proposal, not an ordinary synthetic-lethal pair. In "
                "'mechanism' explain what the gene does and why halving its dosage would matter -- complex "
                "stoichiometry, a rate-limiting step, no paralog to compensate. In 'evidence' say what the "
@@ -124,7 +124,7 @@ else:
                "A negative difference means the lines confirm that half the gene is not enough; say so, "
                "and say plainly when the test was not run or came back negative, in which case the claim "
                "rests on the patient's own tract. Note that dosage sensitivity is a property of the gene "
-               "rather than of this tumour -- what makes it specific here is that THIS tumour carries one "
+               "rather than of this tumor -- what makes it specific here is that THIS tumor carries one "
                "copy. In 'caveats' address the therapeutic index directly: a "
                "partial inhibitor is needed, complete inhibition would kill normal cells too.\n"
                % (target, ", ".join([g for g in losses if g != target]) or "(not given)", json.dumps(stats)))
@@ -133,7 +133,7 @@ else:
                "Paralog synthetic-lethality model (gradient-boosted trees over pair features) output: %s\n"
                % (target, ", ".join(losses) or "(none)", json.dumps(stats)))
     else:
-        ask = ("Target: %s\nLosses in the tumour (the background): %s\n%s"
+        ask = ("Target: %s\nLosses in the tumor (the background): %s\n%s"
                "DepMap third-gene screen output (CRISPR Chronos gene effect; t is the lineage-corrected "
                "differential dependency between lines carrying the background and the rest; effect is "
                "the mean knockout effect in background lines, more negative = more essential; eff_none is "

@@ -115,7 +115,7 @@ else:
     notes = ["pred is the paralog model's probability that the partner becomes essential once this gene "
              "is lost (trained on DepMap-derived labels; features are pair properties, not the genes' fame). "
              "A partner that is broadly expressed in normal tissue (GTEx breadth, median TPM) is the harder "
-             "drug target: the point is a dependency the tumour has and normal cells do not."]
+             "drug target: the point is a dependency the tumor has and normal cells do not."]
     out["ok"] = True
     out["partners"] = json.dumps(partners)
     out["genes"] = json.dumps(genes)

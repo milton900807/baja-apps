@@ -175,7 +175,7 @@ CLASSIFY_SYSTEM = (
     "TSV/CSV export of annotated variants with chromosome and position columns, a MAF.\n"
     "- genetic_report: a document in prose or in labelled fields that names genes and/or "
     "specific variants -- a clinical genetic test report, a lab result, a pharmacogenomic "
-    "report, a carrier screen, a tumour sequencing report, a paper, a letter, a slide, a "
+    "report, a carrier screen, a tumor sequencing report, a paper, a letter, a slide, a "
     "screenshot of any of these.\n"
     "- gene_list: a list of gene symbols or gene ids with little else -- a panel, a column of "
     "symbols, a spreadsheet of genes.\n"
@@ -254,7 +254,7 @@ EXTRACT_SYSTEM = (
     "- conditions: the disorders or phenotypes the document is about, as a clinical record "
     "would name them.\n"
     "- summary: two sentences saying what the document is and what it found. subject: who or "
-    "what it is about (a patient, a tumour, a cell line, a cohort, a paper), without any "
+    "what it is about (a patient, a tumor, a cell line, a cohort, a paper), without any "
     "name or identifier.\n"
     "- notes: anything you could not read, guessed, or found ambiguous."
 )

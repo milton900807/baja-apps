@@ -1,6 +1,6 @@
 function (graph, track, action) {
     // THE DIFFERENCE BETWEEN SAMPLES, DRAWN. A VCF with two samples is one person twice --
-    // tumour and germline -- or two people, and the question it answers is which of them
+    // tumor and germline -- or two people, and the question it answers is which of them
     // carries each change. On the track that is invisible: a marker is a marker whoever
     // has it. This puts a strip under the track with one row per sample and one cell per
     // variant, colored by that sample's genotype, so a column that is filled in one row

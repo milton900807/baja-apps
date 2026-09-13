@@ -185,7 +185,7 @@ ASK_SYSTEM = (
     'Use "variant" when the text names a specific change, however informally -- K27M, '
     'p.Arg175His, c.83A>T, "TP53 R175H", rs113488022, a genomic coordinate. Use "gene" when '
     "it names only a gene or transcript with no change and no disease. Use \"context\" ONLY "
-    "when it names a disease, syndrome, tumour type or comparable clinical context and "
+    "when it names a disease, syndrome, tumor type or comparable clinical context and "
     "contains no specific change.\n"
     "mims: the OMIM phenotype MIM numbers for that condition, most central first, as strings "
     "of digits. A phenotypic series may be given as PS followed by the number. Give the ones "
@@ -206,7 +206,7 @@ CHOOSE_SYSTEM = (
     "Fields:\n"
     "- matches: true only if the candidate list actually contains the condition that was "
     "asked for. Set it to FALSE when the request is for something these candidates do not "
-    "cover -- a somatic tumour context against a list of germline syndromes, for example -- "
+    "cover -- a somatic tumor context against a list of germline syndromes, for example -- "
     "even if some candidates are in the same organ or share a word with it. A near neighbour "
     "is not a match.\n"
     "- mims: the chosen ids, only from the candidate list. MUST be empty when matches is "
@@ -283,7 +283,7 @@ if INDEX is not None and not out["error"]:
                     out["note"] = str(pick.get("note") or "")
                     # A SEPARATE FLAG, NOT AN EMPTY LIST, DECIDES WHETHER THIS FITS.
                     #
-                    # Asked about DIPG -- a somatic H3-mutant brainstem tumour -- the chooser
+                    # Asked about DIPG -- a somatic H3-mutant brainstem tumor -- the chooser
                     # wrote in its note that DIPG "is not represented among the candidates",
                     # and then returned eleven of them anyway: glioma susceptibility loci and
                     # the whole pheochromocytoma series. Every one was a real id from the real

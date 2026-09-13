@@ -1,32 +1,32 @@
-"""Allele-selective targets: kill the one copy the tumour kept, spare the two the patient has.
+"""Allele-selective targets: kill the one copy the tumor kept, spare the two the patient has.
 
 THE PROBLEM THIS SOLVES. The best single-copy targets are the worst drug targets. A gene the
-cell cannot do without is exactly what a hemizygous tumour has no headroom for, and exactly
+cell cannot do without is exactly what a hemizygous tumor has no headroom for, and exactly
 what a normal cell also cannot do without -- which is why the pan-essential filter throws
 most of them out. Dosage alone gives a narrow, quantitative margin: inhibit a bit, hope the
-tumour dies first.
+tumor dies first.
 
 There is a second margin, and it is not quantitative. In a tract of loss of heterozygosity
-the tumour has ONE parental allele; every normal cell in the patient still has both. Where
+the tumor has ONE parental allele; every normal cell in the patient still has both. Where
 the germline was heterozygous inside such a gene, the two alleles differ in SEQUENCE, and
-the tumour kept only one of them. An agent directed at the sequence of the RETAINED allele
--- an allele-selective ASO, an siRNA, a guide RNA -- destroys the tumour's only copy of an
+the tumor kept only one of them. An agent directed at the sequence of the RETAINED allele
+-- an allele-selective ASO, an siRNA, a guide RNA -- destroys the tumor's only copy of an
 essential gene. The normal cell loses one allele of two and carries on.
 
 That inverts the usual logic. Here pan-essentiality is not the problem, it is the point: the
-more the cell needs the gene, the more surely the tumour dies. The selectivity comes from
+more the cell needs the gene, the more surely the tumor dies. The selectivity comes from
 sequence, not from dose, and it is absolute rather than a ratio.
 
 THREE THINGS CAN SAY WHICH ALLELE TO AIM AT, and this tool annotates a site the same way
 whichever it was. `mode` only chooses the wording of the caveats returned in notes:
 
-  somatic    the tumour kept one parental allele and every normal cell kept both (above).
+  somatic    the tumor kept one parental allele and every normal cell kept both (above).
   phased     the patient carries a disease allele on one copy and the file is phased, so
              every other heterozygous site on that copy is a discriminating base for the
              disease chromosome. This is how an allele-selective ASO against mutant
              huntingtin is built in practice: not against the CAG repeat, which both
              copies carry, but against a common SNP that happens to sit on the expanded
-             chromosome in that patient. No tumour is involved.
+             chromosome in that patient. No tumor is involved.
   mutation   the disease change is itself the difference. Always available, needs neither
              phase nor a second sample, and is the narrowest margin of the three.
 
@@ -43,9 +43,9 @@ the oligo designer's job, and this hands the site over to it.
 
 Params (after the EngineMonitor):
     param(1) : JSON {
-        sites: [{gene, chr, pos, ref, alt, retained, tumour_baf, germline_baf}, ...]
+        sites: [{gene, chr, pos, ref, alt, retained, tumor_baf, germline_baf}, ...]
                retained is "ref" or "alt": the allele to AIM AT. For somatic that is the
-               one the tumour still carries; for phased, the one on the disease copy; for
+               one the tumor still carries; for phased, the one on the disease copy; for
                mutation, the mutant allele.
         species: "human",
         flank: 30,           bases either side of the site in the returned context
@@ -56,7 +56,7 @@ Resolves:
     { ok, sites, n_genes, notes, mode, error }
   sites JSON array, best first:
     { gene, chr, pos, ref, alt, retained_allele, lost_allele, transcript, strand, region,
-      in_mature_transcript, coding, tumour_baf, germline_baf,
+      in_mature_transcript, coding, tumor_baf, germline_baf,
       context_retained, context_lost, context_start, context_end }
 """
 import json
@@ -244,7 +244,7 @@ except Exception:
 # WHAT ESTABLISHED WHICH ALLELE TO AIM AT. The annotation is identical for all three --
 # a position, the allele to hit, and what a transcript makes of it -- but the caveats
 # are not interchangeable, and a phased germline result carrying a paragraph about what
-# a tumour retained is worse than carrying none. Defaults to somatic so the two callers
+# a tumor retained is worse than carrying none. Defaults to somatic so the two callers
 # that predate this keep the wording they were written for.
 mode = (str(req.get("mode") or "somatic") or "somatic").strip().lower()
 if mode not in ("somatic", "phased", "mutation"):
@@ -368,7 +368,7 @@ else:
                 "retained_allele": retained, "lost_allele": lost, "retained_is": ret,
                 "transcript": tid, "strand": strand, "region": region,
                 "in_mature_transcript": bool(in_mrna), "coding": bool(coding),
-                "tumour_baf": s.get("tumour_baf"), "germline_baf": s.get("germline_baf"),
+                "tumor_baf": s.get("tumor_baf"), "germline_baf": s.get("germline_baf"),
                 "context_retained": ctx_r, "context_lost": ctx_l,
                 "context_start": cs, "context_end": ce,
             })
@@ -393,8 +393,8 @@ else:
                      "rather than anywhere a design would have chosen, and for a dominant disease one mismatch "
                      "has to carry the whole of the selectivity.")
     else:
-        notes.append("The retained allele is the one the TUMOUR still carries; an agent directed at it hits the "
-                     "tumour's only copy, while a normal cell keeps the other allele and survives. This is why "
+        notes.append("The retained allele is the one the TUMOR still carries; an agent directed at it hits the "
+                     "tumor's only copy, while a normal cell keeps the other allele and survives. This is why "
                      "an essential gene is the right target here and not the wrong one.")
     notes.append("%d of %d site(s) are in the mature transcript, which an siRNA or an exon-directed ASO needs. "
                  "The rest are intronic: a gapmer acting on pre-mRNA can still use them, a small-molecule or an "
@@ -403,7 +403,7 @@ else:
                  "built on it would actually discriminate, or that it is specific against the rest of the "
                  "transcriptome. Design it in the editor and test both alleles before believing it.")
     if mode == "somatic":
-        notes.append("A site is only usable if the germline call is a true heterozygote and the tumour really did "
+        notes.append("A site is only usable if the germline call is a true heterozygote and the tumor really did "
                      "lose one side. Both come from the caller's own reads, not from a reference panel, so a "
                      "mis-called site produces a target that does not exist.")
     else:
@@ -412,11 +412,11 @@ else:
                      "exist and an oligo built on it would hit both copies.")
     inf = sum(1 for r in result if r["evidence"] == "inferred")
     if inf and mode == "somatic":
-        notes.append("%d site(s) are marked inferred. A variants-only tumour file writes nothing where the tumour "
+        notes.append("%d site(s) are marked inferred. A variants-only tumor file writes nothing where the tumor "
                      "is homozygous for the REFERENCE, so the sites where it kept the reference allele leave no "
                      "record -- and they are usually the majority. Inside a tract already shown to be single-copy "
                      "that absence means the alternate allele is the one that went, which is a sound inference and "
-                     "not a measurement. Confirm those on the reads, or from a tumour file that emits reference "
+                     "not a measurement. Confirm those on the reads, or from a tumor file that emits reference "
                      "calls, before designing against them." % inf)
     out["ok"] = bool(result)
     if not result:

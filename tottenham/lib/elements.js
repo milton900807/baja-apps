@@ -170,7 +170,7 @@ function () {
             { id: 'mir-133a', name: 'miR-133a', tissue: 'muscle', site7: 'GGACCAA', verify: true, use: 'muscle de-targeting' },
             { id: 'mir-126-3p', name: 'miR-126-3p', tissue: 'endothelium', site7: 'CGGTACG', verify: true, use: 'endothelial de-targeting' },
             { id: 'let-7a-5p', name: 'let-7a-5p', tissue: 'broad, high in differentiated tissue', site7: 'CTACCTC', verify: true, use: 'rarely added deliberately; worth removing if found by accident' },
-            { id: 'mir-21-5p', name: 'miR-21-5p', tissue: 'broad, raised in many tumours', site7: 'ATAAGCT', verify: true, use: 'worth removing from a construct intended to work in tumour tissue' },
+            { id: 'mir-21-5p', name: 'miR-21-5p', tissue: 'broad, raised in many tumors', site7: 'ATAAGCT', verify: true, use: 'worth removing from a construct intended to work in tumor tissue' },
             { id: 'mir-155-5p', name: 'miR-155-5p', tissue: 'activated immune cells', site7: 'AGCATTA', verify: true, use: 'worth removing; also used for immune de-targeting' }
         ];
 

@@ -2709,7 +2709,7 @@ function (path, config) {
             snps: [],                // SnpIndel or null, parallel to pos while under the cap
             names: [],               // parallel; only kept while under the cap
             // GENOTYPES, one byte per sample per variant, in SAMPLES order (gtw wide). A
-            // VCF with two samples is two people, or one person twice -- a tumour and its
+            // VCF with two samples is two people, or one person twice -- a tumor and its
             // germline -- and which of them carries a change is the first thing to see.
             gts: null,               // Uint8Array(n * gtw): GT_* codes
             baf: null,               // Uint8Array(n * gtw): 1 + round(B-allele fraction * 200), 0 unknown
@@ -2741,7 +2741,7 @@ function (path, config) {
         // in the order names are first seen, so the file on a side owns slot 0 only if it
         // happened to be loaded first. Anything that reads a genotype "for a side" has to
         // know which slots that side's file actually wrote, or it reads an empty column and
-        // finds nothing -- which is exactly what an LOH scan reported when the tumour was
+        // finds nothing -- which is exactly what an LOH scan reported when the tumor was
         // opened before its normal. Filled from count.cols as each file lands.
         const sideSlots = [[], []];
         // The leaf of a path, without the compression suffix a person does not think of
@@ -2763,7 +2763,7 @@ function (path, config) {
         // ---- SAMPLES AND PHASE -----------------------------------------------------------
         //
         // The columns after FORMAT are the part of a VCF that says WHO has the variant, and
-        // how: 0/1 in the tumour and 0/0 in the germline is a somatic change; 1|0 and 0|1
+        // how: 0/1 in the tumor and 0/0 in the germline is a somatic change; 1|0 and 0|1
         // are the two haplotypes of one person, and which one a change sits on is what an
         // allele-selective design needs to know. None of it was read before. Sample names
         // are registered once, across every file loaded, up to GT_MAX of them.
@@ -3748,7 +3748,7 @@ function (path, config) {
         };
         const confOf = (d, k, si) => ((d.conf && si >= 0 && si < d.gtw) ? d.conf[k * d.gtw + si] : (d.rconf ? d.rconf[k] : CONF_NONE));
         // THE B-ALLELE FRACTION, kept per sample beside the genotype. A caller's GT is a
-        // decision it made once, and on a tumour it is often the wrong one: bcftools leaves
+        // decision it made once, and on a tumor it is often the wrong one: bcftools leaves
         // thousands of sites at 0/1 where its own AD says the alternate allele is carried by
         // 5% of the reads, or by 95% of them. Reading zygosity off GT alone therefore missed
         // an entire deleted chromosome arm -- the reads said one allele, the genotype column
@@ -3888,7 +3888,7 @@ function (path, config) {
             if (!any) return null;
             // What the file has to show: samples that differ, and phase. These decide the
             // color mode the load lands in. The carrier PATTERN is what matters: a file
-            // in which every row is tumour-only differs on every row and still has one
+            // in which every row is tumor-only differs on every row and still has one
             // pattern, and coloring it by sample paints everything one color.
             if (carriers && carriers < known) count.differ = (count.differ || 0) + 1;
             if (phased) count.phased = (count.phased || 0) + 1;
@@ -4039,7 +4039,7 @@ function (path, config) {
             //          a handful is not evidence; a real count is.
             //   chrX   two X chromosomes give heterozygous calls along X; one gives almost
             //          none outside the pseudoautosomal regions, where X and Y still pair.
-            // They can disagree, and on a tumour they often do: a female tumour that has
+            // They can disagree, and on a tumor they often do: a female tumor that has
             // lost one X looks hemizygous on X while the donor is female. So the answer is
             // hedged when the two signals do not agree, and it names the evidence either way.
             // PAR coordinates are GRCh38; on another assembly the X test simply includes them.
@@ -4106,7 +4106,7 @@ function (path, config) {
             };
 
             // THE FILE DECIDES HOW IT IS FIRST SEEN. Samples that differ on some rows is
-            // the tumour-and-germline shape, and which sample has the change is the
+            // the tumor-and-germline shape, and which sample has the change is the
             // question; failing that, phased calls are shown by haplotype. A file with
             // neither keeps whatever mode is on.
             let modeNote = '';
@@ -5796,7 +5796,7 @@ function (path, config) {
         const LOF_WORDS = { frameshift: 'frameshift', stop_gained: 'stop gained', start_lost: 'start lost',
             splice_donor: 'splice donor', splice_acceptor: 'splice acceptor',
             hotspot_missense: 'hotspot missense', pathogenic_missense: 'pathogenic missense' };
-        // The tumour suppressors the third-gene model screens two-loss backgrounds over,
+        // The tumor suppressors the third-gene model screens two-loss backgrounds over,
         // plus the familiar hereditary ones: a loss among these is the one to notice first.
         const LOF_TSG = ['TP53', 'RB1', 'PTEN', 'CDKN2A', 'MTAP', 'ARID1A', 'BAP1', 'KEAP1', 'NF1', 'PBRM1',
             'SMAD4', 'SMARCA4', 'STK11', 'VHL', 'BRCA1', 'BRCA2', 'APC', 'ATM', 'NF2', 'CDH1', 'PALB2',
@@ -5840,7 +5840,7 @@ function (path, config) {
             : (SAMPLES.length > 1 ? 'all samples' : 'all variants');
         const lossWord = (eff) => LOF_WORDS[eff] || ('' + (eff || '')).replace(/_/g, ' ');
         const lossIsTsg = (g) => LOF_TSG.indexOf(('' + (g && g.gene || '')).toUpperCase()) >= 0;
-        // The genes in the order the karyotype should show them: the tumour suppressors
+        // The genes in the order the karyotype should show them: the tumor suppressors
         // first, then by the worst consequence, which is the order the server sent.
         // ZYGOSITY AND ORIGIN. A gene is only LOST when both copies are gone: a homozygous
         // LoF call; two LoF variants on opposite haplotypes (compound heterozygous, which a
@@ -5850,13 +5850,13 @@ function (path, config) {
         // monoallelic / unknown (no genotype column), from the CHOSEN SAMPLE's genotypes.
         // With more than one sample each variant is also called somatic (private to the
         // chosen sample) or shared (in every sample -- germline, when one sample is the
-        // normal), because a tumour's loss set and its inherited losses are different
+        // normal), because a tumor's loss set and its inherited losses are different
         // questions and the two-loss backgrounds want to know which is which.
         const ZYG_RANK = { 'biallelic': 0, 'hemizygous': 0, 'compound het': 1, 'possibly biallelic': 2, 'monoallelic': 3, 'on haplotype 1': 3, 'on haplotype 2': 3, 'unknown': 4 };
         // A gene is LOST when no working copy is left. On a chromosome the sample has only
         // ONE copy of, a single hit does that -- which is why 'hemizygous' counts here.
         const ZYG_LOST = { 'biallelic': 1, 'hemizygous': 1, 'compound het': 1, 'possibly biallelic': 1 };
-        // SINGLE-COPY CHROMOSOMES, read off the genotypes themselves. A tumour that has lost
+        // SINGLE-COPY CHROMOSOMES, read off the genotypes themselves. A tumor that has lost
         // one X carries every X mutation on its only copy, so the caller reports them at an
         // allele fraction of 1 and they arrive here as homozygous. Across a whole chromosome
         // that is not a coincidence: where nearly every call is homozygous and the rest of
@@ -5906,13 +5906,13 @@ function (path, config) {
         const FILTER_GROUPS = [
             { key: 'zyg', title: 'Zygosity', options: [['biallelic', 'Biallelic loss'], ['hemizygous', 'Hemizygous (single-copy chromosome)'], ['possibly', 'Possibly biallelic loss'], ['mono', 'Monoallelic loss']] },
             { key: 'cons', title: 'Variant consequence', options: [['frameshift', 'Frameshift'], ['stop_gained', 'Stop gained'], ['start_lost', 'Start lost'], ['splice_donor', 'Splice donor'], ['splice_acceptor', 'Splice acceptor'], ['pathogenic_missense', 'Pathogenic missense']] },
-            { key: 'cls', title: 'Cancer-gene classification', needs: 'annot', options: [['tumour_suppressor', 'Tumor suppressor'], ['oncogene', 'Oncogene'], ['cancer_dependency', 'Cancer dependency'], ['dna_repair', 'DNA-repair gene'], ['immune_regulatory', 'Immune-regulatory gene'], ['not_associated', 'Not previously associated with cancer']] },
+            { key: 'cls', title: 'Cancer-gene classification', needs: 'annot', options: [['tumor_suppressor', 'Tumor suppressor'], ['oncogene', 'Oncogene'], ['cancer_dependency', 'Cancer dependency'], ['dna_repair', 'DNA-repair gene'], ['immune_regulatory', 'Immune-regulatory gene'], ['not_associated', 'Not previously associated with cancer']] },
             { key: 'ther', title: 'Therapeutic interpretation', needs: 'ther', options: [['synthetic_lethal_vulnerability', 'Potential synthetic-lethal vulnerability'], ['remaining_allele_target', 'Potential target through inhibition of the remaining allele'], ['sensitivity_biomarker', 'Biomarker of drug sensitivity'], ['resistance_biomarker', 'Biomarker of drug resistance'], ['existing_drug', 'Existing drug or inhibitor'], ['clinical_trial', 'Existing clinical trial'], ['none', 'No known therapeutic association']] },
             { key: 'evid', title: 'Evidence level', needs: 'ther', options: [['human_clinical', 'Human clinical evidence'], ['in_vivo_model', 'In-vivo tumor-model evidence'], ['cell_knockdown', 'Cancer-cell knockdown or knockout evidence'], ['computational_only', 'Computational association only']] },
             { key: 'expr', title: 'Expression requirement', options: [['expressed', 'Expressed in this tumor'], ['overexpressed', 'Overexpressed relative to normal tissue'], ['retained', 'Functional transcript retained'], ['unavailable', 'Expression data unavailable']] },
         ];
         const EXPR_UNANSWERABLE = { expressed: 1, overexpressed: 1 };
-        const GCLS_SHORT = { tumour_suppressor: 'TSG', oncogene: 'oncogene', cancer_dependency: 'dependency', dna_repair: 'DNA repair', immune_regulatory: 'immune', not_associated: '' };
+        const GCLS_SHORT = { tumor_suppressor: 'TSG', oncogene: 'oncogene', cancer_dependency: 'dependency', dna_repair: 'DNA repair', immune_regulatory: 'immune', not_associated: '' };
         const THER_SHORT = { synthetic_lethal_vulnerability: 'SL vulnerability', remaining_allele_target: 'remaining-allele target', sensitivity_biomarker: 'sensitivity marker', resistance_biomarker: 'resistance marker', existing_drug: 'drug exists', clinical_trial: 'trial', none: '' };
         const zygClass = (z) => (z === 'hemizygous' ? 'hemizygous'
             : ((z === 'biallelic' || z === 'compound het') ? 'biallelic'
@@ -6027,7 +6027,7 @@ function (path, config) {
         // glowing, everything else greyed, and a labelled band down each lost gene so the
         // list reads on the chromosomes themselves. Bands are capped -- a hypermutated
         // line can lose hundreds of genes and a karyotype under hundreds of callout cards
-        // is a karyotype nobody can see -- so the tumour suppressors and the worst hits
+        // is a karyotype nobody can see -- so the tumor suppressors and the worst hits
         // get the bands and the shelf carries the rest.
         // WHAT THE KARYOTYPE SHOWS: every loss in the matrix, or only the BACKGROUND -- the
         // genes selected, which are the ones a BAJA-3 run and its report were built from.
@@ -6223,7 +6223,7 @@ function (path, config) {
         };
 
         // HIGH-CONFIDENCE CALLS ONLY, by default. A loss called on a filtered, shallow or
-        // low-quality variant is a loss the tumour may not have; the matrix is only as
+        // low-quality variant is a loss the tumor may not have; the matrix is only as
         // good as its worst call. A variant with no confidence information at all (a
         // site list, a paste) is let through: absence of evidence is not a low score.
         let lossConfOnly = true;
@@ -6275,7 +6275,7 @@ function (path, config) {
                 const zc = zygCounts(genes);
                 const nBi = (zc['biallelic'] || 0) + (zc['compound het'] || 0);
                 graph.setMessage(' ' + who + ': ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's')
-                    + ' with a loss-of-function variant' + (nT ? ' (' + nT + ' tumour suppressor' + (nT === 1 ? '' : 's') + ')' : '')
+                    + ' with a loss-of-function variant' + (nT ? ' (' + nT + ' tumor suppressor' + (nT === 1 ? '' : 's') + ')' : '')
                     + ' among ' + scanned.toLocaleString() + ' exonic variant' + (scanned === 1 ? '' : 's')
                     + (nBi ? '; ' + nBi + ' biallelic' : '') + ((zc['possibly biallelic'] || 0) ? ', ' + zc['possibly biallelic'] + ' possibly' : '')
                     + '; ' + marked + ' marked in red. ');
@@ -6291,7 +6291,7 @@ function (path, config) {
 
         // ---- THE DIFFERENTIAL LOSS MATRIX ---------------------------------------------------
         //
-        // TWO GENOMES, ONE QUESTION: what has one lost that the other has not? A tumour
+        // TWO GENOMES, ONE QUESTION: what has one lost that the other has not? A tumor
         // against its normal, a relapse against its primary, two cell lines. The two are
         // either the two SIDES the viewer draws -- a second file loaded on the left of the
         // chromosomes -- or two SAMPLE columns of one file. Each side gets the same loss
@@ -6446,7 +6446,7 @@ function (path, config) {
             }
         };
         // Red for A only, blue for B only, purple for both: the variants of each gene in
-        // its own category's colour, and a band per gene (tumour suppressors and A-only
+        // its own category's colour, and a band per gene (tumor suppressors and A-only
         // first, capped like the loss matrix's bands).
         const applyDiffHighlights = (withBands) => {
             if (!diffResult) return 0;
@@ -6482,7 +6482,7 @@ function (path, config) {
             const rows = [];
             const R = diffResult;
             const side = (g) => (g ? { effect: (g.variants[0] || {}).effect || '', hgvs_p: (g.variants[0] || {}).hgvs_p || '', zygosity: g.zygosity || '', n_lof: g.n_lof } : { effect: '', hgvs_p: '', zygosity: '', n_lof: 0 });
-            const push = (x, status) => { const a = side(x.A), b = side(x.B); const g = x.A || x.B; rows.push({ gene: x.gene, status: status, other_side_evidence: x.evidence || '', chrom: g.chr, gene_start: g.start, gene_end: g.end, tumour_suppressor: lossIsTsg(g) ? 1 : 0,
+            const push = (x, status) => { const a = side(x.A), b = side(x.B); const g = x.A || x.B; rows.push({ gene: x.gene, status: status, other_side_evidence: x.evidence || '', chrom: g.chr, gene_start: g.start, gene_end: g.end, tumor_suppressor: lossIsTsg(g) ? 1 : 0,
                 A: R.A.label, A_effect: a.effect, A_hgvs_p: a.hgvs_p, A_zygosity: a.zygosity, A_n_lof: a.n_lof, B: R.B.label, B_effect: b.effect, B_hgvs_p: b.hgvs_p, B_zygosity: b.zygosity, B_n_lof: b.n_lof }); };
             R.onlyA.forEach((x) => push(x, 'only A')); R.onlyB.forEach((x) => push(x, 'only B')); R.both.forEach((x) => push(x, 'both'));
             return dlToCSV(rows);
@@ -6497,18 +6497,18 @@ function (path, config) {
         };
         // ---- LOSS OF HETEROZYGOSITY ---------------------------------------------------------
         //
-        // A site the normal carries on ONE copy and the tumour carries on ALL of them has
+        // A site the normal carries on ONE copy and the tumor carries on ALL of them has
         // lost its other allele. One such site is noise; a tract of them down a chromosome
-        // is a deletion or a copy-neutral loss, and that tract is where a tumour suppressor
+        // is a deletion or a copy-neutral loss, and that tract is where a tumor suppressor
         // needs only one more hit to be gone. This is the picture the long homozygous
         // stretches on a karyotype actually are.
         //
         // Two ways to ask, the same two the differential takes: two FILES on opposite sides
-        // of the chromosomes (the normal's calls against the tumour's, matched by position),
+        // of the chromosomes (the normal's calls against the tumor's, matched by position),
         // or two SAMPLE columns of one file, which is the cleaner question because the two
         // genotypes sit in the same record.
         //
-        // WHAT IT CANNOT SAY: a site the normal calls het and the tumour does not call at
+        // WHAT IT CANNOT SAY: a site the normal calls het and the tumor does not call at
         // all is either LOH or a coverage gap, and a VCF cannot tell those apart. Those are
         // counted separately and never drawn as LOH.
         const HL_LOH = 45;
@@ -6518,7 +6518,7 @@ function (path, config) {
         let lohBusy = false;
         const LOH_RUN_MIN = 10;          // sites in a row before a tract is worth drawing
         const LOH_RUN_GAP = 3;           // retained sites tolerated inside a tract
-        // A LOST ARM IS ONE THING, NOT FORTY. No tumour is pure and no caller is perfect, so
+        // A LOST ARM IS ONE THING, NOT FORTY. No tumor is pure and no caller is perfect, so
         // a genuinely single-copy arm still throws a retained site every few hundred, and
         // four in a row ends a run. Counting those as separate tracts turns one deletion
         // into a page of fragments. Tracts closer together than this are the same tract:
@@ -6526,35 +6526,35 @@ function (path, config) {
         // for this to join.
         const LOH_TRACT_JOIN = 3e6;
         // WHERE THE READS DECIDE AND WHERE THE GENOTYPE DOES. A caller writes 0/1 once and
-        // does not revisit it; on a tumour arm that has lost a copy it keeps writing 0/1
+        // does not revisit it; on a tumor arm that has lost a copy it keeps writing 0/1
         // over reads that are 95% one allele. So a site is judged on its B-allele fraction
         // whenever the file gave allele depths, and only falls back to the genotype when it
         // did not. A germline call has to look like a real heterozygote to be asked about at
         // all, which also drops the mapping artefacts that would otherwise pad the total.
         const G_HET_LO = 0.25, G_HET_HI = 0.75;   // a credible germline heterozygote
-        const T_LOST_LO = 0.20, T_LOST_HI = 0.80; // one allele effectively gone in the tumour
+        const T_LOST_LO = 0.20, T_LOST_HI = 0.80; // one allele effectively gone in the tumor
         const isHetCall = (gt) => (gt === GT_HET || gt === GT_HAP1 || gt === GT_HAP2 || gt === GT_OTHER);
         // -1 not a usable heterozygous call, 1 a heterozygote worth asking about.
         const normalHet = (gt, b) => (isHetCall(gt) && (b < 0 || (b >= G_HET_LO && b <= G_HET_HI))) ? 1 : -1;
         // 1 lost an allele, 0 kept both.
-        const tumourLost = (gt, b) => (b >= 0 ? ((b <= T_LOST_LO || b >= T_LOST_HI) ? 1 : 0)
+        const tumorLost = (gt, b) => (b >= 0 ? ((b <= T_LOST_LO || b >= T_LOST_HI) ? 1 : 0)
             : ((gt === GT_HOM || gt === GT_HOMP) ? 1 : 0));
         const lohSpecs = () => {
             const specs = [];
             const sc = sideCounts();
             if (sc.left && sc.right) {
-                specs.push({ kind: 'side', normal: 1, tumour: 0, labelN: sideName(1), labelT: sideName(0),
+                specs.push({ kind: 'side', normal: 1, tumor: 0, labelN: sideName(1), labelT: sideName(0),
                     blurb: (sideFile[0] || sideFile[1])
-                        ? sideWhere(1) + ' read as the normal, ' + sideWhere(0) + ' as the tumour: sites the normal carries two alleles at and the tumour\'s reads carry only one.'
-                        : 'The file on the LEFT read as the normal, the one on the right as the tumour: sites the left carries two alleles at and the right\'s reads carry only one.' });
-                specs.push({ kind: 'side', normal: 0, tumour: 1, labelN: sideName(0), labelT: sideName(1),
+                        ? sideWhere(1) + ' read as the normal, ' + sideWhere(0) + ' as the tumor: sites the normal carries two alleles at and the tumor\'s reads carry only one.'
+                        : 'The file on the LEFT read as the normal, the one on the right as the tumor: sites the left carries two alleles at and the right\'s reads carry only one.' });
+                specs.push({ kind: 'side', normal: 0, tumor: 1, labelN: sideName(0), labelT: sideName(1),
                     blurb: 'The other way round: ' + (sideFile[0] ? sideWhere(0) + ' as the normal.' : 'the right-hand file as the normal.') });
             }
             for (let i = 0; i < SAMPLES.length; i++) for (let j = 0; j < SAMPLES.length; j++) {
                 if (i === j) continue;
                 if (!phaseCounts(i).all || !phaseCounts(j).all) continue;
-                specs.push({ kind: 'sample', normal: i, tumour: j, labelN: SAMPLES[i], labelT: SAMPLES[j],
-                    blurb: SAMPLES[i] + ' read as the normal, ' + SAMPLES[j] + ' as the tumour.' });
+                specs.push({ kind: 'sample', normal: i, tumor: j, labelN: SAMPLES[i], labelT: SAMPLES[j],
+                    blurb: SAMPLES[i] + ' read as the normal, ' + SAMPLES[j] + ' as the tumor.' });
             }
             return specs;
         };
@@ -6573,7 +6573,7 @@ function (path, config) {
                     const lohK = [], keptPos = [], lohPos = [];
                     let het = 0, loh = 0, kept = 0, uncalled = 0;
                     if (spec.kind === 'sample') {
-                        const ni = spec.normal, ti = spec.tumour;
+                        const ni = spec.normal, ti = spec.tumor;
                         if (d.gtw > ni && d.gtw > ti) {
                             for (let k = 0; k < d.n; k++) {
                                 if (normalHet(gtOf(d, k, ni), bafOf(d, k, ni)) < 0) continue;   // normal must be het
@@ -6582,15 +6582,15 @@ function (path, config) {
                                 if (gt2 === GT_NONE) { uncalled++; continue; }
                                 const b2 = bafOf(d, k, ti);
                                 if (gt2 === GT_REF && b2 < 0) { uncalled++; continue; }
-                                if (tumourLost(gt2, b2)) { loh++; lohK.push(k); lohPos.push(d.pos[k]); }
+                                if (tumorLost(gt2, b2)) { loh++; lohK.push(k); lohPos.push(d.pos[k]); }
                                 else { kept++; keptPos.push(d.pos[k]); }
                             }
                         }
                     } else {
                         // TWO FILES: index the normal side's heterozygous positions, then read
-                        // the tumour side's calls at the same positions. Positions are sorted,
+                        // the tumor side's calls at the same positions. Positions are sorted,
                         // so one walk over each does it.
-                        const nSide = spec.normal, tSide = spec.tumour;
+                        const nSide = spec.normal, tSide = spec.tumor;
                         const hetAt = new Map();
                         for (let k = 0; k < d.n; k++) {
                             if ((d.side ? d.side[k] : 0) !== nSide) continue;
@@ -6605,7 +6605,7 @@ function (path, config) {
                             if (!hetAt.has(p)) continue;
                             seen.add(p);
                             const g2 = d.gtw ? gtOfSide(d, k, tSide) : GT_NONE;
-                            if (tumourLost(g2, bafOfSide(d, k, tSide))) { loh++; lohK.push(k); lohPos.push(p); }
+                            if (tumorLost(g2, bafOfSide(d, k, tSide))) { loh++; lohK.push(k); lohPos.push(p); }
                             else { kept++; keptPos.push(p); }
                         }
                         uncalled = het - seen.size;
@@ -6673,8 +6673,8 @@ function (path, config) {
                 for (const run of c2.runs) {
                     for (let k = 0; k < d.n; k++) {
                         if (d.pos[k] < run.lo || d.pos[k] > run.hi) continue;
-                        if (spec.kind === 'sample') { if (!tumourLost(gtOf(d, k, spec.tumour), bafOf(d, k, spec.tumour))) continue; }
-                        else if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                        if (spec.kind === 'sample') { if (!tumorLost(gtOf(d, k, spec.tumor), bafOf(d, k, spec.tumor))) continue; }
+                        else if ((d.side ? d.side[k] : 0) !== spec.tumor) continue;
                         d.hl[k] = HL_LOH; marked++;
                     }
                 }
@@ -6700,7 +6700,7 @@ function (path, config) {
         //
         // A chromosome is where the loss is; a gene is what the loss costs. "chr16 at 41%"
         // is the finding, and the next question is always which genes sit inside it -- the
-        // tumour suppressor whose second copy has just gone, the gene that is now down to
+        // tumor suppressor whose second copy has just gone, the gene that is now down to
         // one allele and can be knocked out by a single hit. So the tracts are turned into
         // gene lists off the same GENCODE annotation the Regions panel reads, and each gene
         // is scored on the sites inside its OWN span rather than inheriting the tract's
@@ -6725,11 +6725,11 @@ function (path, config) {
                 if (bySample) {
                     if (normalHet(gtOf(d, k, spec.normal), bafOf(d, k, spec.normal)) < 0) continue;
                     out.het++;
-                    const g2 = gtOf(d, k, spec.tumour);
+                    const g2 = gtOf(d, k, spec.tumor);
                     if (g2 === GT_NONE) { out.uncalled++; continue; }
-                    const b2 = bafOf(d, k, spec.tumour);
+                    const b2 = bafOf(d, k, spec.tumor);
                     if (g2 === GT_REF && b2 < 0) { out.uncalled++; continue; }
-                    if (tumourLost(g2, b2)) out.lost++; else out.kept++;
+                    if (tumorLost(g2, b2)) out.lost++; else out.kept++;
                 } else {
                     if ((d.side ? d.side[k] : 0) !== spec.normal) continue;
                     if (normalHet(gtOfSide(d, k, spec.normal), bafOfSide(d, k, spec.normal)) > 0) hetAt.set(d.pos[k], 1);
@@ -6739,11 +6739,11 @@ function (path, config) {
             out.het = hetAt.size;
             const seen = new Set();
             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
-                if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                if ((d.side ? d.side[k] : 0) !== spec.tumor) continue;
                 const pz = d.pos[k];
                 if (!hetAt.has(pz)) continue;
                 seen.add(pz);
-                if (tumourLost(gtOfSide(d, k, spec.tumour), bafOfSide(d, k, spec.tumour))) out.lost++; else out.kept++;
+                if (tumorLost(gtOfSide(d, k, spec.tumor), bafOfSide(d, k, spec.tumor))) out.lost++; else out.kept++;
             }
             out.uncalled = out.het - seen.size;
             return out;
@@ -6808,13 +6808,13 @@ function (path, config) {
                     g.het = st.het; g.lost = st.lost; g.kept = st.kept; g.uncalled = st.uncalled;
                     g.frac = (st.lost + st.kept) ? st.lost / (st.lost + st.kept) : 0;
                     if ((i + 1) % SCORE_CHUNK === 0 || i === genes.length - 1) {
-                        graph.setMessage(' Scoring the genes on this tumour\u2019s own sites\u2026 '
+                        graph.setMessage(' Scoring the genes on this tumor\u2019s own sites\u2026 '
                             + (i + 1).toLocaleString() + ' of ' + genes.length.toLocaleString() + '. ');
                         try { if (graph.wake) graph.wake(); } catch (e2) { }
                         await new Promise((res2) => setTimeout(res2, 0));
                     }
                 }
-                // Informative first: the tumour suppressors, then the genes the tract covers
+                // Informative first: the tumor suppressors, then the genes the tract covers
                 // most completely, then the ones with the most sites saying so.
                 genes.sort((x, y) => (lossIsTsg(y) - lossIsTsg(x)) || (y.frac - x.frac) || (y.lost - x.lost)
                     || ('' + x.gene).localeCompare('' + y.gene));
@@ -6849,9 +6849,9 @@ function (path, config) {
             variants: [{ effect: 'loss_of_heterozygosity', pos: g.start, ref: '', alt: '' }] });
         const lohGeneCSV = () => dlToCSV((lohResult.genes || []).map((g) => ({
             gene: g.gene, chrom: g.chr, start: g.start, end: g.end, strand: g.strand,
-            normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
-            heterozygous_in_normal: g.het, lost_an_allele_in_tumour: g.lost,
-            retained_heterozygous: g.kept, not_called_in_tumour: g.uncalled,
+            normal: lohResult.spec.labelN, tumor: lohResult.spec.labelT,
+            heterozygous_in_normal: g.het, lost_an_allele_in_tumor: g.lost,
+            retained_heterozygous: g.kept, not_called_in_tumor: g.uncalled,
             loh_fraction: Math.round(g.frac * 1000) / 1000, tract: g.chr + ':' + g.tract,
         })));
         // ---- SYNTHETIC LETHALITY FROM THE LOSS OF HETEROZYGOSITY -----------------
@@ -6862,11 +6862,11 @@ function (path, config) {
         //
         //   COMPLETE LOSS   a gene in the tract that ALSO carries a loss-of-function
         //                   variant has lost both copies. That is a real loss, the two-hit
-        //                   tumour suppressor, and it is the strongest possible background
+        //                   tumor suppressor, and it is the strongest possible background
         //                   for the third-gene model.
         //   SINGLE COPY     a gene in the tract that the cell cannot do without is running
         //                   on one copy where the patient's normal tissue runs on two.
-        //                   Partially inhibit it and the tumour has no headroom. Here the
+        //                   Partially inhibit it and the tumor has no headroom. Here the
         //                   TARGET IS THE GENE ITSELF, and being essential everywhere --
         //                   which disqualifies a third-gene hit -- is the requirement.
         //
@@ -6922,8 +6922,8 @@ function (path, config) {
             therBusy = true;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
-                const ctx = 'Genes the tumour carries a SINGLE copy of, inside a region of loss of heterozygosity ('
-                    + (lohResult ? lohResult.spec.labelT : 'the tumour') + '). The question is whether each can be '
+                const ctx = 'Genes the tumor carries a SINGLE copy of, inside a region of loss of heterozygosity ('
+                    + (lohResult ? lohResult.spec.labelT : 'the tumor') + '). The question is whether each can be '
                     + 'partially inhibited: a CYCLOPS-type dosage vulnerability, not a lost gene.';
                 const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: want, context: ctx }));
                 if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no evidence came back');
@@ -6939,20 +6939,20 @@ function (path, config) {
         // ---- ALLELE-SELECTIVE TARGETS -------------------------------------------
         //
         // The best single-copy targets are the worst drug targets. A gene the cell cannot do
-        // without is exactly what the hemizygous tumour has no headroom for, and exactly what
+        // without is exactly what the hemizygous tumor has no headroom for, and exactly what
         // a normal cell also cannot do without -- which is why the pan-essential filter
         // discards most of them. Dosage gives a narrow quantitative margin and nothing more.
         //
         // There is a second margin, and it is not quantitative. Inside an LOH tract the
-        // tumour holds ONE parental allele; every normal cell in the patient still holds
+        // tumor holds ONE parental allele; every normal cell in the patient still holds
         // both. Wherever the germline was heterozygous inside such a gene the two alleles
-        // differ in SEQUENCE, and the tumour kept one of them. An agent directed at the
-        // sequence of the RETAINED allele destroys the tumour's only copy of a gene it
+        // differ in SEQUENCE, and the tumor kept one of them. An agent directed at the
+        // sequence of the RETAINED allele destroys the tumor's only copy of a gene it
         // cannot live without, while the normal cell drops to one allele of two and carries
         // on. Pan-essentiality stops being the objection and becomes the mechanism.
         //
         // Everything needed to find these sites is already on screen: the germline file says
-        // where the patient is heterozygous, the tumour file's allele fractions say which
+        // where the patient is heterozygous, the tumor file's allele fractions say which
         // side survived. The server is asked only what a base cannot say for itself --
         // which transcript it falls in and whether it reaches the mature message.
         let lohAlleleResult = null;     // { sites, notes, genes, at }
@@ -6961,7 +6961,7 @@ function (path, config) {
         const AS_MAX_PER_GENE = 24;
         const AS_MAX_SITES = 300;
         const AS_RETAIN_HI = 0.80, AS_RETAIN_LO = 0.20;
-        // Every germline heterozygous site inside a span where the tumour kept one side,
+        // Every germline heterozygous site inside a span where the tumor kept one side,
         // with the side it kept. Handles both shapes of comparison: two files (each mark
         // belongs to one side) and two sample columns of one file (one mark, two calls).
         const alleleSitesIn = (ci, lo, hi, spec, gene) => {
@@ -6973,20 +6973,20 @@ function (path, config) {
             if (spec.kind === 'sample') {
                 for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
                     if (normalHet(gtOf(d, k, spec.normal), bafOf(d, k, spec.normal)) < 0) continue;
-                    const tb = bafOf(d, k, spec.tumour);
+                    const tb = bafOf(d, k, spec.tumor);
                     if (tb < 0) continue;
                     const keep = tb >= AS_RETAIN_HI ? 'alt' : (tb <= AS_RETAIN_LO ? 'ref' : '');
                     if (!keep) continue;
                     const ab = allelesAt(ci, k);
                     if (ab[0].length !== 1 || ab[1].length !== 1) continue;   // a SNP, not an indel
                     found.push({ gene: gene, chr: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
-                        retained: keep, evidence: 'measured', tumour_baf: Math.round(tb * 100) / 100,
+                        retained: keep, evidence: 'measured', tumor_baf: Math.round(tb * 100) / 100,
                         germline_baf: Math.round(Math.max(0, bafOf(d, k, spec.normal)) * 100) / 100 });
                     if (found.length >= AS_MAX_PER_GENE) break;
                 }
                 return found;
             }
-            // Two files: index the normal side's heterozygous SNPs, then read the tumour's
+            // Two files: index the normal side's heterozygous SNPs, then read the tumor's
             // allele fraction at the same positions.
             const het = new Map();
             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
@@ -6999,25 +6999,25 @@ function (path, config) {
             if (!het.size) return found;
             const seen = new Set();
             for (let k = a; k < d.n && d.pos[k] <= hi; k++) {
-                if ((d.side ? d.side[k] : 0) !== spec.tumour) continue;
+                if ((d.side ? d.side[k] : 0) !== spec.tumor) continue;
                 const g0 = het.get(d.pos[k]);
                 if (!g0) continue;
                 seen.add(d.pos[k]);
                 const ab = allelesAt(ci, k);
-                // The tumour's record has to be about the SAME change, or its fraction is
+                // The tumor's record has to be about the SAME change, or its fraction is
                 // about a different allele and says nothing about which side survived.
                 if (ab[0] !== g0.ref || ab[1] !== g0.alt) continue;
-                const tb = bafOfSide(d, k, spec.tumour);
+                const tb = bafOfSide(d, k, spec.tumor);
                 if (tb < 0) continue;
                 const keep = tb >= AS_RETAIN_HI ? 'alt' : (tb <= AS_RETAIN_LO ? 'ref' : '');
                 if (!keep) continue;
                 found.push({ gene: gene, chr: drawn[ci].name, pos: d.pos[k], ref: g0.ref, alt: g0.alt,
-                    retained: keep, evidence: 'measured', tumour_baf: Math.round(tb * 100) / 100,
+                    retained: keep, evidence: 'measured', tumor_baf: Math.round(tb * 100) / 100,
                     germline_baf: Math.round(g0.gb * 100) / 100 });
                 if (found.length >= AS_MAX_PER_GENE) break;
             }
-            // A GERMLINE HETEROZYGOTE WITH NO TUMOUR RECORD AT ALL. A variants-only tumour
-            // file writes nothing where the tumour is homozygous for the REFERENCE, so the
+            // A GERMLINE HETEROZYGOTE WITH NO TUMOR RECORD AT ALL. A variants-only tumor
+            // file writes nothing where the tumor is homozygous for the REFERENCE, so the
             // sites at which it kept the reference allele are invisible as records -- and
             // they are the majority. Inside a tract already established as single-copy, and
             // at this depth, that absence means the alternate allele is the one that went.
@@ -7027,7 +7027,7 @@ function (path, config) {
                 if (found.length >= AS_MAX_PER_GENE) break;
                 if (seen.has(pz)) continue;
                 found.push({ gene: gene, chr: drawn[ci].name, pos: pz, ref: g0.ref, alt: g0.alt,
-                    retained: 'ref', evidence: 'inferred', tumour_baf: null,
+                    retained: 'ref', evidence: 'inferred', tumor_baf: null,
                     germline_baf: Math.round(g0.gb * 100) / 100 });
             }
             return found;
@@ -7088,11 +7088,11 @@ function (path, config) {
         };
         // FROM A BAJA-3 RESULT INSTEAD OF FROM THE TRACT LIST.
         //
-        // BAJA-3 answers "given what this tumour has lost, what does it now depend on", and
-        // the answer is a third gene somewhere else in the genome. Whether the tumour also
+        // BAJA-3 answers "given what this tumor has lost, what does it now depend on", and
+        // the answer is a third gene somewhere else in the genome. Whether the tumor also
         // happens to carry ONE copy of that third gene is a separate fact about the same
         // patient, and where both hold the case is as strong as it gets: the dependency is
-        // conditional on this tumour's losses, the copy number is one, and the allele is a
+        // conditional on this tumor's losses, the copy number is one, and the allele is a
         // sequence nothing else has. The window objection disappears -- a normal cell is not
         // asked to do without the gene, only to do without one of its two alleles.
         //
@@ -7100,11 +7100,11 @@ function (path, config) {
         // only thing wrong with a pan-essential hit was that its window was too narrow to
         // dose against, and allele selectivity replaces the window with a sequence.
         const AS_MIN_SITES = 3;          // informative heterozygous sites before judging a gene
-        const AS_MIN_LOST = 0.70;        // and the share of them where the tumour kept one side
+        const AS_MIN_LOST = 0.70;        // and the share of them where the tumor kept one side
         const slAlleleFromTargets = async () => {
             if (!slResult) { graph.setMessage(' Run ' + BAJA3 + ' first. '); return; }
             if (!lohResult) { graph.setError(' This needs the loss-of-heterozygosity scan as well: it is the germline '
-                + 'file that says where this person is heterozygous, and the tumour file that says which side survived. '
+                + 'file that says where this person is heterozygous, and the tumor file that says which side survived. '
                 + 'Run Analyze \u2192 Loss of heterozygosity, then come back. ', 12); return; }
             if (lohAlleleBusy) { graph.setMessage(' The scan is still running. '); return; }
             lohAlleleBusy = true;
@@ -7127,7 +7127,7 @@ function (path, config) {
                 let loci = [];
                 try { loci = JSON.parse((gl && gl.genes) || '[]'); } catch (e) { loci = []; }
                 if (!loci.length) throw new Error('none of these targets could be placed on the genome');
-                // THE TEST, on this patient's own reads: is the tumour down to one allele
+                // THE TEST, on this patient's own reads: is the tumor down to one allele
                 // across the gene? Not "is it inside a tract we drew" -- a gene can be
                 // hemizygous in a stretch too short to band, and the sites themselves say so.
                 // A GENE QUALIFIES ONLY IF IT YIELDS A SITE. The copy-number test and the
@@ -7158,9 +7158,9 @@ function (path, config) {
                     lohAlleleBusy = false;
                     const bothKept = rejected.filter((x2) => /both alleles/.test(x2.why)).length;
                     graph.setError(' None of these targets can be attacked this way. That is the ordinary case: a third-gene '
-                        + 'hit is usually somewhere the tumour still has both copies, and an allele-selective agent has '
+                        + 'hit is usually somewhere the tumor still has both copies, and an allele-selective agent has '
                         + 'nothing to exploit there. Of ' + rejected.length + ' checked, ' + bothKept + ' still carry both '
-                        + 'alleles. The genes this tumour IS down to one copy of are the single-copy list on the '
+                        + 'alleles. The genes this tumor IS down to one copy of are the single-copy list on the '
                         + 'vulnerabilities shelf, not these. ', 16);
                     return;
                 }
@@ -7171,7 +7171,7 @@ function (path, config) {
                     why[q.gene] = (q.kept ? 'A ' + BAJA3 + ' hit' : 'Set aside by ' + BAJA3 + ' as essential everywhere, which allele selectivity answers')
                         + ': ' + interpWord(q.t.interpretation) + ', t ' + fmtT(q.t.best_t) + ', effect ' + fmtT(q.t.eff_double)
                         + (q.t.eff_none != null ? ', without the losses ' + fmtT(q.t.eff_none) : '') + '. '
-                        + 'In this tumour it is down to one allele: ' + q.lost + ' of ' + q.informative
+                        + 'In this tumor it is down to one allele: ' + q.lost + ' of ' + q.informative
                         + ' heterozygous sites inside it kept only one side.';
                     for (const st2 of q.sites) { sites.push(st2); if (sites.length >= AS_MAX_SITES) break; }
                     if (sites.length >= AS_MAX_SITES) break;
@@ -7191,7 +7191,7 @@ function (path, config) {
                     at: new Date().toISOString() };
                 lohAlleleResult.inferred = lohAlleleResult.sites.filter((x2) => x2.evidence === 'inferred').length;
                 graph.setMessage(' ' + qualified.length + ' of ' + loci.length + ' ' + BAJA3 + ' target'
-                    + (loci.length === 1 ? '' : 's') + ' are down to one allele in this tumour, with '
+                    + (loci.length === 1 ? '' : 's') + ' are down to one allele in this tumor, with '
                     + lohAlleleResult.sites.length + ' site' + (lohAlleleResult.sites.length === 1 ? '' : 's') + ' to aim at. ');
                 step('baja3 allele-selective: ' + qualified.length + '/' + loci.length + ' targets, ' + lohAlleleResult.sites.length + ' sites');
                 lohAlleleBusy = false;
@@ -7208,19 +7208,19 @@ function (path, config) {
         // heterozygous positions. That path answers a good question, but it is four steps
         // below the Analyze shelf and it only ever asks about the genes that path chose.
         //
-        // An allele-selective target is not a fact about tumours. It is a fact about TWO
+        // An allele-selective target is not a fact about tumors. It is a fact about TWO
         // COPIES THAT DIFFER IN SEQUENCE plus knowing which of them to aim at. Three
-        // different things establish that, and only the first needs a tumour:
+        // different things establish that, and only the first needs a tumor:
         //
-        //   somatic   the tumour kept one parental allele; every normal cell kept both.
-        //             Aim at the retained one. Needs a tumour/normal pair.
+        //   somatic   the tumor kept one parental allele; every normal cell kept both.
+        //             Aim at the retained one. Needs a tumor/normal pair.
         //   phased    the patient carries a disease allele on one copy, the file is
         //             phased, and every other heterozygous site on THAT copy is therefore
         //             a discriminating base for the disease chromosome. This is how an
         //             allele-selective ASO against mutant huntingtin is actually built:
         //             not against the CAG repeat, which is present on both copies, but
         //             against a common SNP that happens to sit on the expanded chromosome
-        //             in that patient. Needs phase, not a tumour.
+        //             in that patient. Needs phase, not a tumor.
         //   mutation  the disease change IS the difference. One base, always available,
         //             the narrowest margin of the three, and the only one that needs
         //             neither a second sample nor phase.
@@ -7232,15 +7232,15 @@ function (path, config) {
         const AS_MODE = {
             somatic: {
                 name: 'Somatic retention',
-                needs: 'a tumour and a normal',
-                subtitle: 'aim at the allele the tumour kept',
-                aim: 'the allele the tumour kept',
+                needs: 'a tumor and a normal',
+                subtitle: 'aim at the allele the tumor kept',
+                aim: 'the allele the tumor kept',
                 spares: (lost) => 'Normal cells keep ' + lost + ' as well, which is what spares them.',
-                rationale: 'Where the tumour carries ONE allele, every normal cell still carries two. Where the '
+                rationale: 'Where the tumor carries ONE allele, every normal cell still carries two. Where the '
                     + 'germline was heterozygous the two differ in sequence, so an agent aimed at the allele the '
-                    + 'tumour KEPT destroys its only copy while a normal cell drops to one of two and lives. '
+                    + 'tumor KEPT destroys its only copy while a normal cell drops to one of two and lives. '
                     + 'Essentiality stops being the objection here and becomes the mechanism.',
-                csvKept: 'allele_the_tumour_kept', csvLost: 'allele_the_tumour_lost',
+                csvKept: 'allele_the_tumor_kept', csvLost: 'allele_the_tumor_lost',
                 csvOther: 'sequence_in_normal_cells',
             },
             phased: {
@@ -7288,7 +7288,7 @@ function (path, config) {
                 row.transcript = x.transcript;
                 row.strand = x.strand;
                 if (lohAlleleResult.mode === 'somatic' || !lohAlleleResult.mode) {
-                    row.tumour_allele_fraction = x.tumour_baf;
+                    row.tumor_allele_fraction = x.tumor_baf;
                     row.germline_allele_fraction = x.germline_baf;
                 }
                 row.sequence_to_target = x.context_retained;
@@ -7307,8 +7307,8 @@ function (path, config) {
             const books = [];
             const mrna = R.sites.filter((x) => x.in_mature_transcript);
             if (R.source === 'baja3') books.push({ section: 'Allele-selective targets', note: true,
-                title: 'These are ' + BAJA3 + ' hits that this tumour ALSO carries a single allele of. Three things line up at '
-                    + 'once: the dependency is conditional on this tumour\'s losses, the copy number is one, and the allele is a '
+                title: 'These are ' + BAJA3 + ' hits that this tumor ALSO carries a single allele of. Three things line up at '
+                    + 'once: the dependency is conditional on this tumor\'s losses, the copy number is one, and the allele is a '
                     + 'sequence no normal cell is without. The window objection does not apply, because a normal cell is not asked '
                     + 'to do without the gene, only to do without one of its two alleles.'
                     + (R.qualifiedNames && R.qualifiedNames.length ? ' Qualifying here: ' + R.qualifiedNames.join(', ') + '.' : '')
@@ -7321,7 +7321,7 @@ function (path, config) {
                 title: W.rationale + '  '
                     + R.sites.length + ' site' + (R.sites.length === 1 ? '' : 's') + ' in ' + R.genes + ' gene'
                     + (R.genes === 1 ? '' : 's') + ', ' + mrna.length + ' of them in the mature transcript'
-                    + (somatic && R.inferred ? ', and ' + R.inferred + ' where the retained allele is inferred from the tumour file having no record rather than read off it' : '')
+                    + (somatic && R.inferred ? ', and ' + R.inferred + ' where the retained allele is inferred from the tumor file having no record rather than read off it' : '')
                     + (R.scopeLabel ? '. Read over ' + R.scopeLabel : '') + '.' });
             if (R.skipped && R.skipped.length) books.push({ section: 'Allele-selective targets', note: true,
                 title: 'Passed over: ' + R.skipped.slice(0, 8).map((s) => s.gene + ' (' + s.why + ')').join('; ')
@@ -7357,9 +7357,9 @@ function (path, config) {
                         blurb: 'Aim at ' + x.retained_allele + ', ' + W.aim + '. ' + W.spares(x.lost_allele) + ' '
                             + (basis ? basis + ' ' : '')
                             + (x.evidence === 'inferred'
-                                ? 'INFERRED: the tumour file has no record here at all, which inside a single-copy tract means the '
+                                ? 'INFERRED: the tumor file has no record here at all, which inside a single-copy tract means the '
                                   + x.alt + ' allele is the one that went. Confirm it on the reads before designing.'
-                                : (somatic ? 'Tumour allele fraction ' + x.tumour_baf + '. Germline ' + x.germline_baf + '.' : ''))
+                                : (somatic ? 'Tumor allele fraction ' + x.tumor_baf + '. Germline ' + x.germline_baf + '.' : ''))
                             + ' ' + (x.transcript ? x.transcript + ' (' + x.strand + ').' : '')
                             + (x.context_retained ? '\n  target  ' + x.context_retained + '\n  spare   ' + x.context_lost : ''),
                         books: () => [
@@ -7449,7 +7449,7 @@ function (path, config) {
             const chr = drawn[ci].name;
             const push = (pos, ref, alt, retained, why, anchor) => {
                 sites.push({ gene: gene, chr: chr, pos: pos, ref: ref, alt: alt, retained: retained,
-                    evidence: 'measured', tumour_baf: null, germline_baf: null });
+                    evidence: 'measured', tumor_baf: null, germline_baf: null });
                 meta[chr + ':' + pos] = { why: why, anchor: !!anchor, hap: hapName };
             };
             for (const an of ph) {
@@ -7489,7 +7489,7 @@ function (path, config) {
             for (const an of anchors) {
                 const hom = (an.gt === GT_HOM || an.gt === GT_HOMP);
                 sites.push({ gene: gene, chr: chr, pos: an.pos, ref: an.ref, alt: an.alt, retained: 'alt',
-                    evidence: 'measured', tumour_baf: null, germline_baf: null });
+                    evidence: 'measured', tumor_baf: null, germline_baf: null });
                 meta[chr + ':' + an.pos] = { why: an.why + (hom
                     ? ' HOMOZYGOUS here, so there is no wild-type allele left to spare and allele selectivity buys nothing in this patient.'
                     : ''), anchor: true, hom: hom };
@@ -7584,8 +7584,8 @@ function (path, config) {
             const spec = (lohResult && lohResult.spec) || null;
             if (mode === 'somatic' && !spec) {
                 graph.setError(' Somatic retention needs the loss-of-heterozygosity scan: it is the normal file that says '
-                    + 'where this person is heterozygous and the tumour file that says which side survived. Run '
-                    + 'Analyze → Loss of heterozygosity first, or use one of the other two mechanisms, which need no tumour. ', 14);
+                    + 'where this person is heterozygous and the tumor file that says which side survived. Run '
+                    + 'Analyze → Loss of heterozygosity first, or use one of the other two mechanisms, which need no tumor. ', 14);
                 return;
             }
             const si = mode === 'somatic' ? -1 : asSampleFor(mode);
@@ -7735,7 +7735,7 @@ function (path, config) {
                 badge: mode === 'somatic' ? (lohGenes ? lohGenes + ' genes' : 'genome') : (lmGenes ? lmGenes + ' genes' : 'genome'),
                 icon: 'public', ready: genomeReady, readyNote: genomeNote,
                 blurb: (mode === 'somatic'
-                    ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumour kept one side.'
+                    ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumor kept one side.'
                     : 'Every gene the loss matrix found a loss-of-function change in, asked for a discriminating base on the disease copy.')
                     + ' The first ' + AS_MAX_GENES + ' are read.',
                 open: () => asRun(mode, 'genome') });
@@ -7763,7 +7763,7 @@ function (path, config) {
             books.push({ section: 'Allele-selective targets', note: true,
                 title: 'Two copies of a gene that differ in SEQUENCE can be told apart by an oligo; one that is only '
                     + 'present in a different AMOUNT can only be dosed against. Everything here is about the first kind. '
-                    + 'Three things can establish which of the two copies to hit, and only the first needs a tumour, so '
+                    + 'Three things can establish which of the two copies to hit, and only the first needs a tumor, so '
                     + 'pick the mechanism your data actually supports and then say where to look.' });
             const scopeCards = asScopeCards;
             const section = (mode, secName) => {
@@ -7773,7 +7773,7 @@ function (path, config) {
                     + (avail[mode].ok ? '' : ' NOT AVAILABLE: ' + avail[mode].note + '.') });
                 scopeCards(mode).forEach((c) => books.push(Object.assign(c, { section: secName })));
             };
-            section('somatic', 'Somatic retention · the tumour kept one allele');
+            section('somatic', 'Somatic retention · the tumor kept one allele');
             section('phased', 'Phased germline · the disease copy');
             section('mutation', 'The mutation itself');
             if (ph.length > 1) {
@@ -7800,11 +7800,11 @@ function (path, config) {
         };
         const lohSlCSV = () => dlToCSV(
             (lohSlResult.complete || []).map((x) => ({ kind: 'complete loss (two hits)', gene: x.gene,
-                tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
+                tumor_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
                 depmap_dependent_fraction: x.dep_frac, depmap_lines_lost: x.n_lost_lines,
                 what_to_do: 'a genuine biallelic loss: use as a background for the third-gene model' }))
             .concat((lohSlResult.cyclops || []).map((x) => ({ kind: 'single copy (CYCLOPS)', gene: x.gene,
-                tumour_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
+                tumor_suppressor: x.tsg ? 'yes' : 'no', depmap_effect_mean: x.effect_mean,
                 depmap_dependent_fraction: x.dep_frac, depmap_lines_lost: x.n_lost_lines,
                 dosage_verdict: x.dosage || '', effect_in_hemizygous_lines: x.eff_hemizygous,
                 effect_in_normal_copy_lines: x.eff_neutral, dosage_difference: x.cn_delta,
@@ -7827,7 +7827,7 @@ function (path, config) {
                     + (R.hadMatrix ? '' : ' No loss matrix has been calculated, so nothing can be called a complete loss yet.') });
             if (R.background.length) books.push({ section: 'From the loss of heterozygosity', title: 'Run ' + BAJA3 + ' on this background',
                 badge: R.background.length + ' genes', icon: 'science', ready: !slBusy, readyNote: 'a run is in progress',
-                blurb: 'The losses chosen rather than guessed: two hits first, then tumour suppressors, then the genes '
+                blurb: 'The losses chosen rather than guessed: two hits first, then tumor suppressors, then the genes '
                     + 'DepMap actually sees lost often enough for a background built on them to have lines to score — '
                     + R.background.join(', ') + '.',
                 open: () => { selGenes.clear(); R.background.forEach((nm) => { const g = (lohResult.genes || []).find((x) => ('' + x.gene).toUpperCase() === nm); selGenes.set(nm, g ? lohSelRecord(g) : { gene: nm, chr: '', start: 0, end: 0, variants: [{ effect: 'loss_of_heterozygosity', pos: 0, ref: '', alt: '' }] }); }); slFindTargets('', ''); } });
@@ -7839,9 +7839,9 @@ function (path, config) {
             books.push({ section: 'From the loss of heterozygosity', accent: 'run', title: lohAlleleResult ? 'Allele-selective targets' : 'Find allele-selective targets',
                 badge: lohAlleleResult ? (lohAlleleResult.sites.length + ' sites') : 'sequence, not dose', icon: 'gps_fixed',
                 ready: R.cyclops.length > 0 && !lohAlleleBusy, readyNote: lohAlleleBusy ? 'running' : 'no single-copy candidate',
-                blurb: 'The tumour holds one allele here and every normal cell holds two. Where the germline was '
+                blurb: 'The tumor holds one allele here and every normal cell holds two. Where the germline was '
                     + 'heterozygous inside one of these genes the two differ in sequence, so an oligo aimed at the allele '
-                    + 'the TUMOUR kept destroys its only copy of a gene it cannot live without, and a normal cell drops to '
+                    + 'the TUMOR kept destroys its only copy of a gene it cannot live without, and a normal cell drops to '
                     + 'one of two and lives. Essential stops being the objection and becomes the mechanism.',
                 open: () => { if (lohAlleleResult) lohAlleleMenu(); else lohAlleleFind(); } });
             books.push({ section: 'From the loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
@@ -7858,7 +7858,7 @@ function (path, config) {
                     const on = isSelected(x.gene);
                     const g = (lohResult.genes || []).find((y) => ('' + y.gene).toUpperCase() === x.gene);
                     books.push({ section: 'Complete losses — both copies gone', title: x.gene, toggle: true, on: on,
-                        badge: on ? 'selected' : (x.tsg ? 'tumour suppressor' : 'two hits'), swatch: on ? '#16a34a' : '#dc2626', selected: on, ready: true,
+                        badge: on ? 'selected' : (x.tsg ? 'tumor suppressor' : 'two hits'), swatch: on ? '#16a34a' : '#dc2626', selected: on, ready: true,
                         blurb: 'One copy lost to the tract, the other broken by a variant.'
                             + (x.effect_mean == null ? ' Not in the DepMap screen.'
                                 : ' DepMap: knocking it out costs ' + x.effect_mean.toFixed(2) + ' on average, and ' + pctf(x.dep_frac) + ' of lines depend on it.')
@@ -7868,8 +7868,8 @@ function (path, config) {
             }
             if (R.cyclops.length) {
                 books.push({ section: 'Single-copy dependence — the gene itself is the target', note: true,
-                    title: 'These are not lost. The tumour has one working copy of each where normal tissue has two, and the cell '
-                        + 'cannot do without them. A partial inhibitor takes the tumour below what one copy can sustain while the '
+                    title: 'These are not lost. The tumor has one working copy of each where normal tissue has two, and the cell '
+                        + 'cannot do without them. A partial inhibitor takes the tumor below what one copy can sustain while the '
                         + 'patient\'s tissue, on two, holds. Essential everywhere is the REQUIREMENT here, not the disqualification '
                         + 'it is for a third-gene hit — which is also the risk: the drug has to be partial.' });
                 R.cyclops.forEach((x) => {
@@ -7919,15 +7919,15 @@ function (path, config) {
                 graph: graph, books: books });
         };
         const lohCSV = () => dlToCSV((lohResult.chroms || []).map((c2) => ({
-            chrom: c2.name, normal: lohResult.spec.labelN, tumour: lohResult.spec.labelT,
-            heterozygous_in_normal: c2.het, lost_an_allele_in_tumour: c2.loh, retained_heterozygous: c2.kept,
-            not_called_in_tumour: c2.uncalled, loh_fraction: (Math.round(c2.frac * 1000) / 1000),
+            chrom: c2.name, normal: lohResult.spec.labelN, tumor: lohResult.spec.labelT,
+            heterozygous_in_normal: c2.het, lost_an_allele_in_tumor: c2.loh, retained_heterozygous: c2.kept,
+            not_called_in_tumor: c2.uncalled, loh_fraction: (Math.round(c2.frac * 1000) / 1000),
             tracts: c2.runs.length, longest_tract_mb: c2.runs.length ? (Math.round(Math.max.apply(null, c2.runs.map((r2) => r2.hi - r2.lo)) / 1e5) / 10) : 0,
         })));
         const lohPickerBooks = () => {
             const specs = lohSpecs();
             const books = [{ section: 'Loss of heterozygosity', note: true, title: specs.length
-                ? 'Choose which side or sample is the NORMAL. A site it calls heterozygous and the tumour calls homozygous has lost an allele; a tract of them is a deletion or a copy-neutral loss.'
+                ? 'Choose which side or sample is the NORMAL. A site it calls heterozygous and the tumor calls homozygous has lost an allele; a tract of them is a deletion or a copy-neutral loss.'
                 : 'Nothing to compare yet: load a second VCF on the left of the chromosomes (Upload asks where a new file goes), or load a VCF whose samples both carry calls.' }];
             specs.forEach((sp) => books.push({ section: 'Loss of heterozygosity', accent: 'run', title: sp.labelN + '  →  ' + sp.labelT, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
                 blurb: sp.blurb, ready: true, open: () => computeLOH(sp) }));
@@ -7939,10 +7939,10 @@ function (path, config) {
             const R = lohResult;
             const pct = (x) => Math.round(100 * x) + '%';
             const books = [];
-            books.push({ section: 'Loss of heterozygosity', note: true, title: R.spec.labelN + ' as the normal, ' + R.spec.labelT + ' as the tumour: '
-                + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites lost an allele in the tumour (' + pct(R.het ? R.loh / R.het : 0) + '), '
+            books.push({ section: 'Loss of heterozygosity', note: true, title: R.spec.labelN + ' as the normal, ' + R.spec.labelT + ' as the tumor: '
+                + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites lost an allele in the tumor (' + pct(R.het ? R.loh / R.het : 0) + '), '
                 + R.kept.toLocaleString() + ' stay heterozygous'
-                + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumour at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
+                + (R.uncalled ? ', and ' + R.uncalled.toLocaleString() + ' are not called in the tumor at all — those may be LOH or may be a coverage gap, and are never drawn as LOH' : '') + '.' });
             books.push({ section: 'Loss of heterozygosity', note: true, title: 'Each site is judged on its allele depths, not on the caller\'s genotype: a heterozygote whose reads are more than '
                 + Math.round(T_LOST_HI * 100) + '% one allele has lost the other, whatever the GT field still says. Sites with fewer than 8 reads, or no allele depths at all, fall back to the genotype.' });
             books.push({ section: 'Loss of heterozygosity', title: 'Highlight on the genome', badge: hlActive === HL_LOH ? 'on' : 'off', toggle: true, on: hlActive === HL_LOH, icon: 'highlight', ready: true,
@@ -7958,7 +7958,7 @@ function (path, config) {
                 blurb: 'Every protein-coding gene inside a tract, each scored on the heterozygous sites in its own span. '
                     + 'A gene here has one copy left, so a single hit finishes it.',
                 open: () => { lohFindGenes(); } });
-            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: lohSlResult ? 'The vulnerabilities this loss creates' : 'Find what this loss makes the tumour depend on',
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: lohSlResult ? 'The vulnerabilities this loss creates' : 'Find what this loss makes the tumor depend on',
                 badge: lohSlResult ? (lohSlResult.complete.length + ' complete · ' + lohSlResult.cyclops.length + ' single-copy') : BAJA3,
                 icon: 'science', ready: !!(R.genes && R.genes.length) && !lohSlBusy,
                 readyNote: lohSlBusy ? 'running' : 'list the genes in the tracts first',
@@ -7968,7 +7968,7 @@ function (path, config) {
                 open: () => { if (lohSlResult) lohSlMenu(); else lohFindSL(); } });
             // THE SHORTCUT. Running this scan is the moment somatic retention becomes
             // possible: the normal file says where the patient is heterozygous and the
-            // tumour file says which side survived, and until now neither existed. Sending
+            // tumor file says which side survived, and until now neither existed. Sending
             // the reader back out to the Analyze root to start it -- from a shelf they
             // reached by drilling in three levels -- makes a tool that is ready to use read
             // as one that is not. The cards are the same ones the root builds, from the
@@ -7977,12 +7977,12 @@ function (path, config) {
                 title: lohAlleleResult && lohAlleleResult.mode === 'somatic' ? 'Allele-selective targets' : 'Find allele-selective targets',
                 badge: lohAlleleResult && lohAlleleResult.mode === 'somatic' ? (lohAlleleResult.sites.length + ' sites') : 'sequence, not dose',
                 icon: 'gps_fixed', ready: !lohAlleleBusy, readyNote: 'running',
-                blurb: 'This tumour holds ONE allele across these tracts; every normal cell in the patient holds two. '
+                blurb: 'This tumor holds ONE allele across these tracts; every normal cell in the patient holds two. '
                     + 'Wherever the germline was heterozygous inside them the two differ in sequence, so an oligo aimed '
-                    + 'at the allele the tumour KEPT destroys its only copy while a normal cell drops to one of two and '
+                    + 'at the allele the tumor KEPT destroys its only copy while a normal cell drops to one of two and '
                     + 'lives. Essentiality stops being the objection and becomes the mechanism. Pick where to look.',
                 books: () => [{ note: true, title: 'Somatic retention, over whichever of these you want. The other two '
-                        + 'mechanisms -- a phased disease haplotype, and the mutation itself -- need no tumour at all '
+                        + 'mechanisms -- a phased disease haplotype, and the mutation itself -- need no tumor at all '
                         + 'and are on the Analyze shelf.' }]
                     .concat(asScopeCards('somatic'))
                     .concat(lohAlleleResult ? [{ title: 'Show the last result', badge: lohAlleleResult.sites.length + ' sites',
@@ -7997,7 +7997,7 @@ function (path, config) {
                 const sel = R.genes.filter((g) => isSelected(g.gene)).length;
                 books.push({ section: 'Genes in the tracts', note: true,
                     title: R.genes.length.toLocaleString() + ' protein-coding gene' + (R.genes.length === 1 ? '' : 's') + ' inside '
-                        + tracts + ' tract' + (tracts === 1 ? '' : 's') + '. Tumour suppressors first, then by how completely the loss covers the gene. '
+                        + tracts + ' tract' + (tracts === 1 ? '' : 's') + '. Tumor suppressors first, then by how completely the loss covers the gene. '
                         + 'The percentage is of the heterozygous sites inside that gene, not of the tract.'
                         + (R.genesTruncated ? ' Some parts of the annotation were cut at the lookup\'s limit.' : '') });
                 books.push({ section: 'Genes in the tracts', title: 'Select all of them', badge: R.genes.length + ' genes', icon: 'done_all', ready: R.genes.length > 0,
@@ -8012,7 +8012,7 @@ function (path, config) {
                 R.genes.forEach((g) => {
                     const on = isSelected(g.gene);
                     books.push({ section: 'Genes in the tracts', title: g.gene, toggle: true, on: on,
-                        badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : pct(g.frac) + ' LOH'),
+                        badge: on ? 'selected' : (lossIsTsg(g) ? 'tumor suppressor' : pct(g.frac) + ' LOH'),
                         swatch: on ? '#16a34a' : (lossIsTsg(g) ? '#dc2626' : (g.frac >= 0.7 ? '#a855f7' : (g.frac >= 0.3 ? '#f97316' : '#94a3b8'))),
                         selected: on, ready: true,
                         blurb: g.chr + ':' + human(g.start) + '-' + human(g.end) + (g.strand ? ' (' + g.strand + ')' : '')
@@ -8066,7 +8066,7 @@ function (path, config) {
             const card = (x, sec, sw) => {
                 const g = x.A || x.B; const on = isSelected(x.gene);
                 const one = (h, side) => (h ? side + ': ' + lossWord((h.variants[0] || {}).effect) + ((h.variants[0] || {}).hgvs_p ? ' ' + h.variants[0].hgvs_p : '') + (h.zygosity && h.zygosity !== 'unknown' ? ' (' + h.zygosity + ')' : '') : '');
-                return { section: sec, title: x.gene, toggle: true, on: on, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumour suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
+                return { section: sec, title: x.gene, toggle: true, on: on, badge: on ? 'selected' : (lossIsTsg(g) ? 'tumor suppressor' : lossWord((g.variants[0] || {}).effect)), swatch: on ? '#16a34a' : sw, selected: on,
                     blurb: [one(x.A, 'A'), one(x.B, 'B')].filter(Boolean).join(' · ') + ' · ' + g.chr + ':' + human(g.start) + '-' + human(g.end)
                         + (x.evidence ? ' · other side ' + x.evidence : ''),
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + x.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); diffMenu(); } };
@@ -8088,7 +8088,7 @@ function (path, config) {
                         genotype: v.gt || '', confidence: v.conf ? CONF_WORD[v.conf].replace(' confidence', '') : '', zygosity: g.zygosity || '', origin: v.origin || '', gene_origin: g.origin || '',
                         biallelic: ZYG_LOST[g.zygosity] ? 1 : 0,
                         gene_start: g.start, gene_end: g.end, strand: g.strand, biotype: g.biotype,
-                        tumour_suppressor: lossIsTsg(g) ? 1 : 0, n_lof: g.n_lof, n_other_coding: g.n_other });
+                        tumor_suppressor: lossIsTsg(g) ? 1 : 0, n_lof: g.n_lof, n_other_coding: g.n_other });
                 }
             }
             return dlToCSV(rows);
@@ -8117,7 +8117,7 @@ function (path, config) {
         const SL_MAX_GENES = 12;
         // DROP THE TARGETS THAT KILL EVERYTHING. A gene the cell needs whatever it has lost
         // scores an enormous t and an enormous effect and is useless as a drug: it takes the
-        // patient with the tumour. On by default, because those hits crowd out the selective
+        // patient with the tumor. On by default, because those hits crowd out the selective
         // ones and read as the strongest result on the page. They are set aside with the
         // reason rather than deleted, and one card puts them back.
         let slDropPan = true;
@@ -8258,7 +8258,7 @@ function (path, config) {
             const v = (g.variants || [])[0] || {};
             return { gene: g.gene, chrom: g.chr, gene_start: g.start, gene_end: g.end, effect: v.effect || '', pos: v.pos || '',
                 ref: v.ref || '', alt: v.alt || '', hgvs_p: v.hgvs_p || '', hgvs_c: v.hgvs_c || '', transcript: g.transcript || '',
-                tumour_suppressor: lossIsTsg(g) ? 1 : 0 };
+                tumor_suppressor: lossIsTsg(g) ? 1 : 0 };
         }));
         // The cancer types worth offering before a run has named the ones in play: the
         // common DepMap primary diseases. After a run the list comes from the result, and
@@ -8372,7 +8372,7 @@ function (path, config) {
         };
 
         // THE HIGHER-ORDER MODEL'S OWN CATALOGUE: what the ppset third-gene model has already
-        // found -- its systematic scan over every tumour-suppressor pair, the breast and
+        // found -- its systematic scan over every tumor-suppressor pair, the breast and
         // pancreas application tables, the single-loss and full pair screens -- looked up
         // for the selection (py/bio/higher-order-model.py). The live screen recomputes;
         // this reads the result the chapters were written from, and the two should agree.
@@ -8473,7 +8473,7 @@ function (path, config) {
             const sel = selectedList();
             const books = [];
             books.push({ section: 'Selected genes', note: true, title: sel.length
-                ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumour\'s background.')
+                ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumor\'s background.')
                 : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
             books.push({ section: 'Find targets', note: true, title: BAJA3 + ' — ' + BAJA3_LONG + '. For each selected loss and each pair of them, the third gene that becomes selectively essential in cells carrying the same losses.' });
             books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets', badge: sel.length ? (sel.length + (sel.length > 1 ? ' losses · ' + (sel.length * (sel.length - 1) / 2) + ' pairs' : ' loss')) : '', icon: 'biotech',
@@ -8493,7 +8493,7 @@ function (path, config) {
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
             books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
-                blurb: 'What ' + BAJA3 + ' has already found for these losses: its systematic scan over every tumour-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
+                blurb: 'What ' + BAJA3 + ' has already found for these losses: its systematic scan over every tumor-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => hoFind() });
             if (hoResult) {
                 books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' catalogue result', badge: hoResult.matched.length + ' within · ' + hoResult.partial.length + ' near', icon: 'list',
@@ -8653,7 +8653,7 @@ function (path, config) {
                 const ther = {};
                 try {
                     dlMsg('Looking up inhibitors and trials…');
-                    const ctx = 'targets for a tumour that has lost ' + R.genes.join(', ') + (R.tissue ? '; tissue ' + R.tissue : '');
+                    const ctx = 'targets for a tumor that has lost ' + R.genes.join(', ') + (R.tissue ? '; tissue ' + R.tissue : '');
                     const rs2 = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: written.map((x) => x.t.target), context: ctx }));
                     if (rs2 && rs2.ok) Object.assign(ther, JSON.parse(rs2.genes || '{}'));
                 } catch (e) { step('report: therapeutics lookup failed: ' + e); }
@@ -8663,7 +8663,7 @@ function (path, config) {
                 sheets.push({ name: 'Report', rows: [{
                     'Report': BAJA3 + ' - higher-order hits',
                     'What it is': BAJA3_LONG + '. Every target below needs BOTH of the named losses: its dependency is deeper in cells carrying the pair than in cells carrying either loss alone.',
-                    'The model': 'For each loss and each pair of losses in this tumour, every gene in the DepMap CRISPR screen is scored for how much more essential it is in the cell lines carrying the same losses than in the rest, '
+                    'The model': 'For each loss and each pair of losses in this tumor, every gene in the DepMap CRISPR screen is scored for how much more essential it is in the cell lines carrying the same losses than in the rest, '
                         + 'corrected for tissue of origin so a vulnerability of one cancer type is not mistaken for a consequence of the losses. Each hit is then decomposed into its single-loss parts: a higher-order hit is one the pair '
                         + 'explains and neither loss alone does. Dependency is the Chronos gene effect from DepMap CRISPR knockouts; significance is a lineage-corrected partial correlation with Benjamini-Hochberg FDR.',
                     'Applied before': 'An earlier application of this model, on 1p/19q-codeleted oligodendroglioma, is written up at ' + BAJA3_DOC,
@@ -8798,10 +8798,10 @@ function (path, config) {
             }
             books.push({ section: 'Targets', accent: 'run', title: 'Allele-selective targets among these hits', badge: 'sequence, not dose', icon: 'gps_fixed',
                 ready: !lohAlleleBusy, readyNote: 'running',
-                blurb: 'Which of these hits the tumour also carries only ONE allele of. Where that holds, an oligo aimed at the '
+                blurb: 'Which of these hits the tumor also carries only ONE allele of. Where that holds, an oligo aimed at the '
                     + 'allele it kept destroys its only copy while a normal cell keeps the other and lives, so the therapeutic '
                     + 'window stops mattering. The set-aside pan-essential hits are checked too, and are often the better half. '
-                    + 'Needs the loss-of-heterozygosity scan, which supplies the germline and tumour reads.',
+                    + 'Needs the loss-of-heterozygosity scan, which supplies the germline and tumor reads.',
                 open: () => { slAlleleFromTargets(); } });
             books.push({ section: 'Targets', title: 'Run again in a tissue…', badge: 'tissue', icon: 'science', ready: true,
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
@@ -8815,12 +8815,12 @@ function (path, config) {
             books.push({ section: 'Targets', toggle: true, on: slDropPan, title: slDropPan ? 'Pan-essential targets are being set aside' : 'Pan-essential targets are being kept',
                 badge: slDropPan ? ((R.dropped || []).length + ' set aside') : 'none filtered', icon: 'filter_alt', ready: !slBusy, readyNote: 'a run is in progress',
                 blurb: slDropPan
-                    ? 'A target the cell needs whatever it has lost kills the patient with the tumour, whatever its t. Targets dependent in 85% or more of all cell lines, or already at −0.6 in the lines carrying neither loss, are set aside unless the losses account for at least half the killing. Click to keep them and run again.'
+                    ? 'A target the cell needs whatever it has lost kills the patient with the tumor, whatever its t. Targets dependent in 85% or more of all cell lines, or already at −0.6 in the lines carrying neither loss, are set aside unless the losses account for at least half the killing. Click to keep them and run again.'
                     : 'Every target is listed, including the ones that are essential everywhere. Click to set those aside and run again.',
                 open: () => { slDropPan = !slDropPan; slFindTargets(R.lineage || '', R.disease || ''); } });
             books.push({ section: 'Targets', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the losses and run again.', open: () => selectedGenesMenu() });
             if (!R.targets.length) books.push({ section: 'Ranked targets', note: true, title: 'No gene passed the threshold (t < 0, effect < −0.4, FDR ≤ 0.25) in any scored background.' });
-            else books.push({ section: 'Ranked targets', note: true, title: 'Genuine three-way hits first, then by how many of this tumour\'s backgrounds a gene recurs in, then by t. Click a target to go to it or open it in the editor.' });
+            else books.push({ section: 'Ranked targets', note: true, title: 'Genuine three-way hits first, then by how many of this tumor\'s backgrounds a gene recurs in, then by t. Click a target to go to it or open it in the editor.' });
             R.targets.forEach((t, i) => {
                 const bgs = (t.backgrounds || []);
                 const bgText = bgs.slice(0, 4).map((b) => b.genes.join('+')).join(', ') + (bgs.length > 4 ? ' +' + (bgs.length - 4) : '');
@@ -8837,7 +8837,7 @@ function (path, config) {
                             open: () => slExplain(t.target, R.genes, 'depmap', { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds }, slTargetsMenu) },
                         { title: 'Go to ' + t.target + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(t.target) },
                         { title: 'Open ' + t.target + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(t.target) },
-                        { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumour that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
+                        { title: 'Select ' + t.target + ' as a loss', badge: 'next round', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection to ask what a tumor that ALSO lost it would depend on.', open: () => { selGenes.set(('' + t.target).toUpperCase(), { gene: t.target, chr: '', start: 0, end: 0, variants: [{ effect: 'hypothetical', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + t.target + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
                         { note: true, title: 'Per background:' },
                     ].concat(bgs.map((b) => ({ note: true, title: b.genes.join('+') + ': t ' + fmtT(b.t) + ', FDR ' + fmtP(b.fdr) + ', effect ' + fmtT(b.eff_double)
                         + (b.eff_none != null ? ', without the losses ' + fmtT(b.eff_none) + (b.n_none ? ' (' + b.n_none + ' lines)' : '') : '')
@@ -8874,7 +8874,7 @@ function (path, config) {
                 subtitle: BAJA3_LONG + ' — third genes that become essential given the selected losses', graph: graph, books: books });
         };
 
-        // THE MATRIX AS A LIBRARY: one card per lost gene, tumour suppressors first, each
+        // THE MATRIX AS A LIBRARY: one card per lost gene, tumor suppressors first, each
         // click SELECTING it. Download and clear sit at the top where they are found
         // without scrolling past a hundred genes.
         const gotoLostGene = async (g) => {
@@ -8985,7 +8985,7 @@ function (path, config) {
                 'Haplotype': L.hap ? (L.hap === 'hap1' ? 'haplotype 1 only' : 'haplotype 2 only') : 'both copies',
                 'Calculated': L.at ? new Date(L.at).toLocaleString() : new Date().toLocaleString(),
                 'Exonic variants read': (+L.scanned || 0).toLocaleString(),
-                'Genes with a loss-of-function variant': allG.length + (tsg.length ? ' (' + tsg.length + ' tumour suppressor' + (tsg.length === 1 ? '' : 's') + ')' : ''),
+                'Genes with a loss-of-function variant': allG.length + (tsg.length ? ' (' + tsg.length + ' tumor suppressor' + (tsg.length === 1 ? '' : 's') + ')' : ''),
                 'Loss-of-function variants': ['frameshift', 'stop_gained', 'start_lost', 'splice_acceptor', 'splice_donor', 'hotspot_missense', 'pathogenic_missense'].map((k) => c[k] ? c[k] + ' ' + lossWord(k) : '').filter(Boolean).join(', ') || '',
                 'Left in place': ['missense', 'inframe_indel', 'synonymous', 'stop_lost'].map((k) => c[k] ? c[k] + ' ' + lossWord(k) : '').filter(Boolean).join(', ') || '',
                 'Zygosity': (zc['unknown'] === allG.length) ? 'not called (no genotype columns)'
@@ -9001,12 +9001,12 @@ function (path, config) {
             const pics = await captureViews();
             if (pics.length) sheets.push({ name: 'Views' + (pics.length > 1 ? ' and bookmarks' : ''), rows: [], images: pics });
 
-            // 2. The genes, tumour suppressors first, one record each with its worst hit.
+            // 2. The genes, tumor suppressors first, one record each with its worst hit.
             const geneRow = (g) => {
                 const v = (g.variants || [])[0] || {};
                 const more = (g.variants || []).length > 1 ? ' (+' + (g.variants.length - 1) + ' more)' : '';
                 const row = {
-                    'Gene': g.gene + (lossIsTsg(g) ? '  [tumour suppressor]' : ''),
+                    'Gene': g.gene + (lossIsTsg(g) ? '  [tumor suppressor]' : ''),
                     'Consequence': lossWord(v.effect) + more,
                     'Locus': g.chr + ':' + (v.pos != null ? (+v.pos).toLocaleString() : '') + (v.ref ? ' ' + v.ref + '>' + v.alt : ''),
                     'HGVS': [v.hgvs_c, v.hgvs_p].filter(Boolean).join('  '),
@@ -9019,7 +9019,7 @@ function (path, config) {
                 if (isSelected(g.gene)) row['Selected'] = 'yes - in the set the models were run on';
                 return row;
             };
-            if (tsg.length) sheets.push({ name: 'Tumour suppressors lost', rows: tsg.map(geneRow) });
+            if (tsg.length) sheets.push({ name: 'Tumor suppressors lost', rows: tsg.map(geneRow) });
             if (rest.length) sheets.push({ name: 'Other genes lost', rows: rest.map(geneRow) });
 
             // 3. The selection the models were asked about.
@@ -9081,7 +9081,7 @@ function (path, config) {
 
             // 6. How to read it.
             sheets.push({ name: 'How to read this', rows: [{
-                'Loss matrix': 'Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too. Deletions and silencing are not in a VCF and are not seen.',
+                'Loss matrix': 'Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence; in tumor suppressors a hotspot or ClinVar-pathogenic missense counts too. Deletions and silencing are not in a VCF and are not seen.',
                 'Zygosity': 'Biallelic = both copies hit (homozygous, compound heterozygous, or two hits of unknown phase). Hemizygous = the sample has one copy of that chromosome, so one hit removes the gene. Monoallelic = one copy hit; the other may be gone by deletion or LOH, which a VCF cannot see.',
                 'Synthetic-lethal targets': 'For each selected loss and each pair of them, the gene that becomes selectively essential in DepMap lines carrying the same losses, lineage-corrected. Genuine higher-order = the pair explains the dependency beyond either loss alone; single-loss = one loss drives it.',
                 'Paralog partners': 'The trained paralog classifier: for a lost gene, which paralog is predicted to become the surviving copy the cell cannot lose.',
@@ -9115,7 +9115,7 @@ function (path, config) {
             const books = [];
             books.push({ section: 'Loss matrix', note: true,
                 title: lossMatrix.sample + ': ' + allG.length + ' gene' + (allG.length === 1 ? '' : 's') + ' with a loss-of-function variant'
-                    + (nT ? ', ' + nT + ' of them tumour suppressor' + (nT === 1 ? '' : 's') : '')
+                    + (nT ? ', ' + nT + ' of them tumor suppressor' + (nT === 1 ? '' : 's') : '')
                     + ', from ' + (+lossMatrix.scanned || 0).toLocaleString() + ' exonic variant' + (lossMatrix.scanned === 1 ? '' : 's')
                     + (other ? ' (' + other + ' left in place)' : '') + '.' + zygLine
                     + (activeFilterCount() ? ' Refined to ' + genes.length + ' of ' + allG.length + ' (' + filtersSummary() + ').' : '')
@@ -9139,8 +9139,8 @@ function (path, config) {
             books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : 'click genes below', icon: 'checklist',
                 blurb: 'Click genes in the list to select them one after another, then act on the set here or from the microscope: run ' + BAJA3 + ' for synthetic-lethal targets, download, clear.',
                 ready: true, open: () => selectedGenesMenu() });
-            books.push({ section: 'Loss matrix', title: 'Select all tumour suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
-                blurb: 'Select every lost gene on the tumour-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumour suppressor is lost',
+            books.push({ section: 'Loss matrix', title: 'Select all tumor suppressors', badge: genes.filter(lossIsTsg).length + ' genes', icon: 'done_all',
+                blurb: 'Select every lost gene on the tumor-suppressor list in one go.', ready: genes.some(lossIsTsg), readyNote: 'no tumor suppressor is lost',
                 open: () => { genes.filter(lossIsTsg).forEach((g) => selGenes.set(('' + g.gene).toUpperCase(), g)); graph.setMessage(' ' + selWord() + ' selected. '); lossMatrixMenu(); } });
             books.push({ section: 'Loss matrix', title: 'Highlight on the genome', badge: hlActive === HL_LOF ? 'on' : 'off', toggle: true, on: hlActive === HL_LOF, icon: 'highlight',
                 blurb: 'Mark ' + (lossHlScope === 'background' && selGenes.size ? 'the selected background genes' : 'every loss-of-function variant') + ' in red and band the lost genes'
@@ -9183,7 +9183,7 @@ function (path, config) {
                     ready: true, open: () => { const now = toggleGeneSelect(g); graph.setMessage(' ' + g.gene + (now ? ' selected' : ' deselected') + ' — ' + selWord() + '. '); lossMatrixMenu(); } };
             };
             const tsg = genes.filter(lossIsTsg), rest = genes.filter((g) => !lossIsTsg(g));
-            if (tsg.length) { books.push({ section: 'Tumour suppressors lost', note: true, title: 'The two-loss backgrounds the third-gene model screens start here.' }); tsg.forEach((g) => books.push(card(g, 'Tumour suppressors lost'))); }
+            if (tsg.length) { books.push({ section: 'Tumor suppressors lost', note: true, title: 'The two-loss backgrounds the third-gene model screens start here.' }); tsg.forEach((g) => books.push(card(g, 'Tumor suppressors lost'))); }
             if (rest.length) { books.push({ section: 'Other genes lost', note: true, title: rest.length + ' more gene' + (rest.length === 1 ? '' : 's') + ', worst consequence first.' }); rest.forEach((g) => books.push(card(g, 'Other genes lost'))); }
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-analysis', title: 'Loss matrix — ' + lossMatrix.sample,
@@ -9223,7 +9223,7 @@ function (path, config) {
             therBusy = true;
             const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
             try {
-                const ctx = (r.species || 'human') + ' tumour sample ' + (lossMatrix.sample || '') + '; other losses: '
+                const ctx = (r.species || 'human') + ' tumor sample ' + (lossMatrix.sample || '') + '; other losses: '
                     + (lossMatrix.genes || []).filter(lossIsTsg).map((g) => g.gene).slice(0, 12).join(', ');
                 graph.setMessage(' Reading the therapeutic literature for ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + ' — ' + Math.ceil(genes.length / 10) + ' part' + (genes.length > 10 ? 's' : '') + ' in parallel… ');
                 const rs = await exec(server + '/py/bio/gene-therapeutics.py', em, JSON.stringify({ genes: genes, context: ctx }));
@@ -9265,14 +9265,14 @@ function (path, config) {
                 blurb: 'Gene by gene: interpretation, evidence level, inhibitors, trials, publications.', open: () => therMenu() });
             for (const grp of FILTER_GROUPS) {
                 const avail = grp.needs === 'annot' ? hasAnnot : (grp.needs === 'ther' ? nTher > 0 : true);
-                books.push({ section: grp.title, note: true, title: avail ? (grp.key === 'expr' ? 'Only what a VCF can answer: a monoallelic loss keeps one functional transcript; tumour expression itself is not in the file.' : 'Tick any that apply.')
+                books.push({ section: grp.title, note: true, title: avail ? (grp.key === 'expr' ? 'Only what a VCF can answer: a monoallelic loss keeps one functional transcript; tumor expression itself is not in the file.' : 'Tick any that apply.')
                     : (grp.needs === 'annot' ? 'Classify the genes first (above) to filter on this.' : 'Find therapeutic evidence first (above) to filter on this.') });
                 for (const [val, label] of grp.options) {
                     const on = lossFilters[grp.key].has(val);
                     const n = countOf(grp.key, val);
                     const dead = grp.key === 'expr' && EXPR_UNANSWERABLE[val];
                     books.push({ section: grp.title, title: label, toggle: !dead, on: on, badge: dead ? 'no data' : (on ? 'on · ' + n : n + (n === 1 ? ' gene' : ' genes')), swatch: on ? '#16a34a' : (dead ? '#94a3b8' : '#64748b'), selected: on,
-                        ready: avail && !dead, readyNote: dead ? 'needs expression data for this tumour' : (grp.needs === 'annot' ? 'classify first' : 'find evidence first'),
+                        ready: avail && !dead, readyNote: dead ? 'needs expression data for this tumor' : (grp.needs === 'annot' ? 'classify first' : 'find evidence first'),
                         blurb: on ? 'Ticked — click to untick.' : ('Tick to keep genes that match' + (n ? ' (' + n + ' now)' : '') + '.'),
                         open: () => { if (on) lossFilters[grp.key].delete(val); else lossFilters[grp.key].add(val); refineMenu(); } });
                 }
@@ -9312,7 +9312,7 @@ function (path, config) {
 
         // THE ANALYSIS LIBRARY behind the microscope button. Calculate the loss matrix is
         // one card when there is one sample to read and a shelf of samples when there are
-        // several: the matrix is a fact about ONE genome, and a tumour/normal pair is two.
+        // several: the matrix is a fact about ONE genome, and a tumor/normal pair is two.
         // ---- SYNTHETIC LETHALITY, AS ONE PLACE ----------------------------------
         //
         // This grew a card at a time and ended up scattered through the Analyze library's
@@ -9331,7 +9331,7 @@ function (path, config) {
             const nVsl = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
             books.push({ section: 'Synthetic lethality', note: true,
-                title: BAJA3 + ' \u2014 ' + BAJA3_LONG + '. A tumour has lost some genes; the question is which OTHER '
+                title: BAJA3 + ' \u2014 ' + BAJA3_LONG + '. A tumor has lost some genes; the question is which OTHER '
                     + 'gene it now cannot survive losing, that a normal cell can. The losses are the genes selected from '
                     + 'a loss matrix or an LOH tract, and everything below reasons from that same set.' });
             books.push({ section: 'Synthetic lethality', title: 'The losses to reason from',
@@ -9360,7 +9360,7 @@ function (path, config) {
                 if (lohResult && lohResult.genes && lohResult.genes.length) {
                     books.push({ section: 'Synthetic lethality', title: 'Or take them from the LOH tracts',
                         badge: lohResult.genes.length + ' genes in tracts', icon: 'compress', ready: true,
-                        blurb: 'The genes inside a region the tumour is down to one copy of. A single-copy arm is exactly '
+                        blurb: 'The genes inside a region the tumor is down to one copy of. A single-copy arm is exactly '
                             + 'the kind of background this reasons from.', open: () => lohMenu() });
                 }
             }
@@ -9381,7 +9381,7 @@ function (path, config) {
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
             books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
                 ready: sel.length > 0, readyNote: 'select genes first',
-                blurb: 'What has already been found for these losses: the systematic scan over tumour-suppressor pairs, '
+                blurb: 'What has already been found for these losses: the systematic scan over tumor-suppressor pairs, '
                     + 'the tissue tables and the single and pair screens.', open: () => hoFind() });
             books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Paralog partners (ML model)', badge: 'paralogs', icon: 'hub',
                 ready: sel.length > 0, readyNote: 'select genes first',
@@ -9391,7 +9391,7 @@ function (path, config) {
             // LOH result, which meant finding it required already being three steps into a
             // different analysis.
             if (lohResult) books.push({ section: 'From loss of heterozygosity', accent: lohSlResult ? undefined : 'run',
-                title: lohSlResult ? 'The vulnerabilities this loss creates' : 'What the loss of heterozygosity makes the tumour depend on',
+                title: lohSlResult ? 'The vulnerabilities this loss creates' : 'What the loss of heterozygosity makes the tumor depend on',
                 badge: lohSlResult ? (lohSlResult.complete.length + ' complete \u00b7 ' + lohSlResult.cyclops.length + ' single-copy') : 'from the tracts',
                 icon: 'science', ready: !!(lohResult.genes && lohResult.genes.length) && !lohSlBusy,
                 readyNote: lohSlBusy ? 'running' : 'list the genes in the tracts first, from the LOH result',
@@ -9433,17 +9433,17 @@ function (path, config) {
                 books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
                     badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
                     ready: true,
-                    blurb: BAJA3_LONG + '. Which gene this tumour cannot survive losing, given what it has already '
+                    blurb: BAJA3_LONG + '. Which gene this tumor cannot survive losing, given what it has already '
                         + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
                         + 'loss of heterozygosity makes it depend on.'
                         + (selGenes.size ? '' : ' Needs a set of losses; the first card inside says how to get one.'),
                     open: () => synLethalMenu() });
             }
             books.push({ section: 'Loss matrix', note: true,
-                title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
+                title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumor suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
             const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
                 badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
-                blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumour/normal pair, the tumour.'
+                blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumor/normal pair, the tumor.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
                 ready: !!nV, readyNote: 'load a VCF first' };
             // BY HAPLOTYPE, when the sample is phased: both copies, copy 1, or copy 2.
@@ -9493,7 +9493,7 @@ function (path, config) {
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
                 books.push({ section: 'Loss matrix', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
-                    blurb: 'Sites the normal carries on one copy and the tumour carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
+                    blurb: 'Sites the normal carries on one copy and the tumor carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
                     ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
                 if (lohResult) books.push({ section: 'Loss matrix', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
                     blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
@@ -9501,7 +9501,7 @@ function (path, config) {
             // ALLELE SELECTIVITY IS ITS OWN SECTION, not a leaf of the LOH branch. It was
             // reachable only four steps down one path -- LOH, then the genes in the tracts,
             // then the single-copy ranking, then a card at the bottom of it -- and every
-            // one of those steps needs a tumour. Two of the three mechanisms do not, and
+            // one of those steps needs a tumor. Two of the three mechanisms do not, and
             // none of them is a question about the loss matrix.
             {
                 const nV2 = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
@@ -9511,16 +9511,16 @@ function (path, config) {
                     badge: lohAlleleResult ? (lohAlleleResult.sites.length + ' sites') : (ways.length ? ways.length + ' of 3 ways' : 'sequence, not dose'),
                     icon: 'gps_fixed', ready: nV2 > 0, readyNote: 'load a VCF first',
                     blurb: 'Two copies that differ in SEQUENCE can be told apart by an oligo; two that differ only in '
-                        + 'AMOUNT can only be dosed against. Three things can say which copy to hit — a tumour that kept '
+                        + 'AMOUNT can only be dosed against. Three things can say which copy to hit — a tumor that kept '
                         + 'one allele, a phased disease haplotype, or the mutation itself — and only the first needs a '
-                        + 'tumour. Run any of them over the whole genome, the genes or regions you have selected, or a '
+                        + 'tumor. Run any of them over the whole genome, the genes or regions you have selected, or a '
                         + 'gene you name.'
                         + (ways.length ? ' Available on this data: ' + ways.join(', ') + '.' : ' Nothing is loaded yet.'),
                     open: () => alleleSelectiveMenu() });
             }
             if (lossMatrix) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
-                    blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
+                    blurb: lossMatrix.sample + ' — the genes lost, tumor suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
             }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
@@ -11856,7 +11856,7 @@ function (path, config) {
                     // NO INHERITED PHENOTYPE IS NOT THE END OF THE QUESTION.
                     //
                     // ClinVar files variants against OMIM phenotypes, which are inherited
-                    // conditions. A somatic tumour -- lung adenocarcinoma, DIPG -- has no
+                    // conditions. A somatic tumor -- lung adenocarcinoma, DIPG -- has no
                     // phenotype behind it, so the first route finds nothing and used to stop
                     // there, telling the user their perfectly ordinary question was the wrong
                     // shape. But the genes such a condition is defined by are well known, and
@@ -12172,7 +12172,7 @@ function (path, config) {
             const VCF_ACCEPT = '.vcf,.vcf.gz,.vcf.bgz,.gz,.bgz,text/vcf';
             // WHICH SIDE. The first file goes on the right without asking, which is where
             // marks have always gone. Once something is there, a second VCF can go on the
-            // right beside it or on the left opposite it -- a tumour against its normal, a
+            // right beside it or on the left opposite it -- a tumor against its normal, a
             // second caller against the first -- and the card asks.
             const sideBooks = () => [
                 { section: 'Side', note: true, title: 'The genome already carries ' + vtotal.toLocaleString() + ' variant' + (vtotal === 1 ? '' : 's')

@@ -40,7 +40,7 @@ only: TP53's R175H, R248W and the rest of the recurrent missense that inactivate
 "hotspot", and without that matrix TP53 looked lost in ~170 lines instead of the several
 hundred that really carry a mutant p53. For an oncogene a hotspot is a GAIN, not a loss
 -- KRAS G12D activates -- so the hotspot call is applied only to genes on the
-tumour-suppressor list below, where a recurrent missense is a loss of function.
+tumor-suppressor list below, where a recurrent missense is a loss of function.
 
 Loss of function is called the way data_prep/call_loss_of_function.py calls it in the
 ppset toolkit, so the ranking here is the ranking the chapters describe.
@@ -81,7 +81,7 @@ FIGSHARE = {
 CN_NEUTRAL = 2           # copies a normal diploid genome carries
 CN_LOSS_MAX = 1          # at or below this the line is down to one copy (0 = both gone)
 LOW_PCT = 15.0
-# Genes for which a recurrent (hotspot) missense is a LOSS: tumour suppressors whose
+# Genes for which a recurrent (hotspot) missense is a LOSS: tumor suppressors whose
 # hotspots are dominant-negative or inactivating. The same list the third-gene model
 # screens over, plus the hereditary repair genes; oncogene hotspots (KRAS, BRAF, PIK3CA,
 # IDH1...) are activating and must not be called loss.
@@ -316,7 +316,7 @@ def main():
             if col[k] and not lof[midx[m], gi]:
                 lof[midx[m], gi] = True
                 hot += 1
-    say("hotspot calls added as loss (tumour suppressors only): %d; hotspot genes left alone as gains: %d"
+    say("hotspot calls added as loss (tumor suppressors only): %d; hotspot genes left alone as gains: %d"
         % (hot, len(skipped)))
     del H
 

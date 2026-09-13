@@ -20,7 +20,7 @@ function () {
     myfiles_button.push({
         label: 'Neoantigen Designer',
         ionfunction: createIonFunction(async () => {
-            // Liverpool: pick the peptides a tumour's mutations present, then design the
+            // Liverpool: pick the peptides a tumor's mutations present, then design the
             // mRNA that carries them. A separate editor from the screening one -- that
             // designs oligonucleotides against a transcript, this designs a transcript
             // against an immune system.

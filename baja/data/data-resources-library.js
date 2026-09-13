@@ -97,7 +97,7 @@ function (graph, genegraph_panel_layout, tracks) {
             {
                 db: 'cosmic', label: 'COSMIC', badge: 'Somatic',
                 blurb: 'Somatic mutations catalogued in cancer — acquired, not inherited, so read '
-                    + 'them as tumour observations rather than germline variation.'
+                    + 'them as tumor observations rather than germline variation.'
             }
         ];
 

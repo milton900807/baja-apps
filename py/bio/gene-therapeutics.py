@@ -1,6 +1,6 @@
 """Therapeutic interpretation and evidence for lost genes, from the literature the model knows.
 
-The loss matrix says which genes a tumour has lost. This asks, gene by gene, what that
+The loss matrix says which genes a tumor has lost. This asks, gene by gene, what that
 loss MEANS for treatment -- is the loss a known synthetic-lethal vulnerability (BRCA loss
 and PARP inhibitors), is the remaining allele or the gene's product itself a drug target,
 is the loss a biomarker of sensitivity or resistance, is there a drug, is there a trial --
@@ -10,7 +10,7 @@ is invented on purpose: the model is told to leave a gene empty rather than gues
 every field is one of a fixed set of labels the Refine panel filters on.
 
 Params (after the EngineMonitor):
-    param(1) : JSON { genes: [symbol, ...], context: "" | free text (tumour type, losses) }
+    param(1) : JSON { genes: [symbol, ...], context: "" | free text (tumor type, losses) }
 
 Resolves:
     { ok, genes, notes, model, error }
@@ -40,7 +40,7 @@ WORKERS = 8              # batches in flight at once; the API takes them concurr
 CACHE_DAYS = 120         # a gene's therapeutic story changes slowly; the cache is per gene
 
 # SERVER-SIDE CACHE, keyed by gene. The facts asked for are about the gene, not about this
-# tumour (the context line only colours the summary), so a gene answered once is answered
+# tumor (the context line only colours the summary), so a gene answered once is answered
 # for every later matrix at no cost. Lives beside the DepMap bundle, which is per box and
 # writable by the exec user; a box where it cannot be written simply does not cache.
 def cache_path():
@@ -80,7 +80,7 @@ EVIDENCE = ["human_clinical", "in_vivo_model", "cell_knockdown", "computational_
 out = {"ok": False, "genes": "{}", "notes": "[]", "error": None}
 
 SYSTEM = (
-    "You are a cancer pharmacologist annotating genes a tumour has LOST (loss-of-function variants). "
+    "You are a cancer pharmacologist annotating genes a tumor has LOST (loss-of-function variants). "
     "For every gene you are given, reply with ONLY a JSON object keyed by the gene symbol:\n"
     '{"BRCA2": {"therapeutic": ["synthetic_lethal_vulnerability","existing_drug","clinical_trial","sensitivity_biomarker"], '
     '"evidence": ["human_clinical"], "inhibitors": [{"name":"olaparib","stage":"approved"}], '
@@ -106,7 +106,7 @@ SYSTEM = (
     "- summary: one or two sentences on what the loss means therapeutically.\n"
     "Rules: include every gene you were given and no others; keep the labels exactly as listed; a gene with "
     "no therapeutic story gets therapeutic [\"none\"], evidence [], inhibitors [], publications [], and a "
-    "summary saying so. The context line, when given, names the tumour type and the other losses."
+    "summary saying so. The context line, when given, names the tumor type and the other losses."
 )
 
 raw = works.param(1)

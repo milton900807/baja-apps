@@ -50,7 +50,7 @@ function (options) {
                     },
                     {
                         label: 'Neoantigen Design',
-                        description: 'Peptides a tumour’s mutations present on the patient’s own HLA, ranked through antigen processing and assembled into a cassette.',
+                        description: 'Peptides a tumor’s mutations present on the patient’s own HLA, ranked through antigen processing and assembled into a cassette.',
                         icon: 'icons/svg/neoantigen-design',
                         path: 'liverpool/editor'
                     },

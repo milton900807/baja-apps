@@ -1,11 +1,11 @@
 """What kind of cancer gene is this? Classification for the loss matrix's Refine panel.
 
 Deterministic, no model: curated lists plus one number from DepMap. A gene can carry
-several classes at once (BRCA1 is a tumour suppressor AND a DNA-repair gene); a gene with
+several classes at once (BRCA1 is a tumor suppressor AND a DNA-repair gene); a gene with
 none of them is "not previously associated with cancer", which is a statement about these
 lists and not about the literature.
 
-    tumour_suppressor   COSMIC-census style tumour suppressors (loss drives cancer)
+    tumor_suppressor   COSMIC-census style tumor suppressors (loss drives cancer)
     oncogene            COSMIC-census style oncogenes (activation drives cancer)
     cancer_dependency   DepMap: mean CRISPR knockout effect across all screened lines
                         below -0.5 (Chronos), i.e. most cancer lines need it
@@ -34,7 +34,7 @@ except Exception:
 
 out = {"ok": False, "genes": "{}", "notes": "[]", "error": None}
 
-TUMOUR_SUPPRESSORS = {
+TUMOR_SUPPRESSORS = {
     "TP53", "RB1", "PTEN", "CDKN2A", "CDKN2B", "CDKN1B", "CDKN1A", "MTAP", "ARID1A", "ARID1B", "ARID2", "BAP1", "KEAP1",
     "NF1", "NF2", "PBRM1", "SMAD4", "SMAD2", "SMAD3", "SMARCA4", "SMARCB1", "STK11", "VHL", "BRCA1", "BRCA2", "APC",
     "ATM", "ATR", "CDH1", "PALB2", "CHEK2", "CHEK1", "MLH1", "MSH2", "MSH6", "PMS2", "KMT2D", "KMT2C", "CREBBP", "EP300",
@@ -52,7 +52,7 @@ TUMOUR_SUPPRESSORS = {
 # PIK3CA / NFE2L2 / PTPN11 / SF3B1 sit in both lists in the census; leave them where the
 # dominant biology is.
 for g in ("PIK3CA", "NFE2L2", "PTPN11", "SF3B1"):
-    TUMOUR_SUPPRESSORS.discard(g)
+    TUMOR_SUPPRESSORS.discard(g)
 ONCOGENES = {
     "KRAS", "NRAS", "HRAS", "BRAF", "RAF1", "ARAF", "EGFR", "ERBB2", "ERBB3", "MET", "ALK", "ROS1", "RET", "NTRK1", "NTRK2",
     "NTRK3", "FGFR1", "FGFR2", "FGFR3", "FGFR4", "KIT", "PDGFRA", "PDGFRB", "FLT3", "JAK2", "JAK3", "ABL1", "SRC", "MYC",
@@ -118,7 +118,7 @@ def bundle_dir():
 # changed list or a rebuilt bundle simply misses and recomputes.
 def lists_version(bd):
     h = hashlib.sha1()
-    for name, st in (("tsg", TUMOUR_SUPPRESSORS), ("onc", ONCOGENES), ("rep", DNA_REPAIR), ("imm", IMMUNE_REGULATORY)):
+    for name, st in (("tsg", TUMOR_SUPPRESSORS), ("onc", ONCOGENES), ("rep", DNA_REPAIR), ("imm", IMMUNE_REGULATORY)):
         h.update((name + ":" + ",".join(sorted(st))).encode())
     h.update(("cut:%s" % DEPENDENCY_CUTOFF).encode())
     built = ""
@@ -207,11 +207,34 @@ else:
             notes.append("DepMap dependency could not be read: %s" % e)
     elif todo and not bd:
         notes.append("The DepMap bundle is not on this server, so 'cancer dependency' could not be assessed.")
+    # THE SPELLING CHANGED AND THE CACHE DID NOT.
+    #
+    # This label used to be written "tumour_suppressor", and the cache beside the DepMap
+    # bundle is full of entries that still say so. The Refine panel filters on the exact
+    # string, so a cached gene would quietly stop matching the filter that is about it --
+    # no error, just a tumour suppressor that is no longer one. Rewritten on the way out of
+    # the cache, which costs one pass over what was already in memory and means nothing
+    # has to be re-asked.
+    def _spell(entry):
+        try:
+            cl = entry.get("classes")
+            if isinstance(cl, list) and "tumour_suppressor" in cl:
+                entry = dict(entry)
+                entry["classes"] = ["tumor_suppressor" if c == "tumour_suppressor" else c for c in cl]
+        except Exception:
+            pass
+        return entry
+    try:
+        for _k in list(res.keys()):
+            res[_k] = _spell(res[_k])
+    except Exception:
+        pass
+
     fresh = {}
     for g in todo:
         classes = []
-        if g in TUMOUR_SUPPRESSORS:
-            classes.append("tumour_suppressor")
+        if g in TUMOR_SUPPRESSORS:
+            classes.append("tumor_suppressor")
         if g in ONCOGENES:
             classes.append("oncogene")
         d = dep.get(g)
@@ -221,7 +244,7 @@ else:
             classes.append("dna_repair")
         if g in IMMUNE_REGULATORY:
             classes.append("immune_regulatory")
-        if not any(c in classes for c in ("tumour_suppressor", "oncogene", "dna_repair", "immune_regulatory")):
+        if not any(c in classes for c in ("tumor_suppressor", "oncogene", "dna_repair", "immune_regulatory")):
             classes.append("not_associated")
         fresh[g] = {"classes": classes,
                     "depmap_mean_effect": (round(d[0], 3) if d else None),
@@ -234,7 +257,7 @@ else:
             cache.update(fresh)
             cache_save(version, cache)
     res = {g: res[g] for g in want if g in res}
-    notes.append("Classes come from curated lists (COSMIC-census style tumour suppressors and oncogenes, the DNA "
+    notes.append("Classes come from curated lists (COSMIC-census style tumor suppressors and oncogenes, the DNA "
                  "damage response, antigen presentation / interferon / checkpoint genes) and from DepMap: a gene "
                  "is a cancer dependency when its mean CRISPR knockout effect across all screened lines is below "
                  "%.1f. 'Not previously associated' means absent from these lists, not from the literature." % DEPENDENCY_CUTOFF)

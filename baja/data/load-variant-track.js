@@ -246,7 +246,7 @@ function (server, graph, genegraph_panel_layout) {
             // nothing to lose.
             //
             // It returns nothing for a context ClinVar's germline phenotypes do not cover --
-            // DIPG is a somatic tumour and has no OMIM phenotype with records -- and that is
+            // DIPG is a somatic tumor and has no OMIM phenotype with records -- and that is
             // not a failure. The flow below is unchanged for those, and enumerating the
             // condition is the right answer for them.
             let omim = null, omimKind = '';

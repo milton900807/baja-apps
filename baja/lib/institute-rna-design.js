@@ -51,7 +51,7 @@ function (graph, genegraph_panel_layout) {
             ['miRNA inhibitor', 'Antagomir, LNA, or similar oligo sequesters a miRNA', 'Restore expression of genes repressed by the miRNA',
                 'MIRAVIRSEN', 'Miravirsen sequestered miR-122 and produced dose-dependent HCV RNA reductions in Phase 2; cobomarsen targeted miR-155 in cutaneous T-cell lymphoma.'],
             ['miRNA mimic', 'Synthetic duplex restores or increases miRNA activity', 'Simultaneously suppress a network of target transcripts',
-                'MRX34', 'MRX34, a miR-34a mimic, entered Phase 1 in solid tumours and was halted for severe immune-mediated adverse events: the clearest cautionary case in the field.'],
+                'MRX34', 'MRX34, a miR-34a mimic, entered Phase 1 in solid tumors and was halted for severe immune-mediated adverse events: the clearest cautionary case in the field.'],
             ['CRISPR-Cas13', 'Guide RNA directs Cas13 to bind or cleave RNA', 'Programmable RNA knockdown without changing DNA',
                 '', ''],
             ['ADAR-guided RNA editing', 'Guide recruits endogenous or engineered ADAR', 'Correct specific bases, principally A-to-I, interpreted as A-to-G',
