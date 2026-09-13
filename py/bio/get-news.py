@@ -16,12 +16,24 @@ news_file = os.path.join(_BD, "news.json")
 # admin edits that, not this. Kept current anyway, because a fresh install
 # otherwise announces something that already shipped.
 DEFAULT = [
-    "ASO, siRNA and gene-therapy patents 2016-2026 are now installed: 9,252 patents "
-    "mapped onto 650,131 transcripts. Load them from Layers > Data > Patents > "
-    "ASO / siRNA / gene therapy, then hover a hit for its title, filing and grant dates.",
-    "Patents also draw genome-wide in the karyotype: zoom into a chromosome to read "
-    "the title and dates beside each one.",
-    "Sept 29 release of liver RNASeq data",
+    "Target discovery modules are now installed under Analyze: allele-selective targets, "
+    "synthetic lethality, paralog partners, and the loss matrix they all reason from.",
+    "Allele-selective targets: where the two copies of a gene differ in SEQUENCE, an oligo "
+    "can destroy one and leave the other. Three mechanisms - a tumor that kept one allele, "
+    "a phased disease haplotype, or the mutation itself - over any gene, selection or "
+    "region. Analyze > Allele-Selective Targets.",
+    "Synthetic lethality: BAJA-3 screens DepMap live for the gene a tumor cannot survive "
+    "losing given the losses it already carries, lineage-corrected and with the therapeutic "
+    "window beside it, plus the published catalogue for the same losses. Analyze > "
+    "Synthetic Lethality.",
+    "Paralog partners: a trained classifier predicts which paralog becomes the copy the "
+    "cell cannot then do without - answering for genes the DepMap panel has too few cell "
+    "lines to screen. Analyze > Synthetic Lethality > Paralog partners.",
+    "Loss of heterozygosity now reads out the genes in its tracts and splits them into "
+    "complete two-hit losses and single-copy candidates, with copy number tested rather "
+    "than assumed.",
+    "Every module carries its own documentation: what it reads, what each number means, and "
+    "where it is known to be wrong.",
 ]
 
 messages = None
