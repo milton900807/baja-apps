@@ -10657,6 +10657,73 @@ pattern, GGGG | Required`
                 if (this.wake) this.wake();
             }
 
+            // THE TARGET OVER THE SYNTHESIS, BASE ABOVE BASE.
+            //
+            // A compound's sequence used to be drawn as one pill of letters floating above
+            // the body: readable as a string, and useless for the question anyone actually
+            // has in front of a target -- which base of the target does THIS base of the
+            // oligo pair with, and where does the mismatch sit. That question is answered by
+            // putting the two rows in register, one letter per base cell, the way a duplex
+            // is written on paper.
+            //
+            // Drawn per base only while there is room for a letter; below that the two rows
+            // fall back to a pill each, because four pixels of 'A' is a smudge that claims
+            // to be information. A column where the two rows do not pair -- neither
+            // complementary nor identical -- is marked, since a mismatch in an oligo is the
+            // thing worth seeing at a glance.
+            drawAlignedSeqLabel(ctx, o) {
+                if (!ctx || !o || !o.top) return false;
+                const top = ('' + o.top).toUpperCase();
+                const bottom = ('' + (o.bottom || '')).toUpperCase();
+                const per = +o.perBase;
+                if (!isFinite(per) || per <= 0) return false;
+                const rows = bottom ? 2 : 1;
+                const rowH = 12;
+                const yTop = Math.round(o.y - (rows === 2 ? 30 : 26));
+                const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+                // WHAT COUNTS AS PAIRED DEPENDS ON WHICH STRAND THE BOTTOM ROW IS.
+                //
+                // Under an antisense oligo a column pairs when the bases are COMPLEMENTARY,
+                // and an identical base is the mismatch. Under a sense-strand compound it is
+                // the other way round. Accepting either -- which is what "complementary or
+                // identical" did -- marks nothing at all, because every base is one or the
+                // other. The caller says which kind it handed over.
+                const same = (o.pair === 'same');
+                const pairs = (a, b) => (!a || !b) ? true : (same ? (b === a) : (b === COMP[a]));
+                if (per < 5) return false;                  // no room: the caller draws its pill
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = Math.max(8, Math.min(13, Math.floor(per * 0.9))) + 'px "SFMono-Regular",Consolas,monospace';
+                const n = Math.max(top.length, bottom.length);
+                const x0 = +o.x0;
+                // One plate behind both rows: a white strip keeps the letters legible over
+                // the track's own sequence and its exon blocks.
+                ctx.fillStyle = 'rgba(255,255,255,0.93)';
+                ctx.strokeStyle = 'rgba(15,23,42,0.35)';
+                ctx.lineWidth = 1;
+                const plateY = yTop - rowH / 2 - 2, plateH = rows * rowH + 4;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(x0 - 2, plateY, n * per + 4, plateH, 4);
+                else ctx.rect(x0 - 2, plateY, n * per + 4, plateH);
+                ctx.fill(); ctx.stroke();
+                for (let i = 0; i < n; i++) {
+                    const cx = Math.round(x0 + per * (i + 0.5));
+                    const a = top[i] || '', b = bottom[i] || '';
+                    const bad = bottom && a && b && !pairs(a, b);
+                    if (bad) {
+                        // The column, not the letter: a mismatch is a property of the pair.
+                        ctx.fillStyle = 'rgba(224,138,0,0.22)';
+                        ctx.fillRect(Math.round(x0 + per * i), plateY, Math.max(1, Math.round(per)), plateH);
+                    }
+                    if (a) { ctx.fillStyle = bad ? '#b45309' : (o.colorTop || '#0b7285'); ctx.fillText(a, cx, yTop); }
+                    if (b) { ctx.fillStyle = bad ? '#b45309' : (o.colorBottom || '#7c2d12'); ctx.fillText(b, cx, yTop + rowH); }
+                }
+                ctx.restore();
+                return true;
+            }
+
             // Add a mutation to the selection window, from wherever it was chosen.
             //
             // Clicking a lollipop on the canvas built this entry inline, and every OTHER way
@@ -12026,6 +12093,7 @@ pattern, GGGG | Required`
                             if (mode === 'off') {
                                 try { delete r.__seqDisp; } catch (er) { r.__seqDisp = null; }
                                 try { delete r.__seqDispColor; } catch (er) { }
+                                try { delete r.__seqDisp2; } catch (er) { r.__seqDisp2 = null; }
                                 n++;
                                 return;
                             }
@@ -12033,6 +12101,43 @@ pattern, GGGG | Required`
                             if (!seq) return;
                             r.__seqDisp = ('' + seq).toUpperCase();
                             r.__seqDispColor = (mode === 'target' ? '#0b7285' : '#7c2d12');
+                            // THE TARGET IS SHOWN OVER WHAT WILL BE MADE. Asking for the
+                            // target sequence is asking about the pairing, so the synthesis
+                            // sequence comes with it, underneath, one base per column.
+                            //
+                            // WHICH WAY ROUND IS TESTED, NOT ASSUMED. An antisense oligo is
+                            // the reverse complement of its target and has to be written
+                            // backwards to line up; a sense-strand compound or a primer is
+                            // already in register. Both orientations are scored against the
+                            // target -- complementary or identical counts as paired -- and
+                            // the better one is drawn, so neither convention has to be
+                            // guessed at from the compound's type.
+                            if (mode === 'target') {
+                                const synth = ('' + (guideOrSynthOf(e) || '')).toUpperCase();
+                                if (synth) {
+                                    const COMP = { A: 'T', C: 'G', G: 'C', T: 'A', U: 'A', N: 'N' };
+                                    const rev = synth.split('').reverse().join('');
+                                    const score = (b, same) => {
+                                        const t = r.__seqDisp; let ok = 0, m = Math.min(t.length, b.length);
+                                        for (let i = 0; i < m; i++) { if (same ? (b[i] === t[i]) : (b[i] === COMP[t[i]])) ok++; }
+                                        return m ? ok / m : 0;
+                                    };
+                                    // Which orientation AND which kind of pairing, scored
+                                    // separately rather than lumped together: an antisense
+                                    // oligo pairs by complement, a sense-strand compound or a
+                                    // forward primer by identity, and the drawing marks a
+                                    // mismatch against whichever this turns out to be.
+                                    const cands = [
+                                        { seq: synth, pair: 'complement', v: score(synth, false) },
+                                        { seq: synth, pair: 'same', v: score(synth, true) },
+                                        { seq: rev, pair: 'complement', v: score(rev, false) },
+                                        { seq: rev, pair: 'same', v: score(rev, true) },
+                                    ].sort((x, y) => y.v - x.v);
+                                    r.__seqDisp2 = cands[0].seq;
+                                    r.__seqDisp2Pair = cands[0].pair;
+                                    r.__seqDisp2Color = '#7c2d12';
+                                } else { try { delete r.__seqDisp2; } catch (er) { r.__seqDisp2 = null; } }
+                            } else { try { delete r.__seqDisp2; } catch (er) { r.__seqDisp2 = null; } }
                             n++;
                         });
                         try { if (this.wake) this.wake(); } catch (e) { }
@@ -12047,7 +12152,7 @@ pattern, GGGG | Required`
                     const openSeqDisplay = () => {
                         const anyShown = items.some((e) => { const r = e.entry && e.entry.ref; return r && r.__seqDisp; });
                         const spage = [
-                            { label: 'Target sequence', click: () => { applySeqDisplay('target'); }, move: () => { } },
+                            { label: 'Target sequence, over the synthesis', click: () => { applySeqDisplay('target'); }, move: () => { } },
                             { label: 'Synthesis sequence (guide for siRNA)', click: () => { applySeqDisplay('synthesis'); }, move: () => { } },
                             { label: 'Hide sequence' + (anyShown ? '' : ' (none shown)'), click: () => { applySeqDisplay('off'); }, move: () => { } },
                             { label: '‹ Back', click: () => { show(page, 'Compounds ▸'); }, move: () => { } },

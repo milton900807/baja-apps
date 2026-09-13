@@ -951,7 +951,23 @@ function () {
                     try {
                         const _c = graph.canvas.getCTX();
                         const _t = '' + this.__seqDisp;
-                        if (_c && _t) {
+                        // The duplex, written the way a duplex is written: the target across
+                        // the top and the guide strand under it, one letter per base cell,
+                        // while the zoom leaves room for letters.
+                        let _aligned = false;
+                        try {
+                            if (_c && this.__seqDisp2 && graph.drawAlignedSeqLabel) {
+                                const _x0 = graph.X(tgraph.X(this.xi));
+                                const _per = graph.X(tgraph.X(this.xi + 1)) - _x0;
+                                _aligned = graph.drawAlignedSeqLabel(_c, {
+                                    x0: _x0, perBase: _per, y: graph.Y(tgraph.Y(y)) - 10,
+                                    top: this.__seqDisp, bottom: this.__seqDisp2, pair: this.__seqDisp2Pair || 'complement',
+                                    colorTop: this.__seqDispColor || '#0b7285',
+                                    colorBottom: this.__seqDisp2Color || '#7c2d12',
+                                });
+                            }
+                        } catch (e) { _aligned = false; }
+                        if (_c && _t && !_aligned) {
                             _c.save();
                             _c.shadowBlur = 0;
                             _c.font = '10px Arial';

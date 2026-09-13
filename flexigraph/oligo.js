@@ -727,12 +727,42 @@ function () {
                 // graph.showOligoLabels -- it is an explicit "show me the sequence" the user
                 // just asked for, so it draws on demand, the way flagReason does.
                 if (this.__seqDisp) {
-                    drawCenteredOvalLabel('' + this.__seqDisp, (this.labelOffsetY || 0) - 16, {
-                        font: '10px Arial',
-                        textColor: this.__seqDispColor || '#7c2d12',
-                        fillColor: '#ffffff',
-                        strokeColor: '#000000',
-                    });
+                    // IN REGISTER WITH THE BASES, when there is room for a letter per base:
+                    // the target across the top and what will be synthesised underneath it,
+                    // so the pairing -- and any mismatch in it -- is read off the drawing
+                    // rather than off two strings in a menu. Below that zoom the letters
+                    // would be a smudge, so the old pill is what draws.
+                    let __drew = false;
+                    try {
+                        const __ctx = graph.canvas && graph.canvas.getCTX ? graph.canvas.getCTX() : null;
+                        if (__ctx && graph.drawAlignedSeqLabel) {
+                            const __x0 = graph.X(tgraph.X(this.xi));
+                            const __per = graph.X(tgraph.X(this.xi + 1)) - __x0;
+                            __drew = graph.drawAlignedSeqLabel(__ctx, {
+                                x0: __x0, perBase: __per,
+                                y: graph.Y(tgraph.Y(y)) + ((this.labelOffsetY || 0) - 16),
+                                top: this.__seqDisp, bottom: this.__seqDisp2 || '', pair: this.__seqDisp2Pair || 'complement',
+                                colorTop: this.__seqDispColor || '#0b7285',
+                                colorBottom: this.__seqDisp2Color || '#7c2d12',
+                            });
+                        }
+                    } catch (e) { __drew = false; }
+                    if (!__drew) {
+                        drawCenteredOvalLabel('' + this.__seqDisp, (this.labelOffsetY || 0) - 16, {
+                            font: '10px Arial',
+                            textColor: this.__seqDispColor || '#7c2d12',
+                            fillColor: '#ffffff',
+                            strokeColor: '#000000',
+                        });
+                        if (this.__seqDisp2) {
+                            drawCenteredOvalLabel('' + this.__seqDisp2, (this.labelOffsetY || 0) - 4, {
+                                font: '10px Arial',
+                                textColor: this.__seqDisp2Color || '#7c2d12',
+                                fillColor: '#ffffff',
+                                strokeColor: '#000000',
+                            });
+                        }
+                    }
                 }
 
                 // Edge bars for a highlighted oligo are no longer drawn — the pulsing
