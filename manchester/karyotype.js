@@ -8480,11 +8480,11 @@ function (path, config) {
                 blurb: 'Run the model live on DepMap: lineage-corrected differential dependency across lines carrying these losses, each hit labelled genuine third-gene dependency or driven by one loss.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 open: () => slFindTargets('', '') });
-            books.push({ section: 'Find targets', title: BAJA3 + ' in a cancer type…', badge: 'choose', icon: 'coronavirus',
+            books.push({ section: 'Find targets', title: BAJA3 + ' in a cancer type…', badge: 'step 4 \u00b7 cancer type', icon: 'coronavirus',
                 blurb: 'The same ranking, with the dependency inside one cancer type shown beside it — Invasive Breast Carcinoma, Pancreatic Adenocarcinoma, and the rest.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 books: () => diseaseBooks((d) => slFindTargets('', d)) });
-            books.push({ section: 'Find targets', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
+            books.push({ section: 'Find targets', title: BAJA3 + ' in a tissue…', badge: 'step 4 \u00b7 tissue', icon: 'science',
                 blurb: 'The same ranking by organ rather than cancer type: Breast, Pancreas, Lung.',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: sel.length ? ('deselect ' + (sel.length - SL_MAX_GENES) + ' — the model takes at most ' + SL_MAX_GENES) : 'select genes first',
                 books: () => tissueBooks((t) => slFindTargets(t, '')) });
@@ -8492,7 +8492,7 @@ function (path, config) {
                 books.push({ section: 'Find targets', title: 'Last ' + BAJA3 + ' result', badge: slResult.targets.length + ' targets', icon: 'list',
                     blurb: 'Targets for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
             }
-            books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
+            books.push({ section: 'Find targets', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'step 4 \u00b7 catalogue', icon: 'library_books',
                 blurb: 'What ' + BAJA3 + ' has already found for these losses: its systematic scan over every tumor-suppressor pair, the breast and pancreas tables, and the single-loss screens. A lookup of the checked results, not a recomputation.',
                 ready: sel.length > 0, readyNote: 'select genes first', open: () => hoFind() });
             if (hoResult) {
@@ -9334,7 +9334,16 @@ function (path, config) {
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             books.push({ section: 'Find the losses', note: true,
                 title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumor suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
-            const calc = { section: 'Find the losses', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
+            books.push({ section: 'Find the losses', note: true, mono: true, title:
+                  'STEP 2  three routes; the one to take depends on what is loaded\n'
+                + '\n'
+                + '  one file    --> loss matrix     genes broken in this sample\n'
+                + '  two files   --> differential    what one lost and the other did not\n'
+                + '  tumor+normal--> LOH scan        where one allele is gone\n'
+                + '                       |\n'
+                + '                       +--> a list of genes, each clickable\n'
+                + '                            clicking one puts it in the background' });
+            const calc = { section: 'Find the losses', badge: 'step 2', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
                 badge: SAMPLES.length > 1 ? (SAMPLES.length + ' samples') : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : '')),
                 blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumor/normal pair, the tumor.'
                     : 'Read every exonic variant and list the genes with a loss-of-function change.',
@@ -9379,13 +9388,13 @@ function (path, config) {
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
                 const specs = diffSpecs();
-                books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'run', badge: specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compare',
+                books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'run', badge: 'step 2 \u00b7 ' + (specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : 'two files'), icon: 'compare',
                     blurb: 'Two files (one loaded on the left of the chromosomes) or two samples: which genes one has lost that the other has not, and which both have.',
                     ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
                 if (diffResult) books.push({ section: 'Find the losses', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
-                books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'run', badge: lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : '', icon: 'compress',
+                books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'run', badge: 'step 2 \u00b7 ' + (lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : 'two files'), icon: 'compress',
                     blurb: 'Sites the normal carries on one copy and the tumor carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
                     ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
                 if (lohResult) books.push({ section: 'Find the losses', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
@@ -9407,7 +9416,21 @@ function (path, config) {
                 title: BAJA3 + ' \u2014 ' + BAJA3_LONG + '. A tumor has lost some genes; the question is which OTHER '
                     + 'gene it now cannot survive losing, that a normal cell can. The losses are the genes selected from '
                     + 'a loss matrix or an LOH tract, and everything below reasons from that same set.' });
-            books.push({ section: 'Synthetic lethality', title: 'The losses to reason from',
+            // THE SHAPE OF THE WHOLE THING, before any of the parts. Five cards deep into a
+            // library nobody can see where they are in a sequence, and this sequence has an
+            // order that matters: a background chosen badly makes every number after it
+            // meaningless. The diagram is the one place that order is stated.
+            books.push({ section: 'Synthetic lethality', note: true, mono: true, title:
+                  '1  A genome on the chromosomes        a VCF, or a disease search\n'
+                + '         |\n'
+                + '2  FIND THE LOSSES                    loss matrix, differential, LOH\n'
+                + '         |\n'
+                + '3  CHOOSE them                        click genes; they become the background\n'
+                + '         |\n'
+                + '4  ASK THE PANEL                      BAJA-3 live, catalogue, paralogs\n'
+                + '         |\n'
+                + '5  READ THE ANSWER                    targets, the window, why, inhibitors' });
+            books.push({ section: 'Synthetic lethality', badge: 'step 3', title: 'The losses to reason from',
                 badge: selGenes.size ? selWord() : 'nothing selected', icon: 'checklist',
                 blurb: selGenes.size ? ('Currently ' + sel.map((g) => g.gene).join(', ') + '. Edit the set, run the model over it, or clear it.')
                     : 'Click genes in a loss matrix or in an LOH tract to select them. Every card below reasons from that set.',
@@ -9417,7 +9440,16 @@ function (path, config) {
             // itself is now on this shelf, so the pointers are gone and the machinery is the
             // answer to its own question.
             books.push.apply(books, lossMatrixBooks());
-            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
+            books.push({ section: 'Synthetic lethality', note: true, mono: true, title:
+                  'STEP 4  three ways to ask, over the same background\n'
+                + '\n'
+                + '  background --+--> BAJA-3 live    1,208 cell lines, screened now\n'
+                + '               |                   every loss, and every pair of them\n'
+                + '               +--> catalogue      what has already been published\n'
+                + '               +--> paralogs       the copy that becomes essential\n'
+                + '                          |\n'
+                + '                          +--> a target, its window, why, inhibitors' });
+            books.push({ section: 'Synthetic lethality', accent: 'run', badge: 'step 4', title: BAJA3 + ': find synthetic-lethal targets',
                 badge: sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'select first', icon: 'biotech',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES && !slBusy,
                 readyNote: slBusy ? 'a run is in progress' : (sel.length ? 'at most ' + SL_MAX_GENES + ' genes at a time' : 'select genes first'),
@@ -9425,24 +9457,36 @@ function (path, config) {
                     + 'selectively essential in the lines carrying the same losses, lineage-corrected, with the '
                     + 'therapeutic window beside it.',
                 open: () => slFindTargets('', '') });
-            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a cancer type…', badge: 'choose', icon: 'coronavirus',
+            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a cancer type…', badge: 'step 4 \u00b7 cancer type', icon: 'coronavirus',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: 'select genes first',
                 blurb: 'The same ranking with one cancer type spotlighted beside it.',
                 books: () => diseaseBooks((d) => slFindTargets('', d)) });
-            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
+            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a tissue…', badge: 'step 4 \u00b7 tissue', icon: 'science',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: 'select genes first',
                 blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
-            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'step 4 \u00b7 catalogue', icon: 'library_books',
                 ready: sel.length > 0, readyNote: 'select genes first',
                 blurb: 'What has already been found for these losses: the systematic scan over tumor-suppressor pairs, '
                     + 'the tissue tables and the single and pair screens.', open: () => hoFind() });
-            books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Paralog partners (ML model)', badge: 'paralogs', icon: 'hub',
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Paralog partners (ML model)', badge: 'step 4 \u00b7 paralogs', icon: 'hub',
                 ready: sel.length > 0, readyNote: 'select genes first',
                 blurb: 'A different model and a different question: for each loss, which paralog is predicted to become '
                     + 'the surviving copy the cell cannot then do without.', open: () => parFind() });
             // FROM A TRACT RATHER THAN FROM A MATRIX. This was reachable only from inside the
             // LOH result, which meant finding it required already being three steps into a
             // different analysis.
+            if (lohResult) books.push({ section: 'From loss of heterozygosity', note: true, mono: true, title:
+                  'ONE COPY LEFT CUTS TWO WAYS\n'
+                + '\n'
+                + '  a tract  --> the genes inside it\n'
+                + '                     |\n'
+                + '                     +--> a variant broke the copy that remains\n'
+                + '                     |        = both copies gone, a real loss\n'
+                + '                     |          -> use it as a background (step 3)\n'
+                + '                     |\n'
+                + '                     +--> the copy that remains still works\n'
+                + '                              = half the dosage normal tissue has\n'
+                + '                                -> the gene ITSELF is the target' });
             if (lohResult) books.push({ section: 'From loss of heterozygosity', accent: lohSlResult ? undefined : 'run',
                 title: lohSlResult ? 'The vulnerabilities this loss creates' : 'What the loss of heterozygosity makes the tumor depend on',
                 badge: lohSlResult ? (lohSlResult.complete.length + ' complete \u00b7 ' + lohSlResult.cyclops.length + ' single-copy') : 'from the tracts',

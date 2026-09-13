@@ -7,7 +7,7 @@ function (opts) {
     //       id: 'baja-data-library',          // DOM id, so re-opening replaces rather than stacks
     //       title: 'Data Library',
     //       subtitle: '10 data sources — click one to add it to your tracks',
-    //       books: [{ title, badge, blurb, ready, open, section, note, back, leaf,
+    //       books: [{ title, badge, blurb, ready, open, section, note, mono, back, leaf,
     //                 toggle, on }],   toggle: true draws a checkbox; `on` ticks it
     //                                       // back: true  -> the left-pointing tag shape
     //                                       // section: full-width heading when the name changes
@@ -313,9 +313,21 @@ function (opts) {
                 }
                 if (b.note) {
                     const nt = document.createElement('div');
-                    nt.style.cssText = 'grid-column:1/-1;color:#9fb3c8;font:13px/1.6 Arial;'
-                        + 'padding:2px 2px 6px;';
-                    nt.textContent = ('' + (b.blurb || b.title || '')).trim();
+                    // A DIAGRAM IS A NOTE THAT KEEPS ITS SHAPE. Prose is wrapped and its
+                    // whitespace collapsed, which is right for a sentence and destroys a
+                    // drawing: every line of a flow diagram lands on the one before it.
+                    // `mono: true` keeps the newlines and the column widths, and sets the
+                    // block apart so it reads as a picture of the steps rather than as more
+                    // text. Purely additive -- a note without it renders exactly as before.
+                    nt.style.cssText = b.mono
+                        ? 'grid-column:1/-1;color:#bcd3e6;font:12px/1.55 "SFMono-Regular",Consolas,'
+                          + '"Liberation Mono",Menlo,monospace;white-space:pre-wrap;overflow-x:auto;'
+                          + 'padding:10px 12px;margin:2px 2px 10px;border-radius:9px;'
+                          + 'background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.10);'
+                        : 'grid-column:1/-1;color:#9fb3c8;font:13px/1.6 Arial;padding:2px 2px 6px;';
+                    nt.textContent = b.mono
+                        ? ('' + (b.blurb || b.title || '')).replace(/^\n+|\s+$/g, '')
+                        : ('' + (b.blurb || b.title || '')).trim();
                     shelf.appendChild(nt);
                     continue;
                 }
