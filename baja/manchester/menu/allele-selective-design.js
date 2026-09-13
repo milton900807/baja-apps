@@ -266,7 +266,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         const xs = [];                       // window index -> track x, in TRANSCRIPT order
         if (minus) { for (let x = hi; x >= lo; x--) xs.push(x); }
         else { for (let x = lo; x <= hi; x++) xs.push(x); }
-        const wt = xs.map((x) => Strand.codingBaseAt(track, x, orient)).join('');
+        let wt = xs.map((x) => Strand.codingBaseAt(track, x, orient)).join('');
         const vi = xs.indexOf(Math.round(snp.xi));
         if (vi < 0 || !/^[ACGT]+$/.test(wt)) {
             warn('Could not read a clean sequence window around the variant on this track.');
@@ -300,9 +300,72 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 tell('The track reads ' + have + ' where the variant says ' + storedRef + '; designing against the track.');
             }
         }
+        // ---- 3b. WHICH COPY IS BEING DESIGNED AGAINST ---------------------------------------
+        //
+        // A window around a variant in a real sample usually holds OTHER variants, and in a
+        // phased file they sit on one copy or the other. That matters twice over:
+        //
+        //   the target   an oligo is built against the sequence of ONE chromosome. A
+        //                neighbouring variant on the same copy is part of what the oligo
+        //                will actually meet; leaving it out designs against a sequence that
+        //                exists in no cell.
+        //   the spare    discrimination is scored against the OTHER copy, and the other
+        //                copy is the reference plus whatever sits on that side -- not the
+        //                bare reference.
+        //
+        // Where every variant in the window is on one side there is nothing to ask. Where
+        // they sit on BOTH, the question cannot be answered from the data and the user is
+        // asked: design against copy 1 or copy 2, with what each carries spelled out.
+        const inWindow = all.filter((v) => {
+            const x = Math.round(v.xi);
+            return x >= lo && x <= hi && isSub(v);
+        });
+        const phaseOf = (v) => ((+v.phase === 1) ? 1 : 0);
+        const sideName = (ph) => (ph === 1 ? 'copy 1 (drawn above the track)' : 'copy 2 (drawn below the track)');
+        const onSide = (ph) => inWindow.filter((v) => phaseOf(v) === ph);
+        const bothSides = onSide(1).length > 0 && onSide(0).length > 0;
+        let designPhase = phaseOf(snp);
+        if (bothSides) {
+            const listFor = (ph) => onSide(ph).map((v) => (v.name || 'variant') + ' '
+                + ((v.reference0 || v.reference || '?') + '>' + (v.alternate0 || v.alternate || '?'))).join(', ');
+            const askPhase = () => new Promise((resolve) => {
+                graph.showSideMenu([
+                    { label: 'Variants sit on BOTH copies here \u2014 choose the one to design against', move: () => { }, click: () => { } },
+                    { label: (phaseOf(snp) === 1 ? '\u2713 ' : '') + 'Copy 1 (above): ' + (listFor(1) || 'nothing else'),
+                        move: () => { }, click: () => { graph.showSideMenu(null); resolve(1); } },
+                    { label: (phaseOf(snp) === 0 ? '\u2713 ' : '') + 'Copy 2 (below): ' + (listFor(0) || 'nothing else'),
+                        move: () => { }, click: () => { graph.showSideMenu(null); resolve(0); } },
+                    { label: 'Cancel', move: () => { }, click: () => { graph.showSideMenu(null); resolve(null); } },
+                ], null, 'Which copy? \u25b8');
+            });
+            tell('Variants sit on both copies inside this window. The oligo is built against one copy and scored against the other, '
+                + 'so which copy it is has to be said: the variant you picked is on ' + sideName(phaseOf(snp)) + '.');
+            const picked = await askPhase();
+            if (picked == null) { restoreHover(); return false; }
+            designPhase = picked;
+            if (designPhase !== phaseOf(snp)) {
+                tell('Designing against ' + sideName(designPhase) + ', which is not the copy '
+                    + (snp.name || 'that variant') + ' is on. It will be written in as well, so read the target sequence carefully.');
+            }
+        }
+        // The substitutions that belong to each copy. The chosen variant is always written
+        // in -- it is what the design is FOR -- whichever side the file put it on.
+        const sameSide = inWindow.filter((v) => v !== snp && phaseOf(v) === designPhase);
+        const otherSide = inWindow.filter((v) => v !== snp && phaseOf(v) !== designPhase);
+        const alleleAtX = (v, x) => {
+            const a = ('' + ((minus && orient === 'plus')
+                ? (v.alternate || v.alternate0 || '') : (v.alternate0 || v.alternate || ''))).toUpperCase();
+            const vx = Math.round(v.xi);
+            return (x >= vx && x <= vx + a.length - 1) ? a[x - vx] : null;
+        };
+        const applyList = (list, x) => {
+            for (const v of list) { const b = alleleAtX(v, x); if (b) return b; }
+            return null;
+        };
         let mutTrack = '';
         for (let x = lo; x <= hi; x++) {
-            mutTrack += (x >= vX && x <= vEnd) ? storedAlt[x - vX] : storedAt(x);
+            const own = (x >= vX && x <= vEnd) ? storedAlt[x - vX] : null;
+            mutTrack += own || applyList(sameSide, x) || storedAt(x);
         }
         // The same mutant, read in TRANSCRIPT orientation, for the scoring.
         const COMPL = { A: 'T', C: 'G', G: 'C', T: 'A', N: 'N' };
@@ -310,6 +373,19 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             const b = mutTrack[x - lo] || 'N';
             return (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
         }).join('');
+        // AND THE COPY THAT MUST SURVIVE, which is the reference plus whatever sits on the
+        // other side. Scoring discrimination against the bare reference would credit an
+        // oligo for a mismatch at a base the other copy does not actually carry -- and, worse,
+        // would miss that a second phased variant makes the two copies differ somewhere the
+        // design never looked.
+        if (otherSide.length) {
+            let spareTrack = '';
+            for (let x = lo; x <= hi; x++) spareTrack += (applyList(otherSide, x) || storedAt(x));
+            wt = xs.map((x) => {
+                const b = spareTrack[x - lo] || 'N';
+                return (minus && orient === 'plus') ? (COMPL[b] || 'N') : b;
+            }).join('');
+        }
 
         // The change as it reads in transcript orientation, for the labels and the scoring: the
         // span the allele covers in the transcript window, which on a minus-strand track is the
@@ -322,6 +398,13 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         // Every variant on the track that falls inside the window, so an oligo can mark all of
         // them and not only the one it was designed against.
         const variantXs = all.map((v) => Math.round(v.xi)).filter((x) => x >= lo && x <= hi);
+        if (sameSide.length || otherSide.length) {
+            tell('Designing against ' + sideName(designPhase) + '.'
+                + (sameSide.length ? ' ' + sameSide.length + ' other variant' + (sameSide.length === 1 ? '' : 's')
+                    + ' on that copy ' + (sameSide.length === 1 ? 'is' : 'are') + ' written into the target.' : '')
+                + (otherSide.length ? ' The copy that must survive carries ' + otherSide.length + ' variant'
+                    + (otherSide.length === 1 ? '' : 's') + ', and discrimination is scored against it rather than the reference.' : ''));
+        }
 
         // ---- 4. score -----------------------------------------------------------------------
         say('Designing allele-selective ' + mode.label + ' (' + chem.label + ') against ' + (snp.name || 'the variant') + '…');
