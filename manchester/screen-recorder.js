@@ -102,22 +102,28 @@ function (config) {
             if (e && e.data && e.data.size) { chunks.push(e.data); bytes += e.data.size; }
         };
 
-        // ---- the badge: the only thing on screen while recording -------------------------
+        // ---- the badge: a readout, and NOTHING TO PRESS ----------------------------------
         //
-        // Deliberately small and in a corner, because it is IN THE VIDEO. Anything larger is
+        // Deliberately small and in a corner, because it is IN THE VIDEO: anything larger is
         // a watermark over the demo it is helping to make.
+        //
+        // AND IT NO LONGER TAKES CLICKS. It sat in the top-right corner with a Stop button on
+        // it, over the part of the application people were trying to use -- so the control for
+        // making a recording was in the way of the thing being recorded, which is the one
+        // place it must never be. `pointer-events:none` means the pointer goes straight
+        // through it to whatever is underneath, and stopping moved to the account menu, where
+        // it cannot cover anything. The browser's own "Stop sharing" bar still works too.
         const badge = document.createElement('div');
         badge.id = ID;
-        badge.style.cssText = 'position:fixed;top:14px;right:14px;z-index:2147483600;display:flex;'
-            + 'align-items:center;gap:10px;background:rgba(11,37,69,0.94);color:#fff;'
-            + 'border:1px solid rgba(255,255,255,0.18);border-radius:11px;padding:8px 12px;'
-            + 'font:700 12px Arial,Helvetica,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.4);';
-        badge.innerHTML = '<span id="bv-dot" style="width:10px;height:10px;border-radius:50%;background:#ef4444;'
+        badge.style.cssText = 'position:fixed;top:10px;right:12px;z-index:2147483600;display:flex;'
+            + 'align-items:center;gap:8px;background:rgba(11,37,69,0.78);color:#fff;'
+            + 'border:1px solid rgba(255,255,255,0.16);border-radius:999px;padding:5px 11px;'
+            + 'font:700 11px Arial,Helvetica,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,0.32);'
+            + 'pointer-events:none;user-select:none;';
+        badge.innerHTML = '<span id="bv-dot" style="width:9px;height:9px;border-radius:50%;background:#ef4444;'
             + 'box-shadow:0 0 8px #ef4444;"></span>'
             + '<span id="bv-t" style="font-variant-numeric:tabular-nums;">0:00</span>'
-            + '<span id="bv-n" style="color:#9fb3c8;font-weight:600;">0 kB</span>'
-            + '<button id="bv-stop" style="cursor:pointer;border:none;border-radius:7px;padding:5px 11px;'
-            + 'font:700 12px Arial;background:#ef4444;color:#fff;">Stop</button>';
+            + '<span id="bv-n" style="color:#9fb3c8;font-weight:600;">0 kB</span>';
         document.body.appendChild(badge);
 
         const t0 = Date.now();
@@ -151,7 +157,8 @@ function (config) {
         // control outside the page, and a recording that kept running after it would write a
         // file of nothing.
         try { stream.getVideoTracks().forEach((t) => { t.onended = () => { try { if (rec.state !== 'inactive') rec.stop(); } catch (e) { } }; }); } catch (e) { }
-        try { badge.querySelector('#bv-stop').onclick = () => { try { if (rec.state !== 'inactive') rec.stop(); } catch (e) { } }; } catch (e) { }
+        // Nothing on the badge to press any more: stopping is the account menu's item, the
+        // browser's own bar, or running this module again (the toggle at the top).
 
         // A timeslice, so data arrives during the recording rather than in one lump at the
         // end: the size counter is honest and a crash loses a second, not the session.
