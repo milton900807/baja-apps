@@ -8437,10 +8437,15 @@ function (path, config) {
             out.push({ title: 'Every gene in the ' + (mode === 'somatic' ? 'LOH tracts' : 'loss matrix'), accent: 'run',
                 badge: mode === 'somatic' ? (lohGenes ? lohGenes + ' genes' : 'genome') : (lmGenes ? lmGenes + ' genes' : 'genome'),
                 icon: 'public', ready: genomeReady, readyNote: genomeNote,
-                blurb: (mode === 'somatic'
-                    ? 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumor kept one side.'
-                    : 'Every gene the loss matrix found a loss-of-function change in, asked for a discriminating base on the disease copy.')
-                    + ' The first ' + AS_MAX_GENES + ' are read.',
+                // WHAT THIS MECHANISM IS ASKING OF THOSE GENES. The three ask different
+                // questions of the same scope, and saying 'the disease copy' under the
+                // mutation mechanism -- which has no copy to speak of -- was the wording
+                // left over from when the phased route was the only germline one.
+                blurb: ({
+                    somatic: 'Every protein-coding gene the LOH scan read out of its tracts, asked for heterozygous sites where the tumor kept one side.',
+                    phased: 'Every gene the loss matrix found a loss-of-function change in, asked for heterozygous sites on the copy that carries it.',
+                    mutation: 'Every gene the loss matrix found a loss-of-function change in, asked for the change itself as the discriminating base.',
+                })[mode] + ' The first ' + AS_MAX_GENES + ' are read.',
                 open: () => asRun(mode, 'genome') });
             out.push({ title: 'The genes you have selected', badge: selGenes.size ? selGenes.size + ' selected' : 'none', accent: 'run',
                 icon: 'checklist', ready: on && selGenes.size > 0, readyNote: on ? 'click genes in the loss matrix or on the genome first' : avail[mode].note,
@@ -8502,42 +8507,67 @@ function (path, config) {
                     + '                   +--> needs no phase, no second sample\n'
                     + '                        the narrowest margin of the three',
             };
-            const section = (mode, secName) => {
+            // ONE PATHWAY, NOT THREE COPIES OF ONE.
+            //
+            // Each mechanism used to open its own section and then repeat the SAME four
+            // scope cards underneath it -- every gene in the matrix, the selection, the
+            // regions, a gene by name -- so the shelf carried the identical "where to look"
+            // row three times, differing only in which mechanism it would be run with. Read
+            // down the page that looks like three pathways, and it is one: choose which
+            // copy to hit, then say where to look. Which is what the diagram above says.
+            //
+            // So a mechanism is ONE card now and the scopes are inside it. The card is
+            // always pressable, including where the data cannot support the mechanism: what
+            // is inside then is the thing that WOULD make it possible, which is what
+            // somebody in that position actually needs.
+            const mechCard = (mode, secName) => {
                 const W = asW(mode);
-                books.push({ section: secName, note: true, title: W.rationale + ' Needs ' + W.needs + '.'
-                    + (mode !== 'somatic' && avail[mode].ok ? ' Reading ' + asSampleName(asSampleFor(mode)) + '.' : '')
-                    + (avail[mode].ok ? '' : ' NOT AVAILABLE: ' + avail[mode].note + '.') });
-                if (MODE_ART[mode]) books.push({ section: secName, note: true, mono: true, title: MODE_ART[mode] });
-                // NEVER A SECTION OF NOTHING BUT GREYED CARDS. A mechanism this data cannot
-                // support still gets one card that can be pressed: the thing that would make
-                // it possible. Being told a route is closed is only useful with the way to
-                // open it beside it.
-                if (!avail[mode].ok) {
-                    if (mode === 'somatic') {
-                        books.push({ section: secName, accent: 'run', title: lohResult ? 'Read the genes in the tracts' : 'Run the loss-of-heterozygosity scan',
-                            badge: 'makes this possible', icon: 'compress', ready: true,
-                            blurb: lohResult ? 'The scan has run; its tracts have not been read out into genes yet, and the genes are what this needs.'
-                                : 'It needs a tumor and its normal, one on each side of the chromosomes. The scan finds where the tumor kept one allele.',
-                            open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
-                    } else if (mode === 'phased') {
-                        books.push({ section: secName, accent: 'run', title: 'Load a phased VCF', badge: 'makes this possible',
-                            icon: 'upload_file', ready: true,
-                            blurb: 'This reads the genotype column for phase — 1|0 rather than 0/1. A file without it cannot say which copy '
-                                + 'a change sits on, and nothing else here can supply that.',
-                            open: () => uploadMenu() });
-                    } else {
-                        books.push({ section: secName, accent: 'run', title: 'Load a VCF', badge: 'makes this possible',
-                            icon: 'upload_file', ready: true,
-                            blurb: 'Any file of variants. This mechanism needs only the change itself, so it is the one that works on the least data.',
-                            open: () => uploadMenu() });
+                const ok = avail[mode].ok;
+                return {
+                    section: 'Step 1 · which copy to hit', title: secName,
+                    badge: ok ? 'ready · ' + W.needs : 'needs ' + W.needs,
+                    icon: mode === 'somatic' ? 'compare' : (mode === 'phased' ? 'call_split' : 'gps_fixed'),
+                    accent: ok ? 'run' : undefined, ready: true,
+                    blurb: W.subtitle.charAt(0).toUpperCase() + W.subtitle.slice(1) + '. ' + W.rationale
+                        + (mode !== 'somatic' && ok ? ' Reading ' + asSampleName(asSampleFor(mode)) + '.' : ''),
+                    books: () => {
+                        const sub = [];
+                        if (MODE_ART[mode]) sub.push({ note: true, mono: true, title: MODE_ART[mode] });
+                        if (!ok) {
+                            sub.push({ note: true, title: 'This needs ' + W.needs + '. '
+                                + avail[mode].note.charAt(0).toUpperCase() + avail[mode].note.slice(1) + '.' });
+                            if (mode === 'somatic') {
+                                sub.push({ accent: 'run', title: lohResult ? 'Read the genes in the tracts' : 'Run the loss-of-heterozygosity scan',
+                                    badge: 'makes this possible', icon: 'compress', ready: true,
+                                    blurb: lohResult ? 'The scan has run; its tracts have not been read out into genes yet, and the genes are what this needs.'
+                                        : 'It needs a tumor and its normal, one on each side of the chromosomes. The scan finds where the tumor kept one allele.',
+                                    open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
+                            } else if (mode === 'phased') {
+                                sub.push({ accent: 'choose', title: 'Load a phased VCF', badge: 'makes this possible',
+                                    icon: 'upload_file', ready: true,
+                                    blurb: 'This reads the genotype column for phase — 1|0 rather than 0/1, in phase sets. A file without it '
+                                        + 'cannot say which copy a change sits on, and nothing else here can supply that.',
+                                    open: () => uploadMenu() });
+                            } else {
+                                sub.push({ accent: 'choose', title: 'Load a VCF', badge: 'makes this possible',
+                                    icon: 'upload_file', ready: true,
+                                    blurb: 'Any file of variants. This mechanism needs only the change itself, so it is the one that works on the least data.',
+                                    open: () => uploadMenu() });
+                            }
+                        }
+                        sub.push({ note: true, title: ok ? 'Step 2 — where to look:' : 'Where it would look, once it can run:' });
+                        scopeCards(mode).forEach((c) => sub.push(Object.assign(c, { badge: 'step 2 · ' + (c.badge || 'scope') })));
+                        return sub;
                     }
-                }
-                scopeCards(mode).forEach((c, i2) => books.push(Object.assign(c, { section: secName,
-                    badge: 'step 2 \u00b7 ' + (c.badge || 'scope') })));
+                };
             };
-            section('somatic', 'Somatic retention · the tumor kept one allele');
-            section('phased', 'Phased germline · the disease copy');
-            section('mutation', 'The mutation itself');
+            books.push({ section: 'Step 1 · which copy to hit', note: true,
+                title: 'Each of these says which of the two copies to aim at, and each needs different data. Open one and '
+                    + 'it asks where to look — the same four scopes whichever mechanism was chosen, which is why they '
+                    + 'are inside rather than repeated under each.' });
+            books.push(mechCard('somatic', 'Somatic retention · the tumor kept one allele'));
+            books.push(mechCard('phased', 'Phased germline · the disease copy'));
+            books.push(mechCard('mutation', 'The mutation itself'));
             if (ph.length > 1) {
                 books.push({ section: 'Which sample', title: 'Read a different sample', badge: asSampleName(asSampleFor('phased')),
                     icon: 'person', ready: true,
