@@ -375,7 +375,9 @@ function (path, config) {
                                 data: '<div style="max-width:560px;margin:14px auto 0;padding:0 24px;"></div>'
                             }
                         },
-                        { 'width': '90%', 'component': progress_widget },
+                        // Full width, so the bar centres on the same axis as the text above
+                        // it: a 90% card put its middle 5% to the left of the page's.
+                        { 'width': '100%', 'component': progress_widget },
                     ]]
                 }
             };
@@ -4209,22 +4211,27 @@ function (path, config) {
                     + (V.caller ? ' Written by ' + V.caller + (V.platform ? ' from ' + V.platform : '') + '.' : '')
                     + (V.nSamples ? ' Sample' + (V.nSamples === 1 ? ': ' : 's: ') + V.samples.slice(0, 6).join(', ')
                         + (V.nSamples > 6 ? ', and ' + (V.nSamples - 6) + ' more' : '') + '.' : '') });
+            // WHAT IT IS, NOT WHAT IT IS NOT. A description made of absences -- no somatic
+            // caller, no second sample, no phase -- reads as a list of faults in a file that
+            // has none: it is exactly the file it was meant to be. Every line here states
+            // something the file HAS and what that makes possible.
             if (V.somaticSigns.length) books.push({ section: 'What this file is', note: true,
                 title: 'Somatic because ' + V.somaticSigns.join('; ') + '. A differential between the two sides is the '
                     + 'analysis this file is for.' });
             else if (V.nSamples === 1) books.push({ section: 'What this file is', note: true,
-                title: 'Nothing in it separates a tumor from a normal: one sample column, no somatic caller, no somatic '
-                    + 'filters. A tumor/normal differential needs a second file loaded on the other side.' });
-            books.push({ section: V.phased ? 'Phased \u2014 and what that makes possible' : 'Not phased', note: true,
+                title: 'One person\u2019s genome, called against the reference: every variant here is theirs. Load a second '
+                    + 'file on the other side of the chromosomes to read one against the other.' });
+            books.push({ section: V.phased ? 'Phased \u2014 and what that makes possible' : 'Genotypes', note: true,
                 title: V.phased
                     ? ('Genotypes are phased: ' + V.phasedPct + '% of the heterozygous calls carry a phase separator'
                         + (V.phaseSets ? ', in phase sets averaging ' + Math.round(V.perBlock) + ' variants each'
                             : ', with no phase sets \u2014 statistical phasing, whole chromosomes at a time')
                         + '. Every heterozygous site inside one phase set is on a KNOWN copy, so a disease allele in a '
                         + 'block makes every other site in that block a discriminating base for the same chromosome.')
-                    : ('Genotypes are unphased: the two alleles at a site are known, which copy carries which is not. '
-                        + 'The phased mechanism for allele-selective design cannot run on this file \u2014 the mutation '
-                        + 'itself, and somatic retention where there is a tumor and a normal, still can.'
+                    : ('Genotypes give the two alleles at each site. Which of the two copies carries which allele is '
+                        + 'recorded by a phased file; this one records the pair. For allele-selective design that leaves '
+                        + 'the mutation itself \u2014 always available \u2014 and, with a tumor beside its normal, the '
+                        + 'allele the tumor kept.'
                         + (V.localPhase ? ' There IS phase on ' + V.psRows.toLocaleString() + ' row'
                             + (V.psRows === 1 ? '' : 's')
                             + (V.perBlock ? ', in blocks averaging ' + V.perBlock.toFixed(1) + ' variants' : '')
