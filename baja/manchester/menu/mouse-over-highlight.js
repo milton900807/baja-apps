@@ -5138,15 +5138,23 @@ function (graph, genegraph_panel_layout) {
                 }
             }
             if (clickSnp && clickTrack) {
-                clickSnp.select();
-                // Selected mutation POPS OUT — gray every other mutation (snpindel.js draw()).
-                graph.__snpSelectionActive = true;
-                // Keep it highlighted: add it to the selection window so the per-frame
-                // reassertSelectionHighlights() re-applies its highlight (hover clears highlights
-                // every move, which would otherwise drop the spotlight the instant the mouse moves).
-                try {
-                    const __prev = Array.isArray(graph.__lassoSelection) ? graph.__lassoSelection.filter((e) => e && e.kind !== 'snp') : [];
-                    __prev.push({
+                // CLICKS ACCUMULATE.
+                //
+                // A click used to drop every variant already chosen and keep the new one, so
+                // the selection was whatever was pressed last and choosing several meant
+                // drawing a lasso around them -- which is not possible when they are far
+                // apart, on different tracks, or mixed in among ones that are not wanted.
+                // Now each click adds, and clicking a variant that is already in takes it
+                // back out, which is the only way to undo one click without clearing all of
+                // them. The lasso is unchanged.
+                const __cur = Array.isArray(graph.__lassoSelection) ? graph.__lassoSelection.slice() : [];
+                const __at = __cur.findIndex((e) => e && e.kind === 'snp' && e.ref === clickSnp);
+                if (__at >= 0) {
+                    __cur.splice(__at, 1);
+                    try { clickSnp.highlight = false; if (clickSnp.deselect) clickSnp.deselect(); } catch (e) { }
+                } else {
+                    clickSnp.select();
+                    __cur.push({
                         kind: 'snp',
                         // The same label the lasso builds -- the change, what kind of change
                         // it is, and its clinical call -- rather than the raw id. A clicked
@@ -5158,7 +5166,24 @@ function (graph, genegraph_panel_layout) {
                         track: clickTrack, chr: clickTrack.chr, xi: clickSnp.xi, xf: (clickSnp.xf != null ? clickSnp.xf : clickSnp.xi),
                         ref: clickSnp, clinsig: clickSnp.clinsig
                     });
-                    graph.__lassoSelection = __prev;
+                }
+                try { graph.__lassoSelection = __cur; } catch (e) { }
+                // THE PRESS CLEARED EVERY VARIANT'S OWN STATE before the hit test, so the
+                // ones still in the selection are re-selected here. The list is the record;
+                // the objects are what the frame draws from.
+                for (const e of __cur) {
+                    if (!e || e.kind !== 'snp' || !e.ref || e.ref === clickSnp) continue;
+                    try { e.ref.highlight = true; if (e.ref.select) e.ref.select(); } catch (er) { }
+                }
+                // Selected mutations POP OUT -- gray every other mutation (snpindel.js
+                // draw()) -- while any of them is selected, and not once the last is out.
+                graph.__snpSelectionActive = __cur.some((e) => e && e.kind === 'snp');
+                try { graph.showDisplay = graph.__lassoSelection.length > 0; } catch (e) { }
+                try {
+                    const __n = __cur.filter((e) => e && e.kind === 'snp').length;
+                    if (graph.setMessage) graph.setMessage(' ' + (__at >= 0 ? 'Deselected' : 'Selected') + ' '
+                        + ((typeof graph.snpSelLabel === 'function') ? graph.snpSelLabel(clickSnp) : 'that variant')
+                        + ' — ' + __n + ' variant' + (__n === 1 ? '' : 's') + ' selected. ');
                 } catch (e) { }
                 try { if (graph.wake) graph.wake(); } catch (e) { }
                 // Stash the snp menu; mouse-up folds it into the context menu.
