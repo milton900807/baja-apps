@@ -9328,6 +9328,7 @@ function (path, config) {
         const synLethalMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const sel = selectedList();
+            const nVsl = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
             books.push({ section: 'Synthetic lethality', note: true,
                 title: BAJA3 + ' \u2014 ' + BAJA3_LONG + '. A tumour has lost some genes; the question is which OTHER '
@@ -9337,7 +9338,32 @@ function (path, config) {
                 badge: selGenes.size ? selWord() : 'nothing selected', icon: 'checklist',
                 blurb: selGenes.size ? ('Currently ' + sel.map((g) => g.gene).join(', ') + '. Edit the set, run the model over it, or clear it.')
                     : 'Click genes in a loss matrix or in an LOH tract to select them. Every card below reasons from that set.',
-                ready: selGenes.size > 0, readyNote: 'select genes in a loss matrix first', open: () => selectedGenesMenu() });
+                ready: selGenes.size > 0, readyNote: 'get a set of losses first \u2014 the card below says how', open: () => selectedGenesMenu() });
+            // WHERE A SET OF LOSSES COMES FROM, said here rather than left to be discovered.
+            // Everything below needs one, and a shelf of greyed cards with "select genes
+            // first" on each is a dead end unless it also says where selecting happens. Three
+            // routes, and the one offered first is the one this genome can actually take.
+            if (!selGenes.size) {
+                if (lossMatrix && (lossMatrix.genes || []).length) {
+                    books.push({ section: 'Synthetic lethality', title: 'Open the loss matrix and pick the losses',
+                        badge: (lossMatrix.genes || []).length + ' genes lost', icon: 'list', ready: true,
+                        blurb: 'The matrix for ' + lossMatrix.sample + ' is already calculated. Click genes in it to build '
+                            + 'the background, then come back.', open: () => lossMatrixMenu() });
+                } else {
+                    books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Calculate a loss matrix first',
+                        badge: nVsl ? 'from the loaded variants' : 'load a VCF first', icon: 'biotech',
+                        ready: nVsl > 0, readyNote: 'load a VCF first',
+                        blurb: 'Which genes this sample has lost. Its genes are then clicked to become the background '
+                            + 'every card below reasons from.',
+                        open: () => { try { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); } catch (e) { analysisMenu(); } } });
+                }
+                if (lohResult && lohResult.genes && lohResult.genes.length) {
+                    books.push({ section: 'Synthetic lethality', title: 'Or take them from the LOH tracts',
+                        badge: lohResult.genes.length + ' genes in tracts', icon: 'compress', ready: true,
+                        blurb: 'The genes inside a region the tumour is down to one copy of. A single-copy arm is exactly '
+                            + 'the kind of background this reasons from.', open: () => lohMenu() });
+                }
+            }
             books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
                 badge: sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'select first', icon: 'biotech',
                 ready: sel.length > 0 && sel.length <= SL_MAX_GENES && !slBusy,
@@ -9393,6 +9419,26 @@ function (path, config) {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
+            // THE TOP-LEVEL WORKFLOWS COME FIRST, each one a door rather than a step.
+            // Synthetic lethality leads because it is what the rest of this is FOR: the loss
+            // matrix, the differential and the LOH scan are all ways of arriving at a set of
+            // losses, and this is the question asked of that set. It is listed whether or not
+            // anything is selected, because a menu that hides the destination until you have
+            // already walked to it teaches nobody where they were going.
+            {
+                const done = [slResult && (slResult.targets.length + ' targets'),
+                    hoResult && (hoResult.matched.length + ' in the catalogue'),
+                    parResult && 'paralogs',
+                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
+                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
+                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
+                    ready: true,
+                    blurb: BAJA3_LONG + '. Which gene this tumour cannot survive losing, given what it has already '
+                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
+                        + 'loss of heterozygosity makes it depend on.'
+                        + (selGenes.size ? '' : ' Needs a set of losses; the first card inside says how to get one.'),
+                    open: () => synLethalMenu() });
+            }
             books.push({ section: 'Loss matrix', note: true,
                 title: 'Which genes has a sample lost? Frameshift, stop-gained, start-lost and splice-site variants are read off the coding sequence, and in tumour suppressors a hotspot or ClinVar-pathogenic missense counts too (TP53 R175H); deletions and silencing are not in a VCF and are not seen here.' });
             const calc = { section: 'Loss matrix', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
@@ -9476,25 +9522,6 @@ function (path, config) {
                 books.push({ section: 'Loss matrix', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
-            }
-            // ONE DOOR, NOT SIX CARDS IN SOMEBODY ELSE'S SECTION. The selection, the live
-            // screen, the catalogue, the paralog model and their last results used to sit
-            // between Calculate loss matrix and Show the loss matrix, which read as though
-            // they were steps in reading a VCF. The loss matrix is a fact about the file;
-            // this is a question asked of a cell-line panel.
-            {
-                const done = [slResult && (slResult.targets.length + ' targets'),
-                    hoResult && (hoResult.matched.length + ' in the catalogue'),
-                    parResult && 'paralogs',
-                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
-                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
-                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
-                    ready: true,
-                    blurb: BAJA3_LONG + '. Which gene this tumour cannot survive losing, given what it has already '
-                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
-                        + 'loss of heterozygosity makes it depend on.'
-                        + (selGenes.size ? '' : ' Select genes in a loss matrix or an LOH tract first.'),
-                    open: () => synLethalMenu() });
             }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
