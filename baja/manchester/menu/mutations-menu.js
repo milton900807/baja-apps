@@ -35,7 +35,7 @@ function (graph, genegraph_panel_layout) {
 
         // Leaf action: ANIMATE a zoom onto a single variant, centered, but backed off so the
         // marker's label + some buffer are visible (not zoomed all the way to the sequence).
-        const zoomToSnp = async (t, s) => {
+        const zoomToSnp = async (t, s, opts) => {
             try {
                 const tg = t && t.tgraph;
                 if (!tg || !tg.X) return;
@@ -63,7 +63,9 @@ function (graph, genegraph_panel_layout) {
                 const topExt = span * 3.6;   // toward screen top (the ymin side)
                 const botExt = span * 2.2;   // toward screen bottom
                 // Deselect all other mutations and select THIS one BEFORE zooming (spotlight).
-                try { await exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000); } catch (e) { }
+                // A row pressed in the list IS a choice and goes into the selection window;
+                // a stop on the tour is not, and does not (opts.select === false below).
+                try { await exec('baja/manchester/menu/focus-mutation.js', graph, s, 10000, Object.assign({ track: t }, opts || {})); } catch (e) { }
                 if (graph.zoomRect) {
                     await graph.zoomRect(xMin, xMax, cy + topExt, cy - botExt, 500);   // smooth animated
                 } else if (graph.graph && graph.graph.setxmin) {
@@ -96,7 +98,7 @@ function (graph, genegraph_panel_layout) {
                 if (i < 0) i = 0;
                 if (i >= stops.length) { finish(); return; }
                 const st = stops[i];
-                try { await zoomToSnp(st.t, st.s); } catch (e) { }
+                try { await zoomToSnp(st.t, st.s, { select: false }); } catch (e) { }
                 if (cancelled) return;
                 const nm = (st.s && (st.s.name || st.s.comment)) || ('Variant ' + (i + 1));
                 const menu = [

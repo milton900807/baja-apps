@@ -1741,6 +1741,8 @@ function (graph, genegraph_panel_layout) {
                         });
                         if (snp) {
                             snp.select();
+                            // The selection window hears about it, like every other route.
+                            try { if (graph.addSnpToSelection) graph.addSnpToSelection(snp, track); } catch (e) { }
                             const m = await exec('baja/manchester/menu/snp-menu', graph, track, snp);
                             let m_ = {
                                 label: '' + snp.name, click: () => {

@@ -10517,7 +10517,12 @@ pattern, GGGG | Required`
                             if (s.inOligos) { if (!s.ref.highlight__) s.ref.highlight__ = 'cyan'; }
                             else if (!s.ref.__lassoHi) s.ref.__lassoHi = '#c0392b';
                         } else if (s.kind === 'snp') {
+                            // The object's own selected state as well as the highlight: other
+                            // paths (focusing one mutation, a track deselect) call deselect()
+                            // on every variant, and a variant in the selection window is
+                            // selected by definition.
                             s.ref.highlight = true;
+                            if (s.ref.select && s.ref.selected === false) { try { s.ref.select(); } catch (e2) { } }
                         } else if (s.kind === 'ann') {
                             if (s.ref.select) s.ref.select();
                         } else if (s.kind === 'layer' && s.ref) {
@@ -10639,6 +10644,51 @@ pattern, GGGG | Required`
                 const n = this.__lassoSelection.length;
                 this.showDisplay = n > 0;
                 if (!n) this.__selPanelBounds = null;
+                if (this.wake) this.wake();
+            }
+
+            // Add a mutation to the selection window, from wherever it was chosen.
+            //
+            // Clicking a lollipop on the canvas built this entry inline, and every OTHER way
+            // of choosing a mutation -- a row in the Variants list, a hit in a search
+            // result, a point of interest, the SNP list on a track -- selected the object
+            // and lit it up without telling the selection window anything. So a mutation
+            // picked from a list was selected on the canvas and absent from the list of what
+            // is selected, which is the one place a person looks to find out.
+            //
+            // The same shape the lasso and the click build, de-duped by reference, so a
+            // mutation chosen twice by two different routes is one entry.
+            addSnpToSelection(snp, track) {
+                if (!snp) return;
+                if (!this.__lassoSelection) this.__lassoSelection = [];
+                if (!track) {
+                    try { for (const t of (this.track || [])) { if ((t.snpindels || []).indexOf(snp) >= 0) { track = t; break; } } } catch (e) { }
+                }
+                if (!this.__lassoSelection.some((e) => e && e.kind === 'snp' && e.ref === snp)) {
+                    this.__lassoSelection.push({
+                        kind: 'snp',
+                        label: (typeof this.snpSelLabel === 'function')
+                            ? this.snpSelLabel(snp)
+                            : ('' + (snp.name || snp.id || ('snp@' + snp.xi)) + (snp.clinsig ? ' \u00b7 ' + snp.clinsig : '')),
+                        track: track, chr: track && track.chr, xi: snp.xi, xf: (snp.xf != null ? snp.xf : snp.xi),
+                        ref: snp, clinsig: snp.clinsig
+                    });
+                }
+                try { snp.highlight = true; if (snp.select) snp.select(); } catch (e) { }
+                // Selected mutations pop out and the rest grey: true while any is selected.
+                this.__snpSelectionActive = true;
+                this.showDisplay = true;
+                if (this.wake) this.wake();
+            }
+
+            // Take one back out, by reference. The window's own rows and a second click on
+            // the canvas both mean the same thing and should do the same thing.
+            removeSnpFromSelection(snp) {
+                if (!snp || !Array.isArray(this.__lassoSelection)) return;
+                this.__lassoSelection = this.__lassoSelection.filter((e) => !(e && e.kind === 'snp' && e.ref === snp));
+                try { snp.highlight = false; if (snp.deselect) snp.deselect(); } catch (e) { }
+                this.__snpSelectionActive = this.__lassoSelection.some((e) => e && e.kind === 'snp');
+                this.showDisplay = this.__lassoSelection.length > 0;
                 if (this.wake) this.wake();
             }
 
