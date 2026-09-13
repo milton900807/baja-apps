@@ -4759,7 +4759,7 @@ function (path, config) {
         // Files -- through the same chunked /upload endpoint
         // baja/manchester/menu/upload-data.js uses. Chunked because the whole point of this
         // is files too big to hand over in one request.
-        const uploadToMyFiles = async (file, onPct) => {
+        const uploadToMyFiles = async (file, onPct, spath) => {
             const host_ = window['env']['apiUrl'];
             const chunkSize = 5 * 1024 * 1024;
             const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
@@ -4772,6 +4772,10 @@ function (path, config) {
                 fd.append('file', file.slice(start, Math.min(start + chunkSize, file.size)), file.name);
                 fd.append('uploadId', uploadId);
                 fd.append('filename', file.name);
+                // The folder the caller asked for; the endpoint joins it under the user's
+                // own root. Absent, a file lands in that root, which is what every caller
+                // before this one wanted.
+                if (spath) fd.append('path', spath);
                 fd.append('chunkIndex', String(ci));
                 fd.append('totalChunks', String(totalChunks));
                 fd.append('fileSize', String(file.size));
@@ -5653,13 +5657,20 @@ function (path, config) {
         // The chain below is known to take it: express accepts an 8gb body, nginx
         // client_max_body_size is 512m, and /save-user-data writes straight to disk.
         const SAVE_CAP = 10000000;    // variants written to a file
+        // Above this the save goes up in chunks instead of in one request. Small enough that
+        // an ordinary saved view still takes the simple road, large enough that the chunked
+        // road is only used where a single request would be the thing that broke.
+        const SAVE_DIRECT_MAX = 6 * 1024 * 1024;
         // JSON inside, but the extension names what the file IS, not how it is
         // encoded -- the same reason a .baja file does not announce itself as .json.
         // Nothing filters My Files by extension, so the browser lists and opens it
         // exactly as before.
         const SAVE_EXT = '.karyotype';
 
-        const stateDoc = () => {
+        // The document WITHOUT its variants: every field that is bounded by the screen
+        // rather than by the file. stateDoc() adds the variants to it and stateParts()
+        // writes them separately, so the two can never disagree about the rest.
+        const stateDocMeta = () => {
             const out = {
                 type: 'baja-karyotype', version: 4,   // 4: confidence digits per variant
                 species: r.species || wanted, assembly: r.assembly || '',
@@ -5721,6 +5732,11 @@ function (path, config) {
             // variant in the same order, '0' right and '1' left, and only written when
             // something is on the left -- so a file with nothing there is unchanged, and
             // the positional fields above keep their positions.
+            return out;
+        };
+        const stateDoc = () => {
+            const out = stateDocMeta();
+            const __hasGt = !!out.hasGt;
             let n = 0, sides = '', anyLeft = false;
             for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
                 const d = vdata[ci];
@@ -5757,6 +5773,78 @@ function (path, config) {
             return out;
         };
 
+        // THE SAME DOCUMENT, WRITTEN IN PIECES.
+        //
+        // stateDoc() builds an array with one string per variant and the callers then hand
+        // it to JSON.stringify. On a whole-genome file that is five and a half million
+        // strings, then a single JavaScript string of two to four hundred megabytes -- and
+        // then the save posted that string INSIDE another JSON object, which escapes every
+        // quote in it and doubles it again. Three copies of the same data, the largest of
+        // them contiguous, and the tab ran out of memory before the request was built.
+        //
+        // This writes the identical JSON as a list of ~1 MB pieces: nothing is ever
+        // contiguous, the pieces go straight into a Blob the browser can spill to disk, and
+        // the upload reads it back 5 MB at a time. A saved file is byte-for-byte what it was
+        // -- the reader is untouched.
+        const PART_TARGET = 1 << 20;                 // ~1 MB a piece
+        const NEEDS_ESCAPE = /[\\"\u0000-\u001f]/;    // the only entries that need JSON.stringify
+        const stateParts = () => {
+            // Everything except the variants, which are the only unbounded part.
+            const meta = stateDocMeta();
+            // These three are written at the end, from the count this loop actually reaches,
+            // so the placeholders the metadata carries for stateDoc() must not be written
+            // twice: a duplicate key is legal JSON and a liability in a file people keep.
+            delete meta.variants; delete meta.truncated; delete meta.total;
+            const parts = [];
+            const head = JSON.stringify(meta);
+            parts.push(head.slice(0, head.length - 1));      // drop the closing brace
+            parts.push(',"variants":[');
+            let buf = '', n = 0, anyLeft = false;
+            const sideParts = [];
+            let sideBuf = '';
+            const flush = () => { if (buf) { parts.push(buf); buf = ''; } };
+            for (let ci = 0; ci < drawn.length && n < SAVE_CAP; ci++) {
+                const d = vdata[ci];
+                if (!d.n) continue;
+                const bare = drawn[ci].name.replace(/^chr/, '');
+                const gw = d.gtw || 0;
+                for (let k = 0; k < d.n && n < SAVE_CAP; k++) {
+                    if (d.side && d.side[k]) { sideBuf += '1'; anyLeft = true; } else sideBuf += '0';
+                    if (sideBuf.length >= PART_TARGET) { sideParts.push(sideBuf); sideBuf = ''; }
+                    const ab = allelesAt(ci, k);
+                    const nm = d.names[k] || '';
+                    let e = bare + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1] + ':' + (d.cls[k] || 0);
+                    if (meta.hasGt) {
+                        let gt = '';
+                        if (gw) { for (let si = 0; si < gw && si < GT_MAX; si++) gt += (d.gts[k * gw + si] || 0); }
+                        e += ':' + gt;
+                    }
+                    {
+                        let q = '';
+                        if (gw && d.conf) { for (let si = 0; si < gw && si < GT_MAX; si++) q += (d.conf[k * gw + si] || 0); }
+                        else q += (d.rconf ? (d.rconf[k] || 0) : 0);
+                        e += ':' + q;
+                    }
+                    if (nm) e += ':' + nm;
+                    // A name is the only field that can carry a quote or a backslash, and
+                    // most files have none: the cheap test keeps JSON.stringify off the hot
+                    // path without ever writing an invalid document.
+                    buf += (n ? ',' : '') + (NEEDS_ESCAPE.test(e) ? JSON.stringify(e) : ('"' + e + '"'));
+                    n++;
+                    if (buf.length >= PART_TARGET) flush();
+                }
+            }
+            flush();
+            parts.push(']');
+            if (anyLeft) {
+                if (sideBuf) { sideParts.push(sideBuf); sideBuf = ''; }
+                parts.push(',"sides":"');
+                for (const sp of sideParts) parts.push(sp);     // '0' and '1' only: nothing to escape
+                parts.push('"');
+            }
+            parts.push(',"truncated":' + (vtotal > n) + ',"total":' + vtotal + '}');
+            return { parts: parts, count: n, truncated: vtotal > n };
+        };
         const applyDoc = async (doc, onProgress) => {
             if (!doc || doc.type !== 'baja-karyotype') {
                 graph.setMessage(' That file is not a saved genome. ');
@@ -11943,6 +12031,18 @@ function (path, config) {
                 setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
             } catch (e) { dlErr('Could not start the download: ' + e); }
         };
+        // A file made of many pieces. Blob takes the list and concatenates OUTSIDE the
+        // JavaScript heap, so nothing here ever holds the whole document at once.
+        const dlSaveParts = (parts, filename, mime) => {
+            try {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob(parts, { type: (mime || 'text/plain') + ';charset=utf-8;' }));
+                try { parts.length = 0; } catch (e) { }
+                a.download = filename; a.style.display = 'none';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+            } catch (e) { dlErr('Could not start the download: ' + e); }
+        };
         const dlSaveB64 = (b64, filename, mime) => {
             try {
                 const bin = atob(b64); const bytes = new Uint8Array(bin.length);
@@ -12074,9 +12174,23 @@ function (path, config) {
             if (!user) { dlErr('Sign in to share.'); return; }
             dlMsg('Creating a public view-only link…');
             try {
-                const value = JSON.stringify(stateDoc());
+                // THE SAME PIECES THE SAVE USES. A shared whole genome is the same size as
+                // a saved one, and building it as a single string was the allocation that
+                // took the tab down. Over the direct limit it goes up in chunks instead.
+                const __b = stateParts();
                 const name = shareBaseName() + '.karyotype';
-                const saveRs = await POSTJSON({ name: name, key: 'user', user: user, spath: 'public', value: value }, host_ + '/save-user-data');
+                __b.parts[0] = __b.parts[0] + ',"name":' + JSON.stringify(name);
+                const blob = new Blob(__b.parts, { type: 'application/json' });
+                __b.parts.length = 0;
+                let saveRs = null;
+                if (blob.size > SAVE_DIRECT_MAX) {
+                    const up = await uploadToMyFiles(new File([blob], name, { type: 'application/json' }),
+                        () => { }, 'public');
+                    if (up && up.error) throw new Error(up.error);
+                    saveRs = { status: 'saved', path: '/' + user + '/public/' + name };
+                } else {
+                    saveRs = await POSTJSON({ name: name, key: 'user', user: user, spath: 'public', value: await blob.text() }, host_ + '/save-user-data');
+                }
                 try { await POSTJSON({ name: '.share', key: 'user', user: user, spath: 'public', value: 'public\n/public' }, host_ + '/save-user-data'); } catch (e) { }
                 const sharedPath = (saveRs && saveRs.path) ? saveRs.path : ('/' + user + '/public/' + name);
                 let link = window.location.origin + '/app/manchester/viewer?path=' + encodeURIComponent(sharedPath);
@@ -12129,8 +12243,28 @@ function (path, config) {
                 if (bad.length) { $('ks-status').textContent = 'Not an email address: ' + bad.join(', '); return; }
                 const message = ('' + ($('ks-msg').value || '')).trim();
                 const btn = $('ks-send'); btn.disabled = true; btn.textContent = 'Sharing…';
+                // BUILT IN PIECES, AND MEASURED BEFORE IT IS MADE CONTIGUOUS.
+                //
+                // /share-with takes the document as a value in the request body, once per
+                // recipient, so a whole genome cannot go this way at all -- and finding that
+                // out by allocating a three-hundred-megabyte string first is how the tab
+                // died. The size is known from the Blob, which never enters the heap; over
+                // the limit this says so and points at the public link, which does have a
+                // chunked road.
                 let value = '';
-                try { value = JSON.stringify(stateDoc()); } catch (e) { $('ks-status').textContent = 'Could not serialize: ' + e; btn.disabled = false; btn.textContent = 'Share'; return; }
+                try {
+                    const __sb = stateParts();
+                    const __blob = new Blob(__sb.parts, { type: 'application/json' });
+                    __sb.parts.length = 0;
+                    if (__blob.size > SAVE_DIRECT_MAX) {
+                        $('ks-status').textContent = 'This genome is ' + fmtBytes(__blob.size)
+                            + ' \u2014 too large to send a copy to each person. Use \u201cShare a public link\u201d instead, '
+                            + 'which uploads it once, or save it and share the file.';
+                        btn.disabled = false; btn.textContent = 'Share';
+                        return;
+                    }
+                    value = await __blob.text();
+                } catch (e) { $('ks-status').textContent = 'Could not serialize: ' + e; btn.disabled = false; btn.textContent = 'Share'; return; }
                 $('ks-status').textContent = 'Saving a copy for ' + (addrs.length === 1 ? addrs[0] : addrs.length + ' people') + '…';
                 let firstLink = '';
                 for (const to of addrs) {
@@ -13811,16 +13945,40 @@ function (path, config) {
                 const cover = savingCover(name);
                 await paint();
                 try {
-                    const doc = stateDoc();
-                    doc.name = name;
-                    // Serialised ONCE and held in a local: the value goes to the POST and the
-                    // count comes off `doc`, so nothing re-encodes a 180 MB document to read a
-                    // property back off it.
-                    const value = JSON.stringify(doc);
-                    const rs = await POSTJSON({
-                        name: name, key: 'user', user: getUser(), spath: spath,
-                        value: value,
-                    }, window['env']['apiUrl'] + '/save-user-data');
+                    // WRITTEN IN PIECES, NEVER AS ONE STRING.
+                    //
+                    // The document is built as ~1 MB pieces and handed to a Blob, which the
+                    // browser can hold outside the JavaScript heap. A whole genome is two to
+                    // four hundred megabytes: as a single string it was one allocation the
+                    // tab often could not make, and posting it inside another JSON object
+                    // escaped and copied it a second time.
+                    const built = stateParts();
+                    built.parts[0] = built.parts[0] + ',"name":' + JSON.stringify(name);
+                    let blob = null;
+                    try { blob = new Blob(built.parts, { type: 'application/json' }); } catch (e) { blob = null; }
+                    // The pieces are no longer needed once the Blob owns them.
+                    built.parts.length = 0;
+                    if (!blob) throw new Error('the document could not be assembled');
+                    let rs = null;
+                    if (blob.size > SAVE_DIRECT_MAX) {
+                        // Big: up in 5 MB chunks, the same road an uploaded VCF takes. The
+                        // request is never larger than a chunk, whatever the genome is.
+                        graph.setMessage(' Saving ' + name + ' \u2014 ' + fmtBytes(blob.size) + ', in chunks\u2026 ');
+                        const file = new File([blob], name, { type: 'application/json' });
+                        const up = await uploadToMyFiles(file, (pct) => {
+                            try { graph.setMessage(' Saving ' + name + ' \u2014 ' + Math.round(pct) + '% of ' + fmtBytes(blob.size) + '\u2026 '); } catch (e) { }
+                        }, spath);
+                        if (up && up.error) throw new Error(up.error);
+                        rs = { status: 'saved', path: (spath ? (spath.replace(/\/$/, '') + '/') : '') + name };
+                    } else {
+                        // Small: the endpoint that has always taken these, unchanged, so a
+                        // handful of variants saves exactly as it did.
+                        rs = await POSTJSON({
+                            name: name, key: 'user', user: getUser(), spath: spath,
+                            value: await blob.text(),
+                        }, window['env']['apiUrl'] + '/save-user-data');
+                    }
+                    const doc = { variants: { length: built.count }, truncated: built.truncated };
                     if (rs && (rs.status === 'saved' || rs.path)) {
                         restore();
                         // The file now exists, so the view is showing it. Only when the
@@ -14508,7 +14666,10 @@ function (path, config) {
             q2('#kr-save').onclick = () => {
                 try {
                     const nm = dlSafe(dlSpecies() + '_karyotype') + '.json';
-                    dlSaveText(JSON.stringify(stateDoc()), nm, 'application/json');
+                    // The pieces, not one string: a downloaded whole genome is the same
+                    // two to four hundred megabytes the save deals with, and building it
+                    // contiguously is the allocation that fails.
+                    dlSaveParts(stateParts().parts, nm, 'application/json');
                     const b2 = q2('#kr-save');
                     if (b2) { b2.textContent = 'Saved'; b2.style.color = '#8ff0b0'; b2.style.borderColor = 'rgba(34,197,94,0.6)'; }
                 } catch (e) {
