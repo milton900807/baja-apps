@@ -9313,6 +9313,82 @@ function (path, config) {
         // THE ANALYSIS LIBRARY behind the microscope button. Calculate the loss matrix is
         // one card when there is one sample to read and a shelf of samples when there are
         // several: the matrix is a fact about ONE genome, and a tumour/normal pair is two.
+        // ---- SYNTHETIC LETHALITY, AS ONE PLACE ----------------------------------
+        //
+        // This grew a card at a time and ended up scattered through the Analyze library's
+        // "Loss matrix" section: the selection, the live DepMap screen, the published
+        // catalogue, the paralog model and whatever each of them last returned, sitting
+        // between Calculate loss matrix and Show the loss matrix as though they were steps
+        // in reading a VCF. They are not. The loss matrix is a fact about the file; this is
+        // a question asked of a cell-line panel, and it deserves its own door.
+        //
+        // Nothing here is new. The cards are the same cards, moved, plus the LOH route,
+        // which belonged with them from the day it was written and was reachable only from
+        // inside the LOH result.
+        const synLethalMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const sel = selectedList();
+            const books = [];
+            books.push({ section: 'Synthetic lethality', note: true,
+                title: BAJA3 + ' \u2014 ' + BAJA3_LONG + '. A tumour has lost some genes; the question is which OTHER '
+                    + 'gene it now cannot survive losing, that a normal cell can. The losses are the genes selected from '
+                    + 'a loss matrix or an LOH tract, and everything below reasons from that same set.' });
+            books.push({ section: 'Synthetic lethality', title: 'The losses to reason from',
+                badge: selGenes.size ? selWord() : 'nothing selected', icon: 'checklist',
+                blurb: selGenes.size ? ('Currently ' + sel.map((g) => g.gene).join(', ') + '. Edit the set, run the model over it, or clear it.')
+                    : 'Click genes in a loss matrix or in an LOH tract to select them. Every card below reasons from that set.',
+                ready: selGenes.size > 0, readyNote: 'select genes in a loss matrix first', open: () => selectedGenesMenu() });
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
+                badge: sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'select first', icon: 'biotech',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES && !slBusy,
+                readyNote: slBusy ? 'a run is in progress' : (sel.length ? 'at most ' + SL_MAX_GENES + ' genes at a time' : 'select genes first'),
+                blurb: 'Run the model live on DepMap: for each loss and each pair of them, the gene that becomes '
+                    + 'selectively essential in the lines carrying the same losses, lineage-corrected, with the '
+                    + 'therapeutic window beside it.',
+                open: () => slFindTargets('', '') });
+            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a cancer type…', badge: 'choose', icon: 'coronavirus',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: 'select genes first',
+                blurb: 'The same ranking with one cancer type spotlighted beside it.',
+                books: () => diseaseBooks((d) => slFindTargets('', d)) });
+            books.push({ section: 'Synthetic lethality', title: BAJA3 + ' in a tissue…', badge: 'choose', icon: 'science',
+                ready: sel.length > 0 && sel.length <= SL_MAX_GENES, readyNote: 'select genes first',
+                blurb: 'By organ rather than cancer type.', books: () => tissueBooks((t) => slFindTargets(t, '')) });
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ' published catalogue', badge: 'catalogue', icon: 'library_books',
+                ready: sel.length > 0, readyNote: 'select genes first',
+                blurb: 'What has already been found for these losses: the systematic scan over tumour-suppressor pairs, '
+                    + 'the tissue tables and the single and pair screens.', open: () => hoFind() });
+            books.push({ section: 'Synthetic lethality', accent: 'run', title: 'Paralog partners (ML model)', badge: 'paralogs', icon: 'hub',
+                ready: sel.length > 0, readyNote: 'select genes first',
+                blurb: 'A different model and a different question: for each loss, which paralog is predicted to become '
+                    + 'the surviving copy the cell cannot then do without.', open: () => parFind() });
+            // FROM A TRACT RATHER THAN FROM A MATRIX. This was reachable only from inside the
+            // LOH result, which meant finding it required already being three steps into a
+            // different analysis.
+            if (lohResult) books.push({ section: 'From loss of heterozygosity', accent: lohSlResult ? undefined : 'run',
+                title: lohSlResult ? 'The vulnerabilities this loss creates' : 'What the loss of heterozygosity makes the tumour depend on',
+                badge: lohSlResult ? (lohSlResult.complete.length + ' complete \u00b7 ' + lohSlResult.cyclops.length + ' single-copy') : 'from the tracts',
+                icon: 'science', ready: !!(lohResult.genes && lohResult.genes.length) && !lohSlBusy,
+                readyNote: lohSlBusy ? 'running' : 'list the genes in the tracts first, from the LOH result',
+                blurb: 'One copy left cuts two ways. A gene whose remaining copy a variant has also broken is completely '
+                    + 'lost and is a background to reason from; a gene the cell cannot do without is now on half the '
+                    + 'dosage normal tissue has, and is a target in itself.',
+                open: () => { if (lohSlResult) lohSlMenu(); else lohFindSL(); } });
+            const last = [];
+            if (slResult) last.push({ section: 'Last results', title: BAJA3 + ' targets', badge: slResult.targets.length + ' targets', icon: 'list',
+                blurb: 'For ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
+            if (hoResult) last.push({ section: 'Last results', title: BAJA3 + ' catalogue', badge: hoResult.matched.length + ' within', icon: 'library_books',
+                blurb: 'For ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
+            if (parResult) last.push({ section: 'Last results', title: 'Paralog partners', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'hub',
+                blurb: 'For ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
+            if (lohSlResult) last.push({ section: 'Last results', title: 'Single-copy vulnerabilities', badge: lohSlResult.cyclops.length + ' candidates', icon: 'list',
+                blurb: 'From the loss-of-heterozygosity tracts.', ready: true, open: () => lohSlMenu() });
+            if (last.length) { books.push({ section: 'Last results', note: true, title: 'What each of these last returned, without running anything again.' }); books.push.apply(books, last); }
+            books.push(baja3DocCard('Synthetic lethality'));
+            books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The loss matrix, the differential, loss of heterozygosity and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic lethality',
+                subtitle: BAJA3_LONG, graph: graph, books: books });
+        };
         const analysisMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
@@ -9401,21 +9477,24 @@ function (path, config) {
                     blurb: lossMatrix.sample + ' — the genes lost, tumour suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
             }
-            books.push({ section: 'Loss matrix', title: 'Selected genes (' + selGenes.size + ')', badge: selGenes.size ? selWord() : '', icon: 'checklist',
-                blurb: selGenes.size ? ('Act on ' + selectedList().map((g) => g.gene).join(', ') + ': find synthetic-lethal targets, open, download or clear.')
-                    : 'Click genes in the loss matrix to select them, then come back here to run the higher-order model over them.',
-                ready: selGenes.size > 0, readyNote: 'select genes in the loss matrix first', open: () => selectedGenesMenu() });
-            if (slResult) {
-                books.push({ section: 'Loss matrix', title: BAJA3 + ' targets', badge: slResult.targets.length + ' targets', icon: 'biotech',
-                    blurb: 'Last ranking, for ' + slResult.genes.join(', ') + (slResult.tissue ? ' in ' + slResult.tissue : '') + '.', ready: true, open: () => slTargetsMenu() });
-            }
-            if (hoResult) {
-                books.push({ section: 'Loss matrix', title: BAJA3 + ' catalogue', badge: hoResult.matched.length + ' within', icon: 'library_books',
-                    blurb: 'Last catalogue lookup, for ' + hoResult.genes.join(', ') + '.', ready: true, open: () => hoMenu() });
-            }
-            if (parResult) {
-                books.push({ section: 'Loss matrix', title: 'Paralog partners', badge: parResult.summary.reduce((a, g) => a + (g.n_shown || 0), 0) + ' partners', icon: 'hub',
-                    blurb: 'Last paralog-model result, for ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
+            // ONE DOOR, NOT SIX CARDS IN SOMEBODY ELSE'S SECTION. The selection, the live
+            // screen, the catalogue, the paralog model and their last results used to sit
+            // between Calculate loss matrix and Show the loss matrix, which read as though
+            // they were steps in reading a VCF. The loss matrix is a fact about the file;
+            // this is a question asked of a cell-line panel.
+            {
+                const done = [slResult && (slResult.targets.length + ' targets'),
+                    hoResult && (hoResult.matched.length + ' in the catalogue'),
+                    parResult && 'paralogs',
+                    lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
+                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
+                    badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
+                    ready: true,
+                    blurb: BAJA3_LONG + '. Which gene this tumour cannot survive losing, given what it has already '
+                        + 'lost: the live DepMap screen, the published catalogue, the paralog model, and what the '
+                        + 'loss of heterozygosity makes it depend on.'
+                        + (selGenes.size ? '' : ' Select genes in a loss matrix or an LOH tract first.'),
+                    open: () => synLethalMenu() });
             }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
@@ -9428,7 +9507,7 @@ function (path, config) {
                 open: () => { try { infoPanel(); } catch (e) { } } });
             exec('baja/lib/shelf.js', {
                 id: 'baja-karyo-analysis', title: 'Analyze',
-                subtitle: 'Read the loaded variants — start with the loss matrix, or go straight to allele-selective targets',
+                subtitle: 'Read the loaded variants — the loss matrix, what differs between two, loss of heterozygosity, synthetic lethality and allele-selective targets',
                 graph: graph, books: books
             });
         };
