@@ -5,6 +5,10 @@
 *.H5
 *.csv
 *.json
+# ...except the tutorials that ship WITH the application. They are source -- the
+# wording is reviewed like any other text in the interface -- rather than data
+# somebody's run produced, which is what the rule above is for.
+!py/tutorials/seed/*.json
 *.sdf
 *.screen
 *__pycache__*

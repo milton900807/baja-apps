@@ -81,8 +81,11 @@ TOPICS = [
     ("synthetic lethality", ("lethality", "lethal", "baja-3", "baja3", "dependency", "depmap")),
     ("allele-selective targets", ("allele-selective", "allele", "selective", "discriminating")),
     ("paralog partners", ("paralog", "paralogs", "partner", "partners")),
+    ("phasing", ("phase", "phased", "phasing", "haplotype", "haplotypes")),
+    ("compound heterozygotes", ("compound", "heterozygotes", "heterozygote", "trans", "cis", "biallelic")),
     ("loss matrix", ("matrix", "losses", "lof", "loss")),
-    ("copy number", ("copy", "cn", "ploidy", "cyclops", "dosage")),
+    # 'copy' alone is not this topic: every sentence about phase says "the other copy".
+    ("copy number", ("cn", "ploidy", "cyclops", "dosage", "hemizygous", "amplification")),
     ("upload", ("upload", "uploaded", "vcf", "bgzipped", "file", "files")),
     ("genome viewer", ("karyotype", "chromosome", "chromosomes", "genome", "band", "bands")),
     ("oligo editor", ("oligo", "editor", "transcript", "transcripts", "exon", "exons")),

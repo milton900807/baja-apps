@@ -1,0 +1,31 @@
+{
+  "name": "Compound heterozygotes: cis or trans",
+  "description": "Two damaging hits in one gene — whether they sit on opposite copies, which leaves no working copy, or on the same one, which leaves the gene intact.",
+  "screen": "karyotype",
+  "route": "/app/manchester/karyotype",
+  "visibility": "everyone",
+  "script": [
+    { "cmd": "message", "text": "Compound heterozygotes: two damaging hits in one gene, and the question of whether they sit on opposite copies or the same one." },
+    { "cmd": "wait", "ms": 3000 },
+    { "cmd": "message", "text": "In trans — one hit on each copy — leaves no working copy, which for a recessive condition is the genotype that causes it. In cis leaves an intact gene: a carrier." },
+    { "cmd": "wait", "ms": 4000 },
+    { "cmd": "message", "text": "It needs two things: a phased VCF, and the loss matrix — the list of genes this genome carries a damaging change in." },
+    { "cmd": "wait", "ms": 3500 },
+    { "cmd": "action", "name": "analyze" },
+    { "cmd": "wait", "ms": 1800 },
+    { "cmd": "message", "text": "Analyze, then Find the losses. Calculate loss matrix is the step before this one; it reads every exonic variant and takes a minute on a whole genome." },
+    { "cmd": "wait", "ms": 4500 },
+    { "cmd": "domclick", "locator": { "by": "near", "v": "Compound heterozygotes" } },
+    { "cmd": "wait", "ms": 2500 },
+    { "cmd": "message", "text": "Every gene with more than one damaging hit, grouped by what the phase actually settles." },
+    { "cmd": "wait", "ms": 3000 },
+    { "cmd": "message", "text": "Both copies hit, in trans: the two hits are in the same phase set, on opposite copies. ACMG calls that PM3 when the other variant is already known to be pathogenic." },
+    { "cmd": "wait", "ms": 4500 },
+    { "cmd": "message", "text": "One copy intact, in cis: both hits on the same copy, so the other copy still works — a carrier rather than a patient. ACMG BP2." },
+    { "cmd": "wait", "ms": 4000 },
+    { "cmd": "message", "text": "Not settled by this file: the hits are in different phase sets, or one of them is unphased. Phase only compares within one set — a parent's sequence, or reads long enough to span both, decides it." },
+    { "cmd": "wait", "ms": 5000 },
+    { "cmd": "message", "text": "Open any gene for each hit with its genotype, phase set and consequence, and take the whole table away as CSV. It reads phase and consequence — it does not judge pathogenicity or whether the gene fits the presentation." },
+    { "cmd": "wait", "ms": 4500 }
+  ]
+}
