@@ -3978,6 +3978,316 @@ function (path, config) {
             if (!count.masks[mask]) { count.masks[mask] = 1; count.maskKinds = (count.maskKinds || 0) + 1; }
             return gtRow;
         };
+        // WHAT KIND OF FILE IS THIS.
+        //
+        // Everything below reads a VCF for its variants and throws the rest away, and the
+        // rest is most of what someone needs to know before trusting the answer: which
+        // caller wrote it, against which reference, whether it holds one sample or a tumor
+        // beside its normal, whether the genotypes are PHASED -- which decides whether a
+        // whole mechanism (Analyze > Allele-Selective Targets > phased) is available at all.
+        //
+        // It is accumulated HERE, in the loop that is already touching every line, because
+        // the file is five million rows and a second pass over it to ask these questions
+        // would cost as much as the load. The cheap facts (records, phase, samples, header
+        // fields) are counted on every row; the ratios that only need a shape -- Ti/Tv,
+        // indel classes, depth -- are sampled every 17th row, which is stated where they are
+        // shown rather than presented as exact.
+        const PROF_EVERY = 17;
+        const profOf = (count) => {
+            if (!count.prof) {
+                count.prof = { meta: {}, headers: 0, records: 0, pass: 0, filters: {}, nFilters: 0,
+                    snv: 0, ins: 0, del: 0, other: 0, multi: 0, ti: 0, tv: 0, sampled: 0,
+                    het: 0, hom: 0, phasedRows: 0, psRows: 0, dpSum: 0, dpN: 0, qSum: 0, qN: 0,
+                    somatic: 0, fmt: '', hasPS: false, gtAt: -1, dpAt: -1, contigs: 0, chrPrefix: false };
+            }
+            return count.prof;
+        };
+        const profHeader = (t, count) => {
+            const P = profOf(count);
+            P.headers++;
+            const M = P.meta;
+            const grab = (name) => {
+                const pre = '##' + name + '=';
+                return t.indexOf(pre) === 0 ? t.slice(pre.length).trim() : null;
+            };
+            let v;
+            if ((v = grab('fileformat')) != null) M.fileformat = v;
+            else if ((v = grab('source')) != null) M.source = M.source || v;
+            else if ((v = grab('reference')) != null) M.reference = v;
+            else if ((v = grab('tumor_sample')) != null) { M.tumor_sample = v; }
+            else if ((v = grab('normal_sample')) != null) { M.normal_sample = v; }
+            else if ((v = grab('phasing')) != null) M.phasing = v;
+            else if (t.indexOf('##contig=') === 0) {
+                P.contigs++;
+                if (!M.contigExample) M.contigExample = t.slice(9).replace(/[<>]/g, '');
+                if (t.indexOf('ID=chr') >= 0) P.chrPrefix = true;
+            }
+            else if (t.indexOf('##FORMAT=<ID=') === 0) { (M.format = M.format || []).push(t.slice(13).split(',')[0]); }
+            else if (t.indexOf('##INFO=<ID=') === 0) { (M.info = M.info || []).push(t.slice(11).split(',')[0]); }
+            else if (t.indexOf('##FILTER=<ID=') === 0) { (M.filter = M.filter || []).push(t.slice(13).split(',')[0]); }
+            else if (t.indexOf('##SAMPLE=<ID=') === 0) { (M.sampleTags = M.sampleTags || []).push(t.slice(13).replace(/[<>]/g, '')); }
+            // The command line is the most honest statement of provenance a VCF carries, and
+            // it is also the longest: kept, but clipped, because it is shown to a reader.
+            else if (/^##(GATKCommandLine|cmdline|bcftools_[a-zA-Z]+Command|DRAGENCommandLine|command)/.test(t)) {
+                if (!M.commands) M.commands = [];
+                if (M.commands.length < 4) M.commands.push(t.slice(2, 700));
+            }
+            else if (/^##(clair3_version|GATKVersion|DeepVariant_version|source_version|octopus|freeBayesVersion|strelka)/i.test(t)) {
+                if (!M.versions) M.versions = [];
+                if (M.versions.length < 4) M.versions.push(t.slice(2, 200));
+            }
+        };
+        const profRow = (f, count) => {
+            const P = profOf(count);
+            P.records++;
+            const flt = f.length > 6 ? f[6] : '';
+            if (flt === 'PASS' || flt === '.') P.pass++;
+            if (flt && P.nFilters < 12 && !P.filters[flt] && /^[A-Za-z0-9_.;|+-]{1,40}$/.test(flt)) { P.filters[flt] = 1; P.nFilters++; }
+            // The FORMAT string repeats for millions of rows; work out what is in it once
+            // per distinct one rather than once per row.
+            const fmt = f.length > 8 ? f[8] : '';
+            if (fmt !== P.fmt) {
+                P.fmt = fmt;
+                const k = fmt.split(':');
+                P.hasPS = k.indexOf('PS') >= 0;
+                P.psAt = k.indexOf('PS');
+                P.dpAt = k.indexOf('DP');
+            }
+            if (f.length > 9) P.withGt = (P.withGt || 0) + 1;
+            if (P.hasPS) {
+                P.psRows++;
+                // HOW BIG THE PHASE SETS ARE, which is what separates real haplotype phasing
+                // from a caller tidying up two adjacent variants. Read-backed phasing puts
+                // tens to hundreds of variants in a block; MuTect2's PGT/PS puts two or
+                // three. Both write PS, and only one of them makes a second site on the same
+                // copy usable, so the size is the question and not the presence.
+                //
+                // Bounded: the set stops growing at 20,000 distinct values, and the rows
+                // counted alongside it stop at the same moment, so the ratio stays honest
+                // instead of climbing as the file goes on.
+                if (!P.psSeen) { P.psSeen = new Set(); P.psSeenRows = 0; }
+                if (P.psSeen.size < 20000) {
+                    const gc = P.gtCol || 9;
+                    if (P.psAt >= 0 && f.length > gc) {
+                        const cell = f[gc].split(':');
+                        const v = cell[P.psAt];
+                        if (v && v !== '.') { P.psSeen.add(v); P.psSeenRows++; }
+                    }
+                }
+            }
+            if (f.length > 7 && f[7].indexOf('SOMATIC') >= 0) P.somatic++;
+            if (P.records % PROF_EVERY) return;
+            P.sampled++;
+            const ref = f[3] || '', alt = (f[4] || '').split(',');
+            if (alt.length > 1) P.multi++;
+            const a0 = alt[0] || '';
+            if (ref.length === 1 && a0.length === 1) {
+                P.snv++;
+                const pair = ref.toUpperCase() + a0.toUpperCase();
+                if (pair === 'AG' || pair === 'GA' || pair === 'CT' || pair === 'TC') P.ti++; else P.tv++;
+            } else if (a0.length > ref.length) P.ins++;
+            else if (a0.length < ref.length) P.del++;
+            else P.other++;
+            const q = +f[5];
+            if (isFinite(q)) { P.qSum += q; P.qN++; }
+            const gcol = P.gtCol || 9;
+            if (P.dpAt >= 0 && f.length > gcol) {
+                const cell = f[gcol].split(':');
+                const d = +cell[P.dpAt];
+                if (isFinite(d)) { P.dpSum += d; P.dpN++; }
+            }
+            // Zygosity and phase of ONE sample, read straight off its genotype field: the
+            // only one a single-sample file has, and the tumor in a pair (chosen above).
+            // Which one it was is carried in the verdict and named where these are shown.
+            if (f.length > gcol) {
+                const cell = f[gcol];
+                const colon = cell.indexOf(':');
+                const g = (colon < 0 ? cell : cell.slice(0, colon));
+                const bar = g.indexOf('|') >= 0;
+                const sep = bar ? '|' : '/';
+                const al = g.split(sep);
+                // 0/0 IS NOT A GENOTYPE TO COUNT. It is the caller saying this sample has
+                // the reference here, and MuTect2 writes it on the normal at every somatic
+                // site -- counting those as homozygous would report a file of hom-alt calls
+                // that does not exist.
+                if (al.length === 2 && al[0] !== '.' && al[1] !== '.' && !(al[0] === '0' && al[1] === '0')) {
+                    if (al[0] === al[1]) P.hom++; else { P.het++; if (bar) P.hetPhased = (P.hetPhased || 0) + 1; }
+                }
+            }
+        };
+        // WHAT THE COUNTERS ADD UP TO. Every judgement this makes is derived from the file
+        // itself and says what it was derived FROM, because "this is a somatic callset" is
+        // worth nothing to someone deciding whether to trust the analysis that follows.
+        let lastVcfProfile = null;
+        const vcfVerdict = (P, fileName) => {
+            const M = P.meta || {};
+            const samples = P.samples || [];
+            const nS = samples.length;
+            const caller = (() => {
+                const src = '' + (M.source || '');
+                const cmd = ('' + (M.commands || []).join(' ') + ' ' + (M.versions || []).join(' '));
+                const all = (src + ' ' + cmd).toLowerCase();
+                if (/clair3/.test(all)) return 'Clair3';
+                if (/deepvariant/.test(all)) return 'DeepVariant';
+                if (/mutect2|mutect/.test(all)) return 'MuTect2';
+                if (/haplotypecaller/.test(all)) return 'GATK HaplotypeCaller';
+                if (/strelka/.test(all)) return 'Strelka';
+                if (/freebayes/.test(all)) return 'FreeBayes';
+                if (/dragen/.test(all)) return 'DRAGEN';
+                if (/octopus/.test(all)) return 'Octopus';
+                if (/bcftools|samtools/.test(all)) return 'bcftools';
+                if (/clinvar/.test(all)) return 'ClinVar';
+                return src ? src.split(/[\s,;]/)[0] : '';
+            })();
+            const platform = (() => {
+                const all = ('' + (M.commands || []).join(' ')).toLowerCase();
+                if (/platform=ont|--ont|nanopore/.test(all)) return 'Oxford Nanopore long reads';
+                if (/platform=hifi|pacbio|--pb/.test(all)) return 'PacBio HiFi long reads';
+                if (/platform=ilmn|illumina/.test(all)) return 'Illumina short reads';
+                return '';
+            })();
+            // SOMATIC, and how it was decided. Three independent signs, any of which is
+            // enough on its own, and the panel says which of them was seen.
+            const somaticSigns = [];
+            if (M.tumor_sample || M.normal_sample) somaticSigns.push('the header names a tumor and normal sample');
+            if (P.somatic) somaticSigns.push('rows carry the SOMATIC flag');
+            const fl = (M.filter || []).join(' ').toLowerCase();
+            if (/panel_of_normals|germline_risk|germline|alt_allele_in_normal|weak_evidence|t_lod|normal_artifact/.test(fl)) somaticSigns.push('it filters on somatic criteria (' + (M.filter || []).filter((x) => /normal|germline|evidence|lod|artifact/i.test(x)).slice(0, 4).join(', ') + ')');
+            if (/mutect|strelka|varscan|lofreq|vardict/i.test(caller)) somaticSigns.push('it was written by a somatic caller (' + caller + ')');
+            const sitesOnly = nS === 0;
+            // PHASED MEANS THE HETEROZYGOUS CALLS ARE PHASED, which is the only thing that
+            // makes a second site on the same copy usable. A PS column on its own does not:
+            // MuTect2 writes PS for the handful of variants it could phase locally off one
+            // read pair, and calling that file "phased" would offer a whole-genome mechanism
+            // on a few hundred rows of local phase. The two are reported separately.
+            const phasedHet = P.hetPhased || 0;
+            const hetSeen = P.het || 0;
+            const phasedPct = hetSeen ? Math.round(100 * phasedHet / hetSeen) : 0;
+            const psBlocks = (P.psSeen && P.psSeen.size) || 0;
+            const perBlock = psBlocks ? ((P.psSeenRows || 0) / psBlocks) : 0;
+            // A file with no PS at all but phase separators everywhere is statistically
+            // phased (Beagle, SHAPEIT) -- whole chromosomes, and genuinely usable. A file
+            // with PS is read-backed, and then the block SIZE decides: tens of variants per
+            // block is haplotype phasing, two or three is a caller phasing neighbours.
+            const phased = phasedPct >= 5 && (!P.psRows || perBlock >= 8);
+            const localPhase = !phased && (P.psRows > 0 || phasedPct > 0);
+            const kind = (sitesOnly && P.withGt) ? 'rows with genotype columns, but no #CHROM line naming the samples'
+                : sitesOnly ? 'sites-only \u2014 positions with no genotypes'
+                : (somaticSigns.length && nS >= 2) ? 'a tumor and its normal, in one file'
+                : (somaticSigns.length) ? 'a somatic callset with ' + nS + ' sample column' + (nS === 1 ? '' : 's')
+                : (nS === 1) ? 'a single-sample germline callset'
+                : 'a joint callset of ' + nS + ' samples';
+            const tiTv = P.tv ? (P.ti / P.tv) : 0;
+            const meanDP = P.dpN ? (P.dpSum / P.dpN) : 0;
+            const meanQ = P.qN ? (P.qSum / P.qN) : 0;
+            return {
+                file: fileName || '', kind: kind, sitesOnly: sitesOnly && !P.withGt, somaticSigns: somaticSigns,
+                samples: samples, nSamples: nS, caller: caller, platform: platform,
+                reference: M.reference || '', build: P.chrPrefix ? 'chr-prefixed contigs' : 'contigs without a chr prefix',
+                contigs: P.contigs, fileformat: M.fileformat || '', commands: M.commands || [],
+                versions: M.versions || [], format: M.format || [], filters: Object.keys(P.filters || {}),
+                phased: phased, phasedPct: phasedPct, phaseSets: P.psRows > 0, psRows: P.psRows,
+                localPhase: localPhase, psBlocks: psBlocks, perBlock: perBlock,
+                records: P.records, pass: P.pass, sampled: P.sampled,
+                snv: P.snv, ins: P.ins, del: P.del, multi: P.multi, tiTv: tiTv,
+                het: P.het, hom: P.hom, meanDP: meanDP, meanQ: meanQ, gtName: P.gtName || '',
+            };
+        };
+        // THE PROMPT. Shown once, when a file finishes loading, because that is the moment
+        // the answer is both known and wanted -- and because the single most consequential
+        // fact in it, whether the genotypes are phased, decides whether a whole mechanism
+        // downstream is available at all. It opens on the verdict, keeps the evidence one
+        // level in, and ends with what THIS file makes possible rather than a list of
+        // everything the application can do.
+        const vcfProfileMenu = (V) => {
+            if (!V) { graph.setMessage(' No file has been read yet. '); return; }
+            const pc = (a, b) => (b ? Math.round(100 * a / b) + '%' : '\u2014');
+            const books = [];
+            const head = V.file ? V.file : 'the file';
+            books.push({ section: 'What this file is', note: true,
+                title: head + ' is ' + V.kind + '.'
+                    + (V.caller ? ' Written by ' + V.caller + (V.platform ? ' from ' + V.platform : '') + '.' : '')
+                    + (V.nSamples ? ' Sample' + (V.nSamples === 1 ? ': ' : 's: ') + V.samples.slice(0, 6).join(', ')
+                        + (V.nSamples > 6 ? ', and ' + (V.nSamples - 6) + ' more' : '') + '.' : '') });
+            if (V.somaticSigns.length) books.push({ section: 'What this file is', note: true,
+                title: 'Somatic because ' + V.somaticSigns.join('; ') + '. A differential between the two sides is the '
+                    + 'analysis this file is for.' });
+            else if (V.nSamples === 1) books.push({ section: 'What this file is', note: true,
+                title: 'Nothing in it separates a tumor from a normal: one sample column, no somatic caller, no somatic '
+                    + 'filters. A tumor/normal differential needs a second file loaded on the other side.' });
+            books.push({ section: V.phased ? 'Phased \u2014 and what that makes possible' : 'Not phased', note: true,
+                title: V.phased
+                    ? ('Genotypes are phased: ' + V.phasedPct + '% of the heterozygous calls carry a phase separator'
+                        + (V.phaseSets ? ', in phase sets averaging ' + Math.round(V.perBlock) + ' variants each'
+                            : ', with no phase sets \u2014 statistical phasing, whole chromosomes at a time')
+                        + '. Every heterozygous site inside one phase set is on a KNOWN copy, so a disease allele in a '
+                        + 'block makes every other site in that block a discriminating base for the same chromosome.')
+                    : ('Genotypes are unphased: the two alleles at a site are known, which copy carries which is not. '
+                        + 'The phased mechanism for allele-selective design cannot run on this file \u2014 the mutation '
+                        + 'itself, and somatic retention where there is a tumor and a normal, still can.'
+                        + (V.localPhase ? ' There IS phase on ' + V.psRows.toLocaleString() + ' row'
+                            + (V.psRows === 1 ? '' : 's')
+                            + (V.perBlock ? ', in blocks averaging ' + V.perBlock.toFixed(1) + ' variants' : '')
+                            + ' \u2014 a caller phasing a few neighbouring variants off the same reads. Real, but local: '
+                            + 'it says which copy those two or three share, not which copy a gene\u2019s worth of sites '
+                            + 'is on.' : '')) });
+            if (V.phased) books.push({ section: 'Phased \u2014 and what that makes possible', accent: 'run',
+                title: 'Find allele-selective targets on the phased copy', badge: 'phased route', icon: 'gps_fixed', ready: true,
+                blurb: 'A base where the two copies differ, on the copy carrying the disease allele: an oligo built on it '
+                    + 'destroys that copy and leaves the healthy one intact.',
+                open: () => { try { alleleSelectiveMenu(); } catch (e) { } } });
+            books.push({ section: 'What is in it', note: true, mono: true, title:
+                  'records      ' + V.records.toLocaleString() + '\n'
+                + 'PASS         ' + V.pass.toLocaleString() + '  (' + pc(V.pass, V.records) + ')\n'
+                + 'SNV          ' + V.snv.toLocaleString() + '   sampled\n'
+                + 'insertions   ' + V.ins.toLocaleString() + '   sampled\n'
+                + 'deletions    ' + V.del.toLocaleString() + '   sampled\n'
+                + 'multiallelic ' + V.multi.toLocaleString() + '   sampled\n'
+                + 'Ti/Tv        ' + (V.tiTv ? V.tiTv.toFixed(2) : '\u2014') + '\n'
+                + 'het : hom    ' + V.het.toLocaleString() + ' : ' + V.hom.toLocaleString()
+                    + (V.gtName ? '   (' + V.gtName + ')' : '') + '\n'
+                + 'mean depth   ' + (V.meanDP ? V.meanDP.toFixed(1) + 'x' : '\u2014') + '\n'
+                + 'mean QUAL    ' + (V.meanQ ? V.meanQ.toFixed(1) : '\u2014') });
+            books.push({ section: 'What is in it', note: true,
+                title: 'Counts marked sampled come from every 17th row \u2014 enough to state a shape, not a total. '
+                    + 'Records, PASS and phase are counted on every row.'
+                    + (V.tiTv && V.tiTv < 1.9 && V.snv > 500 ? ' A Ti/Tv of ' + V.tiTv.toFixed(2) + ' is below the ~2.0 a '
+                        + 'human whole-genome callset usually shows, which is what a false-positive tail looks like: '
+                        + 'filter on depth and quality before treating the weakest calls as real.' : '') });
+            books.push({ section: 'Where it came from', note: true,
+                title: (V.reference ? 'Reference: ' + V.reference + '. ' : '')
+                    + V.contigs + ' contigs in the header, ' + V.build + '. '
+                    + (V.fileformat ? 'VCF ' + V.fileformat.replace(/^VCFv/, '') + '. ' : '')
+                    + (V.format.length ? 'Per-sample fields: ' + V.format.join(', ') + '. ' : '')
+                    + (V.filters.length ? 'Filters seen on the rows: ' + V.filters.slice(0, 8).join(', ') + '.' : '') });
+            (V.versions || []).forEach((c) => books.push({ section: 'Where it came from', note: true, mono: true, title: c }));
+            (V.commands || []).forEach((c, i) => books.push({ section: 'Where it came from',
+                title: 'Command ' + (i + 1), badge: 'provenance', icon: 'terminal', ready: true,
+                blurb: c.slice(0, 150) + (c.length > 150 ? '\u2026' : ''),
+                books: () => [{ note: true, mono: true, title: c.replace(/(.{58}\S*)\s/g, '$1\n') }] }));
+            books.push({ section: 'Next', title: 'Close', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'Back to the chromosomes. This stays available from Info.', open: () => { } });
+            try {
+                exec('baja/lib/shelf.js', {
+                    id: 'baja-karyo-vcfinfo', title: 'About this file',
+                    subtitle: (V.file ? V.file + '  \u00b7  ' : '') + V.kind + (V.phased ? '  \u00b7  phased' : ''),
+                    books: books, graph: graph
+                });
+            } catch (e) { graph.setMessage(' The file summary could not be opened: ' + (e && e.message ? e.message : e) + ' '); }
+        };
+        // Said once, at the end of a load: what the file turned out to be, and the panel
+        // itself when there is something in the verdict worth interrupting for.
+        const vcfProfileAfterLoad = (count, name) => {
+            try {
+                if (!count || !count.prof || !count.prof.records) return;
+                lastVcfProfile = vcfVerdict(count.prof, name);
+                const V = lastVcfProfile;
+                const notable = V.phased || V.somaticSigns.length || V.sitesOnly || V.nSamples > 1;
+                graph.setMessage(' ' + (name || 'That file') + ' \u2014 ' + V.kind + (V.phased ? ', phased' : '') + '. '
+                    + (notable ? 'Opening what was read from it\u2026' : 'See Info \u203a About this file.') + ' ');
+                if (notable) setTimeout(() => { try { vcfProfileMenu(V); } catch (e) { } }, 400);
+            } catch (e) { step('vcf profile threw: ' + e); }
+        };
         const parseLines = (lines, bufs, namesOf, count) => {
             for (let li = 0; li < lines.length; li++) {
                 const t = lines[li];
@@ -3987,8 +4297,22 @@ function (path, config) {
                     if (t.indexOf('#CHROM') === 0) {
                         const h = t.split('\t');
                         count.cols = [];
-                        for (let j = 9; j < h.length; j++) count.cols.push(sampleSlot(h[j]));
-                    }
+                        const P = profOf(count);
+                        P.samples = [];
+                        for (let j = 9; j < h.length; j++) { count.cols.push(sampleSlot(h[j])); P.samples.push(('' + h[j]).trim()); }
+                        // WHICH COLUMN THE ZYGOSITY IS READ FROM. The first, except in a
+                        // tumor/normal file, where the first is usually the normal and a
+                        // somatic caller writes 0/0 on it at every site -- so reading it
+                        // would report a file with no genotypes in it at all. The header
+                        // names the tumor; if it does, that is the column.
+                        P.gtCol = 9;
+                        try {
+                            const tn = P.meta && P.meta.tumor_sample;
+                            const at = tn ? P.samples.indexOf(('' + tn).trim()) : -1;
+                            if (at >= 0) { P.gtCol = 9 + at; P.gtName = P.samples[at]; }
+                            else P.gtName = P.samples[0] || '';
+                        } catch (e) { }
+                    } else if (t.charCodeAt(1) === 35) { try { profHeader(t, count); } catch (e) { } }
                     continue;
                 }
                 let f = t.split('\t');
@@ -4001,6 +4325,7 @@ function (path, config) {
                 if (ci == null) ci = chromIndex['chr' + f[0]];
                 if (ci == null) { count.offGenome++; continue; }
                 if (pos > drawn[ci].length) { count.offGenome++; continue; }
+                try { profRow(f, count); } catch (e) { }
                 const cl = clsOf((f.length > 7 ? f[7] : '') || '');
                 const nm = (f[2] && f[2] !== '.') ? f[2] : '';
                 const alts = f[4];
@@ -4243,7 +4568,7 @@ function (path, config) {
             const lines = ('' + text).split(/\r?\n/);
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
-            const SLICE = 20000;
+            const SLICE = 20000;   // profiled like a file load: see vcfProfileAfterLoad below
             for (let start = 0; start < lines.length; start += SLICE) {
                 parseLines(lines.slice(start, start + SLICE), bufs, namesOf, count);
                 if (start + SLICE < lines.length) {
@@ -4252,6 +4577,7 @@ function (path, config) {
                 }
             }
             finalise(bufs, namesOf, count, what || '');
+            vcfProfileAfterLoad(count, what || 'the pasted rows');
         };
 
         // A FILE, READ IN SLICES RATHER THAN SWALLOWED. A whole-genome VCF is gigabytes;
@@ -4373,6 +4699,7 @@ function (path, config) {
                     + count.added.toLocaleString() + ' variants… ');
             });
             finalise(bufs, namesOf, count, file.name);
+            vcfProfileAfterLoad(count, file.name);
             return count;
         };
 
@@ -11584,6 +11911,7 @@ function (path, config) {
             const books = [];
             const back = { section: 'Back', title: 'What is loaded', badge: 'info', icon: 'info_outline', back: true,
                 ready: true, blurb: 'The rest of what this genome is carrying.', open: () => { try { infoPanel(true); } catch (e) { } } };
+            if (which === 'vcfinfo') { try { vcfProfileMenu(lastVcfProfile); } catch (e) { } return; }
             if (which === 'variants') {
                 books.push({ section: 'Variants', note: true, title: vtotal.toLocaleString() + ' variant'
                     + (vtotal === 1 ? '' : 's') + ' on ' + vdata.filter((d) => d && d.n).length + ' chromosome(s).' });
@@ -11721,7 +12049,12 @@ function (path, config) {
                         return out.length ? esc(out.join('  ·  ')) : 'nothing loaded';
                     } catch (e) { return 'nothing loaded'; }
                 })(), 'sources'],
-                ['Genotypes', hasGt ? 'yes' : 'no'],
+                ['Genotypes', hasGt ? (lastVcfProfile && lastVcfProfile.phased ? 'yes, phased' : 'yes') : 'no'],
+                // WHAT THE FILE TURNED OUT TO BE, kept where it can be found again: the
+                // prompt at load time is a moment, and the answer is wanted later too.
+                ['About the file', lastVcfProfile
+                    ? esc(lastVcfProfile.kind + (lastVcfProfile.phased ? ', phased' : ''))
+                    : 'no VCF read this session', lastVcfProfile ? 'vcfinfo' : ''],
                 ['Color view', modeName],
                 ['Highlighting', esc(hlStr)],
                 ['Regions selected', '' + ((regions && regions.length) || 0), 'regions'],
