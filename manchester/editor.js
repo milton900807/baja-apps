@@ -3594,6 +3594,74 @@ function (path, config) {
                 // for the one editor most users actually have open.
                 try { CurrentLayout.stash('graph', graph) } catch (e) { }
 
+                // A HAND-OFF FROM THE GENOME VIEWER, IN ANOTHER TAB.
+                //
+                // The viewer opens the editor in a new tab now so the genome it built stays
+                // where it is. Two tabs share nothing except localStorage, so the transcripts
+                // and their variants come through there under a one-use key, named in the URL.
+                //
+                // Read once and deleted immediately: a reload of this tab must not load the
+                // same hand-off a second time, and the key must not sit in storage after it
+                // has been used. The query parameter goes too, for the same reason.
+                try {
+                    const __hk = ('' + (new URL(window.location.href).searchParams.get('handoff') || '')).trim();
+                    if (__hk && /^baja\.editorHandoff\./.test(__hk)) {
+                        let __raw = null;
+                        try { __raw = localStorage.getItem(__hk); } catch (e) { __raw = null; }
+                        try { localStorage.removeItem(__hk); } catch (e) { }
+                        try {
+                            const __u = new URL(window.location.href);
+                            __u.searchParams.delete('handoff');
+                            window.history.replaceState(window.history.state, '', __u.pathname + (__u.search || ''));
+                        } catch (e) { }
+                        if (__raw) {
+                            const H = JSON.parse(__raw);
+                            const __ids = (H && H.list) || [], __vars = (H && H.variants) || [];
+                            if (__ids.length) {
+                                setTimeout(async () => {
+                                    try {
+                                        graph.setMessage(' Loading ' + __ids.length + ' transcript' + (__ids.length === 1 ? '' : 's')
+                                            + ' from the genome viewer\u2026 ');
+                                        await exec('baja/data/load-transcripts-with-variants.js',
+                                            window['env']['apiUrl'], graph, genegraph_panel_layout, __ids, __vars);
+                                        // LAND ON THE CHANGE, not merely in the right gene. The
+                                        // same two steps the viewer used to take here itself: light
+                                        // the variant and frame it through the TRACK's x-scale,
+                                        // because a variant's position is a track coordinate.
+                                        const F = H.focus;
+                                        if (F && F.chr && F.pos > 0) {
+                                            await new Promise((res) => setTimeout(res, 300));
+                                            for (const t of (graph.track || [])) {
+                                                let wx = null;
+                                                try { wx = t.variantWorldX ? t.variantWorldX(F.chr, F.pos) : null; } catch (e) { wx = null; }
+                                                if (wx == null || !isFinite(wx)) continue;
+                                                let snp = null;
+                                                try { snp = (t.snpindels || []).find((s) => s && Math.abs((+s.xi) - (+F.pos)) < 2); } catch (e) { snp = null; }
+                                                try { if (snp) await exec('baja/manchester/menu/focus-mutation.js', graph, snp, 10000, { track: t }); } catch (e) { }
+                                                try {
+                                                    const half = 60 * Math.abs((t.tgraph && t.tgraph.screenWidth) ? t.tgraph.screenWidth(1) : 1);
+                                                    if (graph.zoomRect && isFinite(half) && half > 0) {
+                                                        const yA = t.tgraph.yi, yB = t.tgraph.yi + (t.tgraph.height || 0);
+                                                        const cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 0.1;
+                                                        await graph.zoomRect(wx - half, wx + half, cy + span * 3.2, cy - span * 2.0, 450);
+                                                    }
+                                                } catch (e) { }
+                                                break;
+                                            }
+                                        }
+                                        graph.setMessage(' ' + __ids.length + ' transcript' + (__ids.length === 1 ? '' : 's') + ' and '
+                                            + __vars.length.toLocaleString() + ' variant' + (__vars.length === 1 ? '' : 's') + ' loaded'
+                                            + (H.trimmed ? ' \u2014 ' + (+H.trimmed).toLocaleString() + ' more were left behind, too many to carry' : '')
+                                            + '. The genome viewer is still open in its own tab. ');
+                                    } catch (e) {
+                                        try { graph.setError(' The hand-off from the genome viewer could not be loaded: ' + (e && e.message ? e.message : e) + ' '); } catch (e2) { }
+                                    }
+                                }, 350);
+                            }
+                        }
+                    }
+                } catch (e) { }
+
                 // Tell CurrentLayout that genegraph_panel_layout MEANS "put the editor back".
                 // ~460 call sites across the library restore the editor with
                 //     clearComponent('mainPanel'); setComponent('mainPanel', genegraph_panel_layout)

@@ -14115,10 +14115,61 @@ function (path, config) {
             try { exec('manchester/editor', '', { mode: 'editor', resumeDesign: R.json, resumeName: R.name || '' }); }
             catch (e) { graph.setMessage(' The editor could not open: ' + (e && e.message ? e.message : e) + ' '); }
         };
+        // HOW BIG A HAND-OFF CAN BE. A gene's worth of variants is small; a whole region
+        // picked off a five-million-row file is not, and localStorage is a few megabytes for
+        // the entire origin. Over the limit the variants are trimmed rather than the transfer
+        // failing, and the editor is told how many were left behind.
+        const HANDOFF_MAX_CHARS = 3_500_000;
         const handToEditor = async (ids, inRange, focus) => {
             const list = (ids || []).filter(Boolean);
             if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
             step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
+            // A NEW TAB, NOT THIS ONE.
+            //
+            // The editor used to replace the genome viewer in place, which meant the view
+            // someone had built -- the file, the marks, the loss matrix, the selection, the
+            // zoom -- had to be packed up, carried across and unpacked again on the way back,
+            // and everything that machinery failed to carry was simply lost. A second tab
+            // keeps the viewer exactly where it is: it is still running, still framed where
+            // it was, and going back to it is a tab, not a restoration.
+            //
+            // The transcripts and their variants travel through localStorage because it is
+            // the one channel two tabs of the same origin share; the key is read once and
+            // deleted by the tab that opens, so a reload there cannot re-consume it.
+            //
+            // If the browser refuses the window -- a popup blocker, or an embedded webview --
+            // nothing is lost: the in-place hand-off below is exactly what it was.
+            try {
+                const payload = {
+                    v: 1, from: 'karyotype', at: Date.now(),
+                    species: (r && r.species) || 'human',
+                    list: list, focus: focus || null, variants: (inRange || []),
+                };
+                let text = JSON.stringify(payload);
+                if (text.length > HANDOFF_MAX_CHARS && payload.variants.length) {
+                    const keep = Math.max(1, Math.floor(payload.variants.length * (HANDOFF_MAX_CHARS / text.length)));
+                    payload.trimmed = payload.variants.length - keep;
+                    payload.variants = payload.variants.slice(0, keep);
+                    text = JSON.stringify(payload);
+                }
+                const key = 'baja.editorHandoff.' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                let stored = false;
+                try { localStorage.setItem(key, text); stored = true; } catch (e) { stored = false; }
+                if (stored) {
+                    let win = null;
+                    try { win = window.open(window.location.origin + '/app/manchester/editor?handoff=' + encodeURIComponent(key), '_blank'); } catch (e) { win = null; }
+                    if (win) {
+                        graph.setMessage(' Opening ' + list.length + ' transcript' + (list.length === 1 ? '' : 's')
+                            + ' with ' + payload.variants.length.toLocaleString() + ' variant' + (payload.variants.length === 1 ? '' : 's')
+                            + ' in the oligo editor, in a new tab. This genome stays as it is. '
+                            + (payload.trimmed ? payload.trimmed.toLocaleString() + ' variants were left behind: too many to carry. ' : ''));
+                        step('handed off to a new tab: ' + key);
+                        return true;
+                    }
+                    try { localStorage.removeItem(key); } catch (e) { }
+                    step('the browser refused a new tab; opening in place');
+                }
+            } catch (e) { step('new-tab hand-off threw: ' + e); }
             graph.setMessage(' Opening the editor… ');
             keepForReturn();
             // A FRESH hand-off supersedes any design kept from an earlier round trip: the
