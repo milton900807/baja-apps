@@ -10030,16 +10030,34 @@ function (path, config) {
                     : 'Filtered, shallow and low-quality calls are admitted too. ') + CONF_RULES + (lossConfOnly ? ' Click to admit every call.' : ' Click to rely on high-confidence calls only.'),
                 open: () => { lossConfOnly = !lossConfOnly; graph.setMessage(lossConfOnly ? ' The loss matrix will rely on high-confidence calls only; recalculate to apply. ' : ' The loss matrix will admit every call; recalculate to apply. '); analysisMenu(); } });
             {
+                // BOTH OF THESE COMPARE TWO THINGS, and one genome is not two.
+                //
+                // A single-sample file -- which is what a germline callset IS -- has nothing
+                // to compare against, so these two cards sat greyed out in the middle of the
+                // workflow with a note saying what was missing. A card that cannot be pressed
+                // explains a dead end; the card that loads the second file is the way out of
+                // it, so that is what is offered instead, under the same heading and in the
+                // same place. When a pair IS loaded, both revert to the analysis itself.
                 const specs = diffSpecs();
-                books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'run', badge: 'step 2 \u00b7 ' + (specs.length ? (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : 'two files'), icon: 'compare',
+                if (specs.length) books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'run', badge: 'step 2 \u00b7 ' + (specs.some((x) => x.kind === 'side') ? 'two files' : 'two samples'), icon: 'compare',
                     blurb: 'Two files (one loaded on the left of the chromosomes) or two samples: which genes one has lost that the other has not, and which both have.',
-                    ready: specs.length > 0, readyNote: 'load a second VCF on the left, or one with two samples', books: () => diffPickerBooks() });
+                    ready: true, books: () => diffPickerBooks() });
+                else books.push({ section: 'Find the losses', title: 'Differential loss matrix', accent: 'choose', badge: 'step 2 \u00b7 needs a second genome', icon: 'compare',
+                    blurb: 'Compares two genomes and says which genes one has lost that the other has not. One genome is loaded, so the second is what it is waiting for \u2014 open Upload and put it on the left of the chromosomes.',
+                    ready: true, open: () => uploadMenu() });
                 if (diffResult) books.push({ section: 'Find the losses', title: 'Show the differential', badge: diffResult.onlyA.length + ' · ' + diffResult.onlyB.length + ' · ' + diffResult.both.length, icon: 'list',
                     blurb: diffResult.A.label + ' vs ' + diffResult.B.label + ': only A · only B · both.', ready: true, open: () => diffMenu() });
                 const lspecs = lohSpecs();
-                books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'run', badge: 'step 2 \u00b7 ' + (lspecs.length ? (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : 'two files'), icon: 'compress',
+                if (lspecs.length) books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'run', badge: 'step 2 \u00b7 ' + (lspecs.some((x) => x.kind === 'side') ? 'two files' : 'two samples'), icon: 'compress',
                     blurb: 'Sites the normal carries on one copy and the tumor carries on all of them. Marks them and bands the tracts, which is what a long homozygous stretch on the genome actually is.',
-                    ready: lspecs.length > 0, readyNote: 'load a second VCF on the left, or one whose samples both carry calls', books: () => lohPickerBooks() });
+                    ready: true, books: () => lohPickerBooks() });
+                else books.push({ section: 'Find the losses', title: 'Loss of heterozygosity', accent: 'choose', badge: 'step 2 \u00b7 needs a tumor and its normal', icon: 'compress',
+                    blurb: 'Reads a normal\u2019s heterozygous sites and asks which of them the tumor carries on one copy only \u2014 so it is a question about a PAIR. '
+                        + (lastVcfProfile && lastVcfProfile.nSamples === 1
+                            ? 'What is loaded is one person\u2019s genome; the tumor called against it is the other half. '
+                            : '')
+                        + 'Open Upload and put the second file on the left of the chromosomes.',
+                    ready: true, open: () => uploadMenu() });
                 if (lohResult) books.push({ section: 'Find the losses', title: 'Show the LOH result', badge: Math.round(100 * (lohResult.het ? lohResult.loh / lohResult.het : 0)) + '% of sites', icon: 'list',
                     blurb: lohResult.spec.labelN + ' → ' + lohResult.spec.labelT + ', by chromosome.', ready: true, open: () => lohMenu() });
             }
