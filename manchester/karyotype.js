@@ -10819,6 +10819,33 @@ function (path, config) {
                         try { analysisMenu(); } catch (e) { }
                     } });
             }
+            // THE LIST EVERYTHING ELSE READS, AT THE TOP LEVEL.
+            //
+            // Finding the genes this genome carries a damaging change in is not a step of
+            // synthetic lethality, which is where it could only be reached from: it is the
+            // first fact about a loaded file, and the compound-heterozygote check, the
+            // allele-selective routes and the third-gene model all read it. Somebody who
+            // wants to know what is broken in this genome should not have to walk into a
+            // workflow about cell-line dependencies to ask.
+            {
+                const nVd = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+                if (lossMatrix) {
+                    const gsN = (lossMatrix.genes || []).length;
+                    books.push({ section: 'This genome', title: 'Damaging variants', badge: gsN + ' gene' + (gsN === 1 ? '' : 's'),
+                        icon: 'biotech', accent: 'run', ready: true,
+                        blurb: lossMatrix.sample + ' \u2014 every gene with a loss-of-function change, tumor suppressors first, '
+                            + 'with its zygosity, the filters and the download. This is the list the analyses below read.',
+                        open: () => lossMatrixMenu() });
+                } else {
+                    books.push(Object.assign(lossCalcCard('This genome'), {
+                        title: 'Find the damaging variants',
+                        badge: nVd ? (SAMPLES.length > 1 ? SAMPLES.length + ' samples' : (SAMPLES[0] || 'all variants')) : 'load a VCF',
+                        blurb: 'Reads every exonic variant on this genome and lists the genes carrying a loss-of-function change '
+                            + '\u2014 the list the compound-heterozygote check, the allele-selective routes and the third-gene '
+                            + 'model all reason from. About a minute on a whole genome.',
+                    }));
+                }
+            }
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
                 ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
