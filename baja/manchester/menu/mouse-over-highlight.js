@@ -5148,7 +5148,13 @@ function (graph, genegraph_panel_layout) {
                     const __prev = Array.isArray(graph.__lassoSelection) ? graph.__lassoSelection.filter((e) => e && e.kind !== 'snp') : [];
                     __prev.push({
                         kind: 'snp',
-                        label: '' + (clickSnp.name || clickSnp.id || ('snp@' + clickSnp.xi)) + (clickSnp.clinsig ? ' · ' + clickSnp.clinsig : ''),
+                        // The same label the lasso builds -- the change, what kind of change
+                        // it is, and its clinical call -- rather than the raw id. A clicked
+                        // variant and a lassoed one are the same object and should not read
+                        // differently in the same list.
+                        label: (typeof graph.snpSelLabel === 'function')
+                            ? graph.snpSelLabel(clickSnp)
+                            : ('' + (clickSnp.name || clickSnp.id || ('snp@' + clickSnp.xi)) + (clickSnp.clinsig ? ' · ' + clickSnp.clinsig : '')),
                         track: clickTrack, chr: clickTrack.chr, xi: clickSnp.xi, xf: (clickSnp.xf != null ? clickSnp.xf : clickSnp.xi),
                         ref: clickSnp, clinsig: clickSnp.clinsig
                     });
@@ -5170,8 +5176,34 @@ function (graph, genegraph_panel_layout) {
                         // Preserve the highlighted SEQUENCE selection (markstart/markend) across the
                         // deselect — a plain click on a track must NOT drop the selection the user made.
                         const __savedMarks = (graph.track || []).map((t) => ({ t: t, ms: t.markstart, me: t.markend }));
+                        // AND THE VARIANT THIS VERY PRESS JUST SELECTED.
+                        //
+                        // A lollipop sits over a track row, so a press that lands on one lands
+                        // on the track too, and this branch runs immediately after the SNP
+                        // branch above. deselectAllTracks() drops every kind:'snp' entry from
+                        // the selection window and calls deselect() on every variant -- so a
+                        // clicked variant was selected and then unselected inside one press,
+                        // and never appeared in the Selection library at all. It is saved and
+                        // put back, the same way the sequence marks are on the line above.
+                        const __savedSnpSel = Array.isArray(graph.__lassoSelection)
+                            ? graph.__lassoSelection.filter((e) => e && e.kind === 'snp') : [];
+                        const __savedSnpActive = graph.__snpSelectionActive;
                         graph.deselectAllTracks();
                         for (const m of __savedMarks) { try { m.t.markstart = m.ms; m.t.markend = m.me; } catch (e) { } }
+                        if (__savedSnpSel.length) {
+                            try {
+                                const __cur = Array.isArray(graph.__lassoSelection) ? graph.__lassoSelection : [];
+                                graph.__lassoSelection = __cur.concat(
+                                    __savedSnpSel.filter((e) => !__cur.some((x) => x && x.ref === e.ref)));
+                            } catch (e) { }
+                            graph.__snpSelectionActive = __savedSnpActive;
+                            // The variant's own state goes back too: the per-frame redraw reads
+                            // the object, not the list.
+                            for (const e of __savedSnpSel) {
+                                try { if (e.ref) { e.ref.highlight = true; if (e.ref.select) e.ref.select(); } } catch (er) { }
+                            }
+                            try { graph.showDisplay = true; } catch (e) { }
+                        }
                     }
                     selectedTrack.select();
 
