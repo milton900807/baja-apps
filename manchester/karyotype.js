@@ -2795,6 +2795,7 @@ function (path, config) {
             // germline -- and which of them carries a change is the first thing to see.
             gts: null,               // Uint8Array(n * gtw): GT_* codes
             baf: null,               // Uint8Array(n * gtw): 1 + round(B-allele fraction * 200), 0 unknown
+            ps: null,                // Uint32Array(n * gtw): the PS phase set, 0 where unphased
             gtw: 0,                  // samples known when this chromosome was last built
             // WHICH SIDE OF THE BAR each mark is drawn on: 0 the right, where everything
             // has always gone, 1 the left. Chosen when the file is loaded, so a second set
@@ -3812,7 +3813,7 @@ function (path, config) {
             let ix = __fmtCache.get(fmt);
             if (ix) return ix;
             const keys = ('' + (fmt || '')).split(':');
-            ix = { dp: keys.indexOf('DP'), ad: keys.indexOf('AD'), gq: keys.indexOf('GQ') };
+            ix = { dp: keys.indexOf('DP'), ad: keys.indexOf('AD'), gq: keys.indexOf('GQ'), ps: keys.indexOf('PS') };
             __fmtCache.set(fmt, ix);
             return ix;
         };
@@ -3829,6 +3830,25 @@ function (path, config) {
             return t;
         };
         const confOf = (d, k, si) => ((d.conf && si >= 0 && si < d.gtw) ? d.conf[k * d.gtw + si] : (d.rconf ? d.rconf[k] : CONF_NONE));
+        // THE PHASE SET, KEPT BESIDE THE GENOTYPE.
+        //
+        // A phased genotype says which of the two copies carries the alt -- 1|0 or 0|1 --
+        // and that is only meaningful WITHIN one phase set. Two variants both written 1|0
+        // in different sets are not on the same copy; nothing relates the two sets to each
+        // other. Without this lane the application could tell that a gene carried one hit
+        // on each haplotype and could NOT tell whether that meant anything, which is the
+        // difference between a compound heterozygote and two hits on the same chromosome.
+        //
+        // A Uint32 per sample per variant, and only when the file has PS at all: an
+        // unphased VCF allocates nothing.
+        const psOf = (d, k, si) => ((d.ps && si >= 0 && si < d.gtw) ? d.ps[k * d.gtw + si] : 0);
+        const psCode = (cell, ix) => {
+            if (!cell || ix.ps < 0) return 0;
+            const parts = cell.split(':');
+            if (ix.ps >= parts.length) return 0;
+            const v = +parts[ix.ps];
+            return (isFinite(v) && v > 0 && v < 4294967295) ? (v >>> 0) : 0;
+        };
         // THE B-ALLELE FRACTION, kept per sample beside the genotype. A caller's GT is a
         // decision it made once, and on a tumor it is often the wrong one: bcftools leaves
         // thousands of sites at 0/1 where its own AD says the alternate allele is carried by
@@ -3864,11 +3884,12 @@ function (path, config) {
             gts: new Uint8Array(1024 * GT_MAX),   // GT_MAX wide while reading; packed in finalise
             conf: new Uint8Array(1024 * GT_MAX),  // the confidence lane, same shape as gts
             baf: new Uint8Array(1024 * GT_MAX),   // the allele-fraction lane, same shape again
+            ps: new Uint32Array(1024 * GT_MAX),   // the phase-set lane: 0 where the file gives none
             rconf: new Uint8Array(1024),
             side: new Uint8Array(1024),
             cplx: new Map(), n: 0,
         }));
-        const pushInto = (bufs, ci, p2, cl, rs, as, gt, cf, rq, bf) => {
+        const pushInto = (bufs, ci, p2, cl, rs, as, gt, cf, rq, bf, psv) => {
             const b = bufs[ci];
             if (b.n === b.pos.length) {
                 // Doubled rather than pushed: this is the whole reason a genome-sized file
@@ -3880,6 +3901,7 @@ function (path, config) {
                 const ng = new Uint8Array(b.n * 2 * GT_MAX); ng.set(b.gts); b.gts = ng;
                 const nq = new Uint8Array(b.n * 2 * GT_MAX); nq.set(b.conf); b.conf = nq;
                 const nbf = new Uint8Array(b.n * 2 * GT_MAX); nbf.set(b.baf); b.baf = nbf;
+                const nps = new Uint32Array(b.n * 2 * GT_MAX); nps.set(b.ps); b.ps = nps;
                 const nrq = new Uint8Array(b.n * 2); nrq.set(b.rconf); b.rconf = nrq;
                 const ns = new Uint8Array(b.n * 2); ns.set(b.side); b.side = ns;
             }
@@ -3891,6 +3913,7 @@ function (path, config) {
             if (gt) b.gts.set(gt, b.n * GT_MAX);
             if (cf) b.conf.set(cf, b.n * GT_MAX);
             if (bf) b.baf.set(bf, b.n * GT_MAX);
+            if (psv) b.ps.set(psv, b.n * GT_MAX);
             b.n++;
         };
         // The genotype bytes for one row, for one alt index: null when the row has no
@@ -3944,13 +3967,14 @@ function (path, config) {
         const gtRow = new Uint8Array(GT_MAX);
         const cfRow = new Uint8Array(GT_MAX);
         const bfRow = new Uint8Array(GT_MAX);
+        const psRow = new Uint32Array(GT_MAX);
         const genotypesOfRow = (f, count, altIdx) => {
             if (f.length < 10) return null;
             if (!count.cols) {
                 count.cols = [];
                 for (let j = 9; j < f.length && j < 9 + GT_MAX; j++) count.cols.push(sampleSlot('sample ' + (j - 8)));
             }
-            gtRow.fill(0); cfRow.fill(0); bfRow.fill(0);
+            gtRow.fill(0); cfRow.fill(0); bfRow.fill(0); psRow.fill(0);
             const rowT = rowTierOf(f);
             const ix = fmtIndex(f[8]);
             let any = false, carriers = 0, known = 0, phased = false;
@@ -3963,6 +3987,7 @@ function (path, config) {
                 gtRow[si] = code;
                 cfRow[si] = code ? sampleTierOf(cell, ix, altIdx, rowT) : 0;
                 bfRow[si] = code ? bafCode(cell, ix, altIdx) : 0;
+                if (code) { const psv = psCode(cell, ix); psRow[si] = psv; if (psv) count.anyPS = true; }
                 if (code) { any = true; known++; }
                 if (code >= GT_HET) carriers++;
                 if (code === GT_HAP1 || code === GT_HAP2 || code === GT_HOMP) phased = true;
@@ -4239,6 +4264,13 @@ function (path, config) {
                             + 'it says which copy those two or three share, not which copy a gene\u2019s worth of sites '
                             + 'is on.' : '')) });
             if (V.phased) books.push({ section: 'Phased \u2014 and what that makes possible', accent: 'run',
+                title: lossMatrix ? 'Check compound heterozygotes' : 'Find the damaging variants, then check cis or trans',
+                badge: 'cis or trans', icon: 'call_split', ready: true,
+                blurb: 'Two damaging hits in one gene mean a broken gene when they are on opposite copies and an intact one when '
+                    + 'they share a copy. Phase is the only thing that separates the two without sequencing a parent.'
+                    + (lossMatrix ? '' : ' The loss matrix finds the hits first.'),
+                open: () => { try { if (lossMatrix) compoundHetMenu(); else analysisMenu(); } catch (e) { } } });
+            if (V.phased) books.push({ section: 'Phased \u2014 and what that makes possible', accent: 'run',
                 title: 'Find allele-selective targets on the phased copy', badge: 'phased route', icon: 'gps_fixed', ready: true,
                 blurb: 'A base where the two copies differ, on the copy carrying the disease allele: an oligo built on it '
                     + 'destroys that copy and leaves the healthy one intact.',
@@ -4344,7 +4376,7 @@ function (path, config) {
                         const gt = genotypesOfRow(f, count, 1);
                         if (dedupeWanted(count) && alreadyDrawn(ci, pos, refU, aU, gt, count.cols || [])) { count.dup = (count.dup || 0) + 1; continue; }
                         if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                        pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++;
+                        pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null, gt ? psRow : null); count.added++;
                     }
                 } else {
                     const each = alts.split(',');
@@ -4356,7 +4388,7 @@ function (path, config) {
                             const gt = genotypesOfRow(f, count, ai + 1);
                             if (dedupeWanted(count) && alreadyDrawn(ci, pos, refU, aU, gt, count.cols || [])) { count.dup = (count.dup || 0) + 1; continue; }
                             if (vtotal + count.added < OBJECT_CAP) namesOf[ci].push(nm);
-                            pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null); count.added++;
+                            pushInto(bufs, ci, pos, cl, refU, aU, gt, gt ? cfRow : null, rowTierOf(f), gt ? bfRow : null, gt ? psRow : null); count.added++;
                         }
                     }
                 }
@@ -4378,6 +4410,10 @@ function (path, config) {
                 const gts = W ? new Uint8Array(total * W) : null;
                 const cfs = W ? new Uint8Array(total * W) : null;
                 const bfs = W ? new Uint8Array(total * W) : null;
+                // Only a file that actually carries PS pays for the lane -- either this
+                // load brought phase sets, or rows already here have them.
+                const keepPS = !!(W && (count.anyPS || d.ps));
+                const pss = keepPS ? new Uint32Array(total * W) : null;
                 const rq = new Uint8Array(total);
                 if (d.n) {
                     pos.set(d.pos.subarray(0, d.n)); cls.set(d.cls.subarray(0, d.n));
@@ -4388,6 +4424,7 @@ function (path, config) {
                     if (gts && d.gts) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) gts[k * W + si] = d.gts[k * d.gtw + si];
                     if (cfs && d.conf) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) cfs[k * W + si] = d.conf[k * d.gtw + si];
                     if (bfs && d.baf) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) bfs[k * W + si] = d.baf[k * d.gtw + si];
+                    if (pss && d.ps) for (let k = 0; k < d.n; k++) for (let si = 0; si < d.gtw && si < W; si++) pss[k * W + si] = d.ps[k * d.gtw + si];
                 }
                 pos.set(b.pos.subarray(0, b.n), d.n);
                 cls.set(b.cls.subarray(0, b.n), d.n);
@@ -4399,6 +4436,7 @@ function (path, config) {
                 if (gts) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) gts[(d.n + k) * W + si] = b.gts[k * GT_MAX + si];
                 if (cfs) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) cfs[(d.n + k) * W + si] = b.conf[k * GT_MAX + si];
                 if (bfs) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) bfs[(d.n + k) * W + si] = b.baf[k * GT_MAX + si];
+                if (pss) for (let k = 0; k < b.n; k++) for (let si = 0; si < W; si++) pss[(d.n + k) * W + si] = b.ps[k * GT_MAX + si];
                 // Sorted once, by ordering an index: every draw binary-searches this.
                 const order = new Uint32Array(total);
                 for (let k = 0; k < total; k++) order[k] = k;
@@ -4409,6 +4447,7 @@ function (path, config) {
                 const sg = gts ? new Uint8Array(total * W) : null;
                 const sq = cfs ? new Uint8Array(total * W) : null;
                 const sbf = bfs ? new Uint8Array(total * W) : null;
+                const sps = pss ? new Uint32Array(total * W) : null;
                 const srq = new Uint8Array(total);
                 const scx = new Map();
                 const sn = [];
@@ -4419,12 +4458,13 @@ function (path, config) {
                     if (sg) for (let si = 0; si < W; si++) sg[k * W + si] = gts[o * W + si];
                     if (sq) for (let si = 0; si < W; si++) sq[k * W + si] = cfs[o * W + si];
                     if (sbf) for (let si = 0; si < W; si++) sbf[k * W + si] = bfs[o * W + si];
+                    if (sps) for (let si = 0; si < W; si++) sps[k * W + si] = pss[o * W + si];
                     if (cx.has(o)) scx.set(k, cx.get(o));
                     if (total <= OBJECT_CAP) sn[k] = (o < d.n) ? (oldNames[o] || '') : (newNames[o - d.n] || '');
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.cplx = scx; d.side = ss;
                 d.gts = sg; d.gtw = sg ? W : 0;
-                d.conf = sq; d.rconf = srq; d.baf = sbf;
+                d.conf = sq; d.rconf = srq; d.baf = sbf; d.ps = sps;
                 d.n = total; d.snps = []; d.names = sn;
                 d.__len = drawn[ci].length; d.histBy = null;
                 // Highlights are derived, not loaded: a fresh set of zeros whenever the
@@ -5908,6 +5948,7 @@ function (path, config) {
                 const sg = (gw && d.gts) ? new Uint8Array(total * gw) : null;
                 const sq = (gw && d.conf) ? new Uint8Array(total * gw) : null;
                 const sbf = (gw && d.baf) ? new Uint8Array(total * gw) : null;
+                const sps = (gw && d.ps) ? new Uint32Array(total * gw) : null;
                 const srq = new Uint8Array(total);
                 const hadNames = d.names && d.names.length;
                 for (let j = 0; j < total; j++) {
@@ -5918,12 +5959,13 @@ function (path, config) {
                     if (sg) for (let si = 0; si < gw; si++) sg[j * gw + si] = d.gts[k * gw + si];
                     if (sq) for (let si = 0; si < gw; si++) sq[j * gw + si] = d.conf[k * gw + si];
                     if (sbf) for (let si = 0; si < gw; si++) sbf[j * gw + si] = d.baf[k * gw + si];
+                    if (sps) for (let si = 0; si < gw; si++) sps[j * gw + si] = d.ps[k * gw + si];
                     if (d.hl) sh[j] = d.hl[k];
                     if (d.cplx && d.cplx.has(k)) scx.set(j, d.cplx.get(k));
                     if (hadNames) sn[j] = d.names[k] || '';
                 }
                 d.pos = sp; d.cls = sc; d.ref = sr; d.alt = sa; d.hl = sh; d.side = ss;
-                if (sg) d.gts = sg; d.conf = sq; d.rconf = srq; d.baf = sbf;
+                if (sg) d.gts = sg; d.conf = sq; d.rconf = srq; d.baf = sbf; d.ps = sps;
                 d.cplx = scx; d.names = sn; d.snps = []; d.n = total; d.histBy = null;
                 const hist = new Uint32Array(HIST_BINS);
                 const histL = new Uint32Array(HIST_BINS);
@@ -6365,6 +6407,47 @@ function (path, config) {
         const clearLossFilters = () => { for (const grp of FILTER_GROUPS) lossFilters[grp.key].clear(); };
         const filtersSummary = () => FILTER_GROUPS.map((grp) => lossFilters[grp.key].size ? grp.title + ': ' + Array.from(lossFilters[grp.key]).map((o) => (grp.options.find((x) => x[0] === o) || [o, o])[1]).join(' or ') : '').filter(Boolean).join('; ');
         const originWord = (o) => (o === 'shared' ? 'shared by all samples (germline if one is a normal)' : (o === 'somatic' ? 'somatic (this sample only)' : (o === 'mixed' ? 'somatic and shared hits' : '')));
+        // TWO HITS IN ONE GENE: SAME COPY, OR ONE EACH?
+        //
+        // The question a phased germline file exists to answer, and the one that decides
+        // whether a recessive disease is diagnosed or a carrier is reassured. Both hits on
+        // one copy (CIS) leaves an intact gene; one on each (TRANS) leaves none, which for
+        // a recessive condition is the disease itself.
+        //
+        // Three things have to line up before an answer is possible, and each of them is
+        // reported when it does not:
+        //   both calls heterozygous  -- a homozygous hit answers on its own
+        //   both phased              -- 1|0, not 0/1
+        //   the SAME phase set       -- orientation means nothing across two of them
+        //
+        // Everything else is honestly 'not determined here', which is a useful answer: it
+        // says the file cannot settle it, and parental sequencing or longer reads can.
+        const phaseVerdict = (vars) => {
+            // Compared by CODE, not by the text the code prints as: '1|0' and '0|1' differ
+            // by one character and mean opposite copies.
+            const hits = (vars || []).filter((v) => v && v.gtc);
+            const homs = hits.filter((v) => v.gtc === GT_HOM || v.gtc === GT_HOMP);
+            if (homs.length) return { verdict: 'homozygous', why: 'a homozygous hit: both copies carry it', pairs: [], n: hits.length };
+            const hets = hits.filter((v) => v.gtc === GT_HET || v.gtc === GT_HAP1 || v.gtc === GT_HAP2);
+            if (hets.length < 2) return { verdict: 'single', why: hets.length ? 'one heterozygous hit' : 'nothing to pair', pairs: [], n: hets.length };
+            const phased = hets.filter((v) => (v.gtc === GT_HAP1 || v.gtc === GT_HAP2) && v.ps);
+            const pairs = [];
+            let trans = 0, cis = 0;
+            for (let a = 0; a < phased.length; a++) for (let b = a + 1; b < phased.length; b++) {
+                const A = phased[a], B = phased[b];
+                if (A.ps !== B.ps) continue;                       // different blocks say nothing
+                const opposite = A.gtc !== B.gtc;
+                pairs.push({ a: A, b: B, rel: opposite ? 'trans' : 'cis', ps: A.ps });
+                if (opposite) trans++; else cis++;
+            }
+            if (trans) return { verdict: 'trans', why: 'two hits in the same phase set, one on each copy', pairs: pairs, n: hets.length };
+            if (cis) return { verdict: 'cis', why: 'the hits that can be compared are on the same copy', pairs: pairs, n: hets.length };
+            const unphased = hets.length - phased.length;
+            return { verdict: 'unknown', pairs: pairs, n: hets.length,
+                why: unphased
+                    ? (unphased + ' of ' + hets.length + ' hits ' + (unphased === 1 ? 'is' : 'are') + ' unphased')
+                    : 'the hits are in different phase sets, which cannot be compared with each other' };
+        };
         const annotateLossZygosity = (genes, si, hap) => {
             const hemi = hemizygousChroms(si);
             const nS = Math.min(SAMPLES.length, GT_MAX);
@@ -6378,6 +6461,10 @@ function (path, config) {
                     const gt = (k >= 0 && si >= 0 && d.gtw > si) ? gtOf(d, k, si) : 0;
                     const m = (k >= 0 && d.gtw) ? carriersOf(d, k) : 0;
                     v.gt = gt ? (GT_TEXT[gt] || '') : '';
+                    v.gtc = gt;
+                    // The phase set this call sits in, so two hits can be asked whether
+                    // they are even comparable before they are compared.
+                    v.ps = (k >= 0 && si >= 0) ? psOf(d, k, si) : 0;
                     if (gt === GT_HOM || gt === GT_HOMP) hom++;
                     else if (gt === GT_HAP1) hap1++;
                     else if (gt === GT_HAP2) hap2++;
@@ -6391,6 +6478,16 @@ function (path, config) {
                         else { v.origin = 'shared'; part++; }
                     }
                 }
+                // CIS OR TRANS, AND ONLY WHERE THE FILE CAN SAY.
+                //
+                // Two hits written 1|0 and 0|1 are on opposite copies ONLY if they sit in
+                // the same phase set: nothing relates one set to another, so the same two
+                // genotypes in different sets say nothing at all about which copy each is
+                // on. This used to read the orientation and stop there, which called a
+                // gene a compound heterozygote on evidence that did not exist -- and that
+                // is a diagnosis, not a detail.
+                const cisTrans = phaseVerdict(g.variants || []);
+                g.phase = cisTrans;
                 let z = 'unknown';
                 const onHemi = !!(hemi[g.chr] || hemi['chr' + ('' + g.chr).replace(/^chr/, '')]);
                 if (known) {
@@ -6398,14 +6495,137 @@ function (path, config) {
                     if (onHemi) z = 'hemizygous';                  // one copy of this chromosome: one hit is all of it
                     else if (hom) z = 'biallelic';
                     else if (hap) z = 'on ' + hapWord(hap);        // a one-copy matrix: this copy's hits
-                    else if (hap1 && hap2) z = 'compound het';
-                    else if (hits >= 2 && het) z = 'possibly biallelic';
-                    else z = 'monoallelic';                       // one hit, or two in cis
+                    else if (cisTrans.verdict === 'trans') z = 'compound het';
+                    else if (cisTrans.verdict === 'cis') z = 'monoallelic';        // both hits on one copy
+                    else if (hits >= 2 && (het || (hap1 && hap2))) z = 'possibly biallelic';
+                    else z = 'monoallelic';                       // one hit
                 }
                 g.hemizygous = onHemi ? 1 : 0;
                 g.zygosity = z;
                 g.origin = (nS > 1) ? ((priv && !shared && !part) ? 'somatic' : ((shared || part) && !priv ? 'shared' : (priv ? 'mixed' : ''))) : '';
             }
+        };
+        // ---- THE COMPOUND-HETEROZYGOTE CHECK ------------------------------------------
+        //
+        // Every gene the loss matrix found more than one hit in, sorted by what the phase
+        // can actually settle. The order is the order a reader cares about: the genes with
+        // no working copy left first, then the ones that keep one, then the ones this file
+        // cannot decide.
+        const chGroups = () => {
+            const gs = ((lossMatrix && lossMatrix.genes) || []).filter((g) => (g.variants || []).filter((v) => v.gtc).length >= 1);
+            const G = { trans: [], homozygous: [], cis: [], unknown: [], single: [] };
+            gs.forEach((g) => {
+                const p = g.phase || phaseVerdict(g.variants || []);
+                (G[p.verdict] || G.unknown).push(g);
+            });
+            return G;
+        };
+        const chCSV = () => {
+            const rows = [];
+            const G = chGroups();
+            ['trans', 'homozygous', 'cis', 'unknown', 'single'].forEach((kind) => {
+                (G[kind] || []).forEach((g) => {
+                    const p = g.phase || phaseVerdict(g.variants || []);
+                    (g.variants || []).forEach((v) => {
+                        rows.push({
+                            gene: g.gene, verdict: kind, both_copies_hit: (kind === 'trans' || kind === 'homozygous') ? 'yes' : (kind === 'cis' ? 'no' : 'undetermined'),
+                            reason: p.why, chrom: g.chr, pos: v.pos, ref: v.ref, alt: v.alt,
+                            consequence: v.effect || '', hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '',
+                            genotype: v.gt || '', phase_set: v.ps || '', tumor_suppressor: g.tsg ? 'yes' : 'no',
+                        });
+                    });
+                });
+            });
+            return dlToCSV(rows);
+        };
+        const compoundHetMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!lossMatrix) { graph.setMessage(' Calculate the loss matrix first: it is what finds the damaging variants. '); analysisMenu(); return; }
+            const G = chGroups();
+            const who = lossMatrix.sample || 'this genome';
+            const books = [];
+            const nPairable = G.trans.length + G.cis.length + G.unknown.length;
+            books.push({ section: 'Two hits in one gene', note: true,
+                title: 'A recessive condition needs BOTH copies of a gene broken. Two heterozygous hits do that only when '
+                    + 'they sit on opposite copies \u2014 in trans. On the same copy, in cis, one intact copy remains and '
+                    + 'the person is a carrier. This reads ' + who + '\u2019s phase to say which, gene by gene.' });
+            books.push({ section: 'Two hits in one gene', note: true, mono: true, title:
+                  'gene with 2+ damaging hits\n'
+                + '        |\n'
+                + '        +-- one is homozygous  -> both copies, no phase needed\n'
+                + '        |\n'
+                + '        +-- both heterozygous\n'
+                + '                 |\n'
+                + '                 +-- same phase set, opposite copies  -> TRANS\n'
+                + '                 +-- same phase set, same copy        -> CIS\n'
+                + '                 +-- different sets, or unphased      -> not settled' });
+            const geneCard = (g, kind) => {
+                const p = g.phase || phaseVerdict(g.variants || []);
+                const hits = (g.variants || []).filter((v) => v.gtc);
+                const sw = kind === 'trans' ? '#dc2626' : (kind === 'homozygous' ? '#b91c1c' : (kind === 'cis' ? '#16a34a' : '#94a3b8'));
+                return {
+                    section: ({ trans: 'Both copies hit \u2014 in trans', homozygous: 'Both copies hit \u2014 homozygous',
+                        cis: 'One copy intact \u2014 in cis', unknown: 'Not settled by this file', single: 'One hit only' })[kind],
+                    title: g.gene, badge: hits.length + ' hit' + (hits.length === 1 ? '' : 's'), swatch: sw, ready: true,
+                    blurb: p.why + '. ' + g.chr + (g.tsg ? ' \u00b7 tumor suppressor' : '')
+                        + '. ' + hits.map((v) => (v.hgvs_p || v.hgvs_c || (v.ref + '>' + v.alt)) + ' ' + (v.gt || '')).slice(0, 4).join('  \u00b7  '),
+                    books: () => {
+                        const sub = [];
+                        sub.push({ note: true, title: ({
+                            trans: 'One hit on each copy, both inside phase set ' + ((p.pairs[0] && p.pairs[0].ps) || '') + '. No intact copy of '
+                                + g.gene + ' remains. For a recessive condition this is the genotype that causes it, and it is the evidence '
+                                + 'ACMG calls PM3 when the other variant is already known to be pathogenic.',
+                            homozygous: 'The same change on both copies. No phase is needed to say so, and none was used.',
+                            cis: 'Both hits are on the SAME copy, so the other copy of ' + g.gene + ' is intact. For a recessive condition '
+                                + 'this is a carrier rather than a patient \u2014 the observation ACMG calls BP2.',
+                            unknown: 'This file cannot place the hits relative to each other. Phase is only comparable inside one phase set, '
+                                + 'and these are not in one. Sequencing a parent, or longer reads across the gene, settles it.',
+                            single: 'One damaging hit. A second one, or a deletion of the other copy, would be needed for a recessive condition.',
+                        })[kind] });
+                        hits.forEach((v) => sub.push({ note: true, mono: true, title:
+                              (v.hgvs_p || v.hgvs_c || (v.ref + ' > ' + v.alt)) + '\n'
+                            + '  at        ' + g.chr + ':' + human(v.pos) + '\n'
+                            + '  genotype  ' + (v.gt || 'not called') + '\n'
+                            + '  phase set ' + (v.ps || 'none') + '\n'
+                            + '  effect    ' + (v.effect || 'not stated') }));
+                        sub.push({ title: 'Zoom into ' + g.gene, badge: 'view', icon: 'zoom_in', ready: true,
+                            blurb: 'Find it on the genome.', open: () => gotoLostGene(g) });
+                        sub.push({ title: 'Open in the oligo editor', badge: 'transcripts', icon: 'edit', accent: 'design', ready: true,
+                            blurb: 'Load ' + g.gene + ' with its variants.', open: () => openSymbolInEditor(g.gene) });
+                        return sub;
+                    }
+                };
+            };
+            const section = (kind, note) => {
+                const list = G[kind] || [];
+                if (!list.length) return;
+                const head = ({ trans: 'Both copies hit \u2014 in trans', homozygous: 'Both copies hit \u2014 homozygous',
+                    cis: 'One copy intact \u2014 in cis', unknown: 'Not settled by this file', single: 'One hit only' })[kind];
+                books.push({ section: head, note: true, title: list.length + ' gene' + (list.length === 1 ? '' : 's') + '. ' + note });
+                list.slice(0, 300).forEach((g) => books.push(geneCard(g, kind)));
+                if (list.length > 300) books.push({ section: head, note: true, title: 'and ' + (list.length - 300) + ' more, in the CSV.' });
+            };
+            section('trans', 'One hit on each copy: no intact copy left. For a recessive condition, this is the genotype that causes it.');
+            section('homozygous', 'The same change on both copies, which needs no phase to establish.');
+            section('cis', 'Both hits on one copy, so the other copy is intact: a carrier rather than a patient.');
+            section('unknown', 'Two or more hits that this file cannot place relative to each other \u2014 different phase sets, or unphased calls. '
+                + 'A parent\u2019s sequence, or reads long enough to span both, settles it.');
+            if (!nPairable && !G.homozygous.length) books.push({ section: 'Two hits in one gene', note: true,
+                title: 'No gene in the matrix carries more than one damaging hit, so there is nothing to phase. ' + (G.single.length
+                    ? G.single.length + ' gene' + (G.single.length === 1 ? ' carries' : 's carry') + ' a single hit.' : '') });
+            books.push({ section: 'Take it away', title: 'Download every gene and hit as CSV', badge: 'csv', icon: 'file_download',
+                accent: 'run', ready: true,
+                blurb: 'Gene, verdict, why, and each variant with its genotype and phase set.',
+                open: () => { try { dlSaveText(chCSV(), dlSafe(dlSpecies() + '_compound_heterozygotes') + '.csv', 'text/csv'); dlMsg('Downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Take it away', note: true,
+                title: 'What this does NOT do: it reads the phase in the file and the consequence of each variant, and it does not judge '
+                    + 'whether a variant is pathogenic or whether the gene matches the phenotype. Trans in a gene unrelated to the '
+                    + 'presentation is a finding about the file, not a diagnosis.' });
+            books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The loss matrix, the differential and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Compound heterozygotes',
+                subtitle: who + '  \u00b7  ' + G.trans.length + ' in trans \u00b7 ' + G.cis.length + ' in cis \u00b7 ' + G.unknown.length + ' not settled',
+                graph: graph, books: books });
         };
         const zygCounts = (gs) => { const c = {}; for (const g of gs) c[g.zygosity || 'unknown'] = (c[g.zygosity || 'unknown'] || 0) + 1; return c; };
         const lossGenesOrdered = () => {
@@ -10065,6 +10285,19 @@ function (path, config) {
                 books.push({ section: 'Find the losses', title: 'Show the loss matrix', badge: (lossMatrix.genes || []).length + ' genes', icon: 'list',
                     blurb: lossMatrix.sample + ' — the genes lost, tumor suppressors first, with download.', ready: true,
                     open: () => lossMatrixMenu() });
+                // THE QUESTION PHASE EXISTS TO ANSWER, beside the matrix that supplies it.
+                // Two hits in one gene are a disease when they sit on opposite copies and a
+                // carrier when they share one, and only phase tells them apart without
+                // sequencing a parent. The badge counts what was actually settled.
+                const __G = chGroups();
+                books.push({ section: 'Find the losses', accent: 'run', title: 'Compound heterozygotes — same copy, or one each?',
+                    badge: (__G.trans.length || __G.homozygous.length || __G.cis.length)
+                        ? (__G.trans.length + ' in trans · ' + __G.cis.length + ' in cis')
+                        : 'cis or trans', icon: 'call_split', ready: true,
+                    blurb: 'For every gene the matrix found more than one damaging hit in: whether the hits sit on opposite copies, '
+                        + 'which leaves no working copy, or on the same one, which leaves the gene intact. Read from the phase sets, '
+                        + 'and it says so where the file cannot settle it.',
+                    open: () => compoundHetMenu() });
             }
             return books;
         };
