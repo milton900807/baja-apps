@@ -8447,10 +8447,16 @@ function (path, config) {
                     mutation: 'Every gene the loss matrix found a loss-of-function change in, asked for the change itself as the discriminating base.',
                 })[mode] + ' The first ' + AS_MAX_GENES + ' are read.',
                 open: () => asRun(mode, 'genome') });
-            out.push({ title: 'The genes you have selected', badge: selGenes.size ? selGenes.size + ' selected' : 'none', accent: 'run',
-                icon: 'checklist', ready: on && selGenes.size > 0, readyNote: on ? 'click genes in the loss matrix or on the genome first' : avail[mode].note,
-                blurb: selGenes.size ? 'Read ' + selectedList().map((g) => g.gene).join(', ') + '.' : 'Click a gene in the loss matrix, or its band on the genome, to select it.',
-                open: () => asRun(mode, 'selected') });
+            // WITH NOTHING SELECTED THIS IS THE WAY TO SELECT, not a note about selecting.
+            out.push(selGenes.size
+                ? { title: 'The genes you have selected', badge: selGenes.size + ' selected', accent: 'run',
+                    icon: 'checklist', ready: on, readyNote: avail[mode].note,
+                    blurb: 'Read ' + selectedList().map((g) => g.gene).join(', ') + '.',
+                    open: () => asRun(mode, 'selected') }
+                : { title: 'Choose genes to read', badge: 'none selected', accent: 'choose',
+                    icon: 'checklist', ready: on, readyNote: avail[mode].note,
+                    blurb: 'Pick them from the loss matrix, the LOH tracts or by name, and come back here with the selection.',
+                    open: () => selectGenesFor('allele-selective targets', () => alleleSelectiveMenu()) });
             out.push({ title: 'The regions you have selected', badge: regions.length ? regions.length + ' region' + (regions.length === 1 ? '' : 's') : 'none', accent: 'run',
                 icon: 'crop_free', ready: on && regions.length > 0, readyNote: on ? 'drag out a range, or find a gene, first' : avail[mode].note,
                 blurb: 'Every protein-coding gene inside the selection, whether or not anything else has looked at it.',
@@ -8760,6 +8766,7 @@ function (path, config) {
             const R = lohResult;
             const pct = (x) => Math.round(100 * x) + '%';
             const books = [];
+            pushSelErrand(books, 'Loss of heterozygosity');
             books.push({ section: 'Loss of heterozygosity', note: true, title: R.spec.labelN + ' as the normal, ' + R.spec.labelT + ' as the tumor: '
                 + R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites lost an allele in the tumor (' + pct(R.het ? R.loh / R.het : 0) + '), '
                 + R.kept.toLocaleString() + ' stay heterozygous'
@@ -9340,13 +9347,78 @@ function (path, config) {
         };
 
         // THE SELECTION as a library: what is selected, the model over it, and each gene.
+        // GO AND CHOOSE SOME, THEN COME BACK.
+        //
+        // Half a dozen cards in this application cannot run until genes are selected, and
+        // what they did about it was print 'select genes first' and stop. The place to
+        // select genes is a different shelf, reached by a different route, and once there
+        // nothing remembers what the selecting was FOR -- so the way back was to retrace
+        // the whole path from Analyze and hope the selection survived.
+        //
+        // So a card that needs a selection sends the reader to the lists that can make one,
+        // carrying a label and a way home. Every list that selects genes shows that way
+        // home at the top while it is set, with the running count on it, and pressing it
+        // clears the errand and reopens the workflow exactly where it was left.
+        let selErrand = null;      // { label, fn }
+        const selectGenesFor = (label, fn) => {
+            selErrand = { label: label, fn: fn };
+            const books = [];
+            books.push({ section: 'Choose the genes', note: true,
+                title: 'Genes are chosen by clicking them in a list. Whichever list you use, "Back to ' + label
+                    + '" stays at the top of it \u2014 select as many as you like, then press it.' });
+            if (lossMatrix && (lossMatrix.genes || []).length) {
+                books.push({ section: 'Choose the genes', accent: 'run', title: 'From the loss matrix',
+                    badge: (lossMatrix.genes || []).length + ' genes', icon: 'biotech', ready: true,
+                    blurb: 'Every gene ' + (lossMatrix.sample || 'this genome') + ' carries a damaging change in. Click one to select it, '
+                        + 'or take all of them at once.', open: () => lossMatrixMenu() });
+            } else {
+                books.push(Object.assign(lossCalcCard('Choose the genes', 'first'), {
+                    blurb: 'The matrix is the list of genes to choose from: every gene this genome carries a damaging change in. '
+                        + 'It has not been calculated yet.' }));
+            }
+            if (lohResult && (lohResult.genes || []).length) {
+                books.push({ section: 'Choose the genes', accent: 'run', title: 'From the loss-of-heterozygosity tracts',
+                    badge: (lohResult.genes || []).length + ' genes', icon: 'compress', ready: true,
+                    blurb: 'The genes inside the tracts the tumor carries one copy of. A hemizygous arm is exactly the kind of '
+                        + 'background the model is asking for.', open: () => lohMenu() });
+            }
+            books.push({ section: 'Choose the genes', title: 'By name, on the genome', badge: 'search', icon: 'search', ready: true,
+                blurb: 'Find a gene by symbol and select it from its own card, with no list calculated first.',
+                open: () => searchMenu() });
+            if (selGenes.size) books.push({ section: 'Choose the genes', title: 'What is selected now', badge: selWord(), icon: 'checklist', ready: true,
+                blurb: selectedList().map((g) => g.gene).join(', '), open: () => selectedGenesMenu() });
+            books.push({ section: 'Back', title: 'Back to ' + label, badge: selGenes.size ? selWord() : 'nothing selected yet',
+                icon: 'arrow_back', back: true, ready: true,
+                blurb: 'Return without choosing anything else.', open: () => { const f = selErrand && selErrand.fn; selErrand = null; if (f) f(); } });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Choose the genes',
+                subtitle: 'for ' + label + '  \u00b7  ' + (selGenes.size ? selWord() + ' selected so far' : 'nothing selected yet'),
+                graph: graph, books: books });
+        };
+        // The way home, shown at the top of every list that selects genes while an errand
+        // is running. It carries the count, because the question someone is holding in
+        // their head at that moment is "how many do I have now".
+        const selErrandCard = (section) => (selErrand ? {
+            section: section, title: 'Back to ' + selErrand.label, badge: selGenes.size ? selWord() + ' selected' : 'nothing selected yet',
+            icon: 'arrow_back', accent: selGenes.size ? 'run' : undefined, ready: true,
+            blurb: selGenes.size
+                ? 'Take ' + selWord() + ' back to ' + selErrand.label + ' and carry on there.'
+                : 'Go back to ' + selErrand.label + ' without a selection.',
+            open: () => { const f = selErrand.fn; selErrand = null; f(); }
+        } : null);
+        const pushSelErrand = (books, section) => { const c = selErrandCard(section); if (c) books.push(c); };
         const selectedGenesMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const sel = selectedList();
             const books = [];
+            pushSelErrand(books, 'Selected genes');
             books.push({ section: 'Selected genes', note: true, title: sel.length
                 ? (selWord() + ' selected' + (lossMatrix ? ' from the loss matrix of ' + lossMatrix.sample : '') + ': ' + sel.map((g) => g.gene).join(', ') + '. These are the losses the model takes as the tumor\'s background.')
-                : 'Nothing is selected yet. Open the loss matrix and click genes to select them.' });
+                : 'Nothing is selected yet.' });
+            // AND HERE IS WHERE TO GET SOME, rather than a sentence naming the place.
+            if (!sel.length) books.push({ section: 'Selected genes', accent: 'choose', title: 'Choose some genes',
+                badge: 'from a list', icon: 'checklist', ready: true,
+                blurb: 'The loss matrix, the loss-of-heterozygosity tracts, or a gene by name. Whichever you use, the way back here stays at the top of it.',
+                open: () => selectGenesFor('the selection', () => selectedGenesMenu()) });
             books.push({ section: 'Find targets', note: true, mono: true, title:
                   'YOU ARE HERE\n'
                 + '\n'
@@ -10000,6 +10072,7 @@ function (path, config) {
                 : ' By zygosity in ' + lossMatrix.sample + ': ' + ['biallelic', 'hemizygous', 'compound het', 'possibly biallelic', 'monoallelic'].map((z) => zc[z] ? zc[z] + ' ' + z : '').filter(Boolean).join(', ') + '.'
                     + (SAMPLES.length > 1 ? ' Somatic = in this sample only; shared = in every sample, so germline when one of them is the normal.' : '');
             const books = [];
+            pushSelErrand(books, 'Loss matrix');
             books.push({ section: 'Loss matrix', note: true,
                 title: lossMatrix.sample + ': ' + allG.length + ' gene' + (allG.length === 1 ? '' : 's') + ' with a loss-of-function variant'
                     + (nT ? ', ' + nT + ' of them tumor suppressor' + (nT === 1 ? '' : 's') : '')
@@ -10448,6 +10521,14 @@ function (path, config) {
                 + '           +--> catalogue   already published\n'
                 + '                     |\n'
                 + '                     +--> target, window, why, drugs' });
+            // NOTHING CHOSEN YET? THEN THE CARD IS THE CHOOSING. Four cards saying 'select
+            // genes first' describe a prerequisite; this one goes and gets it, and comes
+            // back here with the selection in hand.
+            if (!sel.length) books.push({ section: 'Synthetic lethality', accent: 'choose',
+                title: 'Choose the losses to reason from', badge: 'step 3 \u00b7 first', icon: 'checklist', ready: true,
+                blurb: 'The model asks what ELSE a tumor cannot survive losing, given what it has already lost \u2014 so it needs '
+                    + 'that set first. Pick the genes from the loss matrix, the LOH tracts or by name, and come straight back here.',
+                open: () => selectGenesFor('synthetic lethality', () => synLethalMenu()) });
             books.push({ section: 'Synthetic lethality', accent: 'run', title: BAJA3 + ': find synthetic-lethal targets',
                 badge: 'step 4 \u00b7 ' + (sel.length ? (sel.length + (sel.length === 1 ? ' loss' : ' losses')) : 'choose losses first'),
                 icon: 'biotech',
@@ -10539,6 +10620,10 @@ function (path, config) {
         };
         const analysisMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            // Back at the root, whatever errand was running is over: someone who came here
+            // has left the workflow that sent them, and a "back to" card offering to return
+            // to it an hour later is a promise about a state that no longer exists.
+            selErrand = null;
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
             const books = [];
             // THE TOP-LEVEL WORKFLOWS COME FIRST, each one a door rather than a step.
