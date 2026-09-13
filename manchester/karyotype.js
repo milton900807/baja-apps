@@ -8555,8 +8555,36 @@ function (path, config) {
                                     open: () => uploadMenu() });
                             }
                         }
-                        sub.push({ note: true, title: ok ? 'Step 2 — where to look:' : 'Where it would look, once it can run:' });
-                        scopeCards(mode).forEach((c) => sub.push(Object.assign(c, { badge: 'step 2 · ' + (c.badge || 'scope') })));
+                        // STEP 1 IS WHATEVER THIS MECHANISM READS, and it belongs here.
+                        //
+                        // Every scope but "a gene by name" reads a list somebody has to make
+                        // first: the loss matrix for the two germline mechanisms, the genes in
+                        // the LOH tracts for somatic retention. Without that list those cards
+                        // are greyed and the panel names a prerequisite it does not offer,
+                        // which is the dead end this library exists to avoid. The card that
+                        // makes the list is now the first thing inside.
+                        const lohGenesN = ((lohResult && lohResult.genes) || []).length;
+                        const lmGenesN = ((lossMatrix && lossMatrix.genes) || []).length;
+                        const needList = (mode === 'somatic') ? !lohGenesN : !lmGenesN;
+                        if (ok && needList) {
+                            sub.push({ note: true, title: 'Step 1 — the list of genes to read. '
+                                + (mode === 'somatic'
+                                    ? 'Somatic retention reads the genes inside the loss-of-heterozygosity tracts.'
+                                    : 'This reads the genes the loss matrix found a damaging change in. One gene by name needs no list, and is below.') });
+                            if (mode === 'somatic') {
+                                sub.push({ accent: 'run', title: lohResult ? 'Read the genes in the tracts' : 'Run the loss-of-heterozygosity scan',
+                                    badge: 'step 1', icon: 'compress', ready: true,
+                                    blurb: lohResult ? 'The scan has run; reading its tracts out into genes is what this needs.'
+                                        : 'It needs a tumor and its normal. The scan finds where the tumor kept one allele.',
+                                    open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
+                            } else {
+                                sub.push(lossCalcCard('', 'step 1'));
+                            }
+                        }
+                        sub.push({ note: true, title: ok
+                            ? (needList ? 'Step 2 — then where to look:' : 'Where to look:')
+                            : 'Where it would look, once it can run:' });
+                        scopeCards(mode).forEach((c) => sub.push(Object.assign(c, { badge: (needList ? 'step 2 · ' : '') + (c.badge || 'scope') })));
                         return sub;
                     }
                 };
@@ -10219,6 +10247,54 @@ function (path, config) {
         // the loss-of-heterozygosity scan are how a background is arrived at, so they belong
         // with the question they are arrived at FOR rather than beside it. A book source
         // rather than a shelf, so the one shelf that wants them can splice them in.
+        // THE CARD THAT CALCULATES THE LOSS MATRIX, wherever it is needed.
+        //
+        // It was built inline in the Analyze library, which is the only place it could
+        // be pressed -- so a mechanism elsewhere that needs the matrix could only say so
+        // and send the reader away to find it. A workflow that names its prerequisite
+        // should carry it, so this is a function and the card appears in both places,
+        // identical, with the sample and haplotype choices intact.
+        const lossCalcCard = (section, badge) => {
+            const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
+                const calc = { section: section, title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
+                    badge: 'step 2 \u00b7 ' + (SAMPLES.length > 1 ? (SAMPLES.length + ' samples')
+                        : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : 'load a VCF'))),
+                    blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumor/normal pair, the tumor.'
+                        : 'Read every exonic variant and list the genes with a loss-of-function change.',
+                    ready: !!nV, readyNote: 'load a VCF first' };
+                // BY HAPLOTYPE, when the sample is phased: both copies, copy 1, or copy 2.
+                // Homozygous calls count on either; unphased hets only on "both".
+                const hapBooks = (si, nm, pc) => [
+                    { section: 'Haplotype', note: true, title: nm + ' is phased: ' + pc.hap1.toLocaleString() + ' variant' + (pc.hap1 === 1 ? '' : 's') + ' on haplotype 1, ' + pc.hap2.toLocaleString() + ' on haplotype 2, '
+                        + pc.hom.toLocaleString() + ' homozygous' + (pc.het ? ', ' + pc.het.toLocaleString() + ' unphased' : '') + '. A one-haplotype matrix says what is lost on that copy alone.' },
+                    { section: 'Haplotype', title: 'Both haplotypes', accent: 'run', badge: pc.all.toLocaleString() + ' variants', icon: 'join_full', ready: pc.all > 0, readyNote: 'no variants',
+                        blurb: 'Every call ' + nm + ' carries, whichever copy it sits on. Compound heterozygous genes are told from two hits in cis.', open: () => { computeLossMatrix(si, ''); } },
+                    { section: 'Haplotype', title: 'Haplotype 1', accent: 'run', badge: (pc.hap1 + pc.hom).toLocaleString() + ' variants', icon: 'looks_one', ready: (pc.hap1 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                        blurb: 'Calls phased to copy 1 (1|0) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap1'); } },
+                    { section: 'Haplotype', title: 'Haplotype 2', accent: 'run', badge: (pc.hap2 + pc.hom).toLocaleString() + ' variants', icon: 'looks_two', ready: (pc.hap2 + pc.hom) > 0, readyNote: 'nothing on this copy',
+                        blurb: 'Calls phased to copy 2 (0|1) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap2'); } },
+                ];
+                if (SAMPLES.length > 1) {
+                    calc.books = () => SAMPLES.map((nm, si) => {
+                        const pc = phaseCounts(si);
+                        const card = { title: nm, accent: pc.phased ? undefined : 'run', badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' · phased' : ''), swatch: SAMPLE_COLOR[si] || '#ee00ee',
+                            blurb: 'Calculate the loss matrix for ' + nm + (pc.phased ? ' — both copies, or one haplotype.' : '.'), ready: pc.all > 0, readyNote: 'carries no variants' };
+                        if (pc.phased) card.books = () => hapBooks(si, nm, pc); else card.open = () => { computeLossMatrix(si, ''); };
+                        return card;
+                    });
+                } else if (SAMPLES.length === 1 && phaseCounts(0).phased) {
+                    const pc = phaseCounts(0);
+                    calc.badge = SAMPLES[0] + ' · phased';
+                    calc.blurb = 'Read every exonic variant, on both copies or on one haplotype, and list the genes with a loss-of-function change.';
+                    calc.books = () => hapBooks(0, SAMPLES[0], pc);
+                } else {
+                    calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
+                }
+            // The badge says where this sits in the workflow it was asked for: step 2 in
+            // the Analyze library, step 1 inside a mechanism that needs the matrix first.
+            if (badge) calc.badge = badge + ' · ' + (SAMPLES.length === 1 ? SAMPLES[0] : (SAMPLES.length > 1 ? SAMPLES.length + ' samples' : 'all variants'));
+            return calc;
+        };
         const lossMatrixBooks = () => {
             const books = [];
             const nV = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
@@ -10235,41 +10311,7 @@ function (path, config) {
                 + '                             click one to choose it' });
             // One badge, not two: a second `badge` key in the same literal silently replaces
             // the first, which is how the step number went missing from this card.
-            const calc = { section: 'Find the losses', title: 'Calculate loss matrix', icon: 'biotech', accent: 'run',
-                badge: 'step 2 \u00b7 ' + (SAMPLES.length > 1 ? (SAMPLES.length + ' samples')
-                    : (SAMPLES.length === 1 ? SAMPLES[0] : (nV ? 'all variants' : 'load a VCF'))),
-                blurb: SAMPLES.length > 1 ? 'Pick the sample whose genome to read — for a tumor/normal pair, the tumor.'
-                    : 'Read every exonic variant and list the genes with a loss-of-function change.',
-                ready: !!nV, readyNote: 'load a VCF first' };
-            // BY HAPLOTYPE, when the sample is phased: both copies, copy 1, or copy 2.
-            // Homozygous calls count on either; unphased hets only on "both".
-            const hapBooks = (si, nm, pc) => [
-                { section: 'Haplotype', note: true, title: nm + ' is phased: ' + pc.hap1.toLocaleString() + ' variant' + (pc.hap1 === 1 ? '' : 's') + ' on haplotype 1, ' + pc.hap2.toLocaleString() + ' on haplotype 2, '
-                    + pc.hom.toLocaleString() + ' homozygous' + (pc.het ? ', ' + pc.het.toLocaleString() + ' unphased' : '') + '. A one-haplotype matrix says what is lost on that copy alone.' },
-                { section: 'Haplotype', title: 'Both haplotypes', accent: 'run', badge: pc.all.toLocaleString() + ' variants', icon: 'join_full', ready: pc.all > 0, readyNote: 'no variants',
-                    blurb: 'Every call ' + nm + ' carries, whichever copy it sits on. Compound heterozygous genes are told from two hits in cis.', open: () => { computeLossMatrix(si, ''); } },
-                { section: 'Haplotype', title: 'Haplotype 1', accent: 'run', badge: (pc.hap1 + pc.hom).toLocaleString() + ' variants', icon: 'looks_one', ready: (pc.hap1 + pc.hom) > 0, readyNote: 'nothing on this copy',
-                    blurb: 'Calls phased to copy 1 (1|0) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap1'); } },
-                { section: 'Haplotype', title: 'Haplotype 2', accent: 'run', badge: (pc.hap2 + pc.hom).toLocaleString() + ' variants', icon: 'looks_two', ready: (pc.hap2 + pc.hom) > 0, readyNote: 'nothing on this copy',
-                    blurb: 'Calls phased to copy 2 (0|1) plus homozygous ones.', open: () => { computeLossMatrix(si, 'hap2'); } },
-            ];
-            if (SAMPLES.length > 1) {
-                calc.books = () => SAMPLES.map((nm, si) => {
-                    const pc = phaseCounts(si);
-                    const card = { title: nm, accent: pc.phased ? undefined : 'run', badge: pc.all.toLocaleString() + ' variant' + (pc.all === 1 ? '' : 's') + (pc.phased ? ' · phased' : ''), swatch: SAMPLE_COLOR[si] || '#ee00ee',
-                        blurb: 'Calculate the loss matrix for ' + nm + (pc.phased ? ' — both copies, or one haplotype.' : '.'), ready: pc.all > 0, readyNote: 'carries no variants' };
-                    if (pc.phased) card.books = () => hapBooks(si, nm, pc); else card.open = () => { computeLossMatrix(si, ''); };
-                    return card;
-                });
-            } else if (SAMPLES.length === 1 && phaseCounts(0).phased) {
-                const pc = phaseCounts(0);
-                calc.badge = SAMPLES[0] + ' · phased';
-                calc.blurb = 'Read every exonic variant, on both copies or on one haplotype, and list the genes with a loss-of-function change.';
-                calc.books = () => hapBooks(0, SAMPLES[0], pc);
-            } else {
-                calc.open = () => { computeLossMatrix(SAMPLES.length === 1 ? 0 : -1, ''); };
-            }
-            books.push(calc);
+            books.push(lossCalcCard('Find the losses'));
             const CONF_RULES = 'A call\'s tier is the worst of the checks the file allows, per sample. '
                 + 'HIGH: FILTER is PASS or empty; QUAL \u2265 30 or absent; depth (DP) \u2265 8; \u2265 3 reads carry the alt allele (AD); genotype quality (GQ) \u2265 20. '
                 + 'MEDIUM: PASS but QUAL 10\u201330, DP 4\u20138, only 2 alt reads, or GQ 10\u201320. '
