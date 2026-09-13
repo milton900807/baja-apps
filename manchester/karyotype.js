@@ -12500,20 +12500,29 @@ function (path, config) {
                 // Left before right, as on the chromosome: the card's place in the row says
                 // which side it means. The card names whatever file is already on that side,
                 // because after a load the sides are known by their files, not by their hands.
-                { section: 'Side', title: 'Left side' + (sideFile[1] ? '  \u00b7  ' + shortFile(sideFile[1]) : ''),
+                { section: 'Side', accent: 'choose', title: 'Left side' + (sideFile[1] ? '  \u00b7  ' + shortFile(sideFile[1]) : ''),
                     badge: sideFile[1] ? 'joins ' + shortFile(sideFile[1]) : 'compare', icon: 'west', ready: true,
                     blurb: (sideFile[1] ? 'The left gutter already holds ' + shortFile(sideFile[1]) + '; this file joins it there. '
                         : 'Opposite what is already there: the marks take the left gutter, so the two sets read against each other down the same bar.')
                         + (sideFile[0] ? 'It will read against ' + shortFile(sideFile[0]) + ' on the right.' : ''),
                     open: () => pickFile(VCF_ACCEPT, 1) },
-                { section: 'Side', title: 'Right side' + (sideFile[0] ? '  \u00b7  ' + shortFile(sideFile[0]) : ''),
+                { section: 'Side', accent: 'choose', title: 'Right side' + (sideFile[0] ? '  \u00b7  ' + shortFile(sideFile[0]) : ''),
                     badge: sideFile[0] ? 'joins ' + shortFile(sideFile[0]) : 'default', icon: 'east', ready: true,
                     blurb: (sideFile[0] ? 'The right gutter already holds ' + shortFile(sideFile[0]) + '; this file joins it there. '
                         : 'Beside what is already there: the marks share the right gutter of every chromosome.')
                         + (sideFile[1] ? 'It will read against ' + shortFile(sideFile[1]) + ' on the left.' : ''),
                     open: () => pickFile(VCF_ACCEPT, 0) },
             ];
+            // EVERY CARD HERE ASKS FOR A FILE, AND NOW SAYS SO.
+            //
+            // This shelf was four cards in the library's default colour, none of which looked
+            // any more pressable than the paragraph under them -- in a panel whose entire
+            // purpose is to be pressed. `choose` is the accent for a card that opens the
+            // operating system's file chooser: amber, with a solid badge carrying an up mark,
+            // the same way `run` marks a card that starts a computation. The card with a side
+            // to pick first keeps a plain badge, because what IT opens is another card.
             const vcfCard = {
+                accent: vtotal ? undefined : 'choose', icon: 'analytics',
                 title: 'A VCF', badge: vtotal ? 'variants \u00b7 pick a side' : 'variants',
                 blurb: 'Plain or bgzipped, any size: it is read in slices here and every variant is drawn. '
                     + 'Sample and phase columns are read too, and color the marks.'
@@ -12531,18 +12540,21 @@ function (path, config) {
                     books: [
                         vcfCard,
                         {
+                            accent: 'choose', icon: 'description',
                             title: 'A genetic report or lab PDF', badge: 'report',
                             blurb: 'A clinical report, a lab result, a paper, a screenshot of one. The genes and variants it names '
                                 + 'are read out and placed on the genome from the annotation, not guessed.',
                             open: () => pickFile('.pdf,image/*,.docx,.doc,.rtf'),
                         },
                         {
+                            accent: 'choose', icon: 'table_chart',
                             title: 'A table of variants', badge: '23andMe · TSV',
                             blurb: 'A 23andMe or AncestryDNA export, an annotated spreadsheet, a BED-like list: the chromosome '
                                 + 'and position columns are identified and the rows drawn.',
                             open: () => pickFile('.txt,.tsv,.csv,.bed,.xlsx,.xls'),
                         },
                         {
+                            accent: 'choose', icon: 'note_add',
                             title: 'A gene list or anything else', badge: 'any file',
                             blurb: 'A panel, a list of symbols, a document. It is asked what it is, and whatever genetic '
                                 + 'information it carries goes on the genome.',
@@ -12551,6 +12563,14 @@ function (path, config) {
                         {
                             note: true, blurb: '', title: 'Rows of a VCF can also be pasted straight onto the chromosomes: '
                                 + 'copy them and press Ctrl+V with this view open.',
+                        },
+                        // AND A WAY OUT AMONG THE WAYS IN. Closing was the ✕ in the header
+                        // and the Escape key, neither of which is where someone deciding not to
+                        // load anything is looking -- they are looking at the cards.
+                        {
+                            title: 'Cancel', badge: 'close', icon: 'close', back: true, ready: true,
+                            blurb: 'Back to the chromosomes without loading anything.',
+                            open: () => { graph.setMessage(' Nothing was loaded. '); },
                         },
                     ],
                     graph: graph,

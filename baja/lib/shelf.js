@@ -139,8 +139,13 @@ function (opts) {
             + '<input id="shelf-q" placeholder="' + esc(o.searchPlaceholder || 'Search…') + '" style="flex:1;max-width:340px;margin-left:auto;'
             + 'background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:999px;'
             + 'padding:9px 16px;font:13px Arial;"/>'
-            + '<button id="shelf-x" style="cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 16px;'
-            + 'font:700 13px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">✕ Close</button>';
+            // A CLOSE THAT LOOKS LIKE A BUTTON. Transparent with a hairline edge, it read as
+            // a caption of the header rather than the way out of the library -- and it is the
+            // way out of every library in the application. Filled, so it is found by looking
+            // rather than by trying.
+            + '<button id="shelf-x" style="cursor:pointer;flex:0 0 auto;border-radius:8px;padding:9px 18px;'
+            + 'font:700 13px Arial;border:1px solid rgba(255,255,255,0.42);'
+            + 'background:rgba(255,255,255,0.14);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.28);">✕ Close</button>';
 
         const shelf = document.createElement('div');
         shelf.style.cssText = 'flex:1 1 auto;overflow:auto;padding:22px;display:grid;'
@@ -436,7 +441,17 @@ function (opts) {
                     // that one of them keeps you where you are and the other does not.
                     design: ['linear-gradient(160deg,#1a1040 0%,#2c1a63 55%,#3f2688 100%)',
                         'rgba(167,139,250,0.60)', '#c4b5fd',
-                        'rgba(167,139,250,0.22)', '#ddd6fe', '#f1ecff', '#c3b5da']
+                        'rgba(167,139,250,0.22)', '#ddd6fe', '#f1ecff', '#c3b5da'],
+                    // ASKS FOR A FILE. The card opens the browser's own file chooser, which is
+                    // a modal window belonging to the operating system rather than to this
+                    // application: what happens next is out of the shelf's hands until a file
+                    // comes back. That is worth marking, because it is the one kind of card
+                    // whose next step is somewhere else entirely -- and because a library of
+                    // upload cards with no accent at all was a library where nothing looked
+                    // like the thing to press. Amber, which no other accent uses.
+                    choose: ['linear-gradient(160deg,#2b1e02 0%,#4a3607 55%,#6b4f0c 100%)',
+                        'rgba(251,191,36,0.60)', '#fcd34d',
+                        'rgba(251,191,36,0.22)', '#fde68a', '#fffbeb', '#dcc79a']
                 };
                 // THE TWO ACCENTS WHOSE BADGE IS A BUTTON, not a label. For these the badge is
                 // solid rather than washed, because it has stopped describing the card and
@@ -444,9 +459,11 @@ function (opts) {
                 // [fill, ink, glow, mark, the word to use when the book supplies no badge]
                 //   run     starts something HERE and you wait for it
                 //   design  leaves for the editor and does not come back
+                //   choose  opens the file chooser and waits for the operating system
                 const BADGE_SOLID = {
                     run: ['#2dd4bf', '#042f2e', 'rgba(45,212,191,0.45)', '\u25B6\u2009', 'run'],
                     design: ['#a78bfa', '#1e1046', 'rgba(167,139,250,0.45)', '\u2197\u2009', 'design'],
+                    choose: ['#fbbf24', '#2b1e02', 'rgba(251,191,36,0.45)', '\u2191\u2009', 'choose a file'],
                 };
                 // `books` is what makes a card a level rather than a leaf -- an array, or a
                 // function returning one. Same test the '›' at the end of the title uses, so
