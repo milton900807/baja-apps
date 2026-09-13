@@ -12840,10 +12840,23 @@ function (path, config) {
                                     // 'function', not ionFunction: this widget hands the button
                                     // its label and the field values, which is where the name
                                     // comes from.
+                                    // TWO BUTTONS, AND THE WAY OUT BESIDE THE WAY ON.
+                                    // Cancel lived only in the bar at the top of the panel,
+                                    // a long way from the field being typed in and from the
+                                    // button beside it, so the place where someone decides
+                                    // not to save was not the place the decision was made.
+                                    // 'kind' is the only thing that separates them visually:
+                                    // the widget fills the primary and outlines the rest.
                                     buttons: [{
-                                        'label': 'Save',
+                                        'label': 'Save', 'kind': 'primary',
                                         'function': createIonFunction(async (button_label, input_params) => {
                                             await doSave(input_params && input_params['Name']);
+                                        })
+                                    }, {
+                                        'label': 'Cancel', 'kind': 'secondary',
+                                        'function': createIonFunction(() => {
+                                            graph.setMessage(' Nothing was saved. ');
+                                            restore();
                                         })
                                     }]
                                 }
