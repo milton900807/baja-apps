@@ -6604,6 +6604,40 @@ function (path, config) {
                 title: 'A recessive condition needs BOTH copies of a gene broken. Two heterozygous hits do that only when '
                     + 'they sit on opposite copies \u2014 in trans. On the same copy, in cis, one intact copy remains and '
                     + 'the person is a carrier. This reads ' + who + '\u2019s phase to say which, gene by gene.' });
+            // WHAT IT READ, SO A ROW OF ZEROS CAN BE READ TOO.
+            //
+            // Nothing in trans, nothing in cis and nothing unsettled is a real answer for
+            // many genomes -- two damaging hits in ONE gene is not the common case -- and it
+            // is also exactly what a matrix of one haplotype produces by construction, and
+            // what a matrix whose variants could not be matched back to their genotypes
+            // produces by accident. The three look identical from the outside, so the panel
+            // says which it is: the matrix it read, how many genes carried more than one
+            // hit at all, and how many hits had no genotype to read.
+            {
+                const allG = (lossMatrix.genes || []);
+                let multi = 0, noGt = 0, hits = 0;
+                allG.forEach((g) => {
+                    const vs = (g.variants || []);
+                    const called = vs.filter((v) => v && v.gtc);
+                    hits += vs.length;
+                    noGt += vs.length - called.length;
+                    if (called.length >= 2) multi++;
+                });
+                const oneCopy = !!(lossMatrix.hap);
+                books.push({ section: 'Two hits in one gene', note: true,
+                    title: 'Read from the loss matrix of ' + who + ': ' + allG.length + ' gene'
+                        + (allG.length === 1 ? '' : 's') + ' with a damaging change, ' + hits.toLocaleString() + ' hit'
+                        + (hits === 1 ? '' : 's') + ' between them, and ' + multi + ' gene' + (multi === 1 ? '' : 's')
+                        + ' carrying more than one. '
+                        + (oneCopy
+                            ? 'That matrix is ONE HAPLOTYPE (' + lossMatrix.hap + '), so nothing in it can be in trans by '
+                              + 'construction \u2014 both hits of a pair would have to be on the copy it read. Calculate the '
+                              + 'matrix on both copies to ask this question.'
+                            : 'It was calculated on BOTH copies, which is what this question needs.')
+                        + (noGt ? ' ' + noGt.toLocaleString() + ' hit' + (noGt === 1 ? '' : 's') + ' could not be matched back '
+                            + 'to a genotype on the genome and ' + (noGt === 1 ? 'was' : 'were') + ' left out of the pairing.' : '')
+                        + (!multi ? ' With no gene carrying two, there is nothing to phase, which is why the counts are zero.' : '') });
+            }
             books.push({ section: 'Two hits in one gene', note: true, mono: true, title:
                   'gene with 2+ damaging hits\n'
                 + '        |\n'
