@@ -3076,6 +3076,9 @@ function (path, config) {
                     const B = (diffResult && diffResult.B && diffResult.B.label) || 'B';
                     hlRows = sw(HL_COLOR[HL_DIFF_A], 'lost only in ' + A) + sw(HL_COLOR[HL_DIFF_B], 'lost only in ' + B)
                         + sw(HL_COLOR[HL_DIFF_BOTH], 'lost in both') + dimNote;
+                } else if (hlActive === HL_CONC_L || hlActive === HL_CONC_R) {
+                    hlTitle = 'Two callsets';
+                    hlRows = sw(HL_COLOR[HL_CONC_L], 'only in ' + sideName(1)) + sw(HL_COLOR[HL_CONC_R], 'only in ' + sideName(0)) + dimNote;
                 } else if (hlActive === HL_LOH) {
                     hlTitle = 'Loss of heterozygosity';
                     hlRows = sw(HL_COLOR[HL_LOH], (lohResult ? 'lost an allele in ' + lohResult.spec.labelT : 'lost an allele')) + dimNote;
@@ -4452,6 +4455,15 @@ function (path, config) {
                     lines.push('\u2717 Differential and LOH \u2014 load the matching tumour or normal on the other side.');
                 }
                 if (!V.phased && V.nSamples >= 1) lines.push('\u2717 Anything that needs phase \u2014 this file records genotypes as pairs, not copies.');
+                // Check the calls (Analyze): what the file can be held to before it is reasoned from.
+                if (pair) lines.push(depth
+                    ? '\u2713 Somatic calls the normal carries \u2014 the normal\u2019s own reads at every somatic call.'
+                    : '\u2717 Somatic calls the normal carries \u2014 needs read counts in the normal.');
+                if (V.nSamples >= 1) lines.push(depth
+                    ? '\u2713 Genotypes the reads contradict \u2014 each call\u2019s genotype against its ' + depth + '.'
+                    : '\u2717 Genotypes the reads contradict \u2014 needs AD or DP4.');
+                lines.push('\u2713 Mutational spectrum \u2014 the six substitution classes' + (pair ? ', for the somatic calls.' : '.'));
+                lines.push('\u2713 Compare with another callset or a truth set \u2014 load it on the other side.');
                 if (lines.length) books.push({ section: 'What you can do with it', note: true, mono: true, title: lines.join('\n') });
                 if (!V.hasAD && V.hasDP4) books.push({ section: 'What you can do with it', note: true,
                     title: 'This caller writes no AD, so the read counts are taken from DP4 \u2014 its forward and reverse '
@@ -11028,6 +11040,458 @@ function (path, config) {
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic lethality',
                 subtitle: BAJA3_LONG, graph: graph, books: books });
         };
+        // ==== CHECKING THE CALLS THEMSELVES =================================================
+        //
+        // Four workflows that come straight out of reading real callsets closely, and that
+        // nothing else here did:
+        //
+        //   the normal carries it   a somatic call whose NORMAL has the allele in its reads
+        //                           is a germline variant or contamination, whatever the
+        //                           caller wrote in its genotype column
+        //   genotype vs reads       a call whose genotype the reads contradict -- a 1/1 at
+        //                           a 35% allele fraction is not homozygous
+        //   mutational spectrum     the six substitution classes, which is what a tumour's
+        //                           own processes write, and which the germline Ti/Tv
+        //                           benchmark cannot judge
+        //   concordance             two callsets of the same pair, or a callset against a
+        //                           truth set: what both found, what only one did
+        //
+        // All four read only what is already loaded. None of them re-calls anything: they
+        // say where the file's own calls and the file's own reads disagree, and leave the
+        // judgement to whoever is reading.
+        const HL_NSUP = 50, HL_GTREAD = 51, HL_CONC_L = 52, HL_CONC_R = 53;
+        HL_COLOR[HL_NSUP] = '#f97316'; HL_NAME[HL_NSUP] = 'somatic call the normal carries';
+        HL_COLOR[HL_GTREAD] = '#eab308'; HL_NAME[HL_GTREAD] = 'genotype the reads contradict';
+        HL_COLOR[HL_CONC_L] = '#8b5cf6'; HL_NAME[HL_CONC_L] = 'found only in the left file';
+        HL_COLOR[HL_CONC_R] = '#06b6d4'; HL_NAME[HL_CONC_R] = 'found only in the right file';
+        const NSUP_BAF = 0.10;          // a tenth of the normal's reads: a caller's threshold
+        let nsupResult = null, gtReadResult = null, concResult = null;
+
+        const qcMarkAndShow = (code) => {
+            hlActive = code;
+            try { hlSamples.clear(); } catch (e) { }
+            reindexHighlights();
+            startHlPulse();
+            legendRefresh();
+            if (graph.wake) graph.wake();
+        };
+        const qcClearHl = () => {
+            for (const d of vdata) { if (!d || !d.n) continue; if (d.hl && d.hl.length === d.n) d.hl.fill(0); else d.hl = new Uint8Array(d.n); }
+        };
+        // Which column is the tumour and which the normal, inside ONE file. Named columns
+        // decide it outright; otherwise every ordered pair is offered, because guessing
+        // which of two unnamed samples is the normal is the kind of guess that inverts a
+        // whole result.
+        const qcPairSpecs = () => {
+            const out = [];
+            const t = SAMPLES.findIndex((x) => /tumou?r/i.test(x));
+            const n = SAMPLES.findIndex((x) => /normal|germline|blood/i.test(x));
+            if (t >= 0 && n >= 0 && t !== n) out.push({ tumor: t, normal: n, named: true });
+            else for (let a = 0; a < SAMPLES.length; a++) for (let b = 0; b < SAMPLES.length; b++) {
+                if (a !== b) out.push({ tumor: a, normal: b, named: false });
+            }
+            return out;
+        };
+
+        // ---- 1. SOMATIC CALLS THE NORMAL ALSO CARRIES ---------------------------------
+        const nsupRun = async (spec) => {
+            clearWorking();
+            qcClearHl();
+            const perChrom = [];
+            let calls = 0, carried = 0, carriedPass = 0, clean = 0, unread = 0, marked = 0;
+            const rows = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n || d.gtw <= Math.max(spec.tumor, spec.normal)) continue;
+                graph.setMessage(' Reading ' + drawn[ci].name + ' for somatic calls the normal carries… ');
+                let c = 0, k2 = 0;
+                for (let k = 0; k < d.n; k++) {
+                    if (gtOf(d, k, spec.tumor) < GT_HET) continue;
+                    if (gtOf(d, k, spec.normal) >= GT_HET) continue;      // the file already says the normal has it
+                    calls++;
+                    const b = bafOf(d, k, spec.normal);
+                    if (b < 0) { unread++; continue; }
+                    // No confidence gate here. MuTect2 fails exactly these calls with
+                    // alt_allele_in_normal, which grades them low -- gating on that would hide
+                    // the calls this is looking for. Whether the caller already caught one is
+                    // reported beside it instead.
+                    if (b >= NSUP_BAF) {
+                        carried++; c++;
+                        const passed = !(d.rconf && d.rconf[k] === CONF_LOW);
+                        if (passed) carriedPass++;
+                        d.hl[k] = HL_NSUP; marked++;
+                        if (rows.length < 50000) {
+                            const ab = allelesAt(ci, k);
+                            rows.push({ chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                                tumor_gt: GT_TEXT[gtOf(d, k, spec.tumor)] || '', normal_gt: GT_TEXT[gtOf(d, k, spec.normal)] || '',
+                                caller_filter: passed ? 'passed' : 'failed', normal_allele_fraction: b.toFixed(3), tumor_allele_fraction: (bafOf(d, k, spec.tumor) >= 0 ? bafOf(d, k, spec.tumor).toFixed(3) : '') });
+                        }
+                    } else clean++;
+                    if (++k2 % 50000 === 0) await new Promise((r2) => setTimeout(r2, 0));
+                }
+                if (c) perChrom.push({ name: drawn[ci].name, n: c });
+            }
+            nsupResult = { spec: spec, calls: calls, carried: carried, carriedPass: carriedPass, clean: clean, unread: unread, perChrom: perChrom, rows: rows, marked: marked };
+            graph.setMessage(' ' + carried.toLocaleString() + ' somatic call' + (carried === 1 ? '' : 's') + ' the normal carries. ');
+            if (marked) qcMarkAndShow(HL_NSUP); else legendRefresh();
+            nsupMenu();
+        };
+        const nsupMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const R = nsupResult;
+            const books = [];
+            if (!R) {
+                const specs = qcPairSpecs();
+                books.push({ section: 'Somatic calls the normal carries', note: true,
+                    title: 'A call the tumour carries and the normal is written as not carrying is a somatic call. When the normal’s '
+                        + 'OWN READS show the allele anyway, it is a germline variant, contamination, or an artefact both samples '
+                        + 'share — whatever the genotype column says. This reads the normal’s reads at every such call.' });
+                if (SAMPLES.length < 2) {
+                    books.push({ section: 'Somatic calls the normal carries', accent: 'choose', title: 'Load a tumour/normal callset',
+                        badge: 'needs two samples', icon: 'upload_file', ready: true,
+                        blurb: 'One file holding a TUMOR and a NORMAL column — MuTect2, Strelka and SomaticSniper all write that.',
+                        open: () => uploadMenu() });
+                } else {
+                    specs.forEach((sp) => books.push({ section: 'Somatic calls the normal carries', accent: 'run',
+                        title: SAMPLES[sp.tumor] + ' as the tumour, ' + SAMPLES[sp.normal] + ' as the normal',
+                        badge: sp.named ? 'named in the file' : 'your choice', icon: 'fact_check', ready: true,
+                        blurb: 'Every call in ' + SAMPLES[sp.tumor] + ' that ' + SAMPLES[sp.normal] + ' is not genotyped as carrying, checked '
+                            + 'against ' + SAMPLES[sp.normal] + '’s reads: at least a tenth of them carrying the allele, on a call not graded low.',
+                        open: () => nsupRun(sp) }));
+                }
+            } else {
+                const pc = (a, b) => (b ? (100 * a / b).toFixed(1) + '%' : '—');
+                books.push({ section: 'Somatic calls the normal carries', note: true, mono: true, title:
+                      'somatic calls read       ' + R.calls.toLocaleString() + '\n'
+                    + 'normal carries the allele ' + R.carried.toLocaleString() + '   (' + pc(R.carried, R.calls) + ')\n'
+                    + '  the caller flagged it    ' + (R.carried - R.carriedPass).toLocaleString() + '\n'
+                    + '  no flag from the caller  ' + R.carriedPass.toLocaleString() + '\n'
+                    + 'normal reads are clean    ' + R.clean.toLocaleString() + '   (' + pc(R.clean, R.calls) + ')\n'
+                    + 'normal has no read count  ' + R.unread.toLocaleString() + '   (' + pc(R.unread, R.calls) + ')' });
+                books.push({ section: 'Somatic calls the normal carries', note: true,
+                    title: (R.carried
+                        ? R.carried.toLocaleString() + ' call' + (R.carried === 1 ? '' : 's') + ' in ' + SAMPLES[R.spec.tumor] + ' are supported by '
+                          + SAMPLES[R.spec.normal] + '’s own reads, and are marked on the genome. '
+                          + (R.carriedPass
+                              ? R.carriedPass.toLocaleString() + ' of them carry no FILTER flag or low QUAL from the caller \u2014 those are the ones to treat as germline or '
+                                + 'contaminated before any is reasoned from as somatic.'
+                              : 'The caller had already flagged every one of them, so its unflagged calls are clean on this count.')
+                        : 'No somatic call is supported by the normal’s reads.')
+                        + (R.unread ? ' ' + R.unread.toLocaleString() + ' could not be judged: the normal had fewer than eight reads there, or the file '
+                            + 'carries no read counts for it.' : '') });
+                R.perChrom.sort((a, b) => b.n - a.n).slice(0, 24).forEach((c) => books.push({ section: 'By chromosome',
+                    title: c.name, badge: c.n.toLocaleString(), icon: 'zoom_in', ready: true,
+                    blurb: c.n.toLocaleString() + ' call' + (c.n === 1 ? '' : 's') + ' the normal carries.',
+                    open: () => { const ci = chromIndexOf(c.name); if (ci >= 0) goView({ x0: barLeft(ci) - 0.6 * SLOT, x1: barRight(ci) + 0.6 * SLOT, y0: wy(drawn[ci].length), y1: wy(0) }); } }));
+                books.push({ section: 'Take it away', title: 'Download them as CSV', badge: R.rows.length.toLocaleString() + ' rows', icon: 'file_download',
+                    ready: R.rows.length > 0, readyNote: 'nothing flagged',
+                    blurb: 'Position, alleles, both genotypes and both allele fractions for every flagged call' + (R.carried > R.rows.length ? ' (the first 50,000)' : '') + '.',
+                    open: () => { try { dlSaveText(dlToCSV(R.rows), dlSafe(dlSpecies() + '_somatic_calls_the_normal_carries') + '.csv', 'text/csv'); dlMsg('Downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + e); } } });
+                books.push({ section: 'Take it away', title: 'Run it again', badge: 'again', icon: 'refresh', ready: true,
+                    blurb: 'With a different tumour and normal, or after loading more.', open: () => { nsupResult = null; nsupMenu(); } });
+            }
+            books.push({ section: 'Back', title: 'Check the calls', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The other checks on what is loaded.', open: () => qcMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Somatic calls the normal carries',
+                subtitle: R ? (R.carried.toLocaleString() + ' of ' + R.calls.toLocaleString() + ' flagged') : 'read the normal’s reads at every somatic call',
+                graph: graph, books: books });
+        };
+
+        // ---- 2. GENOTYPES THE READS CONTRADICT ----------------------------------------
+        const gtReadRun = async () => {
+            clearWorking();
+            qcClearHl();
+            const W = Math.min(SAMPLES.length, GT_MAX);
+            const per = [];
+            for (let si = 0; si < W; si++) per.push({ si: si, read: 0, homLow: 0, hetHigh: 0, hetNone: 0 });
+            const rows = [];
+            let marked = 0;
+            // A tumour's 0/1 at 2% is a subclone, not a mistake: a somatic caller writes 0/1
+            // for any call it makes, whatever the fraction. Only a normal, or an unnamed
+            // sample, is held to "a heterozygote shows its allele".
+            const named = qcPairSpecs().find((x) => x.named);
+            const tumourCol = named ? named.tumor : -1;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n || !d.gtw) continue;
+                graph.setMessage(' Comparing genotypes with reads on ' + drawn[ci].name + '… ');
+                for (let k = 0; k < d.n; k++) {
+                    for (let si = 0; si < W && si < d.gtw; si++) {
+                        const g = gtOf(d, k, si);
+                        if (g < GT_HET || g === GT_OTHER) continue;
+                        const b = bafOf(d, k, si);
+                        if (b < 0 || confOf(d, k, si) === CONF_LOW) continue;
+                        per[si].read++;
+                        let why = '';
+                        // The bands are wide on purpose: a tumour is impure and aneuploid, and an
+                        // allele fraction of 0.62 on a 1/1 is ordinary. These are the calls the
+                        // reads plainly disagree with, not the ones that are merely imperfect.
+                        if ((g === GT_HOM || g === GT_HOMP) && b < 0.60) { why = 'called homozygous, reads say heterozygous'; per[si].homLow++; }
+                        else if ((g === GT_HET || g === GT_HAP1 || g === GT_HAP2) && b >= 0.95) { why = 'called heterozygous, reads say homozygous'; per[si].hetHigh++; }
+                        else if ((g === GT_HET || g === GT_HAP1 || g === GT_HAP2) && b < 0.03 && si !== tumourCol) { why = 'called heterozygous, reads barely show it'; per[si].hetNone++; }
+                        if (!why) continue;
+                        if (!d.hl[k]) { d.hl[k] = HL_GTREAD; marked++; }
+                        if (rows.length < 50000) {
+                            const ab = allelesAt(ci, k);
+                            rows.push({ chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1], sample: SAMPLES[si],
+                                genotype: GT_TEXT[g], allele_fraction: b.toFixed(3), disagreement: why });
+                        }
+                    }
+                    if (k % 50000 === 49999) await new Promise((r2) => setTimeout(r2, 0));
+                }
+            }
+            gtReadResult = { per: per, rows: rows, marked: marked, tumourCol: tumourCol };
+            graph.setMessage(' ' + marked.toLocaleString() + ' call' + (marked === 1 ? '' : 's') + ' whose genotype the reads contradict. ');
+            if (marked) qcMarkAndShow(HL_GTREAD); else legendRefresh();
+            gtReadMenu();
+        };
+        const gtReadMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const R = gtReadResult;
+            const books = [];
+            books.push({ section: 'Genotypes the reads contradict', note: true,
+                title: 'A caller’s genotype is a decision it made once; the allele depths are what it made it from. On calls that '
+                    + 'passed their filters, where they plainly disagree — a homozygous call under 60% of the reads, a heterozygous one over 95% or under 3% — the reads are '
+                    + 'the better witness, and every analysis here that reasons from genotypes inherits the caller’s mistake.' });
+            if (!R) {
+                const anyReads = vdata.some((d) => d && d.baf);
+                books.push({ section: 'Genotypes the reads contradict', accent: anyReads ? 'run' : 'choose',
+                    title: anyReads ? 'Compare every genotype with its reads' : 'Load a VCF with read counts',
+                    badge: anyReads ? SAMPLES.length + ' sample' + (SAMPLES.length === 1 ? '' : 's') : 'needs AD or DP4', icon: 'rule', ready: true,
+                    blurb: anyReads ? 'Every genotyped call, every sample, eight reads or more.'
+                        : 'This needs allele depths — AD, or DP4 for SomaticSniper-style files. Nothing loaded carries them.',
+                    open: () => { if (anyReads) gtReadRun(); else uploadMenu(); } });
+            } else {
+                const pc = (a, b) => (b ? (100 * a / b).toFixed(1) + '%' : '—');
+                R.per.filter((x) => x.read).forEach((x) => books.push({ section: 'By sample', note: true, mono: true, title:
+                      SAMPLES[x.si] + '   (' + x.read.toLocaleString() + ' genotyped calls with reads)\n'
+                    + '  homozygous call, reads heterozygous   ' + x.homLow.toLocaleString() + '   ' + pc(x.homLow, x.read) + '\n'
+                    + '  heterozygous call, reads homozygous   ' + x.hetHigh.toLocaleString() + '   ' + pc(x.hetHigh, x.read) + '\n'
+                    + (x.si === R.tumourCol ? '  (a tumour\u2019s low fractions are subclones, not counted)'
+                        : '  heterozygous call, reads barely show  ' + x.hetNone.toLocaleString() + '   ' + pc(x.hetNone, x.read)) }));
+                books.push({ section: 'Take it away', title: 'Download them as CSV', badge: R.rows.length.toLocaleString() + ' rows', icon: 'file_download',
+                    ready: R.rows.length > 0, readyNote: 'nothing flagged',
+                    blurb: 'Position, alleles, sample, genotype, allele fraction and which way they disagree.',
+                    open: () => { try { dlSaveText(dlToCSV(R.rows), dlSafe(dlSpecies() + '_genotypes_the_reads_contradict') + '.csv', 'text/csv'); dlMsg('Downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + e); } } });
+                books.push({ section: 'Take it away', title: 'Run it again', badge: 'again', icon: 'refresh', ready: true,
+                    blurb: 'After loading more.', open: () => { gtReadResult = null; gtReadMenu(); } });
+            }
+            books.push({ section: 'Back', title: 'Check the calls', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The other checks on what is loaded.', open: () => qcMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Genotypes the reads contradict',
+                subtitle: R ? (R.marked.toLocaleString() + ' calls marked') : 'where a caller’s genotype and its own reads disagree',
+                graph: graph, books: books });
+        };
+
+        // ---- 3. MUTATIONAL SPECTRUM ---------------------------------------------------
+        //
+        // The six classes, folded onto the pyrimidine of the pair so C>T and G>A are one
+        // class, as every signature study writes them. Without the base either side this is
+        // not a signature -- APOBEC and ageing both write C>T and only the context tells them
+        // apart -- and the panel says so rather than naming a process it cannot see.
+        const SBS6 = ['C>A', 'C>G', 'C>T', 'T>A', 'T>C', 'T>G'];
+        const SBS_COMP = { A: 'T', C: 'G', G: 'C', T: 'A' };
+        const spectrumOf = (filterFn) => {
+            const cnt = { 'C>A': 0, 'C>G': 0, 'C>T': 0, 'T>A': 0, 'T>C': 0, 'T>G': 0 };
+            let n = 0;
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                for (let k = 0; k < d.n; k++) {
+                    if (filterFn && !filterFn(d, k)) continue;
+                    const ab = allelesAt(ci, k);
+                    let r0 = ab[0], a0 = ab[1];
+                    if (r0.length !== 1 || a0.length !== 1 || !SBS_COMP[r0] || !SBS_COMP[a0] || r0 === a0) continue;
+                    if (r0 === 'G' || r0 === 'A') { r0 = SBS_COMP[r0]; a0 = SBS_COMP[a0]; }
+                    cnt[r0 + '>' + a0]++; n++;
+                }
+            }
+            const ti = cnt['C>T'] + cnt['T>C'];
+            return { cnt: cnt, n: n, tiTv: (n - ti) ? ti / (n - ti) : 0 };
+        };
+        const spectrumBars = (S) => {
+            const max = Math.max(1, ...SBS6.map((k) => S.cnt[k]));
+            return SBS6.map((k) => {
+                const v = S.cnt[k], w = Math.round(28 * v / max);
+                return k + '  ' + '█'.repeat(w) + ' '.repeat(28 - w) + '  ' + v.toLocaleString().padStart(9)
+                    + '  ' + (S.n ? (100 * v / S.n).toFixed(1) : '0.0').padStart(5) + '%';
+            }).join('\n') + '\n\n' + S.n.toLocaleString() + ' single-base substitutions   Ti/Tv ' + S.tiTv.toFixed(2);
+        };
+        const spectrumMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const books = [];
+            const sc = sideCounts();
+            books.push({ section: 'Mutational spectrum', note: true,
+                title: 'The six substitution classes, each folded onto its pyrimidine (C>T and G>A are one class). A tumour’s own '
+                    + 'processes write this profile — C>T most often from deamination with age, C>A from oxidative damage and tobacco, '
+                    + 'T>A and T>C from others — which is why a germline Ti/Tv cannot judge a somatic callset. It is not a signature: '
+                    + 'the bases either side are what separate APOBEC from ageing, and they are not read here.' });
+            const groups = [];
+            if (sc.left && sc.right) {
+                groups.push({ name: sideName(0), fn: (d, k) => !(d.side && d.side[k]) });
+                groups.push({ name: sideName(1), fn: (d, k) => !!(d.side && d.side[k]) });
+            } else groups.push({ name: 'everything loaded', fn: null });
+            // In a tumour/normal file, the calls the tumour carries and the normal does not
+            // are the somatic ones -- the spectrum worth reading.
+            // One file only: with two, a sample column means a different thing on each side.
+            const pair = (sc.left && sc.right) ? null : qcPairSpecs().find((x) => x.named);
+            if (pair) groups.push({ name: SAMPLES[pair.tumor] + ' only (somatic)',
+                fn: (d, k) => d.gtw > Math.max(pair.tumor, pair.normal) && gtOf(d, k, pair.tumor) >= GT_HET && gtOf(d, k, pair.normal) < GT_HET });
+            let any = false;
+            groups.forEach((g) => {
+                const S = spectrumOf(g.fn);
+                if (!S.n) return;
+                any = true;
+                books.push({ section: g.name, note: true, mono: true, title: spectrumBars(S) });
+            });
+            if (!any) books.push({ section: 'Mutational spectrum', accent: 'choose', title: 'Load a VCF', badge: 'nothing to count',
+                icon: 'upload_file', ready: true, blurb: 'Any callset with single-base substitutions.', open: () => uploadMenu() });
+            books.push({ section: 'Back', title: 'Check the calls', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The other checks on what is loaded.', open: () => qcMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Mutational spectrum',
+                subtitle: 'six substitution classes, per file' + (pair ? ' and for the somatic calls' : ''), graph: graph, books: books });
+        };
+
+        // ---- 4. CONCORDANCE: TWO CALLSETS, OR A CALLSET AGAINST A TRUTH SET -------------
+        //
+        // A variant is the same call when it is the same position and the same change. The
+        // arrays are sorted by position, so each chromosome is one walk grouping equal
+        // positions and comparing their alleles by side. With one side named the truth, the
+        // counts become precision and recall -- with the caveat stated, because a truth set
+        // like SEQC2's covers only its own confident regions, and a call outside them is not
+        // wrong, just unjudged.
+        const concRun = async (confOnly) => {
+            clearWorking();
+            qcClearHl();
+            let both = 0, onlyL = 0, onlyR = 0, skipped = 0;
+            const perChrom = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n || !d.side) continue;
+                graph.setMessage(' Matching calls on ' + drawn[ci].name + '… ');
+                let b0 = 0, l0 = 0, r0 = 0;
+                let k = 0;
+                while (k < d.n) {
+                    let e = k;
+                    while (e + 1 < d.n && d.pos[e + 1] === d.pos[k]) e++;
+                    const L = new Map(), R = new Map();
+                    for (let j = k; j <= e; j++) {
+                        // A call its own caller failed is not a call to compare. MuTect2's
+                        // unfiltered output is mostly those, and counted in they swamp
+                        // every difference that matters.
+                        if (confOnly && d.rconf && d.rconf[j] === CONF_LOW) { skipped++; continue; }
+                        const ab = allelesAt(ci, j);
+                        const key = ab[0] + '>' + ab[1];
+                        (d.side[j] ? L : R).set(key, j);
+                    }
+                    for (const [key, j] of L) { if (R.has(key)) { both++; b0++; } else { onlyL++; l0++; d.hl[j] = HL_CONC_L; } }
+                    for (const [key, j] of R) { if (!L.has(key)) { onlyR++; r0++; d.hl[j] = HL_CONC_R; } }
+                    k = e + 1;
+                }
+                perChrom.push({ name: drawn[ci].name, both: b0, onlyL: l0, onlyR: r0 });
+                await new Promise((r2) => setTimeout(r2, 0));
+            }
+            concResult = { both: both, onlyL: onlyL, onlyR: onlyR, perChrom: perChrom, confOnly: confOnly, skipped: skipped };
+            graph.setMessage(' ' + both.toLocaleString() + ' shared, ' + onlyL.toLocaleString() + ' left only, ' + onlyR.toLocaleString() + ' right only. ');
+            if (onlyL || onlyR) qcMarkAndShow(onlyL >= onlyR ? HL_CONC_L : HL_CONC_R); else legendRefresh();
+            concMenu();
+        };
+        const concMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const sc = sideCounts();
+            const R = concResult;
+            const books = [];
+            books.push({ section: 'Compare two callsets', note: true,
+                title: 'The file on the left against the file on the right: the calls both made, and the ones only one did. Two callers '
+                    + 'run on the same sample, one aligner against another, or a callset against a truth set — the differences are '
+                    + 'the method, because the biology is the same on both sides.' });
+            if (!(sc.left && sc.right)) {
+                books.push({ section: 'Compare two callsets', accent: 'choose', title: sc.total ? 'Load the second callset on the left' : 'Load two callsets',
+                    badge: 'needs both sides', icon: 'upload_file', ready: true,
+                    blurb: 'Upload asks which side a new file goes on. For SEQC2, any two of WGS_IL_1.bwa.muTect2, .strelka and .somaticSniper '
+                        + 'compare callers on identical data; the high-confidence truth VCF on either side scores one against the truth.',
+                    open: () => uploadMenu() });
+            } else if (!R) {
+                books.push({ section: sideName(1) + '  ↔  ' + sideName(0), accent: 'run', title: 'Calls that passed their filters',
+                    badge: sc.left.toLocaleString() + ' · ' + sc.right.toLocaleString(), icon: 'compare_arrows', ready: true,
+                    blurb: 'Match by position and change, leaving out what either caller itself failed (a FILTER flag, or QUAL under 10). The comparison that judges a caller.',
+                    open: () => concRun(true) });
+                books.push({ section: sideName(1) + '  ↔  ' + sideName(0), accent: 'run', title: 'Every call, filtered or not', badge: 'everything',
+                    icon: 'compare_arrows', ready: true,
+                    blurb: 'Includes the calls each caller rejected — for seeing what a filter removed.',
+                    open: () => concRun(false) });
+            } else {
+                const tot = R.both + R.onlyL + R.onlyR;
+                books.push({ section: 'Result', note: true, mono: true, title:
+                      'in both                ' + R.both.toLocaleString() + '\n'
+                    + 'only on the left       ' + R.onlyL.toLocaleString() + '   ' + sideName(1) + '\n'
+                    + 'only on the right      ' + R.onlyR.toLocaleString() + '   ' + sideName(0) + '\n'
+                    + 'agreement (Jaccard)    ' + (tot ? (100 * R.both / tot).toFixed(1) + '%' : '—')
+                    + (R.confOnly ? '\nfailed calls, left out   ' + R.skipped.toLocaleString() : '') });
+                // One side as the truth: precision of the other, and its recall of the truth.
+                const score = (truthSide) => {
+                    const truthN = R.both + (truthSide ? R.onlyL : R.onlyR);
+                    const callN = R.both + (truthSide ? R.onlyR : R.onlyL);
+                    const prec = callN ? R.both / callN : 0, rec = truthN ? R.both / truthN : 0;
+                    const f1 = (prec + rec) ? 2 * prec * rec / (prec + rec) : 0;
+                    return 'precision  ' + (100 * prec).toFixed(1) + '%   of ' + callN.toLocaleString() + ' calls, ' + R.both.toLocaleString() + ' are in the truth\n'
+                        + 'recall     ' + (100 * rec).toFixed(1) + '%   of ' + truthN.toLocaleString() + ' true variants, ' + R.both.toLocaleString() + ' were called\n'
+                        + 'F1         ' + (100 * f1).toFixed(1) + '%';
+                };
+                [1, 0].forEach((ts) => books.push({ section: 'Score one against the other', title: sideName(ts) + ' as the truth set',
+                    badge: 'precision · recall', icon: 'verified', ready: true,
+                    blurb: 'Treat ' + sideName(ts) + ' as correct and score ' + sideName(ts ? 0 : 1) + ' against it.',
+                    books: () => [
+                        { note: true, mono: true, title: score(ts) },
+                        { note: true, title: 'A truth set like SEQC2’s high-confidence VCF covers only its own confident regions. A call outside '
+                            + 'them lands in the false positives here without being wrong — it is unjudged — so precision reads lower than '
+                            + 'a benchmark restricted to those regions would report.' },
+                    ] }));
+                R.perChrom.filter((c) => c.onlyL || c.onlyR).sort((a, b) => (b.onlyL + b.onlyR) - (a.onlyL + a.onlyR)).slice(0, 24)
+                    .forEach((c) => books.push({ section: 'Where they differ most', title: c.name,
+                        badge: c.onlyL.toLocaleString() + ' · ' + c.onlyR.toLocaleString(), icon: 'zoom_in', ready: true,
+                        blurb: c.both.toLocaleString() + ' in both, ' + c.onlyL.toLocaleString() + ' only left, ' + c.onlyR.toLocaleString() + ' only right.',
+                        open: () => { const ci = chromIndexOf(c.name); if (ci >= 0) goView({ x0: barLeft(ci) - 0.6 * SLOT, x1: barRight(ci) + 0.6 * SLOT, y0: wy(drawn[ci].length), y1: wy(0) }); } }));
+                books.push({ section: 'Take it away', title: 'Run it again', badge: 'again', icon: 'refresh', ready: true,
+                    blurb: 'After loading a different pair.', open: () => { concResult = null; concMenu(); } });
+            }
+            books.push({ section: 'Back', title: 'Check the calls', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The other checks on what is loaded.', open: () => qcMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Compare two callsets',
+                subtitle: R ? (R.both.toLocaleString() + ' shared · ' + R.onlyL.toLocaleString() + ' left only · ' + R.onlyR.toLocaleString() + ' right only')
+                    : 'what both found, and what only one did', graph: graph, books: books });
+        };
+
+        // ---- the door to all four -----------------------------------------------------
+        const qcMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const sc = sideCounts();
+            const pairNamed = qcPairSpecs().some((x) => x.named);
+            const anyReads = vdata.some((d) => d && d.baf);
+            const books = [];
+            books.push({ section: 'Check the calls', note: true,
+                title: 'Before reasoning from a callset, how far to trust it. These read only what is loaded and re-call nothing: they '
+                    + 'show where a file’s calls and its own reads disagree, what kind of changes it holds, and how it compares with another.' });
+            books.push({ section: 'Check the calls', accent: 'run', title: 'Somatic calls the normal carries', icon: 'fact_check', ready: true,
+                badge: nsupResult ? nsupResult.carried.toLocaleString() + ' flagged' : (SAMPLES.length >= 2 ? (pairNamed ? 'tumour · normal' : 'pick the normal') : 'needs a pair'),
+                blurb: 'Calls the tumour carries that the normal’s own reads carry too: germline, contamination or a shared artefact, '
+                    + 'whatever the genotype column says.', open: () => nsupMenu() });
+            books.push({ section: 'Check the calls', accent: anyReads ? 'run' : undefined, title: 'Genotypes the reads contradict', icon: 'rule', ready: true,
+                badge: gtReadResult ? gtReadResult.marked.toLocaleString() + ' marked' : (anyReads ? 'every sample' : 'needs read counts'),
+                blurb: 'A 1/1 under 60% of the reads, a 0/1 over 95% — the calls whose genotype every genotype-based analysis would inherit.',
+                open: () => gtReadMenu() });
+            books.push({ section: 'Check the calls', accent: 'run', title: 'Mutational spectrum', icon: 'bar_chart', ready: true,
+                badge: 'six classes', blurb: 'The substitution profile per file' + (pairNamed ? ', and for the somatic calls alone' : '') + '.',
+                open: () => spectrumMenu() });
+            books.push({ section: 'Check the calls', accent: (sc.left && sc.right) ? 'run' : 'choose', title: 'Compare two callsets', icon: 'compare_arrows', ready: true,
+                badge: concResult ? (concResult.both.toLocaleString() + ' shared') : ((sc.left && sc.right) ? 'left ↔ right' : 'load a second file'),
+                blurb: 'Two callers on the same sample, or a callset against a truth set: shared calls, calls only one found, precision and recall.',
+                open: () => concMenu() });
+            books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The losses, the differential, synthetic lethality and the rest.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Check the calls',
+                subtitle: 'how far to trust what is loaded', graph: graph, books: books });
+        };
         const analysisMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             // Back at the root, whatever errand was running is over: someone who came here
@@ -11103,6 +11567,12 @@ function (path, config) {
                     }));
                 }
             }
+            // HOW FAR TO TRUST WHAT IS LOADED, beside what it holds.
+            books.push({ section: 'This genome', title: 'Check the calls', badge: 'quality · spectrum · compare',
+                icon: 'fact_check', ready: true,
+                blurb: 'Somatic calls the normal carries, genotypes the reads contradict, the mutational spectrum, and one callset '
+                    + 'against another or against a truth set.',
+                open: () => qcMenu() });
             books.push({ section: 'Look up', title: 'Find a gene, or act on the selected regions', badge: 'search', icon: 'search',
                 blurb: 'Jump to a gene by name, see the genes inside the regions you have selected, and open their transcripts in the editor.',
                 ready: true, open: () => { try { searchMenu(); } catch (e) { } } });
