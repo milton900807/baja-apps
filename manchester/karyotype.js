@@ -3867,18 +3867,23 @@ function (path, config) {
             let ix = __fmtCache.get(fmt);
             if (ix) return ix;
             const keys = ('' + (fmt || '')).split(':');
-            ix = { dp: keys.indexOf('DP'), ad: keys.indexOf('AD'), gq: keys.indexOf('GQ'), ps: keys.indexOf('PS') };
+            ix = { dp: keys.indexOf('DP'), ad: keys.indexOf('AD'), gq: keys.indexOf('GQ'), ps: keys.indexOf('PS'),
+                dp4: keys.indexOf('DP4') };
             __fmtCache.set(fmt, ix);
             return ix;
         };
         const sampleTierOf = (cell, ix, altIdx, rowT) => {
             let t = rowT;
-            if (!cell || (ix.dp < 0 && ix.ad < 0 && ix.gq < 0)) return t;
+            if (!cell || (ix.dp < 0 && ix.ad < 0 && ix.gq < 0 && ix.dp4 < 0)) return t;
             const parts = cell.split(':');
             if (ix.dp >= 0 && ix.dp < parts.length) { const dp = +parts[ix.dp]; if (isFinite(dp)) { if (dp < 4) t = CONF_LOW; else if (dp < 8 && t > CONF_MED) t = CONF_MED; } }
             if (ix.ad >= 0 && ix.ad < parts.length) {
                 const ads = parts[ix.ad].split(',');
                 if (ads.length > altIdx) { const alt = +ads[altIdx]; if (isFinite(alt)) { if (alt < 2) t = CONF_LOW; else if (alt < 3 && t > CONF_MED) t = CONF_MED; } }
+            } else if (ix.dp4 >= 0) {
+                // The same alt-read rule, from DP4, for the callers that write no AD.
+                const c = dp4Counts(parts, ix, altIdx);
+                if (c) { if (c.alt < 2) t = CONF_LOW; else if (c.alt < 3 && t > CONF_MED) t = CONF_MED; }
             }
             if (ix.gq >= 0 && ix.gq < parts.length) { const gq = +parts[ix.gq]; if (isFinite(gq)) { if (gq < 10) t = CONF_LOW; else if (gq < 20 && t > CONF_MED) t = CONF_MED; } }
             return t;
@@ -3916,8 +3921,27 @@ function (path, config) {
             const v = d.baf[k * d.gtw + si];
             return v ? (v - 1) / 200 : -1;
         };
+        // ALLELE COUNTS FROM DP4 WHERE A CALLER WRITES NO AD.
+        //
+        // SomaticSniper (and samtools' own output) carries the reads as DP4 --
+        // ref-forward, ref-reverse, alt-forward, alt-reverse -- and no AD at all, so every
+        // depth-based reading here saw nothing and a whole tumour/normal file was invisible
+        // to the loss-of-heterozygosity scan. DP4's alt counts are ALL non-reference reads
+        // together, so they only answer for the first alternate allele; a multi-allelic row
+        // is left to its genotype rather than credited with reads that belong to another.
+        const dp4Counts = (parts, ix, altIdx) => {
+            if (ix.dp4 < 0 || ix.dp4 >= parts.length || altIdx !== 1) return null;
+            const v = parts[ix.dp4].split(',').map((x) => +x);
+            if (v.length !== 4 || !v.every((x) => isFinite(x) && x >= 0)) return null;
+            return { alt: v[2] + v[3], dp: v[0] + v[1] + v[2] + v[3] };
+        };
         const bafCode = (cell, ix, altIdx) => {
-            if (!cell || ix.ad < 0) return 0;
+            if (!cell) return 0;
+            if (ix.ad < 0) {
+                const c = (ix.dp4 >= 0) ? dp4Counts(cell.split(':'), ix, altIdx) : null;
+                if (!c || c.dp < 8) return 0;
+                return 1 + Math.round(Math.min(1, c.alt / c.dp) * 200);
+            }
             const parts = cell.split(':');
             if (ix.ad >= parts.length) return 0;
             const ads = parts[ix.ad].split(',');
@@ -4133,6 +4157,22 @@ function (path, config) {
                 P.hasPS = k.indexOf('PS') >= 0;
                 P.psAt = k.indexOf('PS');
                 P.dpAt = k.indexOf('DP');
+                // A CALLER SIGNS ITS ROWS even when it writes no header saying who it is.
+                // SomaticSniper leaves no ##source line, no ##tumor_sample and no filters --
+                // the three things this looked for -- and was reported as a plain two-sample
+                // callset. Its per-sample SS (somatic status) and SSC (somatic score) are
+                // unique to it; Strelka's QSS/QSI and MuTect2's TLOD are the same kind of
+                // signature for the others.
+                if (k.indexOf('SSC') >= 0 && k.indexOf('SS') >= 0) P.sig = P.sig || 'SomaticSniper';
+                if (k.indexOf('AD') >= 0) P.hasAD = true;
+                if (k.indexOf('DP4') >= 0) P.hasDP4 = true;
+                P.adAt = k.indexOf('AD');
+                P.dp4At = k.indexOf('DP4');
+            }
+            if (!P.sig && f.length > 7) {
+                const inf = f[7];
+                if (inf.indexOf('QSS=') >= 0 || inf.indexOf('QSI=') >= 0) P.sig = 'Strelka';
+                else if (inf.indexOf('TLOD=') >= 0) P.sig = 'MuTect2';
             }
             if (f.length > 9) P.withGt = (P.withGt || 0) + 1;
             if (P.hasPS) {
@@ -4172,10 +4212,24 @@ function (path, config) {
             const q = +f[5];
             if (isFinite(q)) { P.qSum += q; P.qN++; }
             const gcol = P.gtCol || 9;
-            if (P.dpAt >= 0 && f.length > gcol) {
+            // THE MEDIAN, NOT THE MEAN. A somatic callset is full of pileups in repeats with
+            // thousands of reads, and one of those outweighs a hundred ordinary sites: a
+            // SomaticSniper file whose typical tumour depth is 56 reported a mean of 688.
+            // A fixed histogram gives the median without keeping a number per row.
+            //
+            // And from whatever the caller wrote: DP where there is one, else the sum of AD
+            // (MuTect2 writes no per-sample DP), else the sum of DP4.
+            if (f.length > gcol) {
                 const cell = f[gcol].split(':');
-                const d = +cell[P.dpAt];
-                if (isFinite(d)) { P.dpSum += d; P.dpN++; }
+                let d = NaN;
+                if (P.dpAt >= 0) d = +cell[P.dpAt];
+                if (!isFinite(d) && P.adAt >= 0 && cell[P.adAt]) d = cell[P.adAt].split(',').reduce((a, x) => a + (+x || 0), 0);
+                if (!isFinite(d) && P.dp4At >= 0 && cell[P.dp4At]) d = cell[P.dp4At].split(',').reduce((a, x) => a + (+x || 0), 0);
+                if (isFinite(d) && d >= 0) {
+                    if (!P.dpHist) P.dpHist = new Uint32Array(2002);
+                    P.dpHist[Math.min(2001, Math.round(d))]++;
+                    P.dpSum += d; P.dpN++;
+                }
             }
             // Zygosity and phase of ONE sample, read straight off its genotype field: the
             // only one a single-sample file has, and the tumor in a pair (chosen above).
@@ -4208,6 +4262,7 @@ function (path, config) {
                 const src = '' + (M.source || '');
                 const cmd = ('' + (M.commands || []).join(' ') + ' ' + (M.versions || []).join(' '));
                 const all = (src + ' ' + cmd).toLowerCase();
+                if (P.sig) return P.sig;
                 if (/clair3/.test(all)) return 'Clair3';
                 if (/deepvariant/.test(all)) return 'DeepVariant';
                 if (/mutect2|mutect/.test(all)) return 'MuTect2';
@@ -4234,7 +4289,11 @@ function (path, config) {
             if (P.somatic) somaticSigns.push('rows carry the SOMATIC flag');
             const fl = (M.filter || []).join(' ').toLowerCase();
             if (/panel_of_normals|germline_risk|germline|alt_allele_in_normal|weak_evidence|t_lod|normal_artifact/.test(fl)) somaticSigns.push('it filters on somatic criteria (' + (M.filter || []).filter((x) => /normal|germline|evidence|lod|artifact/i.test(x)).slice(0, 4).join(', ') + ')');
-            if (/mutect|strelka|varscan|lofreq|vardict/i.test(caller)) somaticSigns.push('it was written by a somatic caller (' + caller + ')');
+            if (/mutect|strelka|varscan|lofreq|vardict|somaticsniper/i.test(caller)) somaticSigns.push('it was written by a somatic caller (' + caller + ')');
+            // THE SAMPLE NAMES ARE EVIDENCE TOO. A pair of columns called TUMOR and NORMAL is
+            // what a somatic caller writes and what nothing else does.
+            const tnNames = (samples.some((x) => /^tumou?r$|^t$/i.test(x)) && samples.some((x) => /^normal$|^n$/i.test(x)));
+            if (tnNames && !somaticSigns.some((x) => /sample columns/.test(x))) somaticSigns.push('the sample columns are named ' + samples.join(' and '));
             const sitesOnly = nS === 0;
             // PHASED MEANS THE HETEROZYGOUS CALLS ARE PHASED, which is the only thing that
             // makes a second site on the same copy usable. A PS column on its own does not:
@@ -4260,6 +4319,11 @@ function (path, config) {
                 : 'a joint callset of ' + nS + ' samples';
             const tiTv = P.tv ? (P.ti / P.tv) : 0;
             const meanDP = P.dpN ? (P.dpSum / P.dpN) : 0;
+            let medianDP = 0;
+            if (P.dpHist && P.dpN) {
+                let acc = 0; const half = P.dpN / 2;
+                for (let i = 0; i < P.dpHist.length; i++) { acc += P.dpHist[i]; if (acc >= half) { medianDP = i; break; } }
+            }
             const meanQ = P.qN ? (P.qSum / P.qN) : 0;
             return {
                 file: fileName || '', kind: kind, sitesOnly: sitesOnly && !P.withGt, somaticSigns: somaticSigns,
@@ -4272,6 +4336,7 @@ function (path, config) {
                 records: P.records, pass: P.pass, sampled: P.sampled,
                 snv: P.snv, ins: P.ins, del: P.del, multi: P.multi, tiTv: tiTv,
                 het: P.het, hom: P.hom, meanDP: meanDP, meanQ: meanQ, gtName: P.gtName || '',
+                hasAD: !!P.hasAD, hasDP4: !!P.hasDP4, medianDP: medianDP,
             };
         };
         // THE PROMPT. Shown once, when a file finishes loading, because that is the moment
@@ -4343,14 +4408,56 @@ function (path, config) {
                 + 'Ti/Tv        ' + (V.tiTv ? V.tiTv.toFixed(2) : '\u2014') + '\n'
                 + 'het : hom    ' + V.het.toLocaleString() + ' : ' + V.hom.toLocaleString()
                     + (V.gtName ? '   (' + V.gtName + ')' : '') + '\n'
-                + 'mean depth   ' + (V.meanDP ? V.meanDP.toFixed(1) + 'x' : '\u2014') + '\n'
+                + 'depth        ' + (V.medianDP ? V.medianDP + 'x median' : '\u2014')
+                    + (V.meanDP && V.medianDP && V.meanDP > V.medianDP * 2 ? ' (mean ' + Math.round(V.meanDP) + 'x: pileups)' : '')
+                    + (V.gtName ? '   (' + V.gtName + ')' : '') + '\n'
                 + 'mean QUAL    ' + (V.meanQ ? V.meanQ.toFixed(1) : '\u2014') });
             books.push({ section: 'What is in it', note: true,
                 title: 'Counts marked sampled come from every 17th row \u2014 enough to state a shape, not a total. '
                     + 'Records, PASS and phase are counted on every row.'
-                    + (V.tiTv && V.tiTv < 1.9 && V.snv > 500 ? ' A Ti/Tv of ' + V.tiTv.toFixed(2) + ' is below the ~2.0 a '
-                        + 'human whole-genome callset usually shows, which is what a false-positive tail looks like: '
-                        + 'filter on depth and quality before treating the weakest calls as real.' : '') });
+                    + (V.tiTv && V.tiTv < 1.9 && V.snv > 500
+                        ? (V.somaticSigns.length
+                            // ~2.0 IS A GERMLINE NUMBER. A somatic callset's spectrum is set by the
+                            // tumour's mutational processes, not by inheritance, and is often far
+                            // lower -- so the germline benchmark says nothing here, and repeating
+                            // it would call a sound somatic file noisy.
+                            ? ' A Ti/Tv of ' + V.tiTv.toFixed(2) + ' is not held against a somatic callset: the ~2.0 benchmark is '
+                              + 'for inherited variation, and a tumour\u2019s own mutational processes set its spectrum. Judge these '
+                              + 'calls on their somatic score and depth instead.'
+                            : ' A Ti/Tv of ' + V.tiTv.toFixed(2) + ' is below the ~2.0 a human whole-genome callset usually shows, '
+                              + 'which is what a false-positive tail looks like: filter on depth and quality before treating the '
+                              + 'weakest calls as real.')
+                        : '') });
+            // WHAT THIS FILE LETS YOU DO. The facts above are only useful as far as they
+            // decide that, so the panel says it: which analyses this particular file can
+            // feed, and for the ones it cannot, the one thing that is missing.
+            {
+                const depth = V.hasAD ? 'AD' : (V.hasDP4 ? 'DP4' : '');
+                const pair = V.somaticSigns.length && V.nSamples >= 2;
+                const lines = [];
+                if (pair) {
+                    lines.push('\u2713 Differential loss matrix \u2014 which genes the tumour has lost that the normal has not.');
+                    lines.push(depth
+                        ? '\u2713 Loss of heterozygosity \u2014 judged on the reads (' + depth + '), not the caller\u2019s genotype.'
+                        : '\u2717 Loss of heterozygosity \u2014 this file carries no read counts (no AD, no DP4) to judge it on.');
+                    lines.push('\u2713 Loss matrix on the tumour, and from it synthetic lethality and the paralog model.');
+                    lines.push(depth
+                        ? '\u2713 Allele-selective targets by somatic retention \u2014 once the LOH scan has run.'
+                        : '\u2717 Somatic retention needs the LOH scan, which needs read counts.');
+                } else if (V.nSamples === 1) {
+                    lines.push('\u2713 Loss matrix \u2014 the genes this genome carries a damaging change in.');
+                    lines.push(V.phased ? '\u2713 Compound heterozygotes, cis or trans \u2014 the file is phased.'
+                        : '\u2717 Compound heterozygotes \u2014 needs a phased file to place two hits on their copies.');
+                    lines.push('\u2713 Allele-selective targets from the mutation itself' + (V.phased ? ', and from the phased copy.' : '.'));
+                    lines.push('\u2717 Differential and LOH \u2014 load the matching tumour or normal on the other side.');
+                }
+                if (!V.phased && V.nSamples >= 1) lines.push('\u2717 Anything that needs phase \u2014 this file records genotypes as pairs, not copies.');
+                if (lines.length) books.push({ section: 'What you can do with it', note: true, mono: true, title: lines.join('\n') });
+                if (!V.hasAD && V.hasDP4) books.push({ section: 'What you can do with it', note: true,
+                    title: 'This caller writes no AD, so the read counts are taken from DP4 \u2014 its forward and reverse '
+                        + 'reference and alternate reads. Those count every non-reference read together, so a row with more '
+                        + 'than one alternate allele is judged on its genotype instead.' });
+            }
             books.push({ section: 'Where it came from', note: true,
                 title: (V.reference ? 'Reference: ' + V.reference + '. ' : '')
                     + V.contigs + ' contigs in the header, ' + V.build + '. '
@@ -4406,7 +4513,11 @@ function (path, config) {
                         try {
                             const tn = P.meta && P.meta.tumor_sample;
                             const at = tn ? P.samples.indexOf(('' + tn).trim()) : -1;
-                            if (at >= 0) { P.gtCol = 9 + at; P.gtName = P.samples[at]; }
+                            // No ##tumor_sample header (SomaticSniper writes none): a column
+                            // literally named TUMOR is the tumour, and reading the normal's
+                            // zygosity off a somatic file reports the one column that is 0/0.
+                            const byName = at >= 0 ? at : P.samples.findIndex((x) => /^tumou?r$/i.test(x));
+                            if (byName >= 0) { P.gtCol = 9 + byName; P.gtName = P.samples[byName]; }
                             else P.gtName = P.samples[0] || '';
                         } catch (e) { }
                     } else if (t.charCodeAt(1) === 35) { try { profHeader(t, count); } catch (e) { } }
