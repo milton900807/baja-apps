@@ -67,7 +67,7 @@ def first_existing(rel):
 def fetch(path, contig, start1, end1):
     if pysam:
         try:
-            tb = pysam.TabixFile(path)
+            tb = pysam.TabixFile(path, encoding="utf-8")
             for row in tb.fetch(contig, max(0, start1 - 1), end1):
                 yield row
             return

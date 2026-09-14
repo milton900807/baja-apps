@@ -35,7 +35,7 @@ def list_contigs(path):
     """Set of contig names indexed in the .tbi, via pysam or `tabix -l`."""
     if pysam:
         try:
-            return set(pysam.TabixFile(path).contigs)
+            return set(pysam.TabixFile(path, encoding="utf-8").contigs)
         except Exception:
             pass
     if _TABIX_BIN:
@@ -51,7 +51,7 @@ def list_contigs(path):
 def fetch_region(path, contig, start1, end1):
     """Yield raw VCF/TSV lines overlapping [start1, end1] (1-based inclusive)."""
     if pysam:
-        tb = pysam.TabixFile(path)
+        tb = pysam.TabixFile(path, encoding="utf-8")
         for row in tb.fetch(contig, max(0, start1 - 1), end1):
             yield row
         return

@@ -87,7 +87,7 @@ def rows(path, contig, s1, e1):
     """Tabix a region, yielding split rows. pysam when it is there, the binary otherwise."""
     if pysam is not None:
         try:
-            tb = pysam.TabixFile(path)
+            tb = pysam.TabixFile(path, encoding="utf-8")
             for row in tb.fetch(contig, max(0, s1 - 1), e1):
                 yield row.split("\t")
             return
@@ -108,7 +108,7 @@ def rows(path, contig, s1, e1):
 def contigs_of(path):
     if pysam is not None:
         try:
-            return set(pysam.TabixFile(path).contigs)
+            return set(pysam.TabixFile(path, encoding="utf-8").contigs)
         except Exception:
             pass
     if not _TABIX:

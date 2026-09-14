@@ -127,7 +127,7 @@ class Tabix:
         self.tb = None
         if pysam is not None:
             try:
-                self.tb = pysam.TabixFile(path)
+                self.tb = pysam.TabixFile(path, encoding="utf-8")
             except Exception:
                 self.tb = None
 

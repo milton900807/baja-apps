@@ -3185,6 +3185,8 @@ function (path, config) {
         const CLS_SIG = ['', 'Pathogenic', 'Benign', 'Uncertain significance',
             'Conflicting classifications of pathogenicity'];
         const sigOf = (d, k) => {
+            // Today's ClinVar, by exact match, names the classification precisely.
+            try { const ci = vdata.indexOf(d); const i = ci >= 0 ? cvRowAt(ci, k) : -1; if (i >= 0) return CV_SIG[cvIdx.get(drawn[ci].name).sig[i]]; } catch (e) { }
             const fromVcf = CLS_SIG[d.cls[k]] || '';
             if (fromVcf) return fromVcf;
             if (d.hl && d.hl[k] === HL_PATHOGENIC) return 'Pathogenic/Likely pathogenic';
@@ -4128,6 +4130,7 @@ function (path, config) {
             else if (t.indexOf('##contig=') === 0) {
                 P.contigs++;
                 if (!M.contigExample) M.contigExample = t.slice(9).replace(/[<>]/g, '');
+                if (/[<,]ID=(?:chr)?1[,>]/.test(t)) { const lm = t.match(/length=(\d+)/); if (lm) M.chr1Len = +lm[1]; }
                 if (t.indexOf('ID=chr') >= 0) P.chrPrefix = true;
             }
             else if (t.indexOf('##FORMAT=<ID=') === 0) { (M.format = M.format || []).push(t.slice(13).split(',')[0]); }
@@ -4790,6 +4793,9 @@ function (path, config) {
             } catch (e) { step('sex inference failed: ' + e); }
             step('vcf: ' + count.added + ' placed, ' + count.offGenome + ' off-genome, '
                 + count.skipped + ' skipped, ' + vtotal + ' total');
+            // ClinVar, matched now, in the background: the variants are drawn already and the
+            // annotation arrives on them.
+            try { if (count.added) cvAfterLoad(count); } catch (e) { step('clinvar match threw: ' + e); }
         };
 
         // A pasted string: sliced with a yield between, so a large paste shows progress
@@ -4922,6 +4928,9 @@ function (path, config) {
         };
         const addVcfFile = async (file) => {
             if (!SnpIndel) { try { SnpIndel = await exec('flexigraph/snpindel.js'); } catch (e) { } }
+            // A big genome reads for a minute: ClinVar is fetched alongside, so the match can
+            // run the moment the last variant is placed.
+            try { if (file.size > CV_PREFETCH_BYTES) cvPrefetch(); } catch (e) { }
             const bufs = newBufs(), namesOf = drawn.map(() => []);
             const count = { added: 0, offGenome: 0, skipped: 0 };
             await readLines(file, (lines) => { parseLines(lines, bufs, namesOf, count); }, (done) => {
@@ -6433,6 +6442,299 @@ function (path, config) {
             return n;
         };
 
+        // ---- CLINVAR, MATCHED AS THE GENOME LOADS ----------------------------------------
+        //
+        // Every VCF loaded onto a human GRCh38 genome is matched against ClinVar's pathogenic
+        // and likely pathogenic variants, and the ones that match are annotated as such --
+        // without being asked. "Which of these are known to cause disease" is the first
+        // question about any genome, and the filter that answered it only when invoked also
+        // answered it by POSITION: a benign change at a base where some other change is
+        // pathogenic was marked pathogenic.
+        //
+        // So the match is exact. py/bio/clinvar-pathogenic.py sends ClinVar's P/LP records a
+        // chromosome batch at a time (about 350,000 in all; the genome is the big side and
+        // stays here), both sides are trimmed to their minimal alleles, and a variant matches
+        // only with the same position, REF and ALT. What is not caught: an indel written
+        // right-shifted in a repeat, since left-aligning it needs the reference sequence.
+        //
+        // The answer lives in d.cls, the class the colors, the editor hand-off and a saved file
+        // already carry, so a match is red in the ClinVar color mode and glows in the editor
+        // with nothing else to keep in step. The detail -- which classification, review stars,
+        // gene, consequence, condition, VariationID -- is read back from the index on demand.
+        const CV_BATCH = 8;             // chromosomes per server call
+        const CV_PREFETCH_BYTES = 5e6;  // a file this large starts fetching ClinVar as it starts reading
+        const cvIdx = new Map();        // drawn chromosome name -> decoded index, or null: ClinVar has none
+        let cvVersion = '';
+        let cvFetching = null;          // the fetch in flight, which a later caller waits on
+        let cvLast = null;              // the last match: counts, genes, when
+        let cvRun = 0;                  // a newer load supersedes an older match still running
+        const CV_SIG = ['', 'Pathogenic', 'Pathogenic/Likely pathogenic', 'Likely pathogenic'];
+        const CV_SHORT = ['', 'P', 'P/LP', 'LP'];
+        const cvEligible = () => /human|sapiens/i.test('' + ((r && r.species) || '')) && /38/.test('' + ((r && r.assembly) || ''));
+        // A file that says it is GRCh37 is on other coordinates, and an exact match there is a
+        // coincidence rather than a finding. Read from ##reference and chr1's ##contig length.
+        const cvBuild37 = (count) => {
+            const M = (count && count.prof && count.prof.meta) || {};
+            return M.chr1Len === 249250621 || /hg19|grch37|b37|hs37|g1k_v37/i.test('' + (M.reference || ''));
+        };
+        const cvDecode = (J) => {
+            const n = J.n | 0, pos = new Float64Array(n);
+            let p = 0;
+            for (let i = 0; i < n; i++) { p += J.pos[i]; pos[i] = p; }
+            const byPos = new Map();
+            for (let i = 0; i < n; i++) {
+                const q = byPos.get(pos[i]);
+                if (q === undefined) byPos.set(pos[i], i);
+                else if (typeof q === 'number') byPos.set(pos[i], [q, i]);
+                else q.push(i);
+            }
+            return { n: n, pos: pos, ref: J.ref, alt: J.alt, sig: J.sig, lp: J.lp, vid: J.vid, star: J.star,
+                g: J.g, mc: J.mc, cn: J.cn, genes: J.genes, mcs: J.mcs, conds: J.conds, byPos: byPos };
+        };
+        const cvFetch = async (names) => {
+            const want = names.filter((nm) => !cvIdx.has(nm));
+            for (let i = 0; i < want.length; i += CV_BATCH) {
+                const batch = want.slice(i, i + CV_BATCH);
+                let rs = null;
+                try { rs = await exec(server + '/py/bio/clinvar-pathogenic.py', new EngineMonitor(() => { }), batch.join(','), 'human'); }
+                catch (e) { step('clinvar fetch threw: ' + e); }
+                if (!rs || !rs.ok) { step('clinvar: ' + ((rs && rs.error) || 'no answer')); return false; }
+                cvVersion = rs.version || cvVersion;
+                let D = {};
+                try { D = JSON.parse(rs.data || '{}'); } catch (e) { step('clinvar parse: ' + e); return false; }
+                for (const nm of batch) cvIdx.set(nm, D[nm] ? cvDecode(D[nm]) : null);
+            }
+            return true;
+        };
+        const cvPrefetch = () => {
+            if (cvFetching || !cvEligible()) return cvFetching;
+            const names = drawn.map((c) => c.name).filter((nm) => !cvIdx.has(nm));
+            if (!names.length) return null;
+            cvFetching = cvFetch(names).catch(() => false).then((x) => { cvFetching = null; return x; });
+            return cvFetching;
+        };
+        const cvTrim = (pos, ref, alt) => {
+            while (ref.length > 1 && alt.length > 1 && ref[ref.length - 1] === alt[alt.length - 1]) { ref = ref.slice(0, -1); alt = alt.slice(0, -1); }
+            while (ref.length > 1 && alt.length > 1 && ref[0] === alt[0]) { ref = ref.slice(1); alt = alt.slice(1); pos++; }
+            return [pos, ref, alt];
+        };
+        // The ClinVar record for one loaded variant, or -1.
+        const cvRowAt = (ci, k) => {
+            const d = vdata[ci];
+            const I = (ci >= 0 && ci < drawn.length) ? cvIdx.get(drawn[ci].name) : null;
+            if (!I || !d || k < 0 || k >= d.n) return -1;
+            const simple = !(d.cplx && d.cplx.has(k));
+            // Two single bases cannot trim, so a position ClinVar does not list is the end of it.
+            if (simple && I.byPos.get(d.pos[k]) === undefined) return -1;
+            const ab = allelesAt(ci, k);
+            const t = simple ? [d.pos[k], ab[0], ab[1]] : cvTrim(d.pos[k], ab[0], ab[1]);
+            const q = I.byPos.get(t[0]);
+            if (q === undefined) return -1;
+            const list = (typeof q === 'number') ? [q] : q;
+            for (const i of list) if (I.ref[i] === t[1] && I.alt[i] === t[2]) return i;
+            return -1;
+        };
+        const cvStars = (n) => '★'.repeat(n) + '☆'.repeat(Math.max(0, 4 - n));
+        const cvRecord = (ci, i) => {
+            const I = cvIdx.get(drawn[ci].name);
+            return { sig: CV_SIG[I.sig[i]] || '', short: CV_SHORT[I.sig[i]] || '', low: !!I.lp[i], vid: I.vid[i], stars: I.star[i],
+                gene: I.genes[I.g[i]] || '', mc: ('' + (I.mcs[I.mc[i]] || '')).replace(/_/g, ' '), cond: I.conds[I.cn[i]] || '' };
+        };
+        const cvLine = (R) => 'ClinVar: ' + R.sig + (R.low ? ' (low penetrance)' : '') + '   ·   ' + cvStars(R.stars)
+            + (R.gene ? '   ·   ' + R.gene + (R.mc ? ' ' + R.mc : '') : '') + (R.cond ? '   ·   ' + R.cond : '')
+            + (R.vid ? '   ·   VariationID ' + R.vid : '');
+        const cvUrl = (vid) => 'https://www.ncbi.nlm.nih.gov/clinvar/variation/' + vid + '/';
+        // Every match now on the genome, as [ci, k, i] -- read fresh, so a deleted variant or a
+        // second file is simply what is there.
+        const cvMatches = () => {
+            const out = [];
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n || !cvIdx.get(drawn[ci].name)) continue;
+                for (let k = 0; k < d.n; k++) { const i = cvRowAt(ci, k); if (i >= 0) out.push([ci, k, i]); }
+            }
+            return out;
+        };
+        const cvMatchAll = async (run) => {
+            let added = 0, differ = 0;
+            const bySig = [0, 0, 0, 0], genes = new Map();
+            for (let ci = 0; ci < drawn.length; ci++) {
+                const d = vdata[ci];
+                if (!d || !d.n) continue;
+                const I = cvIdx.get(drawn[ci].name);
+                if (!I) continue;
+                for (let k = 0; k < d.n; k++) {
+                    const i = cvRowAt(ci, k);
+                    if (i >= 0) {
+                        // The file's own CLNSIG is kept where it has one; where it disagrees with
+                        // today's ClinVar that is counted and said, not silently overwritten.
+                        if (!d.cls[k]) { d.cls[k] = 1; added++; } else if (d.cls[k] !== 1) differ++;
+                        bySig[I.sig[i]]++;
+                        const gn = I.genes[I.g[i]] || '(no gene)';
+                        genes.set(gn, (genes.get(gn) || 0) + 1);
+                    }
+                    if ((k & 0x3ffff) === 0x3ffff) { await paintTick(); if (run !== cvRun) return null; }
+                }
+            }
+            return { p: bySig[1], plp: bySig[2], lp: bySig[3], total: bySig[1] + bySig[2] + bySig[3], added: added, differ: differ,
+                genes: genes, version: cvVersion, at: Date.now() };
+        };
+        const cvPill = (R) => {
+            try {
+                const id = 'baja-karyo-clinvar';
+                const old2 = document.getElementById(id);
+                if (old2 && old2.parentNode) old2.parentNode.removeChild(old2);
+                const el = document.createElement('div');
+                el.id = id;
+                el.style.cssText = 'position:fixed;left:50%;top:132px;transform:translateX(-50%);z-index:2147481500;'
+                    + 'background:rgba(127,29,29,0.95);color:#fff1f2;font:13px Arial,Helvetica,sans-serif;cursor:pointer;'
+                    + 'border:1px solid rgba(255,255,255,0.22);border-radius:11px;padding:9px 15px;'
+                    + 'box-shadow:0 10px 30px rgba(0,0,0,0.35);max-width:min(600px,90vw);text-align:center;'
+                    + 'opacity:0;transition:opacity .25s ease;';
+                const gl = Array.from(R.genes.entries()).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+                const parts = [];
+                if (R.p) parts.push(R.p.toLocaleString() + ' pathogenic');
+                if (R.plp) parts.push(R.plp.toLocaleString() + ' pathogenic/likely pathogenic');
+                if (R.lp) parts.push(R.lp.toLocaleString() + ' likely pathogenic');
+                el.innerHTML = '<div style="font-weight:700;">ClinVar: ' + esc(parts.join(', ')) + '</div>'
+                    + '<div style="margin-top:3px;color:#fecdd3;font-size:11.5px;">'
+                    + esc('in ' + gl.length + ' gene' + (gl.length === 1 ? '' : 's') + ': ' + gl.slice(0, 8).join(', ') + (gl.length > 8 ? ', …' : '')
+                        + '. Click to see them.') + '</div>';
+                el.onclick = () => { try { if (el.parentNode) el.parentNode.removeChild(el); cvMenu(); } catch (e) { } };
+                document.body.appendChild(el);
+                requestAnimationFrame(() => { el.style.opacity = '1'; });
+                setTimeout(() => { try { el.style.opacity = '0'; setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 400); } catch (e) { } }, 20000);
+            } catch (e) { }
+        };
+        const cvAfterLoad = async (count) => {
+            const run = ++cvRun;
+            if (!cvEligible()) { step('clinvar: not a human GRCh38 genome, not matched'); return; }
+            if (cvBuild37(count)) {
+                cvLast = { skipped: 'This file is GRCh37 and ClinVar is matched on GRCh38 coordinates, so it was not matched.' };
+                graph.setMessage(' ' + cvLast.skipped + ' ');
+                return;
+            }
+            const names = drawn.filter((c, ci) => vdata[ci] && vdata[ci].n).map((c) => c.name);
+            if (!names.length) return;
+            try { if (cvFetching) await cvFetching; } catch (e) { }
+            if (run !== cvRun) return;
+            const ok = await cvFetch(names);
+            if (run !== cvRun) return;
+            if (!ok && !names.some((nm) => cvIdx.get(nm))) { cvLast = { skipped: 'ClinVar could not be read from the server.' }; return; }
+            const R = await cvMatchAll(run);
+            if (!R) return;
+            cvLast = R;
+            step('clinvar matched ' + R.total + ' (' + R.p + ' P, ' + R.plp + ' P/LP, ' + R.lp + ' LP), ' + R.added + ' newly classed, ' + R.differ + ' differ from the file');
+            if (graph.wake) graph.wake();
+            if (R.total) cvPill(R);
+        };
+        const cvMarkAll = () => {
+            for (const d of vdata) if (d && d.n) { if (!d.hl || d.hl.length !== d.n) d.hl = new Uint8Array(d.n); else d.hl.fill(0); }
+            let n = 0;
+            for (const [ci, k] of cvMatches()) { vdata[ci].hl[k] = HL_PATHOGENIC; n++; }
+            hlActive = n ? HL_PATHOGENIC : 0;
+            reindexHighlights();
+            if (n) startHlPulse();
+            legendRefresh();
+            if (graph.wake) graph.wake();
+            graph.setMessage(' ' + n.toLocaleString() + ' ClinVar pathogenic or likely pathogenic variant' + (n === 1 ? '' : 's') + ' marked; the rest are greyed out. ');
+        };
+        const cvMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const books = [];
+            const M = cvMatches();
+            const S = 'ClinVar in this genome';
+            books.push({ section: S, note: true, title: 'Every variant loaded onto the genome is matched against ClinVar’s pathogenic and likely '
+                + 'pathogenic variants as it loads: same position, same reference and alternate allele, both trimmed to their shortest form. '
+                + 'A different change at a pathogenic base is not matched. Conflicting classifications are left out. The stars are ClinVar’s '
+                + 'review status, from one submitter (★) to a practice guideline (★★★★).'
+                + (cvVersion ? ' ClinVar release ' + cvVersion + '.' : '') });
+            if (cvLast && cvLast.skipped) books.push({ section: S, note: true, title: cvLast.skipped });
+            if (!cvEligible()) books.push({ section: S, note: true, title: 'ClinVar is human GRCh38 only, and this genome is '
+                + ((r && r.species) || '?') + ' ' + ((r && r.assembly) || '') + '.' });
+            else if (!vtotal) books.push({ section: S, accent: 'choose', title: 'Load a VCF', badge: 'nothing loaded', icon: 'upload_file', ready: true,
+                blurb: 'It is matched against ClinVar as it loads.', open: () => uploadMenu() });
+            else if (!M.length) {
+                books.push({ section: S, note: true, title: cvIdx.size ? 'None of the loaded variants is a ClinVar pathogenic or likely pathogenic variant.'
+                    : 'ClinVar has not been read for this genome yet.' });
+                books.push({ section: S, accent: 'run', title: 'Match against ClinVar now', badge: 'match', icon: 'refresh', ready: true,
+                    blurb: 'Read ClinVar for the chromosomes with variants and match them again.',
+                    open: async () => { await cvAfterLoad(null); cvMenu(); } });
+            }
+            if (M.length) {
+                const tally = [0, 0, 0, 0];
+                const byGene = new Map();
+                for (const m of M) {
+                    const R = cvRecord(m[0], m[2]);
+                    tally[cvIdx.get(drawn[m[0]].name).sig[m[2]]]++;
+                    const key = R.gene || '(no gene)';
+                    if (!byGene.has(key)) byGene.set(key, []);
+                    byGene.get(key).push({ ci: m[0], k: m[1], R: R, rank: cvIdx.get(drawn[m[0]].name).sig[m[2]] });
+                }
+                books.push({ section: S, note: true, mono: true, title:
+                      'pathogenic                     ' + tally[1].toLocaleString() + '\n'
+                    + 'pathogenic/likely pathogenic   ' + tally[2].toLocaleString() + '\n'
+                    + 'likely pathogenic              ' + tally[3].toLocaleString() + '\n'
+                    + 'genes                          ' + byGene.size.toLocaleString()
+                    + (cvLast && cvLast.differ ? '\nthe file’s own CLNSIG differs  ' + cvLast.differ.toLocaleString() : '') });
+                books.push({ section: 'Act on them', accent: 'run', title: 'Mark them on the genome', badge: M.length.toLocaleString(), icon: 'my_location', ready: true,
+                    blurb: 'Every match glows; everything else is greyed out.', open: () => cvMarkAll() });
+                books.push({ section: 'Act on them', title: 'Download them as CSV', badge: 'csv', icon: 'file_download', ready: true,
+                    blurb: 'Position, alleles, genotypes, classification, review stars, gene, consequence, condition and VariationID.',
+                    open: () => {
+                        try {
+                            const rows = M.map((m) => {
+                                const d = vdata[m[0]], ab = allelesAt(m[0], m[1]), R = cvRecord(m[0], m[2]);
+                                const row = { chrom: drawn[m[0]].name, pos: d.pos[m[1]], ref: ab[0], alt: ab[1], gene: R.gene,
+                                    clinvar_significance: R.sig + (R.low ? ' (low penetrance)' : ''), review_stars: R.stars,
+                                    consequence: R.mc, condition: R.cond, clinvar_variation_id: R.vid };
+                                genotypesOf(d, m[1]).forEach((g) => { row['GT_' + g[0]] = GT_TEXT[g[1]] || ''; });
+                                return row;
+                            });
+                            dlSaveText(dlToCSV(rows), dlSafe(dlSpecies() + '_clinvar_pathogenic') + '.csv', 'text/csv');
+                            dlMsg('Downloaded.');
+                        } catch (e) { dlErr('Could not build the CSV: ' + e); }
+                    } });
+                const genes = Array.from(byGene.entries()).sort((a, b) => (Math.min(...a[1].map((x) => x.rank)) - Math.min(...b[1].map((x) => x.rank)))
+                    || (b[1].length - a[1].length) || a[0].localeCompare(b[0]));
+                genes.slice(0, 300).forEach(([gene, vs]) => {
+                    const top = vs.slice().sort((a, b) => a.rank - b.rank)[0];
+                    books.push({ section: 'By gene', title: gene, icon: 'coronavirus', ready: true,
+                        badge: vs.length === 1 ? top.R.short : vs.length + ' variants',
+                        blurb: vs.slice(0, 3).map((v) => (v.R.mc || 'variant') + ' ' + v.R.short
+                            + (v.k >= 0 && vdata[v.ci].gtw ? ' ' + genotypesOf(vdata[v.ci], v.k).filter((g) => g[1] >= GT_HET).map((g) => GT_TEXT[g[1]]).join('/') : '')).join('  ·  ')
+                            + (top.R.cond ? '. ' + top.R.cond : ''),
+                        books: () => {
+                            const sub = [];
+                            vs.forEach((v) => {
+                                const d = vdata[v.ci], ab = allelesAt(v.ci, v.k), c = drawn[v.ci], pos = d.pos[v.k];
+                                const gts = genotypesOf(d, v.k).filter((g) => g[1]);
+                                sub.push({ note: true, mono: true, title:
+                                      c.name + ':' + human(pos) + '  ' + ab[0] + ' > ' + ab[1] + '\n'
+                                    + '  ClinVar   ' + v.R.sig + (v.R.low ? ' (low penetrance)' : '') + '  ' + cvStars(v.R.stars) + '\n'
+                                    + '  effect    ' + (v.R.mc || 'not stated') + '\n'
+                                    + '  condition ' + (v.R.cond || 'not stated') + '\n'
+                                    + (gts.length ? '  genotype  ' + gts.map((g) => (SAMPLES.length > 1 ? g[0] + ' ' : '') + (GT_TEXT[g[1]] || '')).join(', ') + '\n' : '')
+                                    + '  VariationID ' + v.R.vid });
+                                sub.push({ title: 'Open in oligo editor', badge: 'editor', icon: 'open_in_new', ready: true,
+                                    blurb: 'Load ' + gene + ' with its variants and go to this one.',
+                                    open: async () => { await openRange(v.ci, Math.max(0, pos - 1), Math.min(c.length, pos + 1), pos, { focus: { chr: c.name.replace(/^chr/, ''), pos: pos } }); } });
+                                sub.push({ title: 'Zoom into it', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Frame it on ' + c.name + '.',
+                                    open: () => { try { const pad = 4000 / MB; goView({ x0: barLeft(v.ci) - 0.5 * SLOT, x1: barRight(v.ci) + 0.5 * SLOT, y0: wy(pos) - pad, y1: wy(pos) + pad }); } catch (e) { } } });
+                                if (v.R.vid) sub.push({ title: 'Open its ClinVar record', badge: 'ncbi', icon: 'link', ready: true, blurb: cvUrl(v.R.vid),
+                                    open: () => { try { window.open(cvUrl(v.R.vid), '_blank', 'noopener'); } catch (e) { } } });
+                            });
+                            return sub;
+                        } });
+                });
+                if (genes.length > 300) books.push({ section: 'By gene', note: true, title: (genes.length - 300).toLocaleString() + ' more genes are in the CSV.' });
+            }
+            books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                blurb: 'The other analyses.', open: () => analysisMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'ClinVar in this genome',
+                subtitle: M.length ? M.length.toLocaleString() + ' pathogenic or likely pathogenic' : 'matched as the genome loads', graph: graph, books: books });
+        };
+
         // THE WHOLE GENOME, ALWAYS. "Where is the pathogenic" is a question about every
         // chromosome, and it does not stop being one because a region happens to be
         // selected for something else.
@@ -6470,8 +6772,11 @@ function (path, config) {
                 const within = (p) => p >= t.lo && p <= t.hi;
                 if (kind === 'pathogenic') {
                     const hits = F.pathogenic || [];
+                    // Exact wherever the load-time match has read this chromosome; the
+                    // position list only where it has not.
+                    const exact = !!cvIdx.get(drawn[t.i].name);
                     marked += markOn(t.i, (p, k, d) => within(p)
-                        && (d.cls[k] === 1 || inSorted(hits, p)), code);
+                        && (d.cls[k] === 1 || (!exact && inSorted(hits, p))), code);
                 } else if (kind === 'intronic') {
                     const gene = F.gene || [], exon = F.exon || [];
                     marked += markOn(t.i, (p) => within(p)
@@ -6703,7 +7008,12 @@ function (path, config) {
             if (homs.length) return { verdict: 'homozygous', why: 'a homozygous hit: both copies carry it', pairs: [], n: hits.length };
             const hets = hits.filter((v) => v.gtc === GT_HET || v.gtc === GT_HAP1 || v.gtc === GT_HAP2);
             if (hets.length < 2) return { verdict: 'single', why: hets.length ? 'one heterozygous hit' : 'nothing to pair', pairs: [], n: hets.length };
-            const phased = hets.filter((v) => (v.gtc === GT_HAP1 || v.gtc === GT_HAP2) && v.ps);
+            // A '|' genotype with no PS is still phased: the VCF spec puts every phased call
+            // without a PS in one set, which for a trio- or statistically-phased file (GIAB
+            // HG005, Platinum Genomes) is the whole chromosome. Requiring a PS number called
+            // every pair in those files unknown. ps 0 is that chromosome-wide set, and the
+            // hits compared here are always in one gene, so on one chromosome.
+            const phased = hets.filter((v) => v.gtc === GT_HAP1 || v.gtc === GT_HAP2);
             const pairs = [];
             let trans = 0, cis = 0;
             for (let a = 0; a < phased.length; a++) for (let b = a + 1; b < phased.length; b++) {
@@ -6930,7 +7240,7 @@ function (path, config) {
                     books: () => {
                         const sub = [];
                         sub.push({ note: true, title: ({
-                            trans: 'One hit on each copy, both inside phase set ' + ((p.pairs[0] && p.pairs[0].ps) || '') + '. No intact copy of '
+                            trans: 'One hit on each copy, both inside ' + ((p.pairs[0] && p.pairs[0].ps) ? 'phase set ' + p.pairs[0].ps : 'the chromosome-wide phase') + '. No intact copy of '
                                 + g.gene + ' remains. For a recessive condition this is the genotype that causes it, and it is the evidence '
                                 + 'ACMG calls PM3 when the other variant is already known to be pathogenic.',
                             homozygous: 'The same change on both copies. No phase is needed to say so, and none was used.',
@@ -6944,7 +7254,7 @@ function (path, config) {
                               (v.hgvs_p || v.hgvs_c || (v.ref + ' > ' + v.alt)) + '\n'
                             + '  at        ' + g.chr + ':' + human(v.pos) + '\n'
                             + '  genotype  ' + (v.gt || 'not called') + '\n'
-                            + '  phase set ' + (v.ps || 'none') + '\n'
+                            + '  phase set ' + (v.ps || ((v.gtc === GT_HAP1 || v.gtc === GT_HAP2) ? 'whole chromosome' : 'none')) + '\n'
                             + '  effect    ' + (v.effect || 'not stated') }));
                         sub.push({ title: 'Zoom into ' + g.gene, badge: 'view', icon: 'zoom_in', ready: true,
                             blurb: 'Find it on the genome.', open: () => gotoLostGene(g) });
@@ -11568,6 +11878,17 @@ function (path, config) {
                 }
             }
             // HOW FAR TO TRUST WHAT IS LOADED, beside what it holds.
+            // WHAT IS KNOWN TO CAUSE DISEASE, matched when the file loaded.
+            {
+                let nCv = 0;
+                try { nCv = cvIdx.size ? cvMatches().length : 0; } catch (e) { }
+                books.push({ section: 'This genome', title: 'ClinVar pathogenic variants', accent: nCv ? 'run' : undefined,
+                    badge: nCv ? nCv.toLocaleString() + ' matched' : (cvEligible() ? 'matched on load' : 'human GRCh38'),
+                    icon: 'coronavirus', ready: true,
+                    blurb: 'The loaded variants ClinVar classifies as pathogenic or likely pathogenic, by exact allele: gene, condition, '
+                        + 'review stars, genotype, and a way into each.',
+                    open: () => cvMenu() });
+            }
             books.push({ section: 'This genome', title: 'Check the calls', badge: 'quality · spectrum · compare',
                 icon: 'fact_check', ready: true,
                 blurb: 'Somatic calls the normal carries, genotypes the reads contradict, the mutational spectrum, and one callset '
@@ -12026,7 +12347,10 @@ function (path, config) {
             const books = [];
             const note = (title, blurb) => { if (blurb) books.push({ section: 'This variant', note: true, title: title, blurb: blurb }); };
             note('change', 'Change: ' + change + (nm ? '   ·   ' + nm : ''));
-            if (sig) note('significance', 'ClinVar: ' + sig);
+            const cvi = (() => { try { return cvRowAt(ci, k); } catch (e) { return -1; } })();
+            const cvR = cvi >= 0 ? cvRecord(ci, cvi) : null;
+            if (cvR) note('clinvar', cvLine(cvR));
+            else if (sig) note('significance', 'ClinVar: ' + sig);
             if (mark) note('marked', 'Marked by the current filter as ' + mark + '.');
             const gl = genotypesOf(d, k).filter((g) => g[1]);
             if (gl.length) {
@@ -12119,6 +12443,9 @@ function (path, config) {
                     } catch (e) { graph.setError(' That could not be removed: ' + (e && e.message ? e.message : e) + ' ', 8); }
                 },
             });
+            if (cvR && cvR.vid) books.push({ section: 'Read about it', title: 'Open its ClinVar record', badge: cvR.short + ' ' + cvStars(cvR.stars),
+                icon: 'link', ready: true, blurb: cvR.gene + (cvR.cond ? ' \u2014 ' + cvR.cond : '') + '. VariationID ' + cvR.vid + ', at NCBI.',
+                open: () => { try { window.open(cvUrl(cvR.vid), '_blank', 'noopener'); } catch (e) { } } });
             // WHAT IS KNOWN ABOUT IT, asked for only when asked for: it is a model call and
             // most clicks on a mark are not a request for a dossier.
             books.push({
@@ -12703,7 +13030,15 @@ function (path, config) {
             const d = vdata[ci]; const ab = allelesAt(ci, k);
             return { chrom: drawn[ci].name, pos: d.pos[k], ref: ab[0], alt: ab[1],
                 significance: (function () { try { return sigOf(d, k) || ''; } catch (e) { return CLS_SIG[d.cls[k]] || ''; } })(),
-                name: (d.names && d.names[k]) || '' };
+                name: (d.names && d.names[k]) || '',
+                ...(function () {
+                    try {
+                        const i = cvRowAt(ci, k);
+                        if (i < 0) return { clinvar_variation_id: '', review_stars: '', gene: '', condition: '' };
+                        const R = cvRecord(ci, i);
+                        return { clinvar_variation_id: R.vid, review_stars: R.stars, gene: R.gene, condition: R.cond };
+                    } catch (e) { return { clinvar_variation_id: '', review_stars: '', gene: '', condition: '' }; }
+                })() };
         };
         const dlVariantBed = (ci, k) => {
             const d = vdata[ci];

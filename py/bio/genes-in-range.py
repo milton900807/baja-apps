@@ -71,7 +71,7 @@ def first_existing(rel):
 def fetch(path, contig, s1, e1):
     if pysam:
         try:
-            tb = pysam.TabixFile(path)
+            tb = pysam.TabixFile(path, encoding="utf-8")
             for row in tb.fetch(contig, max(0, s1 - 1), e1):
                 yield row
             return
@@ -97,7 +97,7 @@ def contigs_of(path):
     """Every contig the index knows, or an empty set when that cannot be asked."""
     if pysam:
         try:
-            return set(pysam.TabixFile(path).contigs)
+            return set(pysam.TabixFile(path, encoding="utf-8").contigs)
         except Exception:
             pass
     if _TABIX:
