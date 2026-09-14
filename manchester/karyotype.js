@@ -4440,34 +4440,75 @@ function (path, config) {
             {
                 const depth = V.hasAD ? 'AD' : (V.hasDP4 ? 'DP4' : '');
                 const pair = V.somaticSigns.length && V.nSamples >= 2;
-                const lines = [];
+                // EACH LINE STARTS WHAT IT NAMES. A list of what the file can feed is a menu
+                // in all but name, so every line that can run is a button into the same
+                // starting point Analyze uses, a line blocked on a second file opens Upload,
+                // and only what nothing here can fix stays as text.
+                //   ok    runs          go    opens a panel       books  a picker in place
+                //   fix   a button that removes the blocker (Upload)
+                const acts = [];
+                const lossCard = (title, blurb) => (lossMatrix
+                    ? { ok: true, title: title, blurb: blurb, badge: (lossMatrix.genes || []).length + ' genes · show', icon: 'biotech', go: () => lossMatrixMenu() }
+                    : Object.assign(lossCalcCard('What you can do with it', 'start'), { title: title, blurb: blurb }));
                 if (pair) {
-                    lines.push('\u2713 Differential loss matrix \u2014 which genes the tumour has lost that the normal has not.');
-                    lines.push(depth
-                        ? '\u2713 Loss of heterozygosity \u2014 judged on the reads (' + depth + '), not the caller\u2019s genotype.'
-                        : '\u2717 Loss of heterozygosity \u2014 this file carries no read counts (no AD, no DP4) to judge it on.');
-                    lines.push('\u2713 Loss matrix on the tumour, and from it synthetic lethality and the paralog model.');
-                    lines.push(depth
-                        ? '\u2713 Allele-selective targets by somatic retention \u2014 once the LOH scan has run.'
-                        : '\u2717 Somatic retention needs the LOH scan, which needs read counts.');
+                    acts.push({ ok: true, title: 'Differential loss matrix', icon: 'compare',
+                        blurb: 'Which genes the tumour has lost that the normal has not.',
+                        badge: diffResult ? 'done · show' : 'pick the pair',
+                        go: diffResult ? () => diffMenu() : null, books: diffResult ? null : () => diffPickerBooks() });
+                    acts.push(depth
+                        ? { ok: true, title: 'Loss of heterozygosity', icon: 'compress',
+                            blurb: 'Judged on the reads (' + depth + '), not the caller’s genotype.',
+                            badge: lohResult ? 'done · show' : 'pick the normal',
+                            go: lohResult ? () => lohMenu() : null, books: lohResult ? null : () => lohPickerBooks() }
+                        : { ok: false, text: 'Loss of heterozygosity — this file carries no read counts (no AD, no DP4) to judge it on.' });
+                    acts.push(lossCard('Loss matrix on the tumour', 'The genes the tumour carries a damaging change in — the list synthetic lethality and the paralog model read.'));
+                    acts.push({ ok: true, title: 'Synthetic lethality and the paralog model', icon: 'hub', badge: 'workflow',
+                        blurb: 'Which other genes the tumour now depends on, from its losses.', go: () => synLethalMenu() });
+                    acts.push(depth
+                        ? { ok: true, title: 'Allele-selective targets by somatic retention', icon: 'target', badge: lohResult ? 'LOH ready' : 'after the LOH scan',
+                            blurb: 'The allele the tumour kept where it lost the other. Walks through the LOH scan first if it has not run.',
+                            go: () => alleleSelectiveMenu() }
+                        : { ok: false, text: 'Somatic retention — needs the LOH scan, which needs read counts.' });
                 } else if (V.nSamples === 1) {
-                    lines.push('\u2713 Loss matrix \u2014 the genes this genome carries a damaging change in.');
-                    lines.push(V.phased ? '\u2713 Compound heterozygotes, cis or trans \u2014 the file is phased.'
-                        : '\u2717 Compound heterozygotes \u2014 needs a phased file to place two hits on their copies.');
-                    lines.push('\u2713 Allele-selective targets from the mutation itself' + (V.phased ? ', and from the phased copy.' : '.'));
-                    lines.push('\u2717 Differential and LOH \u2014 load the matching tumour or normal on the other side.');
+                    acts.push(lossCard('Loss matrix', 'The genes this genome carries a damaging change in.'));
+                    acts.push(V.phased
+                        ? { ok: true, title: 'Compound heterozygotes, cis or trans', icon: 'call_split', badge: 'the file is phased',
+                            blurb: 'Two damaging hits in a gene: on opposite copies, or on the same one.', go: () => compoundHetMenu() }
+                        : { ok: false, text: 'Compound heterozygotes — needs a phased file to place two hits on their copies.' });
+                    acts.push({ ok: true, title: 'Allele-selective targets', icon: 'target', badge: V.phased ? 'mutation · phased copy' : 'from the mutation',
+                        blurb: 'From the mutation itself' + (V.phased ? ', and from the phased copy.' : '.'), go: () => alleleSelectiveMenu() });
+                    acts.push({ fix: true, title: 'Differential and loss of heterozygosity', icon: 'upload_file', badge: 'load the other half',
+                        blurb: 'Both compare two genomes: load the matching tumour or normal on the other side.', go: () => uploadMenu() });
                 }
-                if (!V.phased && V.nSamples >= 1) lines.push('\u2717 Anything that needs phase \u2014 this file records genotypes as pairs, not copies.');
-                // Check the calls (Analyze): what the file can be held to before it is reasoned from.
-                if (pair) lines.push(depth
-                    ? '\u2713 Somatic calls the normal carries \u2014 the normal\u2019s own reads at every somatic call.'
-                    : '\u2717 Somatic calls the normal carries \u2014 needs read counts in the normal.');
-                if (V.nSamples >= 1) lines.push(depth
-                    ? '\u2713 Genotypes the reads contradict \u2014 each call\u2019s genotype against its ' + depth + '.'
-                    : '\u2717 Genotypes the reads contradict \u2014 needs AD or DP4.');
-                lines.push('\u2713 Mutational spectrum \u2014 the six substitution classes' + (pair ? ', for the somatic calls.' : '.'));
-                lines.push('\u2713 Compare with another callset or a truth set \u2014 load it on the other side.');
-                if (lines.length) books.push({ section: 'What you can do with it', note: true, mono: true, title: lines.join('\n') });
+                if (!V.phased && V.nSamples >= 1) acts.push({ ok: false, text: 'Anything that needs phase — this file records genotypes as pairs, not copies.' });
+                // What the file can be held to before it is reasoned from.
+                if (pair) acts.push(depth
+                    ? { ok: true, title: 'Somatic calls the normal carries', icon: 'fact_check', badge: nsupResult ? nsupResult.carried.toLocaleString() + ' flagged' : 'check',
+                        blurb: 'The normal’s own reads at every somatic call.', go: () => nsupMenu() }
+                    : { ok: false, text: 'Somatic calls the normal carries — needs read counts in the normal.' });
+                if (V.nSamples >= 1) acts.push(depth
+                    ? { ok: true, title: 'Genotypes the reads contradict', icon: 'rule', badge: gtReadResult ? gtReadResult.marked.toLocaleString() + ' marked' : 'check',
+                        blurb: 'Each call’s genotype against its ' + depth + '.', go: () => gtReadMenu() }
+                    : { ok: false, text: 'Genotypes the reads contradict — needs AD or DP4.' });
+                acts.push({ ok: true, title: 'Mutational spectrum', icon: 'bar_chart', badge: 'six classes',
+                    blurb: 'The six substitution classes' + (pair ? ', for the somatic calls.' : '.'), go: () => spectrumMenu() });
+                acts.push({ ok: true, title: 'ClinVar pathogenic variants', icon: 'coronavirus', badge: 'matched on load',
+                    blurb: 'The loaded variants ClinVar classifies as pathogenic or likely pathogenic, by exact allele.', go: () => cvMenu() });
+                acts.push({ ok: true, title: 'Compare with another callset or a truth set', icon: 'compare_arrows',
+                    badge: (sideCounts().left && sideCounts().right) ? 'left ↔ right' : 'load it on the other side',
+                    blurb: 'Shared calls, calls only one found, precision and recall.', go: () => concMenu() });
+                const WS = 'What you can do with it';
+                const offLines = [];
+                acts.forEach((x) => {
+                    if (x.ok === false) { offLines.push('✗ ' + x.text); return; }
+                    const bk = Object.assign({}, x, { section: WS, ready: true, accent: x.fix ? 'choose' : (x.accent || 'run') });
+                    delete bk.ok; delete bk.fix; delete bk.go; delete bk.text;
+                    if (x.go) bk.open = x.go;
+                    if (!x.books) delete bk.books;
+                    if (!bk.open && !bk.books) return;
+                    books.push(bk);
+                });
+                if (offLines.length) books.push({ section: WS, note: true, mono: true, title: offLines.join('\n') });
                 if (!V.hasAD && V.hasDP4) books.push({ section: 'What you can do with it', note: true,
                     title: 'This caller writes no AD, so the read counts are taken from DP4 \u2014 its forward and reverse '
                         + 'reference and alternate reads. Those count every non-reference read together, so a row with more '
