@@ -82,8 +82,29 @@ function (variant, selectedTrack, graph, opposite, all) {
                     );
                 }
             } else {
-                splicedtrack = trackseq;
-                splicedindices = indices;
+                // "All mutations at this location" must still reflect the PRIMARY mutation --
+                // it is the variant being designed against. This branch used to copy the plain
+                // reference (only neighbours were written below), so with a single mutation the
+                // target came out as the reference and the ASO did not reflect the change. Write
+                // the primary alternate here, exactly as the "this phase only" branch does; the
+                // neighbour loop then writes the other-phase mutations on top.
+                if (!variant.alternate0) {
+                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
+                        + variant.alternate
+                        + trackseq.slice(indices.indexOf(variant.xf));
+                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
+                        Array(variant.alternate.length).fill(variant.xi),
+                        indices.slice(indices.indexOf(variant.xf))
+                    );
+                } else {
+                    splicedtrack = trackseq.slice(0, indices.indexOf(variant.xi))
+                        + variant.alternate0
+                        + trackseq.slice(indices.indexOf(variant.xf));
+                    splicedindices = indices.slice(0, indices.indexOf(variant.xi)).concat(
+                        Array(variant.alternate0.length).fill(variant.xi),
+                        indices.slice(indices.indexOf(variant.xf))
+                    );
+                }
             }
 
             if (neighbors.length > 0) {
@@ -151,10 +172,10 @@ function (variant, selectedTrack, graph, opposite, all) {
 
                     anno.y = ytmp;
 
+                    // The primary variant's alternate is now written into the target in BOTH
+                    // modes, so it is always the target variant here (it used to be labelled
+                    // reference in the opposite mode, back when this branch left it unmutated).
                     let phaseInfo = `_target_variant`
-                    if (opposite) {
-                        phaseInfo = `_target_reference`
-                    }
 
                     anno.linkSnpindels.push(variant.name + '_' + variant.reference + '->' + variant.alternate + phaseInfo);
                     if (neighbors.length > 0) {
