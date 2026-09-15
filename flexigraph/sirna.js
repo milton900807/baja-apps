@@ -427,26 +427,31 @@ function () {
                     // just-placed siRNA is easy to spot even when zoomed out. See landingBurst().
                     if (_ctx && this.__burstT0) {
                         const __el = Date.now() - this.__burstT0;
-                        const __ms = this.__burstMs || 950;
+                        const __ms = this.__burstMs || 2200;
                         if (__el >= 0 && __el < __ms) {
-                            const __p = __el / __ms;
+                            // Three expanding rings over the burst (screen-space), so a just-placed
+                            // siRNA is unmistakable even zoomed out. See oligo.js for the rationale.
+                            const __cycles = 3;
+                            const __life = __el / __ms;
+                            const __p = (__life * __cycles) % 1;
+                            const __a = (1 - __p) * (1 - __life);
                             const __named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
                             const __c = __named[('' + (this.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
                             const __bx = (graph.X(tgraph.X(this.xi)) + graph.X(tgraph.X(this.xf))) / 2;
                             const __by = ysc - 9;
-                            const __R = 30 + 64 * __p;
+                            const __R = 26 + 74 * __p;
                             _ctx.save();
-                            _ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * (1 - __p)})`;
-                            _ctx.shadowBlur = 20;
+                            _ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * __a})`;
+                            _ctx.shadowBlur = 22;
                             const __g = _ctx.createRadialGradient(__bx, __by, 2, __bx, __by, __R);
-                            __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * (1 - __p)})`);
+                            __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * __a})`);
                             __g.addColorStop(1, `rgba(${__c[0]},${__c[1]},${__c[2]},0)`);
                             _ctx.fillStyle = __g; _ctx.beginPath(); _ctx.arc(__bx, __by, __R, 0, Math.PI * 2); _ctx.fill();
-                            _ctx.lineWidth = Math.max(1.5, 5 * (1 - __p));
-                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * (1 - __p)})`;
+                            _ctx.lineWidth = Math.max(1.5, 5 * __a);
+                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * __a})`;
                             _ctx.beginPath(); _ctx.arc(__bx, __by, __R, 0, Math.PI * 2); _ctx.stroke();
-                            const __R2 = 14 + 42 * __p;
-                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * (1 - __p)})`;
+                            const __R2 = 12 + 44 * __p;
+                            _ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * __a})`;
                             _ctx.beginPath(); _ctx.arc(__bx, __by, __R2, 0, Math.PI * 2); _ctx.stroke();
                             _ctx.restore();
                             try { if (graph.wake) graph.wake(); } catch (e) { }

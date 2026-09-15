@@ -252,7 +252,7 @@ function () {
 
             // Start a one-shot expanding "landing burst" centerd on the compound (see draw()).
             landingBurst(color) {
-                try { this.__burstT0 = Date.now(); this.__burstColor = color || 'magenta'; this.__burstMs = 950; } catch (e) { }
+                try { this.__burstT0 = Date.now(); this.__burstColor = color || 'magenta'; this.__burstMs = 2200; } catch (e) { }
             }
 
             async draw(graph, tgraph, y) {
@@ -387,23 +387,30 @@ function () {
                     const __el = Date.now() - this.__burstT0;
                     const __ms = this.__burstMs || 950;
                     if (__el >= 0 && __el < __ms) {
-                        const __p = __el / __ms;                                   // 0..1
+                        // A REPEATING pulse -- three expanding rings over the burst -- sized in
+                        // SCREEN pixels, so a compound that just landed is obvious even at
+                        // whole-transcript zoom where the compound itself is a sliver. One brief
+                        // ring was easy to miss; three, fading out, are not.
+                        const __cycles = 3;
+                        const __life = __el / __ms;                                // 0..1 overall
+                        const __p = (__life * __cycles) % 1;                       // 0..1 within a ring
+                        const __a = (1 - __p) * (1 - __life);                      // ring alpha, fading over the burst
                         const __named = { magenta: [255, 0, 255], cyan: [0, 255, 255], lime: [0, 255, 0], orange: [255, 165, 0], red: [255, 0, 0] };
                         const __c = __named[('' + (this.__burstColor || 'magenta')).toLowerCase()] || [255, 0, 255];
                         const __bx = screenMidX, __by = screenY;
-                        const __R = 30 + 64 * __p;                                 // 30 -> 94 px
+                        const __R = 26 + 74 * __p;                                 // 26 -> 100 px each pulse
                         ctx.save();
-                        ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * (1 - __p)})`;
-                        ctx.shadowBlur = 20;
+                        ctx.shadowColor = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.85 * __a})`;
+                        ctx.shadowBlur = 22;
                         const __g = ctx.createRadialGradient(__bx, __by, 2, __bx, __by, __R);
-                        __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * (1 - __p)})`);
+                        __g.addColorStop(0, `rgba(${__c[0]},${__c[1]},${__c[2]},${0.42 * __a})`);
                         __g.addColorStop(1, `rgba(${__c[0]},${__c[1]},${__c[2]},0)`);
                         ctx.fillStyle = __g; ctx.beginPath(); ctx.arc(__bx, __by, __R, 0, Math.PI * 2); ctx.fill();
-                        ctx.lineWidth = Math.max(1.5, 5 * (1 - __p));
-                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * (1 - __p)})`;
+                        ctx.lineWidth = Math.max(1.5, 5 * __a);
+                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.95 * __a})`;
                         ctx.beginPath(); ctx.arc(__bx, __by, __R, 0, Math.PI * 2); ctx.stroke();
-                        const __R2 = 14 + 42 * __p;
-                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * (1 - __p)})`;
+                        const __R2 = 12 + 44 * __p;
+                        ctx.strokeStyle = `rgba(${__c[0]},${__c[1]},${__c[2]},${0.7 * __a})`;
                         ctx.beginPath(); ctx.arc(__bx, __by, __R2, 0, Math.PI * 2); ctx.stroke();
                         ctx.restore();
                         try { if (graph.wake) graph.wake(); } catch (e) { }

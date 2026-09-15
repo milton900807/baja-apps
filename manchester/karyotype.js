@@ -14693,9 +14693,87 @@ function (path, config) {
             panel.id = 'baja-karyo-disease';
             panel.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:#071a30;color:#eaf6f9;'
                 + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            // HUNDREDS OF EXAMPLES, not a handful. Each is a real condition ClinVar carries
+            // pathogenic variants for; the chips filter as you type in the box above, so a
+            // long list stays usable. Add or trim freely — every one is resolved live, none
+            // is special-cased.
             const EX = ['Cystic fibrosis', 'Sickle cell disease', 'Marfan syndrome',
                 'Familial hypercholesterolaemia', 'Hereditary breast and ovarian cancer',
-                'Duchenne muscular dystrophy', 'Amyotrophic lateral sclerosis', 'Long QT syndrome'];
+                'Duchenne muscular dystrophy', 'Amyotrophic lateral sclerosis', 'Long QT syndrome',
+                'Spinal muscular atrophy', 'Huntington disease', 'Phenylketonuria', 'Tay-Sachs disease',
+                'Gaucher disease', 'Pompe disease', 'Fabry disease', 'Niemann-Pick disease',
+                'Wilson disease', 'Hereditary hemochromatosis', 'Alpha-1 antitrypsin deficiency',
+                'Galactosemia', 'Maple syrup urine disease', 'Homocystinuria', 'Hurler syndrome',
+                'Hunter syndrome', 'Sanfilippo syndrome', 'Krabbe disease', 'Metachromatic leukodystrophy',
+                'X-linked adrenoleukodystrophy', 'Ornithine transcarbamylase deficiency', 'Biotinidase deficiency',
+                'Lesch-Nyhan syndrome', 'Menkes disease', 'Acute intermittent porphyria', 'Cystinosis',
+                'Primary hyperoxaluria', 'Von Gierke disease', 'Medium-chain acyl-CoA dehydrogenase deficiency',
+                'Glutaric acidemia type 1', 'Methylmalonic acidemia', 'Propionic acidemia',
+                'Friedreich ataxia', 'Spinocerebellar ataxia', 'Charcot-Marie-Tooth disease', 'Rett syndrome',
+                'Fragile X syndrome', 'Angelman syndrome', 'Prader-Willi syndrome', 'Tuberous sclerosis',
+                'Neurofibromatosis type 1', 'Neurofibromatosis type 2', 'Early-onset Alzheimer disease',
+                'Parkinson disease', 'Dravet syndrome', 'CADASIL', 'Ataxia-telangiectasia',
+                'Myotonic dystrophy', 'Spinal and bulbar muscular atrophy', 'Hereditary spastic paraplegia',
+                'Leigh syndrome', 'Canavan disease', 'Pelizaeus-Merzbacher disease', 'Alexander disease',
+                'Tuberous sclerosis complex', 'Wolfram syndrome', 'Joubert syndrome',
+                'Hypertrophic cardiomyopathy', 'Dilated cardiomyopathy', 'Arrhythmogenic right ventricular cardiomyopathy',
+                'Brugada syndrome', 'Catecholaminergic polymorphic ventricular tachycardia',
+                'Loeys-Dietz syndrome', 'Ehlers-Danlos syndrome', 'Vascular Ehlers-Danlos syndrome',
+                'Familial thoracic aortic aneurysm', 'Noonan syndrome', 'Romano-Ward syndrome',
+                'Beta-thalassemia', 'Alpha-thalassemia', 'Hemophilia A', 'Hemophilia B', 'Von Willebrand disease',
+                'Hereditary spherocytosis', 'G6PD deficiency', 'Fanconi anemia', 'Diamond-Blackfan anemia',
+                'Wiskott-Aldrich syndrome', 'Factor V Leiden thrombophilia', 'Hereditary hemorrhagic telangiectasia',
+                'Glanzmann thrombasthenia', 'Congenital dyserythropoietic anemia',
+                'Lynch syndrome', 'Familial adenomatous polyposis', 'Li-Fraumeni syndrome', 'Von Hippel-Lindau disease',
+                'Multiple endocrine neoplasia type 1', 'Multiple endocrine neoplasia type 2', 'Retinoblastoma',
+                'Cowden syndrome', 'Peutz-Jeghers syndrome', 'Hereditary diffuse gastric cancer',
+                'Birt-Hogg-Dube syndrome', 'Gorlin syndrome', 'Familial melanoma', 'MUTYH-associated polyposis',
+                'Hereditary paraganglioma-pheochromocytoma', 'Juvenile polyposis syndrome',
+                'Autosomal dominant polycystic kidney disease', 'Autosomal recessive polycystic kidney disease',
+                'Alport syndrome', 'Cystinuria', 'Bartter syndrome', 'Gitelman syndrome', 'Nephrotic syndrome',
+                'Osteogenesis imperfecta', 'Achondroplasia', 'Hypochondroplasia', 'Thanatophoric dysplasia',
+                'Stickler syndrome', 'Fibrodysplasia ossificans progressiva', 'Osteopetrosis', 'Pseudoachondroplasia',
+                'Primary ciliary dyskinesia', 'Hereditary pancreatitis', 'Familial Mediterranean fever',
+                'Hereditary angioedema', 'Retinitis pigmentosa', 'Leber congenital amaurosis',
+                'Leber hereditary optic neuropathy', 'Stargardt disease', 'Usher syndrome', 'Choroideremia',
+                'Aniridia', 'Congenital cataract', 'Nonsyndromic hearing loss', 'Pendred syndrome',
+                'Waardenburg syndrome', 'Best disease', 'Achromatopsia',
+                'Epidermolysis bullosa', 'Ichthyosis', 'Xeroderma pigmentosum', 'Incontinentia pigmenti',
+                'Netherton syndrome', 'Oculocutaneous albinism', 'Ectodermal dysplasia',
+                'Severe combined immunodeficiency', 'Chronic granulomatous disease', 'X-linked agammaglobulinemia',
+                'DiGeorge syndrome', 'Common variable immunodeficiency', 'Ataxia telangiectasia',
+                'Congenital adrenal hyperplasia', 'Maturity-onset diabetes of the young', 'Kallmann syndrome',
+                'Androgen insensitivity syndrome', 'Congenital hypothyroidism', 'Bardet-Biedl syndrome',
+                'Noonan syndrome', 'Cornelia de Lange syndrome', 'Rubinstein-Taybi syndrome', 'CHARGE syndrome',
+                'Kabuki syndrome', 'Sotos syndrome', 'Beckwith-Wiedemann syndrome', 'Williams syndrome',
+                'Smith-Lemli-Opitz syndrome', 'Treacher Collins syndrome', 'Apert syndrome', 'Crouzon syndrome',
+                'Pfeiffer syndrome', 'Cri-du-chat syndrome', 'Cockayne syndrome', 'Bloom syndrome',
+                'MELAS', 'MERRF', 'Kearns-Sayre syndrome', 'Mitochondrial myopathy',
+                'Familial dysautonomia', 'Zellweger syndrome', 'Refsum disease', 'Alkaptonuria',
+                'Hypophosphatasia', 'X-linked hypophosphatemia', 'Vitamin D-dependent rickets',
+                'Cystic fibrosis-related diabetes', 'Congenital myasthenic syndrome', 'Myasthenia gravis',
+                'Limb-girdle muscular dystrophy', 'Facioscapulohumeral muscular dystrophy', 'Becker muscular dystrophy',
+                'Emery-Dreifuss muscular dystrophy', 'Congenital muscular dystrophy', 'Nemaline myopathy',
+                'Central core disease', 'Malignant hyperthermia', 'Myotonia congenita', 'Periodic paralysis',
+                'Familial hemiplegic migraine', 'Episodic ataxia', 'Hereditary neuropathy with pressure palsies',
+                'Glucose transporter type 1 deficiency', 'Pyruvate dehydrogenase deficiency', 'Barth syndrome',
+                'Sjogren-Larsson syndrome', 'Chediak-Higashi syndrome', 'Griscelli syndrome',
+                'Hermansky-Pudlak syndrome', 'Immunodysregulation polyendocrinopathy enteropathy X-linked',
+                'Autoimmune polyendocrine syndrome type 1', 'Hyper-IgM syndrome', 'Job syndrome',
+                'Familial hypocalciuric hypercalcemia', 'Pseudohypoparathyroidism', 'Bartter syndrome type 3',
+                'Liddle syndrome', 'Gordon syndrome', 'Dent disease', 'Lowe syndrome',
+                'Sickle cell trait', 'Hereditary elliptocytosis', 'Pyruvate kinase deficiency',
+                'Congenital insensitivity to pain', 'Erythropoietic protoporphyria', 'Porphyria cutanea tarda',
+                'Variegate porphyria', 'Tyrosinemia', 'Argininosuccinic aciduria', 'Citrullinemia',
+                'Carnitine palmitoyltransferase deficiency', 'Very long-chain acyl-CoA dehydrogenase deficiency',
+                'Mucolipidosis', 'Sialidosis', 'Aspartylglucosaminuria', 'Fucosidosis', 'Mannosidosis',
+                'GM1 gangliosidosis', 'Sandhoff disease', 'Farber disease', 'Wolman disease',
+                'Cholesteryl ester storage disease', 'Danon disease', 'Cystinosis nephropathic',
+                'Nail-patella syndrome', 'Holt-Oram syndrome', 'Townes-Brocks syndrome', 'Alagille syndrome',
+                'Waardenburg syndrome type 2', 'Piebaldism', 'Tietz syndrome',
+                'Multiple osteochondromas', 'McCune-Albright syndrome', 'Camurati-Engelmann disease',
+                'Cleidocranial dysplasia', 'Campomelic dysplasia', 'Diastrophic dysplasia',
+                'Spondyloepiphyseal dysplasia', 'Metaphyseal chondrodysplasia', 'Ellis-van Creveld syndrome'];
             panel.innerHTML = ''
                 + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:16px 22px 14px;'
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
@@ -14718,7 +14796,8 @@ function (path, config) {
                 + '</div>'
                 + '<div id="dz-choose-host" style="display:none;margin-top:22px;padding:18px 20px;border-radius:12px;'
                 + 'background:#0a1e3a;border:1px solid rgba(18,194,224,0.35);"></div>'
-                + '<div style="margin-top:26px;font:12px Arial;color:#9fb3c8;">Try one of these</div>'
+                + '<div style="margin-top:26px;font:12px Arial;color:#9fb3c8;">Try one of these '
+                + '<span style="color:#5b6b7a;">— ' + EX.length + ' conditions, type above to filter</span></div>'
                 + '<div id="dz-ex" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'
                 + EX.map((e2) => '<button class="dz-e" style="cursor:pointer;border-radius:999px;padding:7px 13px;'
                     + 'font:600 12px Arial;background:rgba(18,194,224,0.12);color:#7fd9ea;'
@@ -14744,10 +14823,18 @@ function (path, config) {
                 if (e.key === 'Enter' && !dzBusy) { dzRun(q.value, panel); }
             });
             panel.querySelector('#dz-go').onclick = () => { dzRun(q.value, panel); };
-            Array.prototype.slice.call(panel.querySelectorAll('.dz-e')).forEach((b) => {
+            const dzChips = Array.prototype.slice.call(panel.querySelectorAll('.dz-e'));
+            dzChips.forEach((b) => {
                 b.onclick = () => { q.value = b.textContent; dzRun(q.value, panel); };
             });
-            try { q.value = dzLast || ''; q.focus(); q.select(); } catch (e) { }
+            // With hundreds of chips, the box above doubles as a filter over them: type
+            // "muscular" and only those remain. Empty shows them all.
+            const dzFilter = () => {
+                const s = ('' + q.value).trim().toLowerCase();
+                dzChips.forEach((b) => { b.style.display = (!s || b.textContent.toLowerCase().indexOf(s) >= 0) ? '' : 'none'; });
+            };
+            q.addEventListener('input', dzFilter);
+            try { q.value = dzLast || ''; q.focus(); q.select(); dzFilter(); } catch (e) { }
         };
         const uploadMenu = () => {
             const n = SAMPLES.length;
