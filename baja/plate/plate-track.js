@@ -2790,7 +2790,7 @@ function (progress) {
                             let fkey = plate.name + range;
                             let { tableName, startX, stopX, startY, stopY } = parseTableStructure(fkey)
                             let table = this.getTableByName(tableName);
-                            const calculation = formula;
+                            const calculation = await this.repairMissingReferences(formula, null, (f) => { if (plate.formula) plate.formula[range] = f; });
                             let callist = generateExpressionsInRange(calculation, startY, 1000)
                             if (callist && callist.length >= 1) {
                                 let index = startY;
@@ -5577,6 +5577,7 @@ function (progress) {
 
                             if (calculation) {
                                 calculation = calculation.trim();
+                                calculation = await this.repairMissingReferences(calculation, fkey, (f) => { this.formulas[fkey] = f; });
                                 this.setMessage(' ' + calculation, 2)
                                 try {
                                     let well_ranges = fkey;
@@ -7770,6 +7771,73 @@ function (progress) {
                 const namesArray = this.root.map(obj => obj.name);
                 return namesArray;
 
+            }
+
+            // A formula naming a table or label the model does not have gets a "Did you mean…?"
+            // proposal (baja/plate/ops/resolve-missing-references.js, run in propose mode): a
+            // rewrite, and/or inputs Claude suggests creating. Nothing changes until the user
+            // approves; then the stored formula is replaced, the inputs are built on the
+            // canvas and everything is recalculated. Ignore is remembered for the session.
+            // The current calculation is never blocked: it carries on with the formula as
+            // written, which fails with the usual "Missing reference" message.
+            async repairMissingReferences(calculation, fkey, setFormula) {
+                try {
+                    if (!calculation || /^\s*function\b/.test(calculation)) return calculation;
+                    this.__refRepairDecisions = this.__refRepairDecisions || {};
+                    const decision = this.__refRepairDecisions[calculation];
+                    if (decision) return calculation;
+                    if (this.__refRepairPrompting) return calculation;
+
+                    const proposal = await exec('baja/plate/ops/resolve-missing-references.js', this, calculation, { apply: false });
+                    const hasChange = proposal && proposal.changed && typeof proposal.formula === 'string' && proposal.formula !== calculation;
+                    const hasRows = proposal && proposal.tables && Object.keys(proposal.tables).length > 0;
+                    if (!hasChange && !hasRows) return calculation;
+
+                    const store = (f) => {
+                        try { if (typeof setFormula === 'function') setFormula(f); } catch (e) { }
+                        if (fkey && this.formulas && this.formulas[fkey] != null) this.formulas[fkey] = f;
+                    };
+                    this.__refRepairPrompting = true;
+                    await exec('baja/plate/ops/confirm-reference-repair.js', this, proposal, {
+                        onApprove: async () => {
+                            this.__refRepairPrompting = false;
+                            this.__refRepairDecisions[calculation] = 'applied';
+                            await this.applyReferenceRepair(proposal, store);
+                        },
+                        onIgnore: () => {
+                            this.__refRepairPrompting = false;
+                            this.__refRepairDecisions[calculation] = 'ignored';
+                            try { this.setMessage('Kept the formula as written', 2); } catch (e) { }
+                        }
+                    });
+                } catch (e) {
+                    this.__refRepairPrompting = false;
+                    console.warn('reference repair skipped:', e && e.message ? e.message : e);
+                }
+                return calculation;
+            }
+
+            // Approved repair: create the proposed inputs (a row in an existing table or a new
+            // Label/Value table, through the same builder the AI models use), store the
+            // rewritten formula, then recalculate the whole model.
+            async applyReferenceRepair(proposal, store) {
+                const rows = (proposal && proposal.tables) ? Object.keys(proposal.tables) : [];
+                if (rows.length) {
+                    try {
+                        await exec('baja/draw/data-model-to-tables-gpt', this, { tables: proposal.tables, formulas: {}, annotations: {} });
+                    } catch (e) {
+                        try { this.setMessage('Could not create ' + rows.join(', ') + ': ' + (e && e.message ? e.message : e), 1); } catch (e2) { }
+                        return;
+                    }
+                }
+                if (proposal && typeof proposal.formula === 'string' && proposal.formula.trim()) {
+                    store(proposal.formula);
+                    if (proposal.formula) this.__refRepairDecisions[proposal.formula] = 'applied';
+                }
+                try {
+                    this.setMessage(rows.length ? ('Created ' + rows.join(', ') + '; formula updated, recalculating…') : 'Formula updated, recalculating…', 1);
+                } catch (e) { }
+                try { await this.updateCalculations(); } catch (e) { console.warn('recalculation after repair failed', e); }
             }
 
             getTablesAndTagNames() {

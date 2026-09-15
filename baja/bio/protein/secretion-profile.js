@@ -10,12 +10,11 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
     // does not separate secreted proteins from ER- or membrane-retained ones. The
     // python side returns those caveats in `notes` and they are shown to the user.
     //
-    // Tracks are nucleotide, so the protein comes from the track's OWN reading frame
-    // via getCDS() — exon-aware and splice-correct. The ORF is the only source: with a
-    // sequence selected, the run scores the ORF inside that selection, and a selection
-    // holding no ORF scores nothing rather than widening to the whole track. Raw bases
-    // are never translated here, because a guessed frame would draw a confident curve
-    // on the wrong reading frame and run straight through introns.
+    // Tracks are nucleotide, so the peptide comes from the track itself: this.orf.cdsi,
+    // the codons the editor draws as the amino-acid row, read with the same rule as
+    // track.getPeptideFromORF(). With a sequence selected the run scores the peptide
+    // inside that selection; a selection holding no peptide scores nothing rather than
+    // widening to the whole track. Raw bases are never translated on a guessed frame.
     return new Promise((resolve) => {
 
         const restoreHover = () => {
@@ -75,44 +74,68 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
         };
         const pickedRange = (t) => presetRange || ownRange(t);
 
-        // The protein to score, and where each residue sits in track coordinates.
+        // The peptide to score, and where each residue sits in track coordinates.
         //
-        // The ORF is the only source. A selection is intersected with it: a codon counts
-        // when its first base falls inside the selected range. If the selection holds no
-        // ORF, the run stops — it does not widen to the whole track and it does not fall
-        // back to translating raw bases, because a frame guessed off an arbitrary start
-        // would put a confident-looking curve on the wrong reading frame.
+        // Source is the TRACK'S OWN peptide — this.orf.cdsi, the same codons the editor
+        // draws as the amino-acid row and the same ones track.getPeptideFromORF() returns.
+        // The selection rule is copied from that accessor exactly (a codon counts when its
+        // third base falls inside the selected range, and START/STOP tokens are skipped),
+        // so the layer scores the residues the user can see selected, not a separately
+        // recomputed translation that could disagree with them.
         //
-        // Returns { protein, posMap, source } or { error } describing why there is nothing
-        // to score. posMap[i] is the track coordinate of residue i.
+        // Positions come from the SAME codon entries, taking each codon's first base, so
+        // the curve lands on the codon it was scored from even across exon boundaries.
+        //
+        // No selection scores the whole peptide. A selection holding no peptide scores
+        // nothing. Raw bases are never translated on a guessed frame.
+        //
+        // Returns { protein, posMap, source } or { error }.
+        const codonsOf = (track) => {
+            let cdsi = null;
+            try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
+            if (!cdsi || !cdsi.length) {
+                // getPeptideFromORF() warns "run generateORF() first" and returns ''. A
+                // track whose ORF has not been built yet is the ordinary case after a load,
+                // so build it once rather than reporting the track has no peptide.
+                try { if (track && track.generateORF) track.generateORF(); } catch (e) { }
+                try { cdsi = track && track.orf && track.orf.cdsi; } catch (e) { cdsi = null; }
+            }
+            if (!cdsi || !cdsi.length) return null;
+            // Group the per-base entries into codons: aa from the ci===2 entry, as
+            // getPeptideFromORF reads it; x from the ci===0 entry where there is one.
+            const first = {}, out = [];
+            for (const c of cdsi) {
+                if (!c) continue;
+                if (c.ci === 0 && first[c.codon_index] == null) first[c.codon_index] = +c.index;
+            }
+            for (const c of cdsi) {
+                if (!c || c.ci !== 2) continue;
+                if (!c.aa || ('' + c.aa).length !== 1) continue;      // skips START / STOP
+                const x = (first[c.codon_index] != null) ? first[c.codon_index] : +c.index;
+                out.push({ aa: '' + c.aa, x: x, mark: +c.index });
+            }
+            return out.length ? out : null;
+        };
+
         const proteinFor = (track, range) => {
-            let cds = null;
-            try { cds = track.getCDS ? track.getCDS() : null; } catch (e) { cds = null; }
-            if (!cds || !cds.protein || !cds.protein.length
-                || !cds.codonPos || cds.codonPos.length !== cds.protein.length) {
-                return { error: 'no-orf' };
+            const codons = codonsOf(track);
+            if (!codons) return { error: 'no-peptide' };
+            let use = codons;
+            if (range) {
+                const lo = Math.min(+range.start, +range.end);
+                const hi = Math.max(+range.start, +range.end);
+                // Same test as getPeptideFromORF: the codon's own index inside the range.
+                use = codons.filter((c) => c.mark >= lo && c.mark <= hi);
+                if (!use.length) return { error: 'no-peptide-in-selection' };
             }
-            if (!range) {
-                if (cds.protein.length < MIN_RESIDUES) {
-                    return { error: 'short-orf', n: cds.protein.length };
-                }
-                return {
-                    protein: cds.protein, posMap: cds.codonPos.slice(),
-                    source: "the track's ORF"
-                };
+            if (use.length < MIN_RESIDUES) {
+                return { error: range ? 'short-selection' : 'short-peptide', n: use.length };
             }
-            const lo = Math.min(+range.start, +range.end);
-            const hi = Math.max(+range.start, +range.end);
-            const aa = [], pos = [];
-            for (let i = 0; i < cds.protein.length; i++) {
-                const p = +cds.codonPos[i];
-                if (p >= lo && p <= hi) { aa.push(cds.protein[i]); pos.push(p); }
-            }
-            if (!aa.length) return { error: 'no-orf-in-selection' };
-            if (aa.length < MIN_RESIDUES) return { error: 'short-selection', n: aa.length };
             return {
-                protein: aa.join(''), posMap: pos,
-                source: 'the ORF within the selection, ' + aa.length + ' residues'
+                protein: use.map((c) => c.aa).join(''),
+                posMap: use.map((c) => c.x),
+                source: range ? ('the peptide within the selection, ' + use.length + ' residues')
+                              : "the track's peptide"
             };
         };
 
@@ -122,14 +145,14 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 const who = (track && track.name) || 'that track';
                 if (!got || got.error) {
                     const why = {
-                        'no-orf': 'There is no ORF on ' + who + ', so there is no protein to score.',
-                        'short-orf': 'The ORF on ' + who + ' is ' + (got && got.n)
+                        'no-peptide': 'There is no peptide on ' + who + ', so there is nothing to score.',
+                        'short-peptide': 'The peptide on ' + who + ' is ' + (got && got.n)
                             + ' residues; the model needs ' + MIN_RESIDUES + '.',
-                        'no-orf-in-selection': 'That selection on ' + who + ' contains no ORF, '
+                        'no-peptide-in-selection': 'That selection on ' + who + ' contains no peptide, '
                             + 'so nothing was scored.',
                         'short-selection': 'That selection covers ' + (got && got.n)
-                            + ' ORF residues; the model needs ' + MIN_RESIDUES + '.'
-                    }[(got && got.error) || 'no-orf'];
+                            + ' residues of peptide; the model needs ' + MIN_RESIDUES + '.'
+                    }[(got && got.error) || 'no-peptide'];
                     done(why);
                     try { exec('baja/lib/work-status.js', null); } catch (e) { }
                     restoreHover(); return false;
@@ -140,7 +163,13 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 const __say = (phase) => {
                     try { exec('baja/lib/work-status.js', 'Secretion · ' + __where + (phase ? ('  ·  ' + phase) : '')); } catch (e) { }
                 };
-                __say('scoring ' + got.posMap.length.toLocaleString() + ' residues');
+                // A fixed 70-residue window over a 60-residue selection gives exactly one
+                // window, i.e. a flat line and no profile at all. Shrink the window for
+                // short runs so there is a curve to read, never below the model's floor.
+                const n = got.posMap.length;
+                const win = Math.max(MIN_RESIDUES, Math.min(WINDOW_AA, Math.floor(n / 2)));
+
+                __say('scoring ' + n.toLocaleString() + ' residues');
                 say('Secretion model on ' + (track.name || 'track') + ': scoring '
                     + got.posMap.length.toLocaleString() + ' residues');
 
@@ -152,7 +181,7 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 // put every layer on a spliced track in the wrong place.
                 const data = await exec(server + '/py/bio/protein/secretion-profile.py', em,
                     '' + got.protein, '0',
-                    '' + WINDOW_AA, '' + STEP_AA, '' + POLY_DEGREE, '1', MODEL);
+                    '' + win, '' + STEP_AA, '' + POLY_DEGREE, '1', MODEL);
 
                 if (data && data.error) {
                     done('Secretion model: ' + data.error);
@@ -176,6 +205,42 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                     return +got.posMap[k];
                 };
 
+                // Introns. Consecutive codons sit 3 bases apart; a bigger jump in the codon
+                // map is an intron the peptide skipped. Without this the polyline runs
+                // straight across an intron at whatever height the flanking exons had,
+                // drawing a confident score over sequence the model never saw.
+                const gaps = [];
+                {
+                    const pm = got.posMap;
+                    const plus = (+pm[pm.length - 1] >= +pm[0]);
+                    for (let i = 1; i < pm.length; i++) {
+                        const a = +pm[i - 1], b = +pm[i];
+                        if (Math.abs(b - a) <= 3) continue;
+                        const glo = plus ? (a + 3) : (b + 1);
+                        const ghi = plus ? (b - 1) : (a - 3);
+                        if (ghi > glo) gaps.push([glo, ghi]);
+                    }
+                }
+                // Walk the points in x order and drop to the baseline across each intron.
+                const withGaps = (pts) => {
+                    if (!gaps.length) return pts;
+                    const sorted = pts.slice().sort((u, v) => u[0] - v[0]);
+                    const ordered = gaps.slice().sort((u, v) => u[0] - v[0]);
+                    const out = [];
+                    let g = 0;
+                    for (const pt of sorted) {
+                        while (g < ordered.length && ordered[g][1] < pt[0]) {
+                            out.push([ordered[g][0], 0], [ordered[g][1], 0]);
+                            g++;
+                        }
+                        // a point inside an intron cannot carry a score
+                        if (g < ordered.length && pt[0] >= ordered[g][0] && pt[0] <= ordered[g][1]) continue;
+                        out.push(pt);
+                    }
+                    for (; g < ordered.length; g++) out.push([ordered[g][0], 0], [ordered[g][1], 0]);
+                    return out;
+                };
+
                 const TrackLayer = await exec('baja/bio/track-layer.js');
                 const tg = track.tgraph;
                 const lo = Math.min(tg.xmin, tg.xmax), hi = Math.max(tg.xmin, tg.xmax);
@@ -187,10 +252,12 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 curve.polygon_type = 'fill';
                 curve.color = 'rgba(38,120,180,0.16)';
                 curve.fillstyle = 'rgba(38,120,180,0.28)';
-                const firstX = at(prof[0][0]), lastX = at(prof[prof.length - 1][0]);
+                const curvePts = withGaps(prof.map((p) => [at(p[0]), Math.max(0, Math.min(1, +p[1]))]));
+                const firstX = curvePts.length ? curvePts[0][0] : lo;
+                const lastX = curvePts.length ? curvePts[curvePts.length - 1][0] : hi;
                 curve.addPolygonPoint(lo, 0);
                 if (firstX > lo) curve.addPolygonPoint(firstX, 0);
-                for (const p of prof) curve.addPolygonPoint(at(p[0]), Math.max(0, Math.min(1, +p[1])));
+                for (const p of curvePts) curve.addPolygonPoint(p[0], p[1]);
                 if (lastX < hi) curve.addPolygonPoint(lastX, 0);
                 curve.addPolygonPoint(hi, 0);
                 curve.sortPolygonPoints();
@@ -203,7 +270,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                     fit.polygon_type = 'line';
                     fit.color = 'rgba(200,60,40,0.95)';
                     fit.fillstyle = 'rgba(200,60,40,0.95)';
-                    for (const p of poly) fit.addPolygonPoint(at(p[0]), Math.max(0, Math.min(1, +p[1])));
+                    for (const p of withGaps(poly.map((q) => [at(q[0]), Math.max(0, Math.min(1, +q[1]))])))
+                        fit.addPolygonPoint(p[0], p[1]);
                     fit.sortPolygonPoints();
                     track.addLayer(fit);
                 }
@@ -222,12 +290,19 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                 if (graph.wake) graph.wake();
 
                 const pw = (data && data.p_whole != null) ? (+data.p_whole).toFixed(3) : '?';
-                const verdict = (data && data.p_whole != null && +data.p_whole >= th)
-                    ? 'secreted' : 'not secreted';
+                // "not secreted" for a 0.93 read as a contradiction. The threshold is the
+                // one whose held-out precision was 90%, so say what the number is relative
+                // to rather than turning a probability into a bare verdict.
+                const verdict = (data && data.p_whole != null)
+                    ? ((+data.p_whole >= th) ? 'above' : 'below') + ' the '
+                        + (+th).toFixed(2) + ' high-confidence cut'
+                    : 'no score';
                 const __msg = ' Secretion profile on ' + (track.name || 'track') + ' from ' + got.source
-                    + ': whole sequence ' + pw + ' (' + verdict + '), peak '
+                    + ': ' + pw + ', ' + verdict + '. Peak '
                     + ((peak && peak.value != null) ? (+peak.value).toFixed(2) : '?')
-                    + ' at residue ' + ((peak && peak.residue) || '?') + '. ';
+                    + ' at residue ' + ((peak && peak.residue) || '?') + '.'
+                    + (gaps.length ? (' Drops to zero across ' + gaps.length + ' intron'
+                        + (gaps.length === 1 ? '' : 's') + '.') : '') + ' ';
                 try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
                 // The caveats travel with the result rather than living only in the docs,
                 // because a tall peak on a retained protein looks exactly like a secreted one.
