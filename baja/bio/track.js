@@ -8548,11 +8548,16 @@ return new Promise(async (resolve, reject) => {
                     }
                     // The dot carries the layer's own colour, so a row is matched to the
                     // curve it controls without reading the name.
-                    _c.globalAlpha = _vis ? 1 : 0.35;
+                    // Hidden layers are dimmed, but they still have to be READ — at 0.35
+                    // the name was nearly gone on a light theme, which turns "hidden" into
+                    // "missing". The dot carries most of that signal, so it dims further
+                    // than the text does.
+                    _c.globalAlpha = _vis ? 1 : 0.4;
                     _c.fillStyle = (_l && (_l.fillstyle || _l.color)) || _ink;
                     _c.beginPath();
                     _c.arc(_x + 8, _ry + (ROWH - 2) / 2, 3.5, 0, Math.PI * 2);
                     _c.fill();
+                    _c.globalAlpha = _vis ? 1 : 0.62;
                     _c.fillStyle = _ink;
                     let _lab = _nameOf(_l, i);
                     while (_lab.length > 4 && _c.measureText(_lab).width > _rowW - 22) {
