@@ -457,21 +457,6 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         const ROW_STEP = 0.16, ROWS = Math.max(6, Math.min(12, cands.length)), FLOOR = 0.22;
         let placed = 0, first = null;
         const made = [];          // the compounds this run put on the track, for the framing + pulse below
-        // TEMPORARY DIAGNOSTIC. Captures where the mutant allele SHOULD sit and whether each
-        // placed ASO's target actually carries it, so a strand/coverage problem shows as data
-        // rather than being inferred from the drawing. Remove once the allele question is settled.
-        const dbgCtx = {
-            variant: {
-                name: snp.name || '', snp_xi: Math.round(snp.xi), vX: vX, vEnd: vEnd,
-                genomic_ref: snp.reference, genomic_alt: snp.alternate,
-                coding0_ref: snp.reference0, coding0_alt: snp.alternate0,
-                transcriptStrand: snp.transcriptStrand,
-                track_frame_ref: storedRef, track_frame_alt: storedAlt,
-            },
-            strand: { geneStrand: geneStrand, orient: orient, minus: minus, track_strand: track.strand, track_xi: Math.round(track.xi) },
-            window: { lo: lo, hi: hi, viStart: viStart, viEnd: viEnd, refTx: refTx, altTx: altTx, wt: wt, mut: mut },
-            compounds: [],
-        };
         for (let i = 0; i < cands.length; i++) {
             const c = cands[i];
             try {
@@ -610,28 +595,10 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 track.addOligo(cmp);
                 placed++; if (!first) first = cmp;
                 made.push(cmp);
-                // DIAGNOSTIC row for this placed compound.
-                try {
-                    let refSlice = ''; for (let x = xi; x <= xf; x++) refSlice += storedAt(x);
-                    const diffs = [];
-                    for (let k = 0; k < targetTrack.length && k < refSlice.length; k++) {
-                        if (targetTrack[k] !== refSlice[k]) diffs.push(k + ': ' + refSlice[k] + '>' + targetTrack[k]);
-                    }
-                    dbgCtx.compounds.push({
-                        name: nm, offset: c.offset, length: c.length, variant_position_in_antisense: c.variant_position,
-                        xi: xi, xf: xf, covers_variant: (vX >= xi && vX <= xf),
-                        ref_along_track: refSlice, target_along_track: targetTrack,
-                        target_differs_from_ref_at: diffs,
-                        target_carries_alt: (vX >= xi && vX <= xf) ? (targetTrack[vX - xi] === storedAlt[0]) : false,
-                        synthesisSequence: cmp.synthesisSequence || '', sense: cmp.sense || '', antisense: cmp.antisense || '',
-                        transcript_site: c.target_site || '',
-                    });
-                } catch (e) { }
             } catch (e) { }
         }
         if (!placed) { warn('Candidates were designed but none could be placed on the track.'); restoreHover(); return false; }
         try { if (graph.wake) graph.wake(); } catch (e) { }
-        try { dbgCtx.py = { considered: r.considered, discriminating: r.discriminating, rejected: (function () { try { return JSON.parse(r.rejected || '{}'); } catch (e) { return {}; } })() }; } catch (e) { }
 
         // ---- 6. SHOW WHAT LANDED ------------------------------------------------------------
         //
@@ -721,12 +688,6 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '. ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
-        // TEMPORARY DIAGNOSTIC — the whole context printed as JSON to the browser console
-        // after the design finishes. Open the console and copy the block that follows the
-        // "ALLELE-SELECTIVE DIAGNOSTIC" line. Remove once the allele question is settled.
-        try {
-            console.log('ALLELE-SELECTIVE DIAGNOSTIC\n' + JSON.stringify(dbgCtx, null, 2));
-        } catch (e) { }
         return true;
     })();
 }
