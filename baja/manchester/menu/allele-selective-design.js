@@ -470,7 +470,11 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // mutant sequence and its synthesis strand is complementary to that allele.
                 const targetTrack = mutTrack.slice(xi - lo, xf - lo + 1);
                 if (targetTrack.length !== c.length) continue;
-                const bioObj = { targetSequence: targetTrack, startIndex: xi, y: y, strand: geneStrand };
+                // Reverse genes need strand < 0 so Biopolymer makes the ASO the genomic-plus
+                // target (antisense to the mRNA). Forward genes keep track.strand EXACTLY as
+                // every other designer passes it -- same value and type -- so nothing that
+                // reads the compound's strand downstream sees a changed forward compound.
+                const bioObj = { targetSequence: targetTrack, startIndex: xi, y: y, strand: (geneStrand < 0 ? -1 : track.strand) };
                 // siRNA: Biopolymer builds the sense/antisense patterns from the chemistry NAME
                 // (its own siRNATemplatesFor -- alternating 2'-F/2'-OMe, ESC, fully 2'-OMe), so
                 // the duplex here is the same chemistry the siRNA designer produces.
