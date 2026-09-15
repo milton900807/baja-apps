@@ -14836,6 +14836,43 @@ function (path, config) {
             q.addEventListener('input', dzFilter);
             try { q.value = dzLast || ''; q.focus(); q.select(); dzFilter(); } catch (e) { }
         };
+        // EXAMPLE VCFs, so the multi-sample and phasing features have something to run on
+        // without a visitor bringing their own file. The coordinates are real (drawn live from
+        // ClinVar by py/bio/example-vcf.py); only the sample/genotype columns are synthesised,
+        // to the shape each example is meant to show.
+        const EXAMPLE_VCFS = [
+            { type: 'tumor_normal', title: 'Tumor / normal pair', badge: '2 samples', icon: 'difference',
+                blurb: 'A tumour and its matched normal: somatic changes the tumour carries and the normal does not, shared germline variants, and a few loss-of-heterozygosity sites. Colours by sample and feeds the loss matrix.' },
+            { type: 'phased', title: 'Phased genome', badge: 'haplotypes', icon: 'call_split',
+                blurb: 'One sample with phased calls (1|0, 0|1, 1|1): which haplotype each change sits on. Colours by phase — what allele-selective design reads.' },
+            { type: 'trio', title: 'Family trio', badge: '3 samples', icon: 'family_restroom',
+                blurb: 'Father, mother and child with Mendelian inheritance and a few de novo variants in the child. Colours by sample.' },
+            { type: 'multisample', title: 'Multi-sample cohort', badge: '5 samples', icon: 'groups',
+                blurb: 'Five samples, each carrying a different subset — shared and private variants across a small cohort.' },
+        ];
+        let exBusy = false;
+        const loadExampleVcf = async (t) => {
+            if (exBusy) { graph.setMessage(' Still loading an example… '); return; }
+            exBusy = true;
+            graph.setMessage(' Building the example VCF from real ClinVar coordinates… ');
+            try {
+                const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+                const rs = await exec(server + '/py/bio/example-vcf.py', em, t, (r.species || 'human'), '8');
+                if (!rs || !rs.ok || !rs.vcf) throw new Error((rs && rs.error) || 'the example could not be built');
+                const name = rs.name || ('example_' + t + '.vcf');
+                let file;
+                try { file = new File([rs.vcf], name, { type: 'text/plain' }); }
+                catch (e) { file = new Blob([rs.vcf], { type: 'text/plain' }); file.name = name; file.size = rs.vcf.length; }
+                const count = await addVcfFile(file);
+                try { await fit(); pan(); } catch (e) { }
+                exBusy = false;
+                graph.setMessage(' Loaded ' + count.added.toLocaleString() + ' example variants ('
+                    + name.replace(/\.vcf$/, '').replace(/_/g, ' ') + '). Open Color to see them by sample or phase. ');
+            } catch (e) {
+                exBusy = false;
+                try { graph.setError(' The example could not be loaded: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
         const uploadMenu = () => {
             const n = SAMPLES.length;
             const nLeft = leftTotal();
@@ -14914,6 +14951,17 @@ function (path, config) {
                             note: true, blurb: '', title: 'Rows of a VCF can also be pasted straight onto the chromosomes: '
                                 + 'copy them and press Ctrl+V with this view open.',
                         },
+                        // EXAMPLE FILES, for trying the sample and phase features without a file
+                        // of your own. Real ClinVar coordinates, illustrative genotypes.
+                        {
+                            section: 'Or load an example', note: true,
+                            title: 'No VCF to hand? Load one of these. Every mark is a real pathogenic ClinVar coordinate; the sample and genotype columns are synthesised to show the feature.',
+                        },
+                        ...EXAMPLE_VCFS.map((ex) => ({
+                            section: 'Or load an example', accent: 'run', icon: ex.icon,
+                            title: ex.title, badge: ex.badge, ready: true, blurb: ex.blurb,
+                            open: () => loadExampleVcf(ex.type),
+                        })),
                         // AND A WAY OUT AMONG THE WAYS IN. Closing was the ✕ in the header
                         // and the Escape key, neither of which is where someone deciding not to
                         // load anything is looking -- they are looking at the cards.
