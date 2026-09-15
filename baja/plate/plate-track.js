@@ -7797,6 +7797,18 @@ function (progress) {
                         try { if (typeof setFormula === 'function') setFormula(f); } catch (e) { }
                         if (fkey && this.formulas && this.formulas[fkey] != null) this.formulas[fkey] = f;
                     };
+                    // A function name run into an existing table name (ABSPnL[Net_Income]) has
+                    // only one reading, so it is fixed on the spot and used for THIS calculation;
+                    // the user is told, not asked. Everything else is a proposal.
+                    const unambiguous = hasChange && !hasRows
+                        && proposal.changes.length > 0 && proposal.changes.every(c => c.kind === 'function');
+                    if (unambiguous) {
+                        store(proposal.formula);
+                        this.__refRepairDecisions[calculation] = 'applied';
+                        this.__refRepairDecisions[proposal.formula] = 'applied';
+                        try { this.setMessage(proposal.changes.map(c => c.from + ' read as ' + c.to).join('; '), 1); } catch (e) { }
+                        return proposal.formula;
+                    }
                     this.__refRepairPrompting = true;
                     await exec('baja/plate/ops/confirm-reference-repair.js', this, proposal, {
                         onApprove: async () => {

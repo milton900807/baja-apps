@@ -8382,6 +8382,10 @@ return new Promise(async (resolve, reject) => {
         // those two are already guaranteed to contrast (they are the track's text and its
         // background), where a fixed navy-on-white tab would vanish on Blueprint or Midnight.
         try {
+          // Cleared before anything can return early: a track scrolled off screen, or one
+          // whose tab is not drawn this frame, must not leave clickable rectangles behind
+          // at coordinates that now belong to something else.
+          this.__layerTabs = [];
           const _c = (graph.canvas && graph.canvas.getCTX) ? graph.canvas.getCTX() : null;
           if (_c && (this.name || this.chr)) {
             const _cw = _c.canvas.width, _ch = _c.canvas.height;
@@ -8465,6 +8469,112 @@ return new Promise(async (resolve, reject) => {
                 _c.globalAlpha = 1;
               }
               _c.restore();
+
+              // ---- clickable layer list, under the name tab ------------------------
+              //
+              // Layers were only reachable through the track menu, so a track carrying
+              // several of them gave no sign of what was on it. When the track body has
+              // the room, each layer gets a row under the name: a visibility dot and its
+              // name. The screen rectangles are kept on the track so the mouse handler
+              // can hit-test them; they are rebuilt every frame, because a pan, a zoom or
+              // a track resize moves every one of them.
+              const _layers = (this.showLayers === false) ? [] : (this.track_layers || []);
+              if (_layers.length) {
+                const _yLow = graph.grid.Y(this.tgraph.Y(this.tgraph.ymin));
+                const _bodyH = Math.abs(_yLow - _yBottom);
+                const ROWH = 15, TOPPAD = 5, BOTPAD = 8, MINBODY = 46;
+                const ROWF = '11px "Segoe UI", system-ui, Arial, sans-serif';
+                // "Tall enough" is a real floor, not just room for one row: on a short
+                // track the list would be most of the track. Never more than half the
+                // body either — the track's own content comes first.
+                const _room = Math.floor((_bodyH - TOPPAD - BOTPAD) / ROWH);
+                let _fit = (_bodyH < MINBODY) ? 0
+                    : Math.max(0, Math.min(_layers.length, Math.min(_room, Math.floor(_bodyH / 2 / ROWH))));
+                // The "+N more" line is itself a row. Give up one layer to make space for
+                // it, rather than drawing it past the bottom of the track.
+                if (_fit > 0 && _layers.length > _fit && _fit >= _room) _fit -= 1;
+                if (_fit > 0) {
+                  _c.save();
+                  _c.font = ROWF;
+                  _c.textAlign = 'left';
+                  _c.textBaseline = 'middle';
+                  const _shown = _layers.slice(0, _fit);
+                  const _rows = _shown.length + ((_layers.length > _fit) ? 1 : 0);
+                  const _nameOf = (l, i) => ('' + ((l && (l.name || l.data_type || l.attribution_type)) || ('layer ' + (i + 1))));
+                  let _rowW = 0;
+                  for (let i = 0; i < _shown.length; i++) {
+                    _rowW = Math.max(_rowW, _c.measureText(_nameOf(_shown[i], i)).width);
+                  }
+                  _rowW = Math.min(_rowW + 34, Math.max(90, _hi - _x - 4));
+                  // One solid backdrop behind the whole list. A per-row tint at 5% alpha
+                  // let the sequence letters and any layer curve show straight through the
+                  // names, which is unreadable over a busy track; the list needs its own
+                  // ground, in the track's paper colour so it still suits every theme.
+                  {
+                    const _bx = _x - 3, _by = _yBottom + TOPPAD - 3;
+                    const _bw = _rowW + 6, _bh = _rows * ROWH + 4;
+                    const _br = 5;
+                    _c.save();
+                    _c.beginPath();
+                    _c.moveTo(_bx + _br, _by);
+                    _c.lineTo(_bx + _bw - _br, _by);
+                    _c.quadraticCurveTo(_bx + _bw, _by, _bx + _bw, _by + _br);
+                    _c.lineTo(_bx + _bw, _by + _bh - _br);
+                    _c.quadraticCurveTo(_bx + _bw, _by + _bh, _bx + _bw - _br, _by + _bh);
+                    _c.lineTo(_bx + _br, _by + _bh);
+                    _c.quadraticCurveTo(_bx, _by + _bh, _bx, _by + _bh - _br);
+                    _c.lineTo(_bx, _by + _br);
+                    _c.quadraticCurveTo(_bx, _by, _bx + _br, _by);
+                    _c.closePath();
+                    _c.globalAlpha = 0.93;
+                    _c.fillStyle = _paper;
+                    _c.fill();
+                    _c.globalAlpha = 0.5;
+                    _c.lineWidth = 1;
+                    _c.strokeStyle = _ink;
+                    _c.stroke();
+                    _c.restore();
+                  }
+                  for (let i = 0; i < _shown.length; i++) {
+                    const _l = _shown[i];
+                    const _ry = _yBottom + TOPPAD + i * ROWH;
+                    const _vis = _l && _l.visible !== false;
+                    // Alternate rows, faintly, so a long list stays readable row to row.
+                    if (i % 2) {
+                      _c.globalAlpha = 0.06;
+                      _c.fillStyle = _ink;
+                      _c.fillRect(_x - 2, _ry, _rowW + 4, ROWH - 2);
+                      _c.globalAlpha = 1;
+                    }
+                    // The dot carries the layer's own colour, so a row is matched to the
+                    // curve it controls without reading the name.
+                    _c.globalAlpha = _vis ? 1 : 0.35;
+                    _c.fillStyle = (_l && (_l.fillstyle || _l.color)) || _ink;
+                    _c.beginPath();
+                    _c.arc(_x + 8, _ry + (ROWH - 2) / 2, 3.5, 0, Math.PI * 2);
+                    _c.fill();
+                    _c.fillStyle = _ink;
+                    let _lab = _nameOf(_l, i);
+                    while (_lab.length > 4 && _c.measureText(_lab).width > _rowW - 22) {
+                      _lab = _lab.slice(0, -2);
+                    }
+                    if (_lab !== _nameOf(_l, i)) _lab += '…';
+                    _c.fillText(_lab, _x + 16, _ry + (ROWH - 2) / 2);
+                    _c.globalAlpha = 1;
+                    this.__layerTabs.push({ x: _x, y: _ry, w: _rowW, h: ROWH - 2, layer: _l, track: this });
+                  }
+                  if (_layers.length > _fit) {
+                    const _ry = _yBottom + TOPPAD + _fit * ROWH;
+                    _c.globalAlpha = 0.6;
+                    _c.fillStyle = _ink;
+                    _c.fillText('+' + (_layers.length - _fit) + ' more…', _x + 16, _ry + 6);
+                    _c.globalAlpha = 1;
+                    // Opens the full list rather than pretending the rest are not there.
+                    this.__layerTabs.push({ x: _x, y: _ry, w: _rowW, h: ROWH - 2, layer: null, track: this });
+                  }
+                  _c.restore();
+                }
+              }
             }
           }
         } catch (e) { }

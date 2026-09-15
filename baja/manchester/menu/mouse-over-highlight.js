@@ -5075,6 +5075,26 @@ function (graph, genegraph_panel_layout) {
                 }
             } catch (e) { }
 
+            // Click on a LAYER ROW under a track name → edit that layer. Same rectangles
+            // the track draws, kept on the track each frame. Handled here, like the
+            // off-target badge above, and flagged so the matching mouse-up does not also
+            // open the track context menu over the top of the side menu.
+            try {
+                const ds2 = graph.__downScreen;
+                if (ds2) {
+                    for (const t2 of (graph.track || [])) {
+                        for (const r of (t2.__layerTabs || [])) {
+                            if (ds2.x >= r.x && ds2.x <= r.x + r.w && ds2.y >= r.y && ds2.y <= r.y + r.h) {
+                                graph.__downMenuHandled = true;
+                                await exec('baja/manchester/menu/track-layers-side-menu.js',
+                                    t2, genegraph_panel_layout, graph, r.layer || null);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (e) { }
+
             // Box-zoom owns the interaction — don't let hover select/deselect or
             // clear the selection while the user is dragging a zoom rectangle.
             if (graph.graph && graph.graph.mode === 'bpx') return;

@@ -98,12 +98,14 @@ function (pt, formula, options) {
         const isMissing = (table, key) => !findTable(table) || !findLabel(findTable(table), key);
 
         let text = original;
-        const rewrite = (from, to, note) => {
+        // kind: 'function' = a function name run into an existing table name (unambiguous,
+        // safe to apply without asking); 'match' = a case/spelling/table correction.
+        const rewrite = (from, to, note, kind) => {
             if (from === to) return;
             text = text.split(from).join(to);
             result.changed = true;
             result.notes.push(note);
-            result.changes.push({ from: from, to: to });
+            result.changes.push({ from: from, to: to, kind: kind || 'match' });
         };
 
         // ---- 1. local repairs ------------------------------------------------------------
@@ -132,16 +134,18 @@ function (pt, formula, options) {
             if (!t) return null;
             const k = findLabel(t, key);
             if (!k) return null;
-            return fn ? (fn + '(' + t + '[' + k + '])') : (t + '[' + k + ']');
+            // Only an exact table and label make the function-prefix case unambiguous.
+            const exact = (t === (fn ? table.slice(fn.length) : table)) && k === key;
+            return { repl: fn ? (fn + '(' + t + '[' + k + '])') : (t + '[' + k + ']'), kind: (fn && exact) ? 'function' : 'match' };
         };
 
         const pending = [];
         for (const m of Array.from(original.matchAll(TOKEN))) {
             const [token, table, key] = m;
             if (isCellRange(key) || key.indexOf(':') >= 0) continue;
-            const repl = localFix(token, table, key);
-            if (repl) {
-                if (repl !== token) rewrite(token, repl, token + ' read as ' + repl);
+            const fix = localFix(token, table, key);
+            if (fix) {
+                if (fix.repl !== token) rewrite(token, fix.repl, token + ' read as ' + fix.repl, fix.kind);
                 continue;
             }
             pending.push({ token, table, key });
@@ -193,8 +197,8 @@ function (pt, formula, options) {
                 for (const m of Array.from(text.matchAll(TOKEN))) {
                     const [token, table, key] = m;
                     if (isCellRange(key) || key.indexOf(':') >= 0) continue;
-                    const repl = localFix(token, table, key);
-                    if (repl && repl !== token) rewrite(token, repl, token + ' read as ' + repl);
+                    const fix = localFix(token, table, key);
+                    if (fix && fix.repl !== token) rewrite(token, fix.repl, token + ' read as ' + fix.repl, fix.kind);
                 }
                 for (const n of (answer.notes || [])) result.notes.push(String(n));
             } else if (answer && answer.error) {

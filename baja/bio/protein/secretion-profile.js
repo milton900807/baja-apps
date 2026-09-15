@@ -276,14 +276,69 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                     track.addLayer(fit);
                 }
 
-                // Mark the strongest window, which is the part a reader should look at.
+                // ---- the predicted signal-peptide region, as a real annotation ----------
+                //
+                // profile[i] is the probability that a protein STARTING at residue i looks
+                // secreted, so a signal-like segment begins where the curve is high. The
+                // region annotated is the contiguous run of window starts scoring above the
+                // cut around the peak, extended by a typical signal-peptide length from the
+                // last of them. It is a predicted REGION, not a cleavage-site call: the
+                // model was never trained to place the cleavage site.
                 const th = (thresholds && thresholds.precision90 != null) ? +thresholds.precision90 : 0.9;
+                const SIGNAL_AA = 25;
+                let nAnn = 0;
                 if (peak && peak.value != null && +peak.value >= 0.5) {
-                    const pr = Math.max(0, (+peak.residue || 1) - 1);
-                    const x0 = at(pr), x1 = at(pr + Math.min(WINDOW_AA, got.posMap.length - 1 - pr));
-                    curve.addInterval(Math.min(x0, x1), Math.max(x0, x1), +peak.value,
-                        'secretion ' + (+peak.value).toFixed(2),
-                        'rgba(38,120,180,' + (0.25 + 0.45 * +peak.value).toFixed(2) + ')');
+                    const cut = Math.max(0.5, 0.6 * (+peak.value));
+                    let pk = 0;
+                    for (let i = 1; i < prof.length; i++) if (+prof[i][1] > +prof[pk][1]) pk = i;
+                    let i0 = pk, i1 = pk;
+                    while (i0 > 0 && +prof[i0 - 1][1] >= cut) i0--;
+                    while (i1 < prof.length - 1 && +prof[i1 + 1][1] >= cut) i1++;
+                    const rFrom = Math.max(0, +prof[i0][0]);
+                    const rTo = Math.min(got.posMap.length - 1, +prof[i1][0] + SIGNAL_AA - 1);
+
+                    // Exon-aware placement. posMap holds each residue's genomic position, so
+                    // a residue range on a spliced mRNA is NOT one genomic interval: split it
+                    // wherever consecutive codons jump more than 3 bases and annotate each
+                    // exonic piece, the way protein domains are placed.
+                    const pieces = [];
+                    let segStart = rFrom, prev = rFrom;
+                    for (let r = rFrom + 1; r <= rTo; r++) {
+                        if (Math.abs(+got.posMap[r] - +got.posMap[prev]) > 3) {
+                            pieces.push([segStart, prev]);
+                            segStart = r;
+                        }
+                        prev = r;
+                    }
+                    pieces.push([segStart, prev]);
+
+                    try {
+                        const Annotation = await exec('flexigraph/annotation.js');
+                        // Re-running replaces the previous call rather than stacking another
+                        // copy of the same region on top of it.
+                        try {
+                            track.annotations = (track.annotations || [])
+                                .filter((a) => !a || a.type !== 'SecretionSignal');
+                        } catch (e) { }
+                        const label = 'Secretion signal ' + (+peak.value).toFixed(2);
+                        for (let k = 0; k < pieces.length; k++) {
+                            const ra = pieces[k][0], rb = pieces[k][1];
+                            const xa = +got.posMap[ra], xb = +got.posMap[rb];
+                            // codonPos runs 3'->5' on the minus strand, so order the span,
+                            // and +2 covers the last codon's remaining bases.
+                            const alo = Math.min(xa, xb), ahi = Math.max(xa, xb) + 2;
+                            const an = new Annotation('SecretionSignal',
+                                label + (pieces.length > 1 ? (' (' + (k + 1) + '/' + pieces.length + ')') : ''),
+                                alo, ahi);
+                            an.color = 'rgba(200,60,40,0.9)';
+                            an.labelY = 2.2;
+                            try { track.add(an); } catch (e) { (track.annotations || []).push(an); }
+                            nAnn++;
+                        }
+                        try { if (track.fitYAxis) track.fitYAxis(); } catch (e) { }
+                    } catch (e) {
+                        try { log('[secretion] annotation failed: ' + e); } catch (e2) { }
+                    }
                 }
                 if (curve.setTimedHighlight) curve.setTimedHighlight(8000);
                 setTimeout(() => { try { if (graph.wake) graph.wake(); } catch (e) { } }, 8100);

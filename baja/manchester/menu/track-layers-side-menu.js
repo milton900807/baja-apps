@@ -1,8 +1,12 @@
-function (track, genegraph_panel_layout, graph) {
+function (track, genegraph_panel_layout, graph, focusLayer) {
     // Edit a track's layers via a cascading SIDE MENU (hide / show / remove /
     // interaction / background), instead of opening the full-panel layer editor.
     // Root lists every layer (with a shown/hidden dot) plus bulk "all layers"
     // actions; picking a layer opens its per-layer action submenu.
+    //
+    // focusLayer (optional) opens that layer's submenu straight away, for callers that
+    // already know which layer was picked — clicking its row under the track name means
+    // the root list would ask again for a choice the user has just made.
     return new Promise(async (resolve) => {
 
         const refreshDraw = () => { try { if (graph.wake) graph.wake(); } catch (e) { } };
@@ -85,7 +89,8 @@ function (track, genegraph_panel_layout, graph) {
             graph.showSideMenu(items);
         };
 
-        showRoot();
+        if (focusLayer && ((track.track_layers || []).indexOf(focusLayer) >= 0)) showLayer(focusLayer);
+        else showRoot();
         resolve();
     });
 }
