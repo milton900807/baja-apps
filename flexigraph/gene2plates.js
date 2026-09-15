@@ -3186,6 +3186,11 @@ function (plateManager, progress) {
                     evt.preventDefault();
 
                     const dy = evt.deltaY;
+                    // A maximized table/timeline/chart scrolls vertically instead of zooming.
+                    if (plateManager && plateManager.plateTrack && plateManager.plateTrack.__maximized) {
+                        try { plateManager.plateTrack.__maxScroll(dy); } catch (e) { }
+                        return;
+                    }
                     const direction = dy > 0 ? 1 : -1;
 
                     const zoomStep = 10;

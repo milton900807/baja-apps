@@ -6313,6 +6313,18 @@ function (progress) {
             }
 
             setActive(plot) {
+                // Live co-editing: a timeline someone else holds cannot be made active.
+                if (this.__collab && plot && plot !== this.activePlot) {
+                    if (this.__collab.isLockedByOther(plot.uid)) {
+                        const h = this.__collab.lockHolder(plot.uid);
+                        try { this.setMessage((h && h.user ? h.user.split('@')[0] : 'Someone') + ' is editing that timeline. Wait until they let go.', 1); } catch (e) { }
+                        return;
+                    }
+                    if (this.activePlot && this.activePlot !== plot && this.activePlot !== this.selectedPlate) this.__collab.release(this.activePlot);
+                    this.__collab.acquire(plot).then((r) => {
+                        if (r && !r.ok) { try { this.setMessage('Someone just took that timeline.', 1); } catch (e) { } if (this.activePlot === plot) this.activePlot = null; }
+                    });
+                }
                 this.activePlot = plot;
             }
             addGlyphNoSelect(glyph) {
@@ -8161,6 +8173,11 @@ function (progress) {
             }
 
             mouseDown(x, y) {
+                if (this.__maximized) {
+                    const hit = this.__maxHit(x, y);
+                    if (hit === 'exit') return;
+                    if (!hit && !this.menu) return;
+                }
 
 
 
@@ -8317,6 +8334,11 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                if (this.__maximized) {
+                    const hit = this.__maxHit(x, y);
+                    if (hit === 'exit') { this.exitMaximize(); return; }
+                    if (!hit && !this.menu) return;
+                }
                 if (isMobile()) {
                     return;
                 }
@@ -8982,6 +9004,149 @@ function (progress) {
                     this.grid.yshift = state.yshift;
                     this.grid.rescale();
                 }
+            }
+
+            // ---- Maximize one object -------------------------------------------------------
+            // A table, timeline or chart fills the canvas on a navy backdrop for single-object
+            // editing: everything else is not drawn or clickable, the view is zoomed so the
+            // object's width fits, the wheel scrolls it vertically when it is taller than the
+            // view, and the header's Exit button (or Escape) restores the previous view. All
+            // editing still runs on the real canvas, so cells, points and menus work as usual.
+            __maxWorldBounds(obj) {
+                if (!obj) return null;
+                if (typeof obj.drawPlot === 'function') {
+                    const x0 = obj.x, w = obj.w, yTop = obj.y, h = obj.h;
+                    if ([x0, w, yTop, h].every(Number.isFinite)) return { x0, x1: x0 + w, yTop, yBot: yTop - h };
+                    return null;
+                }
+                if (obj.grid && Number.isFinite(obj.grid.xi)) {
+                    return { x0: obj.grid.xi, x1: obj.grid.xi + obj.grid.width, yTop: obj.grid.yi + obj.grid.height, yBot: obj.grid.yi };
+                }
+                if (obj.shape && obj.shape.getX) {
+                    const sh = obj.shape;
+                    return { x0: Math.min(sh.getX(), sh.getXf()), x1: Math.max(sh.getX(), sh.getXf()), yTop: Math.max(sh.getY(), sh.getYf()), yBot: Math.min(sh.getY(), sh.getYf()) };
+                }
+                return null;
+            }
+            __maxScreenBox() {
+                const b = this.__maxWorldBounds(this.__maximized);
+                if (!b) return null;
+                const g = this.grid;
+                return { x: g.X(b.x0), y: g.Y(b.yTop), w: g.X(b.x1) - g.X(b.x0), h: g.Y(b.yBot) - g.Y(b.yTop) };
+            }
+            maximizeObject(obj) {
+                if (!obj) return;
+                const b = this.__maxWorldBounds(obj);
+                if (!b) { try { this.setMessage('This object cannot be maximized.', 2); } catch (e) { } return; }
+                if (!this.__maximized) this.__maxGridBefore = JSON.parse(JSON.stringify(this.grid));
+                this.__maximized = obj;
+                try { this.menu = null; this.menu_vis = false; } catch (e) { }
+                this.grid.rescale();
+                const cw = Math.max(1, this.grid.width), ch = Math.max(1, this.grid.height);
+                const HEADER = 56;   // px reserved above the object for the title bar
+                const width = Math.max(1e-6, b.x1 - b.x0);
+                const xRange = width * 1.08;
+                const yRange = xRange * (ch / cw);
+                const xmin = b.x0 - width * 0.04, xmax = xmin + xRange;
+                const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
+                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b };
+                AnimateGrid.INTERUPT = true;
+                try { new AnimateGrid(this.grid).animateTo(xmin, xmax, ymin, ymax, 18); } catch (e) {
+                    this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
+                }
+                if (!this.__maxKey) {
+                    this.__maxKey = (e) => { if (e && e.key === 'Escape' && this.__maximized) { e.preventDefault(); this.exitMaximize(); } };
+                    try { window.addEventListener('keydown', this.__maxKey, true); } catch (e) { }
+                }
+                try { this.setMessage('Maximized: ' + (obj.name || 'object') + '. Scroll to move down, Escape or Exit to return.', 2); } catch (e) { }
+            }
+            exitMaximize() {
+                if (!this.__maximized) return;
+                this.__maximized = null;
+                this.__maxExitRect = null;
+                if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
+                AnimateGrid.INTERUPT = true;
+                const before = this.__maxGridBefore;
+                this.__maxGridBefore = null;
+                if (before) {
+                    try { new AnimateGrid(this.grid).animateTo(before.xmin, before.xmax, before.ymin, before.ymax, 18); }
+                    catch (e) { this.restoreGrid(before); }
+                }
+            }
+            // Wheel while maximized: vertical scroll within the object, clamped to its extent.
+            __maxScroll(deltaPx) {
+                if (!this.__maximized || !this.__maxBounds) return;
+                const g = this.grid;
+                g.rescale();
+                const b = this.__maxBounds.b;
+                const yRange = g.ymax - g.ymin;
+                const ch = Math.max(1, g.height);
+                const header = this.__maxBounds.headerWorld;
+                const topLimit = b.yTop + header;          // ymax may not exceed this
+                const bottomLimit = b.yBot - yRange * 0.04; // ymin may not go below this
+                if (topLimit - bottomLimit <= yRange + 1e-9) return;   // it all fits: nothing to scroll
+                let shift = -deltaPx * (yRange / ch);       // wheel down -> view moves down (y decreases)
+                let ymax = g.ymax + shift, ymin = g.ymin + shift;
+                if (ymax > topLimit) { ymax = topLimit; ymin = ymax - yRange; }
+                if (ymin < bottomLimit) { ymin = bottomLimit; ymax = ymin + yRange; }
+                g.ymax = ymax; g.ymin = ymin; g.rescale();
+            }
+            // 'exit' when the point is on the Exit button, 'inside' when on the object, else null.
+            __maxHit(x, y) {
+                if (!this.__maximized) return null;
+                const r = this.__maxExitRect;
+                if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'exit';
+                const box = this.__maxScreenBox();
+                if (box && x >= box.x - 40 && x <= box.x + box.w + 40 && y >= box.y - 40 && y <= box.y + box.h + 40) return 'inside';
+                return null;
+            }
+            __drawMaximizeChrome(ctx) {
+                if (!this.__maximized || !ctx) return;
+                const obj = this.__maximized;
+                const W = ctx.canvas.width, H = ctx.canvas.height;
+                const rr = (x, y, w, h, r) => {
+                    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+                };
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                // Title bar
+                ctx.fillStyle = 'rgba(10,37,64,0.96)';
+                ctx.fillRect(0, 0, W, 44);
+                ctx.fillStyle = '#1aa3bd'; ctx.fillRect(0, 44, W, 2);
+                ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.fillStyle = '#eaf6f9'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                const kind = typeof obj.drawPlot === 'function' ? (obj.type === 'timeline' ? 'Timeline' : 'Chart') : (obj.shape ? 'Object' : 'Table');
+                ctx.fillText(kind + ': ' + (obj.name || 'untitled'), 16, 22);
+                ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.fillStyle = 'rgba(234,246,249,0.7)';
+                ctx.fillText('Scroll to move down. Escape to return.', 16 + ctx.measureText('').width + Math.ceil((() => { ctx.save(); ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const w = ctx.measureText(kind + ': ' + (obj.name || 'untitled')).width; ctx.restore(); return w; })()) + 18, 22);
+                // Exit button
+                const label = 'Exit maximize';
+                ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                const bw = Math.ceil(ctx.measureText(label).width) + 28, bh = 28;
+                const bx = W - bw - 14, by = 8;
+                ctx.fillStyle = '#1aa3bd'; rr(bx, by, bw, bh, 8); ctx.fill();
+                ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 0.5);
+                this.__maxExitRect = { x: bx, y: by, w: bw, h: bh };
+                // Scroll indicator on the right when the object is taller than the view.
+                try {
+                    const b = this.__maxBounds && this.__maxBounds.b;
+                    if (b) {
+                        this.grid.rescale();
+                        const yRange = this.grid.ymax - this.grid.ymin;
+                        const total = (b.yTop + this.__maxBounds.headerWorld) - (b.yBot - yRange * 0.04);
+                        if (total > yRange) {
+                            const trackY = 52, trackH = H - 64;
+                            const frac = yRange / total;
+                            const pos = ((b.yTop + this.__maxBounds.headerWorld) - this.grid.ymax) / (total - yRange);
+                            ctx.fillStyle = 'rgba(255,255,255,0.10)'; rr(W - 10, trackY, 6, trackH, 3); ctx.fill();
+                            ctx.fillStyle = 'rgba(26,163,189,0.9)'; rr(W - 10, trackY + pos * trackH * (1 - frac), 6, Math.max(24, trackH * frac), 3); ctx.fill();
+                        }
+                    }
+                } catch (e) { }
+                ctx.restore();
             }
 
             restoreGrid(state) {
@@ -15900,6 +16065,7 @@ function (progress) {
             }
             removePlot(plot) {
                 this.deselectAll();
+                if (this.__collab && plot && plot.uid) this.__collab.broadcastRemove(plot.uid, 'plot');
                 const index = this.m_plots.indexOf(plot);
                 if (index >= 0) {
                     this.m_plots.splice(index, 1);
@@ -21445,12 +21611,21 @@ function (progress) {
                         return aBg - bBg;
                     });
 
-                    const allObjects = [...nonGlyphObjects, ...glyphObjects];
+                    let allObjects = [...nonGlyphObjects, ...glyphObjects];
+                    if (this.__maximized) {
+                        // Single-object mode: navy backdrop, only the maximized object is drawn.
+                        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+                        ctx.fillStyle = '#0a2540'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                        ctx.restore();
+                        allObjects = allObjects.filter(o => o === this.__maximized);
+                        if (!allObjects.length) this.exitMaximize();
+                    }
 
                     for (let obj of allObjects) {
                         this.drawPackageExportParentLine(obj, ctx);
                         drawObj(obj);
                     }
+                    if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
 
                     if (!isMobile()) {
                         if (this.__stack && this.__stack.length > 0) {
@@ -22041,9 +22216,24 @@ function (progress) {
                     if (p) { const i = this.root.indexOf(p); if (i >= 0) this.root.splice(i, 1); if (this.selectedPlate === p) this.selectedPlate = null; }
                     const g = (this.glyphs || []).find(x => x && ('' + x.uid) === uid);
                     if (g) { const i = this.glyphs.indexOf(g); if (i >= 0) this.glyphs.splice(i, 1); }
+                    const mp = (this.m_plots || []).find(x => x && ('' + x.uid) === uid);
+                    if (mp) { const i = this.m_plots.indexOf(mp); if (i >= 0) this.m_plots.splice(i, 1); if (this.activePlot === mp) this.activePlot = null; if (this.selectedPlate === mp) this.selectedPlate = null; }
                     return;
                 }
                 if (!state || typeof state !== 'object') return;
+                if (kind === 'plot' || kind === 'timeline') {
+                    // Timelines and charts: the same rebuild the file loader uses.
+                    let fresh = null;
+                    try { fresh = MPlot.fromJSON(state); } catch (e) { fresh = null; }
+                    if (!fresh) return;
+                    fresh.uid = uid;
+                    const i = (this.m_plots || []).findIndex(x => x && ('' + x.uid) === uid);
+                    const old = i >= 0 ? this.m_plots[i] : null;
+                    if (i >= 0) this.m_plots[i] = fresh; else this.m_plots.push(fresh);
+                    if (old && this.activePlot === old) this.activePlot = fresh;
+                    if (old && this.selectedPlate === old) this.selectedPlate = fresh;
+                    return;
+                }
                 if (kind === 'glyph') {
                     const Glyph = await exec('baja/draw/glyph.js');
                     const fresh = Glyph.buildFromJSON(state);

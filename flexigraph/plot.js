@@ -4827,6 +4827,7 @@ function (MGrid) {
                     exec('flexigraph/show-mobile-menu.js', 0, 0, m, null, null, 'mainPanel')
                 } else {
                     m = this.getOptionsMenuList(pt)
+                    m.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
                     // A short, grouped list reads top-down in one column; long flat lists keep 3.
                     const cols = m.length > 12 ? 3 : 1;
                     const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)

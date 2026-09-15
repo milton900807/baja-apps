@@ -7996,6 +7996,11 @@ function () {
 
                     let m = [
                         {
+                            label: 'Maximize',
+                            click: async (x, y) => { pt.maximizeObject(this); },
+                            move: () => { }
+                        },
+                        {
                             label: 'One-at-a-time (tab) ',
                             click: async (x, y) => {
 

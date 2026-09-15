@@ -1,6 +1,42 @@
 function (plate_graph, selectedPlate, selectedPoint) {
     return new Promise(async (resolve, reject) => {
         const pt = plate_graph.plateTrack;
+        // Live co-editing: a Share menu on every menubar this panel builds, whatever is
+        // selected, so it is always one click away in Analytics.
+        const shareMenu = () => [{
+            label: 'Share',
+            items: [
+                {
+                    label: 'Share for co-editing…', ionfunction: createIonFunction(async () => {
+                        await exec('baja/plate/collab/share-for-coediting.js', pt, CurrentLayout.getStashed('graph'), plate_graph)
+                    })
+                },
+                {
+                    label: 'Copy co-editing link', ionfunction: createIonFunction(async () => {
+                        const url = pt.__collabShareUrl;
+                        if (!url) {
+                            pt.setMessage('Share the document with someone first; the link is created then.', 1);
+                            await exec('baja/plate/collab/share-for-coediting.js', pt, CurrentLayout.getStashed('graph'), plate_graph);
+                            return;
+                        }
+                        try { await navigator.clipboard.writeText(url); pt.setMessage('Link copied: ' + url, 2); }
+                        catch (e) { pt.setMessage(url, 1); }
+                    })
+                },
+                {
+                    label: 'Save shared document', ionfunction: createIonFunction(async () => {
+                        if (!(pt.__collab && pt.__collabDoc)) { pt.setMessage('This document is not shared yet. Use Share for co-editing first.', 1); return; }
+                        try { await pt.__collab.save(CurrentLayout.getStashed('graph')); }
+                        catch (e) { pt.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); }
+                    })
+                },
+                {
+                    label: 'Who has access…', ionfunction: createIonFunction(async () => {
+                        await exec('baja/plate/collab/share-for-coediting.js', pt, CurrentLayout.getStashed('graph'), plate_graph)
+                    })
+                }
+            ]
+        }];
 
 
 
@@ -11,7 +47,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
         const MSGraph = await exec('lib/msgraph.js')
 
-        let aimenu = await exec('manchester/controls/bna-menu.js', pm)
+        // (a load of manchester/controls/bna-menu.js used to sit here: the module does not
+        // exist, the request 404'd on every build of this panel, and its result was unused)
 
         let Menu = await exec('flexigraph/menu.js');
         function calculateXCoordinate(date, startDate, endDate) {
@@ -804,6 +841,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }, 100)
                             }),
                             menus: [
+                                ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
                                 },
@@ -828,6 +866,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 execCMD(str);
                             }),
                             menus: [
+                                ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
                                 },
@@ -878,6 +917,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }
                             }),
                             menus: [
+                                ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
                                 },
@@ -920,6 +960,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                             }),
                             menus: [
+                                ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
                                 },
@@ -1137,6 +1178,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         }
                     }),
                     menus: [
+                        ...shareMenu(),
                         {
                             'label': `${menu_title}`, 'items': m
                         },
@@ -1178,6 +1220,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                         }),
                         menus: [
+                            ...shareMenu(),
                             {
                                 'label': `${menu_title}`, 'items': m
                             },
@@ -1280,6 +1323,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     pt.createPlateFromFormula(str)
                 }),
                 menus: [
+                    ...shareMenu(),
                     {
                         'label': `Main menu`, 'items': mm
                     },

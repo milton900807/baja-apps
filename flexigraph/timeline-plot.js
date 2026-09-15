@@ -453,6 +453,11 @@ function (MGrid) {
 
                 let m = [
                     {
+                        label: 'Maximize',
+                        click: async (x, y) => { pt.maximizeObject(this); },
+                        move: () => { }
+                    },
+                    {
                         label: 'Hide rows',
                         click: async (x, y) => {
                         },
@@ -2055,6 +2060,11 @@ function (MGrid) {
 
             getOptionsMenuList(pt) {
                 let menuList = []
+                menuList.push({
+                    label: 'Maximize',
+                    click: async (scx, scy) => { pt.maximizeObject(this); },
+                    move: () => { }
+                });
 
                 menuList.push(
                     {

@@ -45,6 +45,7 @@ function (pt, opts) {
             locks: {},            // objectId -> {user, label, since}
             users: [],            // [{user, since}]
             held: {},             // objectId -> { obj, kind, lastJson }
+            remoteTouched: new Set(),   // uids changed by the other side since the last diff
             connected: false,
             destroyed: false,
             onState: null
@@ -53,8 +54,9 @@ function (pt, opts) {
         const uidOf = (obj) => (obj && (obj.uid || obj.id)) ? ('' + (obj.uid || obj.id)) : null;
         const kindOf = (obj) => {
             if (!obj) return 'plate';
+            // Timelines and charts are plots: they rebuild through MPlot.fromJSON, not as tables.
+            if (typeof obj.drawPlot === 'function') return 'plot';
             if (obj.shape || obj.comment != null && obj.setText) return 'glyph';
-            if (obj.plateType === 'timeline' || obj.type === 'timeline') return 'timeline';
             return 'plate';
         };
         const labelOf = (obj) => ('' + ((obj && (obj.name || obj.comment)) || kindOf(obj))).slice(0, 60);
@@ -97,6 +99,7 @@ function (pt, opts) {
         socket.on('docObjectUpdated', async (u) => {
             if (!u || u.docId !== session.docId) return;
             if (session.held[u.objectId]) return;      // ours: never let a stale echo overwrite it
+            session.remoteTouched.add('' + u.objectId);   // the diff below must not echo it back
             try {
                 if (typeof pt.collabApply === 'function') await pt.collabApply(u.kind, u.objectId, u.state, u.user);
             } catch (e) { console.warn('collab apply failed', e); }
@@ -154,14 +157,63 @@ function (pt, opts) {
             delete session.held[uid];
             socket.emit('docObjectUpdate', { docId: session.docId, objectId: '' + uid, kind: 'remove', state: { kind: kind || 'plate' } });
         };
+        // Whatever is selected or active is what the user is working on. Claim it if the
+        // hooks missed the path that selected it (timelines are picked up several ways), and
+        // let go of held tables and plots that are no longer selected so others can take them.
+        const pendingAcq = {};
+        const reconcile = () => {
+            for (const cand of [pt.selectedPlate, pt.activePlot]) {
+                const uid = uidOf(cand);
+                if (!cand || !uid || session.held[uid] || pendingAcq[uid] || session.isLockedByOther(uid)) continue;
+                pendingAcq[uid] = true;
+                session.acquire(cand).then(() => { delete pendingAcq[uid]; }, () => { delete pendingAcq[uid]; });
+            }
+            for (const id of Object.keys(session.held)) {
+                const h = session.held[id];
+                if (h.kind === 'glyph') continue;
+                if (h.obj !== pt.selectedPlate && h.obj !== pt.activePlot) session.release(h.obj);
+            }
+        };
+        // Objects that appear or vanish without going through a hook: a chart or table just
+        // created, a plot removed by code that splices the list directly. The first diff after
+        // joining only records what is there; after that, a new object is sent once and a
+        // missing one is announced as removed. Arrivals from the other side are skipped.
+        const known = new Map();   // uid -> kind
+        let seeded = false;
+        const currentObjects = () => {
+            const cur = new Map();
+            try { for (const p of pt.root || []) { const id = uidOf(p); if (id) cur.set(id, { obj: p, kind: 'plate' }); } } catch (e) { }
+            try { for (const m of pt.m_plots || []) { const id = uidOf(m); if (id) cur.set(id, { obj: m, kind: 'plot' }); } } catch (e) { }
+            try { for (const g of pt.glyphs || []) { const id = uidOf(g); if (id) cur.set(id, { obj: g, kind: 'glyph' }); } } catch (e) { }
+            return cur;
+        };
+        const diffObjects = () => {
+            const cur = currentObjects();
+            if (!seeded) { for (const [id, e] of cur) known.set(id, e.kind); seeded = true; session.remoteTouched.clear(); return; }
+            for (const [id, e] of cur) {
+                if (known.has(id)) continue;
+                known.set(id, e.kind);
+                if (session.remoteTouched.has(id) || session.isLockedByOther(id)) continue;
+                session.broadcastObject(e.obj, e.kind);
+            }
+            for (const [id, kind] of Array.from(known.entries())) {
+                if (cur.has(id)) continue;
+                known.delete(id);
+                if (session.remoteTouched.has(id)) continue;
+                session.broadcastRemove(id, kind);
+            }
+            session.remoteTouched.clear();
+        };
         const ticker = setInterval(() => {
             if (session.destroyed || !session.connected) return;
+            try { diffObjects(); } catch (e) { }
+            try { reconcile(); } catch (e) { }
             for (const id of Object.keys(session.held)) {
                 const h = session.held[id];
                 const now = snapshot(h.obj);
                 if (now && now !== h.lastJson) session.broadcastObject(h.obj, h.kind);
             }
-        }, 2500);
+        }, 1500);
 
         // ---- save -----------------------------------------------------------------------
         session.save = async (g) => {
