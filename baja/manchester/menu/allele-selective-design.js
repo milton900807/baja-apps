@@ -469,7 +469,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 track_frame_ref: storedRef, track_frame_alt: storedAlt,
             },
             strand: { geneStrand: geneStrand, orient: orient, minus: minus, track_strand: track.strand, track_xi: Math.round(track.xi) },
-            window: { lo: lo, hi: hi },
+            window: { lo: lo, hi: hi, viStart: viStart, viEnd: viEnd, refTx: refTx, altTx: altTx, wt: wt, mut: mut },
             compounds: [],
         };
         for (let i = 0; i < cands.length; i++) {
@@ -642,7 +642,25 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             };
             step('allele-selective diagnostic: ' + JSON.stringify(dbgCtx));
             try { console.log('ALLELE-SELECTIVE DIAGNOSTIC', dbgCtx); } catch (e) { }
-            showModal({ wid: 'json', data: JSON.stringify(dbgCtx, null, 2) });
+            // Shown through showSideMenu (this file's own dialog idiom, always available here),
+            // not showModal (which is not in scope in this module and failed silently).
+            const V = dbgCtx.variant, S = dbgCtx.strand, W = dbgCtx.window;
+            const rows = [
+                { label: '▼ Allele-selective diagnostic (Close at the bottom)', move: () => { }, click: () => { } },
+                { label: 'variant ' + V.name + '  genomic ' + V.genomic_ref + '>' + V.genomic_alt + '  coding ' + V.coding0_ref + '>' + V.coding0_alt + '  txStrand ' + V.transcriptStrand, move: () => { }, click: () => { } },
+                { label: 'track-frame allele ' + V.track_frame_ref + '>' + V.track_frame_alt + '   snp.xi ' + V.snp_xi + '  vX ' + V.vX + '  vEnd ' + V.vEnd, move: () => { }, click: () => { } },
+                { label: 'geneStrand ' + S.geneStrand + '  orient ' + S.orient + '  minus ' + S.minus + '  track.strand ' + S.track_strand + '  track.xi ' + S.track_xi, move: () => { }, click: () => { } },
+                { label: 'window viStart ' + W.viStart + '  viEnd ' + W.viEnd + '  refTx ' + W.refTx + '  altTx ' + W.altTx, move: () => { }, click: () => { } },
+                { label: 'wt  (transcript) ' + W.wt, move: () => { }, click: () => { } },
+                { label: 'mut (transcript) ' + W.mut, move: () => { }, click: () => { } },
+            ];
+            dbgCtx.compounds.slice(0, 12).forEach((c, i) => {
+                rows.push({ label: '#' + (i + 1) + ' ' + c.name + '  P' + c.variant_position_in_antisense + '  covers=' + c.covers_variant + '  carriesAlt=' + c.target_carries_alt, move: () => { }, click: () => { } });
+                rows.push({ label: '     ref ' + c.ref_along_track, move: () => { }, click: () => { } });
+                rows.push({ label: '     tgt ' + c.target_along_track + '   diffs ' + (c.target_differs_from_ref_at.join(', ') || 'NONE'), move: () => { }, click: () => { } });
+            });
+            rows.push({ label: 'Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
+            graph.showSideMenu(rows, null, 'Allele diagnostic ▸');
         } catch (e) { }
 
         // ---- 6. SHOW WHAT LANDED ------------------------------------------------------------
