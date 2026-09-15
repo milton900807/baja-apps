@@ -6301,9 +6301,6 @@ function (path, config) {
             }
 
             progressBar(100);
-            // The loader's slot is cleared explicitly too: the widget hides itself at 100%,
-            // but an empty slot is cheaper than trusting that from here.
-            setTimeout(() => { try { CurrentLayout.clearComponent('progressBar'); } catch (e) { } }, 900);
             graph.genegraph_panel_layout = genegraph_panel_layout;
             let main_layout = {
                 wid: 'card',
