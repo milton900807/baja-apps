@@ -131,6 +131,18 @@ function (variant, selectedTrack, graph, opposite, all) {
                 }
             }
 
+            // TEMPORARY DIAGNOSTIC — proves whether the spliced TARGET carries the mutation.
+            try {
+                const vIdx = splicedindices.indexOf(variant.xi);
+                console.log('TILE-VARIANT DIAG ' + JSON.stringify({
+                    variant: variant.name, ref: variant.reference, alt: variant.alternate, alt0: variant.alternate0,
+                    opposite: !!opposite, all: !!all, phase: variant.phase, strand: selectedTrack.strand,
+                    variant_xi: variant.xi, splicedtrack_base_at_variant: splicedtrack[vIdx],
+                    ref_window: trackseq, mut_window: splicedtrack,
+                    neighbors: neighbors.map(function (s) { return s.name + ' xi=' + s.xi + ' alt0=' + s.alternate0; }),
+                }));
+            } catch (e) { }
+
             let existingOligos = [];
             for (let o of selectedTrack.oligos) {
                 existingOligos.push(o.sequence);
@@ -160,6 +172,16 @@ function (variant, selectedTrack, graph, opposite, all) {
 
                     console.log(" --------generating the compounds --------------- ")
                     let anno = await Biopolymer.generateCompound(chemistryObject, bioObject)
+                    // TEMPORARY DIAGNOSTIC — for compounds covering the variant, show the target
+                    // (anno.sequence) and the synthesis, so we can see whether BOTH carry the alt.
+                    try {
+                        if (start <= variant.xi && variant.xi <= end) {
+                            console.log('  TILE compound ' + JSON.stringify({
+                                target_sequence: anno.sequence, synthesisSequence: anno.synthesisSequence,
+                                sense: anno.sense, antisense: anno.antisense, xi: anno.xi, xf: anno.xf, strand: anno.strand,
+                            }));
+                        }
+                    } catch (e) { }
                     let ytmp = 0.15;
 
                     for (let _o of selectedTrack.oligos) {
