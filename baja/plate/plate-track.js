@@ -8176,7 +8176,13 @@ function (progress) {
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit') return;
-                    if (!hit && !this.menu) return;
+                    if (!hit && !this.menu) {
+                        // A click on the backdrop, outside the maximized object, clears its
+                        // cell selection (maximize mode only; the normal canvas is unchanged).
+                        try { if (this.__maximized.deselectAll) this.__maximized.deselectAll(); } catch (e) { }
+                        try { this.selected_well = null; } catch (e) { }
+                        return;
+                    }
                 }
 
 
@@ -9045,9 +9051,24 @@ function (progress) {
                 const cw = Math.max(1, this.grid.width), ch = Math.max(1, this.grid.height);
                 const HEADER = 56;   // px reserved above the object for the title bar
                 const width = Math.max(1e-6, b.x1 - b.x0);
-                const xRange = width * 1.08;
-                const yRange = xRange * (ch / cw);
-                const xmin = b.x0 - width * 0.04, xmax = xmin + xRange;
+                let xRange = width * 1.08;
+                let yRange = xRange * (ch / cw);
+                // A table's cells are capped at 40px tall: a narrow table fitted to the
+                // width would otherwise blow its rows up to the size of the screen. When the
+                // width-fit would exceed that, zoom out to the cap and centre the table.
+                const MAX_CELL_PX = 40;
+                if (!(typeof obj.drawPlot === 'function') && obj.grid && obj.wells) {
+                    const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
+                    const cellWorldH = obj.grid.height / rows;
+                    const minYRange = cellWorldH * ch / MAX_CELL_PX;
+                    if (Number.isFinite(minYRange) && yRange < minYRange) {
+                        yRange = minYRange;
+                        xRange = yRange * (cw / ch);
+                    }
+                }
+                const centerX = (b.x0 + b.x1) / 2;
+                const xmin = (xRange > width * 1.08) ? (centerX - xRange / 2) : (b.x0 - width * 0.04);
+                const xmax = xmin + xRange;
                 const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
                 this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b };
                 AnimateGrid.INTERUPT = true;
@@ -9078,10 +9099,12 @@ function (progress) {
                 if (!this.__maximized || !this.__maxBounds) return;
                 const g = this.grid;
                 g.rescale();
-                const b = this.__maxBounds.b;
+                // Bounds are read live: rows added or removed while maximized change the
+                // table's height, and the scroll range must follow.
+                const b = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
                 const yRange = g.ymax - g.ymin;
                 const ch = Math.max(1, g.height);
-                const header = this.__maxBounds.headerWorld;
+                const header = yRange * (56 / ch);
                 const topLimit = b.yTop + header;          // ymax may not exceed this
                 const bottomLimit = b.yBot - yRange * 0.04; // ymin may not go below this
                 if (topLimit - bottomLimit <= yRange + 1e-9) return;   // it all fits: nothing to scroll
@@ -9132,15 +9155,16 @@ function (progress) {
                 this.__maxExitRect = { x: bx, y: by, w: bw, h: bh };
                 // Scroll indicator on the right when the object is taller than the view.
                 try {
-                    const b = this.__maxBounds && this.__maxBounds.b;
+                    const b = this.__maxWorldBounds(obj) || (this.__maxBounds && this.__maxBounds.b);
                     if (b) {
                         this.grid.rescale();
                         const yRange = this.grid.ymax - this.grid.ymin;
-                        const total = (b.yTop + this.__maxBounds.headerWorld) - (b.yBot - yRange * 0.04);
+                        const header = yRange * (56 / Math.max(1, this.grid.height));
+                        const total = (b.yTop + header) - (b.yBot - yRange * 0.04);
                         if (total > yRange) {
                             const trackY = 52, trackH = H - 64;
                             const frac = yRange / total;
-                            const pos = ((b.yTop + this.__maxBounds.headerWorld) - this.grid.ymax) / (total - yRange);
+                            const pos = Math.max(0, Math.min(1, ((b.yTop + header) - this.grid.ymax) / (total - yRange)));
                             ctx.fillStyle = 'rgba(255,255,255,0.10)'; rr(W - 10, trackY, 6, trackH, 3); ctx.fill();
                             ctx.fillStyle = 'rgba(26,163,189,0.9)'; rr(W - 10, trackY + pos * trackH * (1 - frac), 6, Math.max(24, trackH * frac), 3); ctx.fill();
                         }
@@ -21616,6 +21640,24 @@ function (progress) {
                         // Single-object mode: navy backdrop, only the maximized object is drawn.
                         ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
                         ctx.fillStyle = '#0a2540'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                        // A white sheet behind the object (a little larger than it, following it
+                        // as it scrolls) so the table reads on white, as on the normal canvas.
+                        try {
+                            const box = this.__maxScreenBox();
+                            if (box) {
+                                const pad = 18, r = 10;
+                                const x = box.x - pad, y = box.y - pad, w = box.w + pad * 2, h = box.h + pad * 2;
+                                ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
+                                ctx.fillStyle = '#ffffff';
+                                ctx.beginPath();
+                                ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                                ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                                ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                                ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+                                ctx.fill();
+                                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                            }
+                        } catch (e) { }
                         ctx.restore();
                         allObjects = allObjects.filter(o => o === this.__maximized);
                         if (!allObjects.length) this.exitMaximize();
