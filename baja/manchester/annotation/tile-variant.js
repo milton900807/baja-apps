@@ -147,6 +147,7 @@ function (variant, selectedTrack, graph, opposite, all) {
             for (let o of selectedTrack.oligos) {
                 existingOligos.push(o.sequence);
             }
+            let __diagShown = false;   // one on-screen alert per run
 
             for (let i = 1; i < splicedtrack.length - base_count; i++) {
 
@@ -176,10 +177,26 @@ function (variant, selectedTrack, graph, opposite, all) {
                     // (anno.sequence) and the synthesis, so we can see whether BOTH carry the alt.
                     try {
                         if (start <= variant.xi && variant.xi <= end) {
-                            console.log('  TILE compound ' + JSON.stringify({
+                            const info = {
                                 target_sequence: anno.sequence, synthesisSequence: anno.synthesisSequence,
                                 sense: anno.sense, antisense: anno.antisense, xi: anno.xi, xf: anno.xf, strand: anno.strand,
-                            }));
+                            };
+                            console.log('  TILE compound ' + JSON.stringify(info));
+                            if (!__diagShown) {
+                                __diagShown = true;
+                                const vi = anno.xi != null ? (variant.xi - anno.xi) : -1;
+                                try {
+                                    alert('ALLELE DIAGNOSTIC\n'
+                                        + 'variant ' + variant.name + '  ' + variant.reference + '>' + variant.alternate
+                                        + '  (alt0 ' + variant.alternate0 + ')  phase ' + variant.phase + '  strand ' + selectedTrack.strand + '\n'
+                                        + 'opposite=' + (!!opposite) + '  all=' + (!!all) + '\n'
+                                        + 'ref  window: ' + trackseq + '\n'
+                                        + 'mut  window: ' + splicedtrack + '\n'
+                                        + 'compound target   : ' + anno.sequence + '\n'
+                                        + 'compound synthesis : ' + anno.synthesisSequence + '\n'
+                                        + 'base at variant in target = ' + (vi >= 0 ? anno.sequence[vi] : '?') + '  (alt should be ' + (variant.alternate0 || variant.alternate) + ')');
+                                } catch (e) { }
+                            }
                         }
                     } catch (e) { }
                     let ytmp = 0.15;
