@@ -10013,6 +10013,73 @@ function (path, config) {
                 subtitle: 'The surviving paralog each lost gene leaves the cell dependent on', graph: graph, books: books });
         };
 
+        // PLAIN PARALOGS of the selected genes -- not the synthetic-lethal prediction, just each
+        // gene's family members ordered by sequence identity. It is the question a designer asks
+        // first: what is related to this gene, where a therapy might cross-react, and which copy
+        // the cell can fall back on. Same table (paralog-sl-partners.py, sort=identity, no
+        // probability threshold); the SL probability rides along as a secondary note.
+        let parAllResult = null;        // { genes, paralogs: {GENE:[...]}, summary:[...], at }
+        let parAllBusy = false;
+        const parAllIdColor = (id) => (id >= 70 ? '#dc2626' : (id >= 40 ? '#f97316' : '#94a3b8'));
+        const parAllFind = async () => {
+            if (parAllBusy) { graph.setMessage(' The paralog lookup is still running. '); return; }
+            const genes = selectedList().map((g) => g.gene);
+            if (!genes.length) { graph.setMessage(' Select genes first. '); return; }
+            parAllBusy = true;
+            const em = new EngineMonitor((m) => { try { graph.setMessage(' ' + m + ' '); } catch (e) { } });
+            try {
+                const rs = await exec(server + '/py/bio/paralog-sl-partners.py', em, JSON.stringify({ genes: genes, min_pred: 0, top: 60, sort: 'identity' }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the paralog table');
+                const J = (x, d) => { try { return JSON.parse(x || d); } catch (e) { return JSON.parse(d); } };
+                parAllResult = { genes: genes.slice(), paralogs: J(rs.partners, '{}'), summary: J(rs.genes, '[]'), at: new Date().toISOString() };
+                const n = parAllResult.summary.reduce((a, g) => a + (g.n_paralogs || 0), 0);
+                graph.setMessage(' ' + n + ' paralog' + (n === 1 ? '' : 's') + ' across ' + genes.length + ' gene' + (genes.length === 1 ? '' : 's') + '. ');
+                parAllBusy = false;
+                paralogsMenu();
+            } catch (e) {
+                parAllBusy = false;
+                try { graph.setError(' Paralogs could not be looked up: ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+            }
+        };
+        const parAllCSV = () => {
+            const rows = [];
+            for (const g of (parAllResult.genes || [])) for (const x of (parAllResult.paralogs[g.toUpperCase()] || parAllResult.paralogs[g] || [])) {
+                rows.push({ gene: g, paralog: x.partner, identity_pct: x.identity, family_size: x.family, sl_pred: x.pred, known_sl_label: x.label });
+            }
+            return dlToCSV(rows);
+        };
+        const paralogsMenu = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (!parAllResult) { selectedGenesMenu(); return; }
+            const R = parAllResult;
+            const total = R.summary.reduce((a, g) => a + (g.n_paralogs || 0), 0);
+            const books = [];
+            books.push({ section: 'Paralogs', note: true, title: 'The paralogs (gene-family members) of ' + R.genes.join(', ') + ', ordered by sequence identity — ' + total + ' in all. A paralog is where a therapy may cross-react, or the copy the cell falls back on when this gene is lost.' });
+            books.push({ section: 'Paralogs', title: 'Download paralogs as CSV', badge: 'csv', icon: 'file_download', ready: total > 0, readyNote: 'no paralogs',
+                blurb: 'One row per (gene, paralog) with sequence identity, family size and the synthetic-lethal probability.',
+                open: () => { try { dlSaveText(parAllCSV(), dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_paralogs') + '.csv', 'text/csv'); dlMsg('Paralogs downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Paralogs', title: 'Back to the selection', badge: selWord(), icon: 'checklist', ready: true, blurb: 'Change the genes and look up again.', open: () => selectedGenesMenu() });
+            R.summary.forEach((gs) => {
+                const g = gs.gene;
+                const lst = R.paralogs[g] || R.paralogs[g.toUpperCase()] || [];
+                const sec = g + ' paralogs';
+                books.push({ section: sec, note: true, title: gs.n_paralogs
+                    ? (g + ' has ' + gs.n_paralogs + ' paralog' + (gs.n_paralogs === 1 ? '' : 's') + (lst.length < gs.n_paralogs ? '; the closest ' + lst.length + ' by identity:' : ':'))
+                    : (g + ': ' + gs.status) });
+                lst.forEach((x) => {
+                    books.push({ section: sec, title: x.partner, badge: Math.round(x.identity) + '% id', swatch: parAllIdColor(x.identity), ready: true,
+                        blurb: 'sequence identity ' + Math.round(x.identity) + '% · family of ' + x.family
+                            + ' · if ' + g + ' is lost it becomes essential with probability ' + Math.round(x.pred * 100) + '% (paralog model)' + (x.label ? ' · known SL' : ''),
+                        books: () => [
+                            { title: 'Go to ' + x.partner + ' on the genome', badge: 'view', icon: 'zoom_in', ready: true, blurb: 'Find the gene and frame it.', open: () => gotoSymbol(x.partner) },
+                            { title: 'Open ' + x.partner + ' in the oligo editor', badge: 'design', icon: 'edit', accent: 'design', ready: true, blurb: 'Load its transcripts to design against it.', open: () => openSymbolInEditor(x.partner) },
+                            { title: 'Select ' + x.partner, badge: 'add', icon: 'add_circle_outline', ready: true, blurb: 'Add it to the selection.', open: () => { selGenes.set(('' + x.partner).toUpperCase(), { gene: x.partner, chr: '', start: 0, end: 0, variants: [{ effect: 'paralog', pos: 0, ref: '', alt: '' }] }); graph.setMessage(' ' + x.partner + ' added — ' + selWord() + '. '); selectedGenesMenu(); } },
+                        ] });
+                });
+            });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Paralogs', subtitle: 'The family members of the selected genes, by sequence identity', graph: graph, books: books });
+        };
+
         // THE HIGHER-ORDER MODEL'S OWN CATALOGUE: what the ppset third-gene model has already
         // found -- its systematic scan over every tumor-suppressor pair, the breast and
         // pancreas application tables, the single-loss and full pair screens -- looked up
@@ -10229,6 +10296,17 @@ function (path, config) {
                     blurb: 'Partners for ' + parResult.genes.join(', ') + '.', ready: true, open: () => parMenu() });
             }
             books.push(paralogDocCard('Paralog partners'));
+            // JUST THE PARALOGS. The section above predicts which paralog becomes essential;
+            // this one simply lists the family members of each selected gene by sequence
+            // identity — the related genes a therapy might hit, or the gene falls back on.
+            books.push({ section: 'Paralogs', note: true, title: 'The plain paralogs of each selected gene — its family members by sequence identity, without the synthetic-lethal prediction.' });
+            books.push({ section: 'Paralogs', accent: 'run', title: 'Find the paralogs of the selection', badge: sel.length ? (sel.length + ' gene' + (sel.length === 1 ? '' : 's')) : 'paralogs', icon: 'account_tree',
+                blurb: 'List the paralogs of each selected gene, closest first — where a therapy may cross-react, or the copy the cell falls back on.',
+                ready: sel.length > 0, readyNote: 'select genes first', open: () => parAllFind() });
+            if (parAllResult) {
+                books.push({ section: 'Paralogs', title: 'Last paralog list', badge: parAllResult.summary.reduce((a, g) => a + (g.n_paralogs || 0), 0) + ' paralogs', icon: 'list',
+                    blurb: 'Paralogs for ' + parAllResult.genes.join(', ') + '.', ready: true, open: () => paralogsMenu() });
+            }
             books.push({ section: 'Selection', title: 'Download the selection as CSV', badge: 'csv', icon: 'file_download', ready: sel.length > 0, readyNote: 'nothing selected',
                 blurb: 'Gene, locus, consequence and HGVS for each selected gene.',
                 open: () => { try { dlSaveText(selectionCSV(), dlSafe(dlSpecies() + '_selected_genes') + '.csv', 'text/csv'); dlMsg('Selection downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });

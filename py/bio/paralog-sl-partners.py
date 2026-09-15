@@ -61,6 +61,12 @@ try:
     top = max(1, min(100, int(req.get("top") or 15)))
 except Exception:
     top = 15
+# Ranking: by the SL prediction (the default — which paralog becomes essential), or by
+# sequence identity (a plain "these are the gene's closest paralogs" list). min_pred 0 with
+# sort=identity turns this into a paralog finder rather than an SL predictor.
+sort_by = str(req.get("sort") or "pred").strip().lower()
+if sort_by not in ("pred", "identity"):
+    sort_by = "pred"
 
 path = table_path()
 if not want:
@@ -102,7 +108,10 @@ else:
     partners = {}
     genes = []
     for g in want:
-        lst = sorted(rows[g], key=lambda x: -x["pred"])
+        if sort_by == "identity":
+            lst = sorted(rows[g], key=lambda x: (-x["identity"], -x["pred"]))
+        else:
+            lst = sorted(rows[g], key=lambda x: -x["pred"])
         shown = [x for x in lst if x["pred"] >= min_pred][:top]
         if not lst:
             status = "no paralog in the table (a singleton gene, or not protein-coding)"
