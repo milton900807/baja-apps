@@ -5360,7 +5360,7 @@ function () {
                                     let menutest = {
                                         id: 'select-group-menu',
                                         init: (x, y) => {
-                                            const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'black', 2)
+                                            const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
                                             pt.setMenu(smenu)
                                         },
                                         mouseDownListener: async (x, y) => {
@@ -5446,7 +5446,7 @@ function () {
                                     let menutest = {
                                         id: 'select-group-menu',
                                         init: (x, y) => {
-                                            const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm, 'rgb(205, 255, 155)', 'black', 3))
+                                            const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm, 'rgba(255,255,255,0.98)', '#0a2540', 3))
                                             pt.setMenu(smenu)
 
                                         },
@@ -5520,7 +5520,7 @@ function () {
                             })
 
                         }
-                        const smenu = new Menu(msub, pt.grid.Xwc(mouseX), pt.grid.Ywc(mouseY), 'rgb(205, 255, 155)', 'black', 3)
+                        const smenu = new Menu(msub, pt.grid.Xwc(mouseX), pt.grid.Ywc(mouseY), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                         pt.setMenu(smenu)
                     },
                     draw: (grid, ctx) => {
@@ -6332,7 +6332,7 @@ function () {
                             let menutest = {
                                 id: 'select-group-menu',
                                 init: (x, y) => {
-                                    const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                                    const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                                     pt.setMenu(smenu)
 
                                 },
@@ -6743,7 +6743,7 @@ function () {
                         } catch (exception) {
                         }
 
-                        const smenu = new Menu(msub, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * msub.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                        const smenu = new Menu(msub, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * msub.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                         pt.setMenu(smenu)
 
                     },
@@ -7004,7 +7004,7 @@ function () {
                     },
 
                 ]
-                let sm = new Menu(msub, (mx), (my), 'rgb(205, 255, 155)', 'black', 2)
+                let sm = new Menu(msub, (mx), (my), 'rgba(255,255,255,0.98)', '#0a2540', 2)
 
                 let col_edit_obj = {
                     id: 'add-col-row',
@@ -7065,7 +7065,7 @@ function () {
             displayMenu(m, pt) {
 
                 const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200),
-                    pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                    pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
 
                 pt.setMenu(smenu)
             }
@@ -7556,7 +7556,7 @@ function () {
                     let centerX = pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - totalMenuWidth / 2);
                     let centerY = pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - ((m.length / 20) * 45));
 
-                    const smenu = new Menu(m, centerX, centerY, 'rgb(205, 255, 155)', 'black', cols);
+                    const smenu = new Menu(m, centerX, centerY, 'rgba(255,255,255,0.98)', '#0a2540', cols);
                     this.setMenu(pt, smenu)
                 }
             }
@@ -7712,7 +7712,7 @@ function () {
                         });
 
                 }
-                const smenu_ = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                const smenu_ = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                 click_and_drag = false;
                 pt.setMenu(smenu_)
 
@@ -7774,7 +7774,7 @@ function () {
                     })
 
                 }
-                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                 click_and_drag = false;
                 pt.setMenu(smenu)
             }
@@ -7869,7 +7869,7 @@ function () {
                     })
 
                 }
-                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                 click_and_drag = false;
                 pt.setMenu(smenu)
             }
@@ -7918,6 +7918,14 @@ function () {
             }
 
             showMenuOptions = async (pt) => {
+                // Maximize is the first entry of whichever menu this button opens: the cell
+                // skin menu, the table menu, or the cell-editing menu further down.
+                const withMaximize = (list) => {
+                    if (Array.isArray(list) && !list.some(i => i && i.label === 'Maximize')) {
+                        list.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
+                    }
+                    return list;
+                };
                 const getUniformSkinType = () => {
                     const selectedWells = this.getSelectedWellsInOrder();
                     if (selectedWells.length === 0) return null;
@@ -7943,6 +7951,7 @@ function () {
                                 }
 
                                 this.createCopyMenu(pt).then(m => {
+                    withMaximize(m);
                                     if (isMobile()) {
                                         const graph = CurrentLayout.getStashed('graph')
                                         if (graph) {
@@ -7950,14 +7959,15 @@ function () {
                                         }
                                     } else {
                                         const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - totalMenuWidth / 2),
-                                            pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                                            pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
 
                                         this.setMenu(pt, smenu)
                                     }
                                 })
                             } else {
+                                withMaximize(sktype_menuItems);
                                 const smenu = new Menu(sktype_menuItems, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - totalMenuWidth / 2),
-                                    pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * sktype_menuItems.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                                    pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * sktype_menuItems.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
 
                                 this.setMenu(pt, smenu)
                             }
@@ -7974,6 +7984,7 @@ function () {
                 }
 
                 this.createCopyMenu(pt).then(m => {
+                    withMaximize(m);
                     if (isMobile()) {
                         const graph = CurrentLayout.getStashed('graph')
                         if (graph) {
@@ -7983,7 +7994,7 @@ function () {
                         let totalMenuWidth = 250;
 
                         const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - totalMenuWidth / 2),
-                            pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 2)
+                            pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
                         this.setMenu(pt, smenu)
                     }
                 })
@@ -8084,7 +8095,7 @@ function () {
                                     move: () => {
                                     },
                                 })
-                                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                                 pt.setMenu(smenu)
                                 click_and_drag = false;
 
@@ -8483,7 +8494,7 @@ function () {
                             })
                     }
 
-                    const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                    const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                     pt.setMenu(smenu)
                     click_and_drag = false;
                 }
@@ -9223,6 +9234,7 @@ function () {
                 }
 
                 this.createCopyMenu(pt).then(m => {
+                    withMaximize(m);
                     this.displayMenu(m, pt);
                 })
             }
@@ -9493,7 +9505,7 @@ function () {
                                     } else {
                                         mouse_sc_y = y;
                                         mouse_sc_x = x;
-                                        const smenu = new Menu(msub, pt.grid.Xwc(x - 4), pt.grid.Ywc(y + 20), 'rgb(205, 255, 155)', 'black')
+                                        const smenu = new Menu(msub, pt.grid.Xwc(x - 4), pt.grid.Ywc(y + 20), 'rgba(255,255,255,0.98)', '#0a2540')
                                         pt.setMenu(smenu)
                                     }
                                 },
@@ -10528,7 +10540,7 @@ function () {
                                         },
                                     },
                                 ]
-                                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'black', 3)
+                                const smenu = new Menu(m, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 3)
                                 pt.setMenu(smenu)
                             }
 
@@ -10753,7 +10765,7 @@ function () {
                                 id: 'select-group-menu',
                                 init: (x, y) => {
                                     let cols = Math.ceil(mm.length / 20);
-                                    const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgb(205, 255, 155)', 'black', cols)
+                                    const smenu = new Menu(mm, pt.grid.Xwc(pt.grid.xi + pt.grid.width / 2 - 200), pt.grid.Ywc(pt.grid.yi + pt.grid.height / 2 - 20 * mm.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                                     pt.setMenu(smenu)
 
                                 },

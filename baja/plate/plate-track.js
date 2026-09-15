@@ -21651,14 +21651,17 @@ function (progress) {
                         }
 
                         if (this.attr__displayBookMarks) {
-                            this.buildBookmarkMenu();
-                            this.__bookmark_menu.menu_width = 120;
-                            this.__bookmark_menu.x = this.grid.Xwc(2);
-                            this.__bookmark_menu.y = this.grid.Ywc(70);
-                            this.__bookmark_menu.draw(ctx, this.grid);
-
-                            if (___firsttime) {
-
+                            // Only when there is something to list. With no bookmarks this drew
+                            // an empty panel -- a small white box with a pale blue border -- at
+                            // the top-left of every canvas, all the time.
+                            if (Object.keys(this.bookmarks || {}).length > 0) {
+                                this.buildBookmarkMenu();
+                                this.__bookmark_menu.menu_width = 120;
+                                this.__bookmark_menu.x = this.grid.Xwc(2);
+                                this.__bookmark_menu.y = this.grid.Ywc(70);
+                                this.__bookmark_menu.draw(ctx, this.grid);
+                            } else {
+                                this.__bookmark_menu = null;
                             }
 
                         } else
