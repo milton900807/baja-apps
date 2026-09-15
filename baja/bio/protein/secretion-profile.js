@@ -301,6 +301,8 @@ function (graph, genegraph_panel_layout, presetTrack, presetRange, presetModel) 
                     + ': ' + pw + ', ' + verdict + '. Peak '
                     + ((peak && peak.value != null) ? (+peak.value).toFixed(2) : '?')
                     + ' at residue ' + ((peak && peak.residue) || '?') + '.'
+                    + (nAnn ? (' Signal region annotated'
+                        + (nAnn > 1 ? (' in ' + nAnn + ' exonic pieces') : '') + '.') : '')
                     + (gaps.length ? (' Drops to zero across ' + gaps.length + ' intron'
                         + (gaps.length === 1 ? '' : 's') + '.') : '') + ' ';
                 try { graph.setResultMessage(__msg); } catch (e) { graph.setMessage(__msg); }
