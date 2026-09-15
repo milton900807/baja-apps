@@ -12153,11 +12153,52 @@ pattern, GGGG | Required`
                         const anyShown = items.some((e) => { const r = e.entry && e.entry.ref; return r && r.__seqDisp; });
                         const spage = [
                             { label: 'Target sequence, over the synthesis', click: () => { applySeqDisplay('target'); }, move: () => { } },
+                            // Dump the selected compound(s) as pretty JSON into a modal textarea, so
+                            // every attribute can be read and copied — the fields differ by type
+                            // (gapmer vs siRNA vs primer), and this shows exactly what each carries.
+                            // One selected compound shows the object; several show the array.
+                            { label: 'Properties (JSON)…', click: () => { showCompoundJson(); }, move: () => { } },
                             { label: 'Synthesis sequence (guide for siRNA)', click: () => { applySeqDisplay('synthesis'); }, move: () => { } },
                             { label: 'Hide sequence' + (anyShown ? '' : ' (none shown)'), click: () => { applySeqDisplay('off'); }, move: () => { } },
                             { label: '‹ Back', click: () => { show(page, 'Compounds ▸'); }, move: () => { } },
                         ];
                         show(spage, 'Display sequence ▸');
+                    };
+                    // Inspect the raw attributes of the selected compound(s) as JSON in a modal
+                    // textarea. Objects can carry circular references (a compound points back at
+                    // its track, which points at its oligos), so JSON.stringify is given a
+                    // seen-set replacer that drops functions and already-visited objects rather
+                    // than throwing. A textarea (not the json editor widget) is used because the
+                    // ask is to READ and copy the attributes, not edit them.
+                    const showCompoundJson = () => {
+                        close();
+                        const refs = refsOf();
+                        if (!refs.length) { this.setMessage(' No compound selected. '); return; }
+                        const safe = (obj) => {
+                            const seen = new WeakSet();
+                            return JSON.stringify(obj, (k, v) => {
+                                if (k.indexOf('__') === 0) return undefined;          // internal render state
+                                if (typeof v === 'function') return undefined;
+                                if (v && typeof v === 'object') {
+                                    if (seen.has(v)) return '[Circular]';
+                                    seen.add(v);
+                                }
+                                return v;
+                            }, 2);
+                        };
+                        let json = '';
+                        try { json = safe(refs.length === 1 ? refs[0] : refs); }
+                        catch (e) { json = 'Could not serialize: ' + e; }
+                        const esc = (s) => ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const html = '<div style="font:600 13px Arial;margin:0 0 8px 0;color:#0b2545;">'
+                            + esc(refs.length === 1 ? '1 compound' : (refs.length + ' compounds selected'))
+                            + '</div><textarea readonly onclick="this.select()" '
+                            + 'style="width:100%;height:520px;box-sizing:border-box;resize:vertical;'
+                            + 'font:12px/1.45 \'SFMono-Regular\',Consolas,Menlo,monospace;white-space:pre;'
+                            + 'border:1px solid #ccd;border-radius:8px;padding:10px;background:#fbfcff;color:#111;">'
+                            + esc(json) + '</textarea>';
+                        try { showModal({ wid: 'html', data: html }, 820, 640); }
+                        catch (e) { this.setMessage(' Could not open properties: ' + e + ' '); }
                     };
                     const openFilter = () => {
                         const dups = __duplicates();
