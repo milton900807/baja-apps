@@ -258,7 +258,15 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
 
         // ---- 3. the window, as sense mRNA in transcript orientation --------------------------
         const orient = Strand.orientation(track);
-        const minus = +track.strand < 0;
+        // THE GENE'S STRAND, not track.strand. On a pre-mRNA track the stored slice is the
+        // PLUS strand and track.strand is '+', while the gene sitting in it can be on the
+        // MINUS strand -- track-strand.js reads that from the annotations (geneStrand). The
+        // orientation and codingBaseAt below already use the gene strand; `minus` used
+        // track.strand instead, so a reverse-strand gene placed by genomic coordinate was
+        // designed against the wrong orientation even though its variant annotation (which
+        // reads reference0>alternate0, already complemented) showed the reverse allele.
+        const geneStrand = Strand.geneStrand(track);
+        const minus = geneStrand < 0;
         const maxLen = Math.max.apply(null, mode.lengths);
         const pad = maxLen + 8;
         const lo = Math.max(Math.min(track.xi, track.xf), Math.round(snp.xi) - pad);
@@ -462,7 +470,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
                 // mutant sequence and its synthesis strand is complementary to that allele.
                 const targetTrack = mutTrack.slice(xi - lo, xf - lo + 1);
                 if (targetTrack.length !== c.length) continue;
-                const bioObj = { targetSequence: targetTrack, startIndex: xi, y: y, strand: track.strand };
+                const bioObj = { targetSequence: targetTrack, startIndex: xi, y: y, strand: geneStrand };
                 // siRNA: Biopolymer builds the sense/antisense patterns from the chemistry NAME
                 // (its own siRNATemplatesFor -- alternating 2'-F/2'-OMe, ESC, fully 2'-OMe), so
                 // the duplex here is the same chemistry the siRNA designer produces.
