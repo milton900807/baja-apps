@@ -10340,6 +10340,36 @@ function (path, config) {
         // with the statistics handed over so it reads THIS evidence, and shows the answer
         // as a shelf of prose: what the target does, why the losses make a cell depend on
         // it, what the numbers say, precedent, caveats, druggability, and its own confidence.
+        // WHAT THE BRIDGE HANDS BACK WHEN IT COULD NOT READ THE ANSWER.
+        //
+        // The python bridge polls the job's output file and, at EXIT_CODE, parses the
+        // IONWORKS:RESOLUTION line. If that parse fails it resolves with the RAW POLL OBJECT
+        // -- { lines: [...] } -- rather than rejecting, so the caller sees a result with no
+        // fields, reports "nothing came back", and the failure looks like a button that does
+        // nothing. The resolution is right there in those lines, so read it rather than lose
+        // the work: the lines are percent-encoded by the server, one 'IONWORKS:RESOLUTION:'
+        // line and any continuations of it.
+        const pyResolution = (rs) => {
+            if (!rs || typeof rs !== 'object') return rs;
+            if (rs.ok !== undefined || rs.error !== undefined) return rs;      // a normal answer
+            const lines = rs.lines;
+            if (!Array.isArray(lines)) return rs;
+            let text = '', inRes = false;
+            for (const raw of lines) {
+                let l = '' + raw;
+                try { l = decodeURI(l); } catch (e) { }      // a stray % is not a reason to lose the answer
+                l = l.trim();
+                if (!l || l.indexOf('EXIT_CODE:') === 0) continue;
+                if (l.indexOf('IONWORKS:RESOLUTION:') === 0) { inRes = true; text += l.slice(20).trim(); continue; }
+                // MSG, PROGRESS and OBJ lines are the job talking, never part of the answer:
+                // appending one to the middle of the JSON is what breaks the parse upstream.
+                if (l.indexOf('IONWORKS:') === 0) { inRes = false; continue; }
+                if (inRes) text += l;
+            }
+            if (!text) return rs;
+            try { const j = JSON.parse(text); step('py bridge could not read its own answer; recovered it here'); return j; }
+            catch (e) { step('py resolution unreadable: ' + (e && e.message ? e.message : e)); return rs; }
+        };
         const slWhyCache = new Map();
         let slWhyBusy = false;
         const slExplain = async (target, losses, source, stats, back) => {
@@ -10350,12 +10380,12 @@ function (path, config) {
             const beat = workBeat('Working out why ' + target + ' would be synthetic-lethal with ' + (losses || []).join(', '));
             const em = new EngineMonitor((m) => { try { beat.say(m); } catch (e) { } });
             try {
-                const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
+                const rs = pyResolution(await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
                     target: target, losses: losses || [], source: source || 'depmap',
-                    tissue: (source === 'depmap' && slResult) ? (slResult.tissue || '') : '', stats: stats || {} }));
-                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'no explanation came back');
+                    tissue: (source === 'depmap' && slResult) ? (slResult.tissue || '') : '', stats: stats || {} })));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server answered, but the answer could not be read');
                 let R = null; try { R = JSON.parse(rs.rationale || '{}'); } catch (e) { R = null; }
-                if (!R || !R.summary) throw new Error('the explanation was empty');
+                if (!R || !R.summary) throw new Error('the explanation came back empty');
                 slWhyCache.set(key, R);
                 beat.stop();
                 slWhyBusy = false;
@@ -10363,7 +10393,22 @@ function (path, config) {
             } catch (e) {
                 beat.stop();
                 slWhyBusy = false;
-                try { graph.setError(' Could not explain ' + target + ': ' + (e && e.message ? e.message : e) + ' ', 10); } catch (e2) { }
+                const why = (e && e.message ? e.message : e);
+                step('sl-rationale failed for ' + target + ': ' + why);
+                try { console.error('Why ' + target + ' failed:', e); } catch (e2) { }
+                // A message that fades is not enough for a button that looked like it did
+                // nothing: the panel says what happened and offers the retry.
+                try { graph.setError(' Could not explain ' + target + ': ' + why + ' ', 12); } catch (e2) { }
+                try {
+                    exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Why ' + target + '?', subtitle: 'the explanation did not come back', graph: graph, books: [
+                        { section: 'What happened', note: true, title: 'The explanation for ' + target + ' could not be read: ' + why
+                            + '. The work behind it \u2014 the ranking, the statistics \u2014 is untouched.' },
+                        { section: 'What happened', accent: 'run', title: 'Try again', badge: 'retry', icon: 'refresh', ready: true,
+                            blurb: 'Ask for the explanation again.', open: () => slExplain(target, losses, source, stats, back) },
+                        { section: 'Back', title: 'Back to the targets', badge: 'back', icon: 'arrow_back', back: true, ready: true,
+                            blurb: 'The ranked list.', open: () => { try { (back || slTargetsMenu)(); } catch (e3) { } } },
+                    ] });
+                } catch (e2) { }
             }
         };
         const slWhyMenu = (R, back) => {
@@ -10432,9 +10477,9 @@ function (path, config) {
                         const beat = workBeat('Writing up ' + t.target + ' — ' + (i + 1) + ' of ' + ho.length,
                             (m) => { try { dlMsg(m); } catch (e2) { } });
                         try {
-                            const rs = await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
+                            const rs = pyResolution(await exec(server + '/py/bio/sl-rationale.py', em, JSON.stringify({
                                 target: t.target, losses: R.genes, source: 'depmap', tissue: R.tissue || '',
-                                stats: { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds } }));
+                                stats: { t: t.best_t, fdr: t.min_fdr, eff_double: t.eff_double, eff_none: t.eff_none, window: t.window, synergy: t.synergy, interpretation: t.interpretation, backgrounds: t.backgrounds } })));
                             if (rs && rs.ok) { try { W = JSON.parse(rs.rationale || '{}'); } catch (e) { W = null; } }
                             if (W && W.summary) slWhyCache.set(key, W); else W = null;
                         } catch (e) { W = null; }
