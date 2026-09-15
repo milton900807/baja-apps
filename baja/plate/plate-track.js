@@ -4348,6 +4348,11 @@ function (progress) {
                     this.__collab.release(this.selectedPlate);
                 }
                 this.selectedPlate = __selected;
+                // Maximized view follows the selection: choosing another table, timeline or
+                // chart (from the object list, a menu or the search) maximizes that one.
+                if (this.__maximized && __selected && __selected !== this.__maximized) {
+                    try { this.maximizeObject(__selected); } catch (e) { }
+                }
                 if (selectedListener && this.selectedPlate) {
                     selectedListener(this.selectedPlate.uid)
                 }
@@ -6326,6 +6331,9 @@ function (progress) {
                     });
                 }
                 this.activePlot = plot;
+                if (this.__maximized && plot && plot !== this.__maximized) {
+                    try { this.maximizeObject(plot); } catch (e) { }
+                }
             }
             addGlyphNoSelect(glyph) {
                 this.glyphs.push(glyph)
@@ -8175,7 +8183,9 @@ function (progress) {
             mouseDown(x, y) {
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
-                    if (hit === 'exit') return;
+                    if (hit === 'exit' || hit === 'menu') return;
+                    // The scroll indicator on the right edge: press to jump, drag to scroll.
+                    if (x >= this.grid.width - 18 && y > 46) { this.__maxScrollDrag = true; this.__maxScrollTo(y); return; }
                     if (!hit && !this.menu) {
                         // A click on the backdrop, outside the maximized object, clears its
                         // cell selection (maximize mode only; the normal canvas is unchanged).
@@ -8341,8 +8351,10 @@ function (progress) {
 
             mouseUp(x, y) {
                 if (this.__maximized) {
+                    if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit') { this.exitMaximize(); return; }
+                    if (hit === 'menu') { this.__maxOpenMenu(); return; }
                     if (!hit && !this.menu) return;
                 }
                 if (isMobile()) {
@@ -8848,6 +8860,11 @@ function (progress) {
             }
 
             mouseMove(x, y) {
+                if (this.__maximized) {
+                    if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
+                    // The object stays put: any move or resize that started is cancelled.
+                    try { const o = this.__maximized; if (o.__moving) o.__moving = false; if (o.__resizing) o.__resizing = false; } catch (e) { }
+                }
                 if (!isMobile() && this.attr__showScrollbar && scrollGrid && scrollGrid.height > 0) {
                     if (this.isDraggingScrollbar) {
                         scrollGrid.rescale();
@@ -9018,6 +9035,17 @@ function (progress) {
             // object's width fits, the wheel scrolls it vertically when it is taller than the
             // view, and the header's Exit button (or Escape) restores the previous view. All
             // editing still runs on the real canvas, so cells, points and menus work as usual.
+            // Reserved space above and below the maximized object, in px. Charts and
+            // timelines draw their axis labels, legends and name tab OUTSIDE their nominal
+            // box, so they get more room than a table.
+            __maxTopPx(obj) {
+                const o = obj || this.__maximized;
+                return 46 + 50 + ((o && typeof o.drawPlot === 'function') ? 40 : 0);
+            }
+            __maxBottomPx(obj) {
+                const o = obj || this.__maximized;
+                return 50 + ((o && typeof o.drawPlot === 'function') ? 120 : 0);
+            }
             __maxWorldBounds(obj) {
                 if (!obj) return null;
                 if (typeof obj.drawPlot === 'function') {
@@ -9040,16 +9068,54 @@ function (progress) {
                 const g = this.grid;
                 return { x: g.X(b.x0), y: g.Y(b.yTop), w: g.X(b.x1) - g.X(b.x0), h: g.Y(b.yBot) - g.Y(b.yTop) };
             }
+            // While maximized the object's own close / move / menu buttons are not shown:
+            // the title bar's Menu pill stands in for them. Emptying the button lists hides
+            // them and disables their hit-tests in every table and plot class alike.
+            __maxHideButtons(obj) {
+                if (!obj || obj.__maxSavedButtons) return;
+                obj.__maxSavedButtons = { buttons: obj.buttons, button_set: obj.button_set };
+                try { if (Array.isArray(obj.buttons)) obj.buttons = []; } catch (e) { }
+                try { if (Array.isArray(obj.button_set)) obj.button_set = []; } catch (e) { }
+            }
+            __maxRestoreButtons(obj) {
+                if (!obj || !obj.__maxSavedButtons) return;
+                try { obj.buttons = obj.__maxSavedButtons.buttons; } catch (e) { }
+                try { obj.button_set = obj.__maxSavedButtons.button_set; } catch (e) { }
+                delete obj.__maxSavedButtons;
+            }
+            __maxOpenMenu() {
+                const obj = this.__maximized;
+                if (!obj) return;
+                try {
+                    if (typeof obj.drawPlot === 'function') {
+                        if (typeof obj.displayContextSpecificMenuItems === 'function') obj.displayContextSpecificMenuItems(this);
+                        else if (typeof obj.createMinimizedMenu === 'function') obj.createMinimizedMenu(0, 0, 0, 0, this);
+                    } else if (typeof obj.showMenuOptions === 'function') {
+                        obj.showMenuOptions(this);
+                    }
+                } catch (e) { console.warn('maximized menu failed', e); }
+            }
             maximizeObject(obj) {
                 if (!obj) return;
                 const b = this.__maxWorldBounds(obj);
                 if (!b) { try { this.setMessage('This object cannot be maximized.', 2); } catch (e) { } return; }
                 if (!this.__maximized) this.__maxGridBefore = JSON.parse(JSON.stringify(this.grid));
+                if (this.__maximized && this.__maximized !== obj) this.__maxRestoreButtons(this.__maximized);
+                this.__maxHideButtons(obj);
                 this.__maximized = obj;
+                // Any side control already showing (e.g. Deselect Cells) is dismissed.
+                try { this.side_menu = null; this.__last_side_menu_ref = null; } catch (e) { }
+                // No panning of the canvas and no moving of the object while maximized: the
+                // graph widget's navigate-mode pan honours this flag, and __maxEnforceView()
+                // below pins the view every frame as a backstop. Only the scroll moves.
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                this.__maxAnimating = true;
+                if (this.__maxAnimTimer) clearTimeout(this.__maxAnimTimer);
+                this.__maxAnimTimer = setTimeout(() => { this.__maxAnimating = false; this.__maxAnimTimer = null; }, 450);
                 try { this.menu = null; this.menu_vis = false; } catch (e) { }
                 this.grid.rescale();
                 const cw = Math.max(1, this.grid.width), ch = Math.max(1, this.grid.height);
-                const HEADER = 56;   // px reserved above the object for the title bar
+                const HEADER = this.__maxTopPx(obj);   // title bar + 50px buffer (+ label room for plots)
                 const width = Math.max(1e-6, b.x1 - b.x0);
                 let xRange = width * 1.08;
                 let yRange = xRange * (ch / cw);
@@ -9083,8 +9149,12 @@ function (progress) {
             }
             exitMaximize() {
                 if (!this.__maximized) return;
+                this.__maxRestoreButtons(this.__maximized);
                 this.__maximized = null;
+                this.__maxScrollDrag = false;
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 this.__maxExitRect = null;
+                this.__maxMenuRect = null;
                 if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
                 AnimateGrid.INTERUPT = true;
                 const before = this.__maxGridBefore;
@@ -9093,6 +9163,71 @@ function (progress) {
                     try { new AnimateGrid(this.grid).animateTo(before.xmin, before.xmax, before.ymin, before.ymax, 18); }
                     catch (e) { this.restoreGrid(before); }
                 }
+                try { this.grid.rescale(); } catch (e) { }
+            }
+            // Pin the maximized view: x is fixed to the fit, y stays within the object's scroll
+            // range. Anything that moved the grid by another route (a pan, a zoom) is undone
+            // on the next frame; the entry animation is left alone while it runs.
+            __maxEnforceView() {
+                if (!this.__maximized || !this.__maxBounds || this.__maxAnimating) return;
+                const g = this.grid;
+                g.rescale();
+                const cw = Math.max(1, g.width), ch = Math.max(1, g.height);
+                const xRange = this.__maxBounds.xmax - this.__maxBounds.xmin;
+                if (!(xRange > 0)) return;
+                if (Math.abs(g.xmin - this.__maxBounds.xmin) > 1e-9 || Math.abs(g.xmax - this.__maxBounds.xmax) > 1e-9) {
+                    g.xmin = this.__maxBounds.xmin; g.xmax = this.__maxBounds.xmax;
+                }
+                const yRange = xRange * (ch / cw);
+                const b = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
+                const header = yRange * (this.__maxTopPx() / ch);
+                const topLimit = b.yTop + header, bottomLimit = b.yBot - yRange * (this.__maxBottomPx() / ch);
+                let ymax = g.ymax, ymin = ymax - yRange;
+                // Follow the cell being edited: when the selection moves to a cell that is
+                // above the top buffer or below the bottom one, scroll just enough to show it.
+                // Once per selection change, so a manual scroll afterwards is not fought.
+                try {
+                    const w = this.selected_well;
+                    if (w && w !== this.__maxLastWell) {
+                        this.__maxLastWell = w;
+                        const wy = w.__screen_y, wh = w.__screen_height || 0;
+                        if (Number.isFinite(wy) && wh > 0) {
+                            const topPx = this.__maxTopPx() + 8, bottomPx = ch - this.__maxBottomPx() - 8;
+                            let shiftPx = 0;
+                            if (wy < topPx) shiftPx = topPx - wy;                 // cell is above: scroll up
+                            else if (wy + wh > bottomPx) shiftPx = bottomPx - (wy + wh);   // below: scroll down
+                            if (shiftPx !== 0) { ymax += shiftPx * (yRange / ch); ymin = ymax - yRange; }
+                        }
+                    } else if (!w) {
+                        this.__maxLastWell = null;
+                    }
+                } catch (e) { }
+                if (topLimit - bottomLimit <= yRange) { ymax = topLimit; ymin = ymax - yRange; }
+                else {
+                    if (ymax > topLimit) { ymax = topLimit; ymin = ymax - yRange; }
+                    if (ymin < bottomLimit) { ymin = bottomLimit; ymax = ymin + yRange; }
+                }
+                if (Math.abs(g.ymax - ymax) > 1e-9 || Math.abs(g.ymin - ymin) > 1e-9) { g.ymax = ymax; g.ymin = ymin; }
+                g.rescale();
+            }
+            // Dragging the scroll indicator: a canvas y maps to a position in the scroll range.
+            __maxScrollTo(py) {
+                if (!this.__maximized) return;
+                const g = this.grid;
+                g.rescale();
+                const ch = Math.max(1, g.height);
+                const yRange = g.ymax - g.ymin;
+                const b = this.__maxWorldBounds(this.__maximized) || (this.__maxBounds && this.__maxBounds.b);
+                if (!b) return;
+                const header = yRange * (this.__maxTopPx() / ch);
+                const topLimit = b.yTop + header, bottomLimit = b.yBot - yRange * (this.__maxBottomPx() / ch);
+                const total = topLimit - bottomLimit;
+                if (total <= yRange) return;
+                const trackY = 52, trackH = Math.max(1, ch - 64);
+                const pos = Math.max(0, Math.min(1, (py - trackY) / trackH));
+                g.ymax = topLimit - pos * (total - yRange);
+                g.ymin = g.ymax - yRange;
+                g.rescale();
             }
             // Wheel while maximized: vertical scroll within the object, clamped to its extent.
             __maxScroll(deltaPx) {
@@ -9104,9 +9239,9 @@ function (progress) {
                 const b = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
                 const yRange = g.ymax - g.ymin;
                 const ch = Math.max(1, g.height);
-                const header = yRange * (56 / ch);
+                const header = yRange * (this.__maxTopPx() / ch);
                 const topLimit = b.yTop + header;          // ymax may not exceed this
-                const bottomLimit = b.yBot - yRange * 0.04; // ymin may not go below this
+                const bottomLimit = b.yBot - yRange * (this.__maxBottomPx() / ch); // ymin may not go below this
                 if (topLimit - bottomLimit <= yRange + 1e-9) return;   // it all fits: nothing to scroll
                 let shift = -deltaPx * (yRange / ch);       // wheel down -> view moves down (y decreases)
                 let ymax = g.ymax + shift, ymin = g.ymin + shift;
@@ -9119,6 +9254,8 @@ function (progress) {
                 if (!this.__maximized) return null;
                 const r = this.__maxExitRect;
                 if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'exit';
+                const m = this.__maxMenuRect;
+                if (m && x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) return 'menu';
                 const box = this.__maxScreenBox();
                 if (box && x >= box.x - 40 && x <= box.x + box.w + 40 && y >= box.y - 40 && y <= box.y + box.h + 40) return 'inside';
                 return null;
@@ -9144,23 +9281,34 @@ function (progress) {
                 ctx.fillText(kind + ': ' + (obj.name || 'untitled'), 16, 22);
                 ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 ctx.fillStyle = 'rgba(234,246,249,0.7)';
-                ctx.fillText('Scroll to move down. Escape to return.', 16 + ctx.measureText('').width + Math.ceil((() => { ctx.save(); ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const w = ctx.measureText(kind + ': ' + (obj.name || 'untitled')).width; ctx.restore(); return w; })()) + 18, 22);
-                // Exit button
+                ctx.fillText('Scroll to move down. Escape to return.', 16 + Math.ceil((() => { ctx.save(); ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const w = ctx.measureText(kind + ': ' + (obj.name || 'untitled')).width; ctx.restore(); return w; })()) + 18, 22);
+                // Right side of the title bar: [ Menu ▾ ] [ Exit maximize ]. The Menu pill stands
+                // in for the object's own buttons, which are hidden while maximized.
                 const label = 'Exit maximize';
                 ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 const bw = Math.ceil(ctx.measureText(label).width) + 28, bh = 28;
                 const bx = W - bw - 14, by = 8;
                 ctx.fillStyle = '#1aa3bd'; rr(bx, by, bw, bh, 8); ctx.fill();
-                ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 0.5);
+                ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 0.5);
                 this.__maxExitRect = { x: bx, y: by, w: bw, h: bh };
+                {
+                    const ml = 'Menu \u25BE';
+                    const mw = Math.ceil(ctx.measureText(ml).width) + 28, mh = 28;
+                    const mx = bx - mw - 10, my = 8;
+                    ctx.fillStyle = 'rgba(255,255,255,0.96)'; rr(mx, my, mw, mh, 8); ctx.fill();
+                    ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 1.5; rr(mx, my, mw, mh, 8); ctx.stroke();
+                    ctx.fillStyle = '#0a2540'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(ml, mx + mw / 2, my + mh / 2 + 0.5);
+                    this.__maxMenuRect = { x: mx, y: my, w: mw, h: mh };
+                }
                 // Scroll indicator on the right when the object is taller than the view.
                 try {
                     const b = this.__maxWorldBounds(obj) || (this.__maxBounds && this.__maxBounds.b);
                     if (b) {
                         this.grid.rescale();
                         const yRange = this.grid.ymax - this.grid.ymin;
-                        const header = yRange * (56 / Math.max(1, this.grid.height));
-                        const total = (b.yTop + header) - (b.yBot - yRange * 0.04);
+                        const header = yRange * (this.__maxTopPx() / Math.max(1, this.grid.height));
+                        const total = (b.yTop + header) - (b.yBot - yRange * (this.__maxBottomPx() / Math.max(1, this.grid.height)));
                         if (total > yRange) {
                             const trackY = 52, trackH = H - 64;
                             const frac = yRange / total;
@@ -21311,7 +21459,9 @@ function (progress) {
                 const selected_objects = this.getSelectedWells();
                 if (selected_objects.length > 0 && ___previous_selected_objects !== selected_objects.length) {
                     ___previous_selected_objects = selected_objects.length;
-                    this.showSideMenu([
+                    // Not while maximized: the "Deselect Cells" side control is left off there
+                    // (a click on the backdrop clears the selection instead).
+                    if (!this.__maximized) this.showSideMenu([
                         {
                             'label': 'Deselect Cells (' + selected_objects.length + ')', click: () => {
                                 setTimeout(() => {
@@ -21601,8 +21751,6 @@ function (progress) {
                         }
                     };
 
-                    if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
-
                     const nonGlyphObjects = [
                         ...this.root,
                         ...this.m_plots
@@ -21637,6 +21785,7 @@ function (progress) {
 
                     let allObjects = [...nonGlyphObjects, ...glyphObjects];
                     if (this.__maximized) {
+                        try { this.__maxEnforceView(); } catch (e) { }
                         // Single-object mode: navy backdrop, only the maximized object is drawn.
                         ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
                         ctx.fillStyle = '#0a2540'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -21761,6 +21910,9 @@ function (progress) {
                     if (this.activePlot) {
                         this.activePlot.drawPlot(this.grid, ctx, this.activePlot.grid);
                     }
+                    // Lock badges and presence go on last: the active plot (a timeline being
+                    // edited) is redrawn just above, and used to paint over them.
+                    if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     ctx.fillStyle = 'black'
 
                     if (this.msgType === 10 && this.__msgc) {

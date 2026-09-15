@@ -3,6 +3,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
         const pt = plate_graph.plateTrack;
         // Live co-editing: a Share menu on every menubar this panel builds, whatever is
         // selected, so it is always one click away in Analytics.
+        // Menus the hosting app hands over (Analytics: Build and Draw), shown ahead of Share.
+        const appMenus = () => {
+            try {
+                const f = plate_graph.__appMenus;
+                const list = typeof f === "function" ? f() : f;
+                return Array.isArray(list) ? list : [];
+            } catch (e) { return []; }
+        };
         const shareMenu = () => [{
             label: 'Share',
             items: [
@@ -841,6 +849,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }, 100)
                             }),
                             menus: [
+                                ...appMenus(),
                                 ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
@@ -866,6 +875,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 execCMD(str);
                             }),
                             menus: [
+                                ...appMenus(),
                                 ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
@@ -917,6 +927,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }
                             }),
                             menus: [
+                                ...appMenus(),
                                 ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
@@ -960,6 +971,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                             }),
                             menus: [
+                                ...appMenus(),
                                 ...shareMenu(),
                                 {
                                     'label': `${menu_title}`, 'items': m
@@ -1178,6 +1190,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         }
                     }),
                     menus: [
+                        ...appMenus(),
                         ...shareMenu(),
                         {
                             'label': `${menu_title}`, 'items': m
@@ -1220,6 +1233,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                         }),
                         menus: [
+                            ...appMenus(),
                             ...shareMenu(),
                             {
                                 'label': `${menu_title}`, 'items': m
@@ -1323,6 +1337,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     pt.createPlateFromFormula(str)
                 }),
                 menus: [
+                    ...appMenus(),
                     ...shareMenu(),
                     {
                         'label': `Main menu`, 'items': mm

@@ -340,12 +340,61 @@ function (graph, pm, reference_object) {
                                     height: '100%',
                                     data: {
                                         width: '100%',
-                                        filetype: '.bjb,.bjb-share',
+                                        // Every file and folder in the root, the way My Files lists them; only workbooks
+
+                                        // open (the click below says so for anything else). Filtering to .bjb hid a root
+
+                                        // with no workbook in it entirely, which read as "Open shows nothing".
+
+                                        filetype: '',
                                         drive: 'user',
                                         user: getUser(),
 
                                         root: '/' + getUser(),
                                         "ionfunction.fileClick": createIonFunction(async (element) => {
+
+                                            if (!element || element.isFolder) return;
+
+                                            if (!/\.(bjb|bjb-share|bajabio)$/i.test('' + (element.path || element.name || ''))) {
+
+                                                try { pm.plateTrack.setMessage('Only Baja workbooks (.bjb) open here.', 2); } catch (e) { }
+
+                                                return;
+
+                                            }
+
+                                            // Analytics: open the file the way My Files does, by launching the app on it. Its
+
+
+                                            // startup follows shared pointers, joins the live co-editing session and writes the
+
+
+                                            // address bar (?share=<code> for a shared copy, ?path= otherwise), so a reload lands
+
+
+                                            // on the same document. Loading in place did none of that.
+
+
+                                            if (reference_object && /baja-analytics/.test('' + reference_object)) {
+
+
+                                                try { if (pm && pm.plateTrack && pm.plateTrack.__collab) pm.plateTrack.__collab.destroy(); } catch (e) { }
+
+
+                                                clear();
+
+
+                                                CurrentLayout.reset('mainPanel');
+
+
+                                                exec('cpd/baja-analytics', element.path, { silent: true, user: getUser(), mode: 'editor' }, '/app/cpd/baja-analytics');
+
+
+                                                return;
+
+
+                                            }
+
 
                                             clear();
 

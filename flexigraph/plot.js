@@ -2686,6 +2686,10 @@ function (MGrid) {
             isBackground = true;
             buttons = [
                 {
+                    name: "maximize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
+                    highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('maximize') }, color: 'lightcyan'
+                },
+                {
                     name: "move", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.setMoveListeners(pt, x, y) },
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('move') }, color: 'lightcyan'
                 },
@@ -15304,7 +15308,7 @@ function (MGrid) {
                     ctx.lineCap = 'round';
                     ctx.lineJoin = 'round';
 
-                    if (isClose || button.name === "move" || button.name === "minimize") {
+                    if (isClose || button.name === "move" || button.name === "minimize" || button.name === "maximize") {
                         ctx.fillStyle = fill;
                         ctx.beginPath();
                         ctx.arc(centerX, centerY, circleRadius - 0.5, 0, 2 * Math.PI);
@@ -15348,6 +15352,13 @@ function (MGrid) {
                             arrow(centerX - arm, centerY, -1, 0);
                             arrow(centerX, centerY - arm, 0, -1);
                             arrow(centerX, centerY + arm, 0, 1);
+                        } else if (button.name === "maximize") {
+                            const g = circleRadius * 0.42, h = Math.max(2, circleRadius * 0.22);
+                            ctx.beginPath();
+                            ctx.moveTo(centerX - g, centerY + g); ctx.lineTo(centerX + g, centerY - g);
+                            ctx.moveTo(centerX + g - h, centerY - g); ctx.lineTo(centerX + g, centerY - g); ctx.lineTo(centerX + g, centerY - g + h);
+                            ctx.moveTo(centerX - g + h, centerY + g); ctx.lineTo(centerX - g, centerY + g); ctx.lineTo(centerX - g, centerY + g - h);
+                            ctx.stroke();
                         } else {
                             const w = circleRadius * 0.5;
                             const gapY = Math.max(2.5, circleRadius * 0.3);

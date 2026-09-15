@@ -319,7 +319,9 @@ function (pt, opts) {
                 ? (others.length ? ('Live with ' + others.map(u => shortName(u.user)).join(', ')) : 'Live (only you)')
                 : 'Live session offline';
             const w = (() => { ctx.save(); ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const t = ctx.measureText(label).width; ctx.restore(); return Math.ceil(t) + 30; })();
-            const x = ctx.canvas.width - w - 16, y = 16;
+            // Below the maximize title bar when one is showing, so it never covers the
+            // Menu and Exit controls at that bar's right end.
+            const x = ctx.canvas.width - w - 16, y = pt.__maximized ? 56 : 16;
             ctx.save();
             ctx.shadowColor = 'rgba(10,37,64,0.18)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
             ctx.fillStyle = 'rgba(255,255,255,0.97)'; rr(ctx, x, y, w, 24, 12); ctx.fill();

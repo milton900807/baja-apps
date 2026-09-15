@@ -417,6 +417,10 @@ function (MGrid) {
 
             buttons = [
                 {
+                    name: "maximize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
+                    highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('maximize') }, color: 'lightcyan'
+                },
+                {
                     name: "minimize", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => { return this.createMinimizedMenu(bx, by, x, y, pt) },
                     highlight: async (bx, by, x, y, pt) => { return await this.highlightButton('minimize') }, color: 'lightcyan'
                 },
@@ -4475,6 +4479,22 @@ function (MGrid) {
                         ctx.stroke();
                     }
 
+                    else if (button.name === "maximize") {
+                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
+                        let centerX = buttonX + bsize / 2;
+                        let centerY = buttonY + buttonHeight / 2;
+                        ctx.fillStyle = (this.highlightbutton && button.name === this.highlightbutton) ? (button.highlight_color || 'cyan') : (button.color || 'lightcyan');
+                        ctx.beginPath(); ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI); ctx.fill();
+                        ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+                        ctx.strokeStyle = 'black'; ctx.lineWidth = 1; ctx.stroke();
+                        const g = circleRadius * 0.42, h = Math.max(2, circleRadius * 0.22);
+                        ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(centerX - g, centerY + g); ctx.lineTo(centerX + g, centerY - g);
+                        ctx.moveTo(centerX + g - h, centerY - g); ctx.lineTo(centerX + g, centerY - g); ctx.lineTo(centerX + g, centerY - g + h);
+                        ctx.moveTo(centerX - g + h, centerY + g); ctx.lineTo(centerX - g, centerY + g); ctx.lineTo(centerX - g, centerY + g - h);
+                        ctx.stroke();
+                    }
                     else if (button.name === "minimize") {
                         let circleRadius = Math.min(bsize, buttonHeight) / 2;
                         let centerX = buttonX + bsize / 2;

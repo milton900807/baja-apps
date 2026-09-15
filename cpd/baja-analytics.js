@@ -488,6 +488,26 @@ function (path, config) {
                 }
 
             }
+            // Keep the address bar on this document, so a reload or a copied link reopens
+            // it. Launchers that exec() the app directly (file lists, app tiles) never set it.
+            // A shared copy (reached through a pointer under shared_with_me, or directly) is
+            // addressed by its share code, so a reload reopens the share and not the pointer.
+            try {
+                const __u = new URL(window.location.href);
+                const __sharedM = ('' + (__loadedSharedFrom || '')).match(/\/shared\/([^\/]+)\//);
+                const __code = __collabShareCode || (__sharedM ? __sharedM[1] : '');
+                if (__code) {
+                    if (__u.searchParams.get('share') !== __code || __u.pathname !== '/app/cpd/baja-analytics') {
+                        window.history.replaceState({ collab: __loadedSharedFrom || path }, 'Baja - Pedregal', '/app/cpd/baja-analytics?share=' + encodeURIComponent(__code));
+                    }
+                    try { if (!pm.plateTrack.__collabShareUrl) pm.plateTrack.__collabShareUrl = window.location.origin + '/s/' + __code; } catch (e) { }
+                } else if (path && /\.(bjb|bajabio)$/i.test(path)) {
+                    if (__u.pathname !== '/app/cpd/baja-analytics' || __u.searchParams.get('path') !== path) {
+                        window.history.replaceState({ bjb: path }, 'Baja - Pedregal', '/app/cpd/baja-analytics?path=' + encodeURIComponent(path));
+                    }
+                }
+            } catch (e) { }
+
             let Icon = await exec('flexigraph/shapes/icon.js')
             graph.folder = path;
             // Join the document's live session: locks, presence and object sync with anyone
@@ -2161,6 +2181,88 @@ function (path, config) {
             } else {
                 button_canvas = await exec('manchester/controls/navigation-panel-plates.js', pm)
             }
+            // Build and Draw menus, shared with the navigation panel so they sit on the
+            // Analytics menubar next to Share (the top_menubar below is not mounted).
+            // The Build items are filled in further down; Draw mirrors cpd/editor.
+            let ai_create_file_items = []
+            const drawMenu =
+            {
+                label: 'Draw',
+                items: [
+
+                    {
+                        label: 'Timeline', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/timeline', pm)
+
+                            graph.setMessageCenter('Click and drag to place it', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Table', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/table-selection-list', pm)
+                            graph.setMessageCenter('Click and drag to place it', 40)
+
+                        })
+                    },
+
+                    {
+                        label: 'Postit Note', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-postit.js', pm.plateTrack)
+
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Simple Arrow', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-arrow.js', pm.plateTrack)
+                            graph.setMessageCenter('Click and drag to draw the arrow', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Notebook', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-simple-note.js', pm.plateTrack)
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Arrow Note (left)', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'left')
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Arrow Note (right)', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'right')
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Arrow Note (Up)', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'up')
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                    {
+                        label: 'Arrow Note (Down)', ionfunction: createIonFunction(async () => {
+                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'down')
+                            graph.setMessageCenter('Click where the note should go', 40)
+
+                        })
+                    },
+                ]
+            }
+            pm.__appMenus = () => [
+                { label: 'Build', items: ai_create_file_items },
+                drawMenu,
+            ]
+
             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm)
 
             buttonMenuPanel = {
@@ -2218,7 +2320,7 @@ function (path, config) {
                 await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path)
             }
             let openSaveScreen = async () => {
-                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/bajabio-analytics')
+                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/baja-analytics')
                 showModal(v)
             }
             let importSaveScreen = async () => {
@@ -2241,14 +2343,13 @@ function (path, config) {
                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                 if (pm.plateTrack && im) {
 
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics', im)
                 } else {
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics')
                 }
             }
             progressBar(80);
 
-            let ai_create_file_items = []
 
             file_items.push({
                 label: 'New...',
@@ -2259,7 +2360,7 @@ function (path, config) {
                         'Are you sure you want to delete all and start over?',
                         async () => {
 
-                            pm.plateTrack.reset('/app/cpd/bajabio-analytics')
+                            pm.plateTrack.reset('/app/cpd/baja-analytics')
 
                             let button_canvas2 = await exec(
                                 'manchester/controls/navigation-panel-plates2.js',
@@ -2399,7 +2500,7 @@ function (path, config) {
                                 graph,
                                 genegraph_panel_layout,
                                 path,
-                                '/app/cpd/bajabio-analytics',
+                                '/app/cpd/baja-analytics',
                                 im
                             )
 
@@ -2410,7 +2511,7 @@ function (path, config) {
                                 graph,
                                 genegraph_panel_layout,
                                 path,
-                                '/app/cpd/bajabio-analytics'
+                                '/app/cpd/baja-analytics'
                             )
                         }
                     }
@@ -5624,9 +5725,9 @@ function (path, config) {
                         console.log(pngBase64);
                         let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                         if (pm.plateTrack && im) {
-                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics', im)
+                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics', im)
                         } else {
-                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/bajabio-analytics')
+                            await exec('manchester/io/save-as-obj-tp-internal-news.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics')
                         }
                     }
 
@@ -5917,122 +6018,7 @@ function (path, config) {
                                 ]
                             },
 
-                            {
-                                label: 'Draw',
-                                items: [
-
-                                    {
-                                        label: 'Timeline', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/timeline', pm)
-
-                                            graph.setMessageCenter('Click and drag a box... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Table', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/table-selection-list', pm)
-                                            graph.setMessageCenter('Click and drag a box... ', 40)
-
-                                        })
-                                    },
-
-                                    {
-                                        label: 'Postit Note', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-postit.js', pm.plateTrack)
-
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    },
-
-                                    {
-                                        label: 'Simple Arrow', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-arrow.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click and drag the arrow... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Line', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-line-svg.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click and drag the arrow... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Morpholine', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw2d-molecule-svg.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click and drag the arrow... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Moledulear Editor', ionfunction: createIonFunction(async () => {
-                                            let button_canvas2 = await exec('manchester/controls/navigation-molecular-editor.js', graph)
-                                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
-                                        })
-                                    },
-                                    {
-                                        label: 'Notebook', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-simple-note.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Arrow Note (left)', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'left')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Arrow Note (right)', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'right')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Arrow Note (Up)', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'up')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    },
-                                    {
-                                        label: 'Arrow Note (Down)', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'down')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
-
-                                        })
-                                    }, {
-                                        label: 'Poster export window', ionfunction: createIonFunction(async () => {
-                                            pm.plateTrack.setMessage("Click and drag poster window", 2)
-                                            await exec('baja/draw/draw-border.js', pm.plateTrack)
-                                        })
-                                    },
-
-                                    {
-                                        label: 'Title', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/draw-rectangle', pm.plateTrack)
-                                        })
-                                    },
-                                    {
-                                        label: 'Textarea', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/text.js', pm.plateTrack, "SIMPLE_TEXT")
-                                        })
-                                    },
-
-                                    {
-                                        label: 'Folder', ionfunction: createIonFunction(async () => {
-                                            await exec('baja/draw/folder.js', pm.plateTrack)
-                                        })
-                                    },
-
-                                ]
-                            },
+                            drawMenu,
 
                             {
                                 'label': 'Style', 'items': [

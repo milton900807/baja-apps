@@ -688,6 +688,11 @@ function () {
 
                 this.buttons = [
                     {
+                        name: "maximize", x: 0, y: 10, width: 20, height: 20,
+                        action: async (bx, by, x, y, pt) => { if (pt && pt.maximizeObject) pt.maximizeObject(this); },
+                        highlight: async () => { }, color: 'lightcyan', highlight_color: 'cyan', letter: 'x'
+                    },
+                    {
                         name: `move`, x: 0, y: 10, width: 30, height: 20, action: async (bx, by, x, y, pt) => { return await this.setMoveListeners(bx, by, x, y, pt) },
                         highlight: async (bx, by, x, y, pt) => { return await this.dev_null("move", pt) }, color: 'lightcyan', highlight_color: 'cyan', letter: 'm'
                     },
@@ -864,6 +869,9 @@ function () {
                 }
 
                 let canvas = CurrentLayout.getStashed('graph-canvas')
+                // The buttons close the window through whichever handle is live: the reference
+                // returned by setEditor, or the stashed canvas itself when that reference is gone.
+                const closeEditor = () => { const r = ref || canvas; if (r && r.hideEditor) r.hideEditor(); };
                 let t =
                 {
                     height: '200px',
@@ -901,7 +909,7 @@ function () {
                         {
                             'label': 'Save text', "color": 'blue', action: async () => {
                                 let code = canvas.textEditor.getContent();
-                                ref.hideEditor();
+                                closeEditor();
                                 if (code.startsWith(':')) {
                                     let interpreter = await exec('baja/engine/interpreter.js', pt)
                                     interpreter.ref = this;
@@ -948,12 +956,12 @@ function () {
                                 setTimeout(() => {
                                     this.goTag(null, pt)
                                 }, 1000)
-                                ref.hideEditor();
+                                closeEditor();
                             }
                         },
                         {
                             'label': 'Options', 'color': 'black', "action": async () => {
-                                ref.hideEditor()
+                                closeEditor()
                                 ref = null;
                                 showOptions(0)
 
@@ -965,7 +973,7 @@ function () {
                                 singleSelect = false;
                                 this.deselectAll();
                                 this.selectIt();
-                                ref.hideEditor();
+                                closeEditor();
                             }
                         }
                     ]
@@ -1503,6 +1511,16 @@ function () {
                         break;
                     case 'right':
                         row = row < this.wells.length - 1 ? row + 1 : row;
+                        break;
+                    case 'next':
+                        // Tab order: across the row, then the first cell of the row below.
+                        // (this.wells is indexed [column][row]; "row" here is the column index.)
+                        if (row < this.wells.length - 1) row = row + 1;
+                        else if (col < this.wells[row].length - 1) { row = 0; col = col + 1; }
+                        break;
+                    case 'prev':
+                        if (row > 0) row = row - 1;
+                        else if (col > 0) { row = this.wells.length - 1; col = col - 1; }
                         break;
                     default:
                         return null;
@@ -2177,6 +2195,13 @@ function () {
                     ctx.moveTo(cx - L + h, cy - h); ctx.lineTo(cx - L, cy); ctx.lineTo(cx - L + h, cy + h);
                     ctx.moveTo(cx + L - h, cy - h); ctx.lineTo(cx + L, cy); ctx.lineTo(cx + L - h, cy + h);
                     ctx.stroke();
+                } else if (name === 'maximize') {
+                    // Expand: a diagonal with an arrowhead at each end.
+                    const h = r * 0.22;
+                    ctx.moveTo(cx - g, cy + g); ctx.lineTo(cx + g, cy - g);
+                    ctx.moveTo(cx + g - h, cy - g); ctx.lineTo(cx + g, cy - g); ctx.lineTo(cx + g, cy - g + h);
+                    ctx.moveTo(cx - g + h, cy + g); ctx.lineTo(cx - g, cy + g); ctx.lineTo(cx - g, cy + g - h);
+                    ctx.stroke();
                 } else if (name === 'minimize') {
                     for (const dy of [-g * 0.9, 0, g * 0.9]) { ctx.moveTo(cx - g, cy + dy); ctx.lineTo(cx + g, cy + dy); }
                     ctx.stroke();
@@ -2815,7 +2840,7 @@ function () {
                     case 'Tab':
                         let ww = this.getSelectedWellsInOrder();
                         if (ww && ww.length === 1) {
-                            return navigateAndUpdateWell('right')
+                            return navigateAndUpdateWell((event && event.shiftKey) ? 'prev' : 'next')
                         } else
                             if (pt.selected_well) {
 
