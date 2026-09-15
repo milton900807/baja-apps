@@ -54,48 +54,10 @@ function (pt, plate) {
 
             msub.push({
                 label: 'Set Well Type',
-                click: (__x, __y) => {
+                click: async (__x, __y) => {
                     smenu = null;
-                    const selection_list = Object.keys(WellDisplay)
-                    selection_list.push('Default')
-                    let selectionpanel = null;
-                    const selectPanel = createIon((pa) => {
-                        selectionpanel = pa;
-                    })
-                    let t = {
-                        wid: 'card',
-                        data: {
-                            cards: [
-                                [
-                                    {
-                                        'title': 'Set well type',
-                                        width: '100%',
-                                        'body': `  `, 'component':
-                                        {
-                                            wid: 'selection-list',
-                                            width: '100%',
-                                            refCallback: selectPanel,
-                                            data: {
-                                                listItems: selection_list,
-                                                button_function: createIonFunction(async (items) => {
-                                                    let name = items[0]
-                                                    let wells = plate.getSelectedWellsInOrder();
-                                                    if (name === 'Default') {
-                                                        name = null;
-                                                    }
-                                                    for (let w of wells) {
-                                                        w.setWellType(name);
-                                                    }
-                                                    hideAllModal();
-                                                })
-                                            }
-                                        }
-                                    },
-                                ],
-                            ]
-                        }
-                    }
-                    showModal(t, 500, 500)
+                    // Full-screen library of cell data types (see baja/plate/views/well-type-library.js).
+                    await exec('baja/plate/views/well-type-library.js', (typeof pt !== 'undefined' ? pt : null), plate)
 
                 },
                 move: () => {

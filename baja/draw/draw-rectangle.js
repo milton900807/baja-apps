@@ -3,7 +3,7 @@ function (platetrack) {
     return new Promise(async (resolve, reject) => {
         let Plate = await exec('baja/plate/plate-transparent.js');
         let m = generateNautName();
-        platetrack.setMessage(" Click and drag on canvas....")
+        platetrack.setMessage("Click and drag on the canvas to place it")
 
         const load_file = async (path, name) => {
             let jsonobj = {
@@ -91,7 +91,10 @@ function (platetrack) {
             mouseUpListener: async (x, y) => {
                 if (hd.isDrawing) {
                     hd.isDrawing = false;
+                    // Drag complete: hand the canvas back to the default (navigate) handler
+                    // and clear the "Click and drag" prompt.
                     platetrack.wb(null)
+                    platetrack.setMessage('')
                     platetrack.setSelected(plate)
                     plate.clk_drag(platetrack)
 

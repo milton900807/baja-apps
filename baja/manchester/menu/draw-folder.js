@@ -1,10 +1,27 @@
 function (graph) {
+    // The shape class is loaded UP FRONT, not awaited inside mousedown. An await there
+    // leaves a yield between the press and the state it sets: a quick click can land its
+    // mouseup BEFORE the class resolves, so mouseup sees no shape, and the late mousedown
+    // then builds a folder that the move listener keeps stretching after the button is up.
+    let Folder = null;
+    exec('flexigraph/shapes/sketch-folder.js').then((k) => { Folder = k; });
+
     graph.clearMouseListeners();
     graph.setMouseMode("msg: Click and drag on the canvas");
     graph.selectOff();
     let md = false;
-    graph.addMouseDownListener(async (x, y) => {
-        let Folder = await exec('flexigraph/shapes/sketch-folder.js');
+
+    // Put the tool away: the mouse operation is over, so hand the canvas back to
+    // navigate + mouse-over-highlight whether or not a folder was drawn.
+    const release = () => {
+        md = false;
+        graph.currentShape = null;
+        graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
+        graph.setMouseMode('navigate');
+    };
+
+    graph.addMouseDownListener((x, y) => {
+        if (!Folder) return;   // class not loaded yet
         if (graph.currentShape) {
             graph.currentShape = null;
             return;
@@ -24,11 +41,17 @@ function (graph) {
             panel = hook;
         });
         md = false;
+        // No shape, or a stray click rather than a drag: nothing to name, so the
+        // operation is complete -- return to navigate instead of staying armed.
         if (!graph.currentShape) {
+            release();
             return;
         }
-
         graph.currentShape.update(x, y);
+        if (graph.screenWidth(Math.abs(graph.currentShape.w || 0)) <= 2) {
+            release();
+            return;
+        }
         let zoom_to = {
             wid: 'card',
             componentRef: 'bottomPanel',
@@ -61,23 +84,21 @@ function (graph) {
                                             label: 'Save',
                                             background: '#1aa3bd', color: '#ffffff', borderColor: '#1aa3bd',
                                             ionFunction: createIonFunction(() => {
-                                                graph.currentShape.comment = panel.get('Comment');
-                                                graph.saveCurrentShape();
-                                                graph.currentShape = null;
+                                                if (graph.currentShape) {
+                                                    graph.currentShape.comment = panel.get('Comment');
+                                                    graph.saveCurrentShape();
+                                                }
                                                 hideAllModal();
                                                 // Item added → NOW return to navigate + mouse-over-highlight.
-                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                graph.setMouseMode('navigate');
+                                                release();
                                             })
                                         },
                                         {
                                             label: 'Cancel',
                                             background: 'transparent', color: '#0a2540', borderColor: '#c7d2dd',
                                             ionFunction: createIonFunction(() => {
-                                                graph.currentShape = null;
                                                 hideAllModal();
-                                                graph.clearMouseListeners('baja/manchester/menu/mouse-over-highlight.js');
-                                                graph.setMouseMode('navigate');
+                                                release();
                                             })
                                         }
                                     ]

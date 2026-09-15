@@ -1,0 +1,126 @@
+function (pt, plate) {
+
+    // SET WELL TYPE — the full-screen library of every data type a cell can display.
+    //   await exec('baja/plate/views/well-type-library.js', pt, plate)
+    //
+    // Replaces the old 500x500 "selection-list" modal, which listed Object.keys(WellDisplay)
+    // raw: every alias the factory registers ('USD', 'US$', '%', 'PCT', 'DW_mg', ...) showed
+    // up as if it were its own type, with no hint of what any of them did. This lists each
+    // type ONCE, grouped by what it is for, with a one-line description and a badge that
+    // says whether the cell is editable (Input) or computed/displayed. The current type of
+    // the selection is highlighted. Types the factory knows but this catalogue does not are
+    // still listed, under "Other", so nothing is hidden.
+    return (async () => {
+        const WellDisplay = await exec('baja/plate/views/well-display-factory');
+        let HM = null;
+        try { HM = await exec('baja/history/HM'); } catch (e) { HM = null; }
+
+        const wells = (plate && plate.getSelectedWellsInOrder) ? (plate.getSelectedWellsInOrder() || []) : [];
+        const current = wells.length ? (wells[0].skin_type || null) : null;
+        const canonical = Array.isArray(WellDisplay.__canonical) ? WellDisplay.__canonical : Object.keys(WellDisplay);
+        const known = new Set(canonical);
+
+        const T = (key, section, title, blurb, badge) => ({ key, section, title, blurb, badge });
+        const CATALOG = [
+            // Text
+            T('SIMPLE_TEXT', 'Text', 'Text', 'Plain text, left aligned and wrapped to the cell.', 'Display'),
+            T('TITLE', 'Text', 'Title', 'Bold heading text for naming a block of the model.', 'Display'),
+            T('TITLE_SUBTLE', 'Text', 'Subtitle', 'A quieter heading in muted grey, for secondary labels.', 'Display'),
+            T('TITLE_MONO', 'Text', 'Code', 'Monospaced text, for identifiers, keys and formulas shown as text.', 'Display'),
+            T('TITLE_OUTLINE', 'Text', 'Outlined title', 'Heading text drawn with an outline so it stays readable over colour.', 'Display'),
+            T('BADGE', 'Text', 'Badge', 'A short word in a coloured pill: a category, tag or label.', 'Display'),
+            T('LINK', 'Text', 'Link', 'A web address shown as an underlined link.', 'Display'),
+            T('VideoLink', 'Text', 'Video link', 'A link to a video, shown with a play marker.', 'Display'),
+            T('ICON', 'Text', 'Icon', 'An icon chosen by name, for pictorial cells.', 'Display'),
+
+            // Numbers
+            T('INTEGER', 'Numbers', 'Integer', 'A whole number with thousands separators.', 'Display'),
+            T('Input_Number', 'Numbers', 'Number', 'An editable number; the model reads it as an input.', 'Input'),
+            T('DELTA', 'Numbers', 'Change', 'A signed change with an up or down arrow, green when positive and red when negative.', 'Display'),
+            T('MULTIPLE', 'Numbers', 'Multiple', 'A ratio shown as a multiple, such as 2.5×.', 'Display'),
+            T('RATING', 'Numbers', 'Rating', 'A score from 0 to 5 drawn as filled dots.', 'Display'),
+            T('CONCENTRATION', 'Numbers', 'Concentration', 'A concentration; the value is parsed and kept as a number for assays.', 'Input'),
+            T('PROGRESS', 'Numbers', 'Progress bar', 'A 0 to 100 value drawn as a horizontal bar.', 'Display'),
+            T('HEATMAP', 'Numbers', 'Heat map', 'A value coloured on a scale across the column, for spotting highs and lows.', 'Display'),
+            T('SPARKLINE', 'Numbers', 'Sparkline', 'A small trend line drawn from a list of numbers.', 'Display'),
+
+            // Money and percent
+            T('DOLLAR', 'Money and percent', 'Dollars', 'A currency amount, abbreviated to K, M or B when large.', 'Display'),
+            T('Input_Dollar', 'Money and percent', 'Dollars (input)', 'An editable currency amount the model reads as an assumption.', 'Input'),
+            T('PERCENT', 'Money and percent', 'Percent', 'A fraction shown as a percentage.', 'Display'),
+            T('PERCENT_WITH_COLOR', 'Money and percent', 'Percent, coloured', 'A percentage tinted by its value, for margins and growth rates.', 'Display'),
+            T('Input_Percent', 'Money and percent', 'Percent (input)', 'An editable percentage the model reads as an assumption.', 'Input'),
+
+            // Weights
+            T('Display_Weight_ng', 'Weights', 'Nanograms', 'A mass shown with an ng unit.', 'Display'),
+            T('Display_Weight_ug', 'Weights', 'Micrograms', 'A mass shown with a µg unit.', 'Display'),
+            T('Display_Weight_mg', 'Weights', 'Milligrams', 'A mass shown with an mg unit.', 'Display'),
+            T('Display_Weight_abbrev_g', 'Weights', 'Grams', 'A mass in grams, abbreviated when large.', 'Display'),
+            T('Display_Weight_kg', 'Weights', 'Kilograms', 'A mass shown with a kg unit.', 'Display'),
+            T('Input_Weight_ng', 'Weights', 'Nanograms (input)', 'An editable mass in ng.', 'Input'),
+            T('Input_Weight_ug', 'Weights', 'Micrograms (input)', 'An editable mass in µg.', 'Input'),
+            T('Input_Weight_mg', 'Weights', 'Milligrams (input)', 'An editable mass in mg.', 'Input'),
+            T('Input_Weight_abbrev_g', 'Weights', 'Grams (input)', 'An editable mass in grams.', 'Input'),
+            T('Input_Weight_kg', 'Weights', 'Kilograms (input)', 'An editable mass in kg.', 'Input'),
+
+            // Status and dates
+            T('BOOL', 'Status and dates', 'Checkbox', 'True or false, drawn as a tick box.', 'Input'),
+            T('STATUS', 'Status and dates', 'Status', 'A state word with a coloured dot: done, pending, blocked.', 'Display'),
+            T('DATE', 'Status and dates', 'Date', 'A date, shown as year, month and day.', 'Display'),
+            T('BUTTON', 'Status and dates', 'Button', 'A clickable button that runs the cell\'s action.', 'Action'),
+            T('CONTROL', 'Status and dates', 'Control', 'Marks the cell as a control input for the model.', 'Input'),
+
+            // Structure
+            T('ColumnHeader', 'Structure', 'Column header', 'Names the column beneath it.', 'Display'),
+            T('RowHeader', 'Structure', 'Row header', 'Names the row beside it.', 'Display'),
+        ];
+
+        const books = [];
+        const listed = new Set();
+        for (const c of CATALOG) {
+            const exists = known.has(c.key) || c.key === 'CONCENTRATION';
+            if (!exists) continue;
+            listed.add(c.key);
+            books.push({
+                section: c.section, title: c.title, badge: c.badge, blurb: c.blurb,
+                selected: current === c.key,
+                open: () => apply(c.key)
+            });
+        }
+        // Anything the factory knows that this catalogue has not described yet.
+        for (const k of canonical) {
+            if (listed.has(k)) continue;
+            books.push({
+                section: 'Other', title: k.replace(/_/g, ' '), badge: 'Display',
+                blurb: 'Display type "' + k + '".', selected: current === k, open: () => apply(k)
+            });
+        }
+        books.push({
+            section: 'Reset', title: 'Default', badge: 'Reset',
+            blurb: 'Clear the type and show the raw value.',
+            selected: current === null, open: () => apply(null)
+        });
+
+        function apply(key) {
+            try { if (HM && typeof pushHistory === 'function') pushHistory(HM(plate)); } catch (e) { }
+            for (const w of wells) {
+                try { w.setWellType(key); } catch (e) { }
+            }
+            try {
+                const label = key ? key.replace(/_/g, ' ') : 'default';
+                if (pt && pt.setMessage) pt.setMessage(wells.length + (wells.length === 1 ? ' cell' : ' cells') + ' set to ' + label, 2);
+            } catch (e) { }
+        }
+
+        const what = wells.length === 0 ? 'No cells are selected.'
+            : (wells.length === 1 ? 'One cell selected' : wells.length + ' cells selected')
+            + (current ? ', currently ' + current.replace(/_/g, ' ') + '.' : '.');
+        await exec('baja/lib/shelf.js', {
+            id: 'baja-well-type-library',
+            title: 'Cell data type',
+            subtitle: what + ' Pick how the value should be shown and edited.',
+            books: books
+        });
+        return true;
+    })();
+}

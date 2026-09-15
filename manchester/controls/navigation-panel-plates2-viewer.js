@@ -84,8 +84,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
           for (let w of wells) w.setValue(str);
         }
         panel?.setText('');
-        pt.setMessage('Crunching the numbers...', 3);
-        setTimeout(() => { pt.setMessage('Crunching the numbers...', 3); pt.updateCalculations(); }, 100);
+        pt.setMessage('Calculating…', 3);
+        setTimeout(() => { pt.setMessage('Calculating…', 3); pt.updateCalculations(); }, 100);
       });
 
       if (!selectedPoint) {

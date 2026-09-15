@@ -393,7 +393,8 @@ function (path, config) {
 
             let { Track, TrackRef } = await exec('baja/bio/track-flexi.js')
 
-            if (path.endsWith('.bajabio')) {
+            // Files are saved as .bjb (save-as-obj-tp appends it); .bajabio is the older name.
+            if (path.endsWith('.bajabio') || path.endsWith('.bjb')) {
                 let host_ = window['env']['apiUrl']
                 let index = path.lastIndexOf('/')
                 if ((config != null && config.user != null) || path.startsWith('/myfiles/')) {

@@ -228,6 +228,8 @@ function (graph, genegraph_panel_layout) {
             })
             graph.addMouseUpListener((x, y) => {
                 md = false;
+                        graph.setMouseMode("navigate")
+
             });
             graph.addMouseDownListener((x, y) => {
                 md = true;

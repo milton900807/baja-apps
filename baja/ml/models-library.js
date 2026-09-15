@@ -77,6 +77,39 @@ function (graph, genegraph_panel_layout, tracks) {
 
         const BOOKS = [
             {
+                title: 'Secretion', badge: 'Secretome', ready: true,
+                blurb: 'Is the protein secreted, and where is the signal along the sequence?',
+                // No picker: the only choice is which training set, and the default is the
+                // better one everywhere. The runner reads the track's own reading frame.
+                open: () => __onParentTrack('Secretion',
+                    (list) => exec('baja/bio/protein/secretion-profile.js', graph, L, list, null, 'light_hm')),
+                docs: {
+                    summary: 'Scores whether a protein is secreted from its sequence alone, and draws '
+                        + 'the score along the track as a filled curve with a polynomial fitted over it. '
+                        + 'The curve answers "if the protein began at this residue, would it look '
+                        + 'secreted?", so it peaks over signal peptides and signal anchors.',
+                    provenance: 'Gradient-boosted trees over 96 sequence features, trained here on 36,681 '
+                        + 'human and mouse proteins — Human Protein Atlas secretome for human, UniProt '
+                        + 'subcellular location for mouse — with whole homology clusters held out at 30% '
+                        + 'identity. Held-out AUROC 0.95, and 0.97 for the larger language-model variant '
+                        + 'that is not served here. Runs locally with bundled weights; no service is called.',
+                    usage: 'Select a sequence range to profile just that part, or run it on the whole '
+                        + 'track. Tracks are nucleotide, so the protein is taken from the track\'s own '
+                        + 'coding sequence, exon-aware; a track with no CDS is translated in frame 1 and '
+                        + 'says so. Needs at least 30 residues. Read the curve as secretory-signal '
+                        + 'strength, not destination: ER- and membrane-retained proteins carry the same '
+                        + 'N-terminal signal and peak just as high, single-pass receptors score high, and '
+                        + 'proteins exported without a signal peptide (Hsp70, ALIX, gasdermin-D) score '
+                        + 'near zero.',
+                    // No chooser on purpose. shelf.js disables Load until a choice list
+                    // resolves and leaves it disabled, silently, on several paths — an
+                    // inert green button with no message. The only choice here is which
+                    // training set, the default is the better one for mammalian tracks,
+                    // and it is not worth that failure mode.
+                    links: []
+                }
+            },
+            {
                 title: 'RNA Binding Proteins', badge: 'BajaCLIP', ready: true,
                 blurb: 'Per-position RBP binding profile across the track.',
                 // The chosen protein comes from the page's picker and is passed straight

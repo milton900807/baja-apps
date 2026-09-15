@@ -999,6 +999,11 @@ return new Promise(async (resolve, reject) => {
                     }
                 }
                 ctx.fillStyle = this.fillstyle;
+                // A stroked polygon (polygon_type other than 'fill') used to inherit
+                // whatever strokeStyle the annotation-arc loop above happened to leave
+                // behind, or the canvas default when there were no annotations, so a
+                // line layer drew in an arbitrary colour. Set it from the layer.
+                ctx.strokeStyle = this.color;
                 ctx.lineWidth = 2;
                 ctx.lineCap = 'butt';
                 ctx.textBaseline = 'middle';
@@ -1336,6 +1341,11 @@ return new Promise(async (resolve, reject) => {
                     }
                 }
                 ctx.fillStyle = this.fillstyle;
+                // A stroked polygon (polygon_type other than 'fill') used to inherit
+                // whatever strokeStyle the annotation-arc loop above happened to leave
+                // behind, or the canvas default when there were no annotations, so a
+                // line layer drew in an arbitrary colour. Set it from the layer.
+                ctx.strokeStyle = this.color;
                 ctx.lineWidth = 2;
                 ctx.lineCap = 'butt';
                 ctx.textBaseline = 'middle';

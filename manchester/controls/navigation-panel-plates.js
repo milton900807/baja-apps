@@ -533,7 +533,7 @@ function (plate_graph) {
                         {
                             label: 'Poster export window',
                             click: async (x, y) => {
-                                pm.plateTrack.setMessage("Click and drag poster window", 2)
+                                pm.plateTrack.setMessage("Click and drag to place the poster window", 2)
                                 await exec('baja/draw/draw-border.js', pm.plateTrack)
                             }
                         },
@@ -584,7 +584,7 @@ function (plate_graph) {
                 }), icon: '/assets/img/icons/png/menu-bar.svg', draw: (grid, ctx, mo, md, img) => {
                     drawRoundedRectIcon(4, grid, ctx, mo, md, img)
                 }, mouseOver: createIonFunction(() => {
-                    plate_graph.plateTrack.setMessage(" Zoom to an object on the canvas ", 2)
+                    plate_graph.plateTrack.setMessage("Zoom to an object on the canvas", 2)
 
                 })
 
@@ -683,7 +683,7 @@ function (plate_graph) {
                     drawRoundedRectIcon(10, grid, ctx, mo, md, img)
 
                 }, mouseOver: createIonFunction(() => {
-                    plate_graph.plateTrack.setMessage("Lasso  select ", 2)
+                    plate_graph.plateTrack.setMessage("Lasso select", 2)
 
                 })
 
@@ -754,13 +754,13 @@ function (plate_graph) {
                         },
                     }
                     plate_graph.plateTrack.wb(t)
-                    plate_graph.plateTrack.setMessage('Click and drag a box')
+                    plate_graph.plateTrack.setMessage('Click and drag a box to zoom')
 
                 }), icon: '/assets/img/icons/png/box-zoom.svg', draw: (grid, ctx, mo, md, img) => {
                     drawRoundedRectIcon(12, grid, ctx, mo, md, img)
 
                 }, mouseOver: createIonFunction(() => {
-                    plate_graph.plateTrack.setMessage("Drag box + zoom", 2)
+                    plate_graph.plateTrack.setMessage("Drag a box to zoom", 2)
 
                 })
 
@@ -894,7 +894,7 @@ function (plate_graph) {
                         if (plate_graph.plateTrack.grid?.rescale) {
                             plate_graph.plateTrack.grid.rescale();
                         }
-                        plate_graph.plateTrack.setMessage("✅ Computation complete!", 3);
+                        plate_graph.plateTrack.setMessage("Computation complete", 3);
                     } catch (err) {
                         console.error("Error during computation:", err);
                         if (typeof infoPrompt === "function") {
@@ -904,7 +904,7 @@ function (plate_graph) {
                 }),
                 icon: '/assets/img/icons/png/yinyang.svg',
                 mouseOver: createIonFunction(() => {
-                    plate_graph.plateTrack.setMessage("Compute!", 2)
+                    plate_graph.plateTrack.setMessage("Compute", 2)
                 }),
                 draw: (grid, ctx, mo, md, img) => {
                     drawRoundedRectIcon(24, grid, ctx, mo, md, img);

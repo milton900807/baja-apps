@@ -1760,74 +1760,6 @@ function () {
                     }
                 }
             },
-            Input_Number: (graph, grid, ctx, min, max, x, y, well) => {
-
-                const safeNumber = (value, fallback = 0) =>
-                    typeof value === 'number' && !isNaN(value) ? value : fallback;
-
-                const screen_x = safeNumber(graph.X(grid.X(well.x)));
-                const screen_y = safeNumber(graph.Y(grid.Y(well.y)));
-                const screen_width = safeNumber(well.__screen_width, 30);
-                const screen_height = safeNumber(well.__screen_height, 30);
-
-                const maxCellSize = 60;
-                const scaleFactor = Math.min(screen_width, screen_height, maxCellSize) / maxCellSize;
-
-                let fontSize = 11 * scaleFactor;
-                if (fontSize < 9) fontSize = 11;
-                const MIN_FONT = 8;
-
-                const PADDING = Math.max(4, Math.round(6 * scaleFactor));
-
-                const contentX = screen_x + PADDING;
-                const contentY = screen_y + PADDING;
-                const contentW = Math.max(0, screen_width - 2 * PADDING);
-                const contentH = Math.max(0, screen_height - 2 * PADDING);
-
-                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
-                ctx.strokeStyle = "rgba(120, 120, 100, 1)";
-                ctx.lineWidth = 1 * scaleFactor;
-                ctx.shadowBlur = 0;
-
-                const cornerRadius = 5 * scaleFactor;
-                drawRoundedRect(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius);
-                ctx.fill();
-                ctx.stroke();
-                drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
-                    arrowDepthPct: 0.0
-                });
-
-                let text = "";
-                if (well.value !== undefined && well.value !== null) {
-                    if (typeof well.value === 'number') {
-
-                        text = well.value.toFixed(2).replace(/\.00$/, "");
-                    } else {
-                        text = String(well.value);
-                    }
-                }
-
-                if (text) {
-
-                    ctx.font = `${fontSize}pt Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = well.fgcolor || 'black';
-                    ctx.shadowBlur = 0;
-
-                    const centerX = contentX + contentW / 2;
-                    const centerY = contentY + contentH / 2;
-
-                    while (ctx.measureText(text).width > contentW && fontSize > MIN_FONT) {
-                        fontSize -= 1;
-                        ctx.font = `${fontSize}pt Arial`;
-                    }
-
-                    ctx.fillText(text, centerX, centerY);
-                }
-            }
-            ,
-
             TITLE: (graph, grid, ctx, min, max, x, y, well) => {
                 const cellPadding = 4;
                 const minFontSize = 6;
@@ -2386,6 +2318,125 @@ function () {
                 ctx.fillText(text, center_x, center_y);
             },
 
+            // A web address as an underlined link. Drawing only: the cell's own click handling
+            // decides what opening it means.
+            LINK: (graph, grid, ctx, min, max, x, y, well) => {
+                if (!graph || !grid || !ctx || !well) return;
+                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
+                const scaleFactor = Math.min(sw, sh) / 60;
+                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.strokeStyle = "rgba(120, 120, 100, 1)";
+                ctx.lineWidth = 1 * scaleFactor;
+                drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
+                const raw = (well.value ?? '').toString().trim();
+                if (!raw) return;
+                const label = raw.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+                const fs = Math.max(8, 10 * scaleFactor);
+                ctx.font = `${fs}pt Arial`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                const text = truncateTextCached(label, sw - 10, ctx);
+                const tw = ctx.measureText(text).width;
+                const cx = sx + sw / 2, cy = sy + sh / 2;
+                ctx.fillStyle = well.fgcolor || '#1d4ed8';
+                ctx.fillText(text, cx, cy);
+                ctx.strokeStyle = well.fgcolor || '#1d4ed8';
+                ctx.lineWidth = Math.max(1, scaleFactor);
+                ctx.beginPath();
+                ctx.moveTo(cx - tw / 2, cy + fs * 0.75);
+                ctx.lineTo(cx + tw / 2, cy + fs * 0.75);
+                ctx.stroke();
+            },
+
+            // A signed change: up arrow and green when positive, down arrow and red when
+            // negative. Accepts a number or a string such as "12.5%" (the suffix is kept).
+            DELTA: (graph, grid, ctx, min, max, x, y, well) => {
+                if (!graph || !grid || !ctx || !well) return;
+                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
+                const scaleFactor = Math.min(sw, sh) / 60;
+                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.strokeStyle = "rgba(120, 120, 100, 1)";
+                ctx.lineWidth = 1 * scaleFactor;
+                drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
+                const raw = (well.value ?? '').toString().trim();
+                if (!raw) return;
+                const num = parseFloat(raw.replace(/[^\d.-]/g, ''));
+                const suffix = /%\s*$/.test(raw) ? '%' : '';
+                if (isNaN(num)) {
+                    ctx.font = `${Math.max(8, 10 * scaleFactor)}pt Arial`;
+                    ctx.fillStyle = well.fgcolor || 'black';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(truncateTextCached(raw, sw - 10, ctx), sx + sw / 2, sy + sh / 2);
+                    return;
+                }
+                const up = num > 0, flat = num === 0;
+                const colour = flat ? (well.fgcolor || '#475569') : (up ? '#16a34a' : '#dc2626');
+                const mag = Math.abs(num);
+                const body = (Number.isInteger(mag) ? mag.toLocaleString() : mag.toLocaleString(undefined, { maximumFractionDigits: 2 })) + suffix;
+                const text = (flat ? '' : (up ? '\u25B2 ' : '\u25BC ')) + body;
+                const fs = Math.max(8, 10 * scaleFactor);
+                ctx.font = `bold ${fs}pt Arial`;
+                ctx.fillStyle = colour;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(truncateTextCached(text, sw - 10, ctx), sx + sw / 2, sy + sh / 2);
+            },
+
+            // A ratio as a multiple: 2.5x.
+            MULTIPLE: (graph, grid, ctx, min, max, x, y, well) => {
+                if (!graph || !grid || !ctx || !well) return;
+                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
+                const scaleFactor = Math.min(sw, sh) / 60;
+                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.strokeStyle = "rgba(120, 120, 100, 1)";
+                ctx.lineWidth = 1 * scaleFactor;
+                drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
+                const raw = (well.value ?? '').toString().trim();
+                if (!raw) return;
+                const num = parseFloat(raw.replace(/[^\d.-]/g, ''));
+                const text = isNaN(num) ? raw : (num.toLocaleString(undefined, { maximumFractionDigits: 2 }) + '\u00D7');
+                const fs = Math.max(8, 10 * scaleFactor);
+                ctx.font = `${fs}pt Arial`;
+                ctx.fillStyle = well.fgcolor || 'black';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(truncateTextCached(text, sw - 10, ctx), sx + sw / 2, sy + sh / 2);
+            },
+
+            // A score from 0 to 5 as filled dots; half values fill half a dot.
+            RATING: (graph, grid, ctx, min, max, x, y, well) => {
+                if (!graph || !grid || !ctx || !well) return;
+                let sx = graph.X(grid.X(well.x)), sy = graph.Y(grid.Y(well.y));
+                let sw = well.__screen_width ?? 30, sh = well.__screen_height ?? 30;
+                const scaleFactor = Math.min(sw, sh) / 60;
+                ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+                ctx.strokeStyle = "rgba(120, 120, 100, 1)";
+                ctx.lineWidth = 1 * scaleFactor;
+                drawRoundedRect(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.stroke();
+                const num = parseFloat((well.value ?? '').toString().replace(/[^\d.]/g, ''));
+                if (isNaN(num)) return;
+                const score = Math.max(0, Math.min(5, num));
+                const n = 5;
+                const r = Math.max(2, Math.min(sh * 0.22, (sw - 12) / (n * 2.6)));
+                const gap = r * 2.6;
+                const startX = sx + sw / 2 - (gap * (n - 1)) / 2;
+                const cy = sy + sh / 2;
+                const on = well.fgcolor || '#f59e0b', off = 'rgba(15,23,42,0.15)';
+                for (let i = 0; i < n; i++) {
+                    const cx = startX + i * gap;
+                    const fill = Math.max(0, Math.min(1, score - i));
+                    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.fillStyle = off; ctx.fill();
+                    if (fill > 0) {
+                        ctx.save();
+                        ctx.beginPath(); ctx.rect(cx - r, cy - r, 2 * r * fill, 2 * r); ctx.clip();
+                        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                        ctx.fillStyle = on; ctx.fill();
+                        ctx.restore();
+                    }
+                }
+            },
+
             Input_Weight_mg: createInputWithUnit('mg'),
             Input_Weight_ug: createInputWithUnit('µg'),
             Input_Weight_kg: createInputWithUnit('kg'),
@@ -2399,7 +2450,15 @@ function () {
 
         }
 
+        // The canonical type names, captured BEFORE the aliases below are merged in, so a
+        // picker can list each type once. Non-enumerable: Object.keys(t) is unchanged.
+        try { Object.defineProperty(t, '__canonical', { value: Object.keys(t), enumerable: false }); } catch (e) { }
+
         addAliases(t, {
+            LINK: ['URL', 'HYPERLINK'],
+            DELTA: ['CHANGE', 'DIFF'],
+            MULTIPLE: ['MULTIPLIER', 'RATIO_X'],
+            RATING: ['STARS', 'SCORE'],
             DOLLAR: ['USD', 'US$', 'USD$', 'Dollar', '$'],
             PERCENT: ['PCT', '%', 'Percent', 'Percentage', 'fraction'],
             INTEGER: ['INT'],
@@ -2425,6 +2484,10 @@ function () {
             'Input_Weight_abbrev_g': ['IW_g'],
             'Input_Weight_ng': ['IW_ng'],
         }, { overwrite: false });
+        try {
+            const canon = new Set(t.__canonical || []);
+            Object.defineProperty(t, '__aliases', { value: Object.keys(t).filter(k => !canon.has(k)), enumerable: false });
+        } catch (e) { }
 
         resolve(t)
     })

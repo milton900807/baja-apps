@@ -146,11 +146,10 @@ function (pm, grid, start_date, end_date) {
                 hd.startY = null;
                 hd.currentX = null;
                 hd.currentY = null;
+                // Drag complete: hand the canvas back to the default (navigate) handler
+                // and clear the "Click and drag" prompt.
                 pm.plateTrack.wb(null)
-                hd.startX = null;
-                hd.startY = null;
-                hd.currentX = null;
-                hd.currentY = null;
+                pm.plateTrack.setMessage('')
                 },
             close: () => {
             },

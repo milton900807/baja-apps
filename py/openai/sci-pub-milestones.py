@@ -8,7 +8,7 @@ Loosening adds ORs iteratively; we try at least 6 iterations (7 with RAW) before
 
 Env:
 - ANTHROPIC_API_KEY: API key for OpenAI
-- OPENAI_MODEL: (optional) model name, default "claude-haiku-4-5"
+- CLAUDE_MODEL: (optional) Claude model id, default "claude-haiku-4-5" (OPENAI_MODEL still honoured)
 - NCBI_EMAIL / NCBI_API_KEY: optional, forwarded to NCBI
 
 Inputs
@@ -63,7 +63,7 @@ def chatgpt_refine_query(user_prompt: str) -> Optional[Dict[str, Any]]:
     if not api_key:
         return None
 
-    model = os.getenv("OPENAI_MODEL", "claude-haiku-4-5")
+    model = os.getenv("CLAUDE_MODEL") or os.getenv("OPENAI_MODEL") or "claude-haiku-4-5"
     system = (
         "You turn biomedical prompts into a focused PubMed search plan. "
         "Respond ONLY with compact JSON matching the schema. No prose."

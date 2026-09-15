@@ -13,9 +13,22 @@ function (platetrack, type, type_path, _name) {
         }
 
         const graph = CurrentLayout.getStashed('graph')
-        graph.setMouseMode("msg: Click and drag on the canvas ")
+        // The graph's mouse-mode indicator is only a prompt while this tool is armed. It is
+        // put back to 'navigate' when the drag completes (see release() below); it used to be
+        // left reading "Click and drag on the canvas" for the rest of the session.
+        const setGraphMode = (mode) => {
+            try { if (graph && typeof graph.setMouseMode === 'function') graph.setMouseMode(mode); } catch (e) { }
+        };
+        // Tool finished (table placed): hand the canvas back to the default handler,
+        // clear the prompt, and return the mouse mode to navigate.
+        const release = () => {
+            try { platetrack.wb(null); } catch (e) { }
+            try { platetrack.setMessage(''); } catch (e) { }
+            setGraphMode('navigate');
+        };
+        setGraphMode("msg: Click and drag on the canvas ")
 
-        platetrack.setMessage("Click and drag on the canvas... ")
+        platetrack.setMessage("Click and drag on the canvas to place it")
 
         let oldName = null;
         const load_file = async (path, name) => {
@@ -43,7 +56,7 @@ function (platetrack, type, type_path, _name) {
                 pl.uid = uuid();
                 pl.name = m;
                 let plate = pl
-                platetrack.setMessage(" Click and drag on canvas....")
+                platetrack.setMessage("Click and drag on the canvas to place it")
                 let cursorPos = 0;
                 let hd = {
                     md: false,
@@ -81,7 +94,6 @@ function (platetrack, type, type_path, _name) {
                         hd.currentY = y;
                         plate.grid.xi = platetrack.grid.Xwc(x);
                         plate.grid.yi = platetrack.grid.Ywc(y);
-                        graph.setMouseMode(null)
                         platetrack.root.push(plate)
                     },
 
@@ -102,7 +114,7 @@ function (platetrack, type, type_path, _name) {
                     mouseUpListener: async (x, y) => {
                         if (hd.isDrawing) {
                             hd.isDrawing = false;
-                            platetrack.wb(null)
+                            release();
                         }
                         if (hd.md) {
                             hd.currentX = x;
@@ -230,7 +242,7 @@ function (platetrack, type, type_path, _name) {
                 mouseUpListener: async (x, y) => {
                     if (hd.isDrawing) {
                         hd.isDrawing = false;
-                        platetrack.wb(null)
+                        release();
                     }
                     if (hd.md) {
                         hd.currentX = x;

@@ -116,6 +116,7 @@ function (path) {
                                 user: getUser(),
                                 mode: 'editor'
                             }
+                            window.history.pushState({ 'bjb': element.path }, 'editor', `/app/cpd/baja-analytics?path=${encodeURIComponent(element.path)}`);
                             exec('cpd/baja-analytics', element.path, config, `/app/cpd/baja-analytics`)
                         }
                         else if (element.path.endsWith(".baja")) {
@@ -362,6 +363,7 @@ function (path) {
                         const lowerPath = (element?.path || '').toLowerCase();
 
                         if (lowerPath.endsWith('.bjb')) {
+                            window.history.pushState({ 'bjb': element.path }, 'editor', `/app/cpd/baja-analytics?path=${encodeURIComponent(element.path)}`);
                             exec(
                                 'cpd/baja-analytics',
                                 element.path,

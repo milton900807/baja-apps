@@ -12,8 +12,9 @@ function (pt, type, type_path, _name) {
         }
 
         const text = await navigator.clipboard.readText();
-        pt.setMessage(" Reading clipboard ")
+        pt.setMessage("Reading the clipboard…")
         let table = await exec('baja/plate/data/data-table-parser.js', text)
+        let oldName = null;   // was undeclared: mouseup threw a ReferenceError at renameTableInFormula
         for (let t of table) {
             t.setName(m);
             t.plateType = 'data'
@@ -28,7 +29,7 @@ function (pt, type, type_path, _name) {
             t.grid.xi = pt.grid.Xwc((pt.grid.width / 2)) - t.grid.width / 2;
             pt.root.push(t)
             const plate = t;
-            pt.setMessage(" Click and drag on canvas....")
+            pt.setMessage("Click and drag on the canvas to place it")
             let cursorPos = 0;
             let hd = {
                 md: false,
@@ -87,7 +88,10 @@ function (pt, type, type_path, _name) {
                 mouseUpListener: async (x, y) => {
                     if (hd.isDrawing) {
                         hd.isDrawing = false;
+                        // Drag complete: hand the canvas back to the default (navigate) handler
+                        // and clear the "Click and drag" prompt.
                         pt.wb(null)
+                        pt.setMessage('')
                     }
                     if (hd.md) {
                         hd.currentX = x;

@@ -2147,6 +2147,68 @@ function () {
                 }
             }
 
+            // ---- Table button styling -------------------------------------------------
+            // One flat, consistent look for every canvas button on a table: the menu
+            // buttons above the top-right corner (move / menu / delete), the row buttons
+            // at the bottom-left (+ / -) and the per-cell buttons. White disc, thin navy
+            // border, soft shadow; hover fills cyan (delete fills sunset orange) with a
+            // white glyph. Glyphs are drawn, not typed, so they stay crisp at any zoom.
+            // Geometry (centre, radius) is unchanged, so hit-testing is unaffected.
+            _paintTableButton(ctx, button, cx, cy, r, hover) {
+                const NAVY = '#0a2540', CYAN = '#1aa3bd', ORANGE = '#FD5E53';
+                const name = String((button && button.name) || '');
+                const isClose = name === 'close';
+                const fill = hover ? (isClose ? ORANGE : CYAN) : '#ffffff';
+                const ink = hover ? '#ffffff' : NAVY;
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.18)';
+                ctx.shadowBlur = 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
+                ctx.fillStyle = fill;
+                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = hover ? fill : 'rgba(10,37,64,0.28)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.strokeStyle = ink; ctx.fillStyle = ink;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                ctx.lineWidth = Math.max(1.25, r * 0.16);
+                const g = r * 0.42;   // glyph half-size
+                ctx.beginPath();
+                if (isClose) {
+                    ctx.moveTo(cx - g, cy - g); ctx.lineTo(cx + g, cy + g);
+                    ctx.moveTo(cx - g, cy + g); ctx.lineTo(cx + g, cy - g);
+                    ctx.stroke();
+                } else if (name === 'move') {
+                    const L = r * 0.62, h = r * 0.22;
+                    ctx.moveTo(cx, cy - L); ctx.lineTo(cx, cy + L);
+                    ctx.moveTo(cx - L, cy); ctx.lineTo(cx + L, cy);
+                    ctx.moveTo(cx - h, cy - L + h); ctx.lineTo(cx, cy - L); ctx.lineTo(cx + h, cy - L + h);
+                    ctx.moveTo(cx - h, cy + L - h); ctx.lineTo(cx, cy + L); ctx.lineTo(cx + h, cy + L - h);
+                    ctx.moveTo(cx - L + h, cy - h); ctx.lineTo(cx - L, cy); ctx.lineTo(cx - L + h, cy + h);
+                    ctx.moveTo(cx + L - h, cy - h); ctx.lineTo(cx + L, cy); ctx.lineTo(cx + L - h, cy + h);
+                    ctx.stroke();
+                } else if (name === 'minimize') {
+                    for (const dy of [-g * 0.9, 0, g * 0.9]) { ctx.moveTo(cx - g, cy + dy); ctx.lineTo(cx + g, cy + dy); }
+                    ctx.stroke();
+                } else if (name === '+') {
+                    ctx.moveTo(cx - g, cy); ctx.lineTo(cx + g, cy);
+                    ctx.moveTo(cx, cy - g); ctx.lineTo(cx, cy + g);
+                    ctx.stroke();
+                } else if (name === '-') {
+                    ctx.moveTo(cx - g, cy); ctx.lineTo(cx + g, cy);
+                    ctx.stroke();
+                } else {
+                    const label = String((button && button.letter) || name).slice(0, 3);
+                    const fontFor = (px) => `600 ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+                    let px = Math.round(r * 1.05);
+                    ctx.font = fontFor(px);
+                    while (px > 7 && ctx.measureText(label).width > r * 1.5) { px--; ctx.font = fontFor(px); }
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(label, cx, cy + 0.5);
+                }
+                ctx.restore();
+            }
+
             drawButtons(ctx, graph, __sw) {
                 if (!this.selected) {
                     return;
@@ -2167,8 +2229,6 @@ function () {
                     init = graph.Xwc(0);
                 }
 
-                ctx.lineWidth = 1;
-
                 for (let button of b) {
                     let buttonX = init + index * bsize;
                     let buttonY = graph.Y(this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
@@ -2176,158 +2236,9 @@ function () {
                     if (buttonY < 0 && (buttonY + screen_height) > 0) {
                         buttonY = 10;
                     }
-                    ctx.shadowBlur = 3;
-                    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-                    ctx.shadowOffsetX = 2;
-                    ctx.shadowOffsetY = 2;
-                    if (button.name === "close") {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 2;
-
-                        let padding = 5;
-                        let x1 = centerX - circleRadius + padding;
-                        let y1 = centerY - circleRadius + padding;
-                        let x2 = centerX + circleRadius - padding;
-                        let y2 = centerY + circleRadius - padding;
-
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.moveTo(x1, y2);
-                        ctx.lineTo(x2, y1);
-                        ctx.stroke();
-                    }
-                    else if (button.name === "move") {
-
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-
-                        ctx.fillStyle = 'lightCyan';
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        let arrowLength = circleRadius * 0.8;
-                        let arrowHead = 2;
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY - arrowLength);
-                        ctx.lineTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.moveTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY + arrowLength);
-                        ctx.lineTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.moveTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX - arrowLength, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX + arrowLength, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                    }
-
-                    else if (button.name === "minimize") {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.font = `${circleRadius}px Arial`;
-                        ctx.fillStyle = 'black';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(button.letter, centerX, centerY);
-
-                    } else {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.font = `${circleRadius * 1.2}px Arial`;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillStyle = 'black';
-                        ctx.fillText(button.name, centerX, centerY);
-
-                    }
-
+                    const r = Math.min(bsize, buttonHeight) / 2;
+                    this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, r,
+                        !!(this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name)));
                     index++;
                 }
 
@@ -2341,77 +2252,9 @@ function () {
                         if (buttonY < 0 && (buttonY + screen_height) > 0) {
                             buttonY = 10;
                         }
-                        ctx.shadowBlur = 3;
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        if (button.name === "+") {
-                            let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                            let centerX = buttonX + bsize / 2;
-                            let centerY = buttonY + buttonHeight / 2;
-
-                            ctx.fillStyle = button.color;
-                            if (this.highlightbutton && button.name === this.highlightbutton)
-                                ctx.fillStyle = button.highlight_color;
-
-                            ctx.beginPath();
-                            ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                            ctx.fill();
-
-                            ctx.shadowBlur = 0;
-                            ctx.shadowOffsetX = 0;
-                            ctx.shadowOffsetY = 0;
-                            ctx.strokeStyle = 'black';
-                            ctx.lineWidth = 1;
-                            ctx.stroke();
-
-                            ctx.strokeStyle = 'black';
-                            ctx.lineWidth = 2;
-
-                            let padding = 5;
-                            let barLength = circleRadius * 2 - padding * 2;
-
-                            ctx.beginPath();
-                            ctx.moveTo(centerX - barLength / 2, centerY);
-                            ctx.lineTo(centerX + barLength / 2, centerY);
-                            ctx.stroke();
-
-                            ctx.beginPath();
-                            ctx.moveTo(centerX, centerY - barLength / 2);
-                            ctx.lineTo(centerX, centerY + barLength / 2);
-                            ctx.stroke();
-                        } else if (button.name === '-') {
-                            let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                            let centerX = buttonX + bsize / 2;
-                            let centerY = buttonY + buttonHeight / 2;
-
-                            ctx.fillStyle = button.color;
-                            if (this.highlightbutton && button.name === this.highlightbutton)
-                                ctx.fillStyle = button.highlight_color;
-
-                            ctx.beginPath();
-                            ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                            ctx.fill();
-
-                            ctx.shadowBlur = 0;
-                            ctx.shadowOffsetX = 0;
-                            ctx.shadowOffsetY = 0;
-                            ctx.strokeStyle = 'black';
-                            ctx.lineWidth = 1;
-                            ctx.stroke();
-
-                            ctx.strokeStyle = 'black';
-                            ctx.lineWidth = 2;
-
-                            let padding = 5;
-                            let barLength = circleRadius * 2 - padding * 2;
-
-                            ctx.beginPath();
-                            ctx.moveTo(centerX - barLength / 2, centerY);
-                            ctx.lineTo(centerX + barLength / 2, centerY);
-                            ctx.stroke();
-
-                        }
+                        const r = Math.min(bsize, buttonHeight) / 2;
+                        this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, r,
+                            !!(this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name)));
                         index++;
                     }
                 }
@@ -2444,7 +2287,6 @@ function () {
                     init = graph.Xwc(0);
                 }
 
-                ctx.lineWidth = 1;
                 for (let button of b) {
                     let buttonX = init + index * bsize;
                     let buttonY = graph.Y(this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
@@ -2452,162 +2294,9 @@ function () {
                     if (buttonY < 0 && (buttonY + screen_height) > 0) {
                         buttonY = 10;
                     }
-
-                    ctx.shadowBlur = 3;
-                    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-                    ctx.shadowOffsetX = 2;
-                    ctx.shadowOffsetY = 2;
-
-                    if (button.name === "close") {
-
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-
-                        ctx.fillStyle = button.color;
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 2;
-
-                        let padding = 5;
-                        let x1 = centerX - circleRadius + padding;
-                        let y1 = centerY - circleRadius + padding;
-                        let x2 = centerX + circleRadius - padding;
-                        let y2 = centerY + circleRadius - padding;
-
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.moveTo(x1, y2);
-                        ctx.lineTo(x2, y1);
-                        ctx.stroke();
-                    }
-                    else if (button.name === "move") {
-
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-
-                        ctx.fillStyle = 'lightCyan';
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        let arrowLength = circleRadius * 0.8;
-                        let arrowHead = 2;
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY - arrowLength);
-                        ctx.lineTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.moveTo(centerX, centerY - arrowLength + arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY - arrowLength + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX, centerY + arrowLength);
-                        ctx.lineTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX - arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.moveTo(centerX, centerY + arrowLength - arrowHead);
-                        ctx.lineTo(centerX + arrowHead, centerY + arrowLength - arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX - arrowLength, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX - arrowLength + arrowHead, centerY);
-                        ctx.lineTo(centerX - arrowLength + arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                        ctx.beginPath();
-                        ctx.moveTo(centerX + arrowLength, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY - arrowHead);
-                        ctx.moveTo(centerX + arrowLength - arrowHead, centerY);
-                        ctx.lineTo(centerX + arrowLength - arrowHead, centerY + arrowHead);
-                        ctx.stroke();
-
-                    }
-
-                    else if (button.name === "minimize") {
-
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.font = `${circleRadius}px Arial`;
-                        ctx.fillStyle = 'black';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(button.letter, centerX, centerY);
-
-                    } else {
-                        let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = button.color;
-
-                        if (this.highlightbutton && button.name === this.highlightbutton)
-                            ctx.fillStyle = button.highlight_color;
-
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        ctx.font = `${circleRadius * 1.2}px Arial`;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillStyle = 'black';
-                        ctx.fillText(button.name, centerX, centerY);
-                    }
-
+                    const r = Math.min(bsize, buttonHeight) / 2;
+                    this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, r,
+                        !!(this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name)));
                     index++;
                 }
             }
@@ -7629,48 +7318,10 @@ function () {
 
                     msub.push({
                         label: 'Set Well Type',
-                        click: (__x, __y) => {
+                        click: async (__x, __y) => {
                             smenu = null;
-                            const selection_list = Object.keys(WellDisplay)
-                            selection_list.push('Default')
-                            let selectionpanel = null;
-                            const selectPanel = createIon((pa) => {
-                                selectionpanel = pa;
-                            })
-                            let t = {
-                                wid: 'card',
-                                data: {
-                                    cards: [
-                                        [
-                                            {
-                                                'title': 'Set well type',
-                                                width: '100%',
-                                                'body': `  `, 'component':
-                                                {
-                                                    wid: 'selection-list',
-                                                    width: '100%',
-                                                    refCallback: selectPanel,
-                                                    data: {
-                                                        listItems: selection_list,
-                                                        button_function: createIonFunction(async (items) => {
-                                                            let name = items[0]
-                                                            let wells = this.getSelectedWellsInOrder();
-                                                            if (name === 'Default') {
-                                                                name = null;
-                                                            }
-                                                            for (let w of wells) {
-                                                                w.setWellType(name);
-                                                            }
-                                                            hideAllModal();
-                                                        })
-                                                    }
-                                                }
-                                            },
-                                        ],
-                                    ]
-                                }
-                            }
-                            showModal(t, 500, 500)
+                            // Full-screen library of cell data types (see baja/plate/views/well-type-library.js).
+                            await exec('baja/plate/views/well-type-library.js', (typeof pt !== 'undefined' ? pt : null), this)
 
                         },
                         move: () => {
@@ -9837,48 +9488,10 @@ function () {
                     )
                     m.push({
                         label: 'Set Well Type',
-                        click: (__x, __y) => {
+                        click: async (__x, __y) => {
                             smenu = null;
-                            const selection_list = Object.keys(WellDisplay)
-                            selection_list.push('Default')
-                            let selectionpanel = null;
-                            const selectPanel = createIon((pa) => {
-                                selectionpanel = pa;
-                            })
-                            let t = {
-                                wid: 'card',
-                                data: {
-                                    cards: [
-                                        [
-                                            {
-                                                'title': 'Set well type',
-                                                width: '100%',
-                                                'body': `  `, 'component':
-                                                {
-                                                    wid: 'selection-list',
-                                                    width: '100%',
-                                                    refCallback: selectPanel,
-                                                    data: {
-                                                        listItems: selection_list,
-                                                        button_function: createIonFunction(async (items) => {
-                                                            let name = items[0]
-                                                            let wells = this.getSelectedWellsInOrder();
-                                                            if (name === 'Default') {
-                                                                name = null;
-                                                            }
-                                                            for (let w of wells) {
-                                                                w.setWellType(name);
-                                                            }
-                                                            hideAllModal();
-                                                        })
-                                                    }
-                                                }
-                                            },
-                                        ],
-                                    ]
-                                }
-                            }
-                            showModal(t, 500, 500)
+                            // Full-screen library of cell data types (see baja/plate/views/well-type-library.js).
+                            await exec('baja/plate/views/well-type-library.js', (typeof pt !== 'undefined' ? pt : null), this)
 
                         },
                         move: () => {
@@ -14113,33 +13726,10 @@ function () {
                     let buttonY = selected_well.__screen_y + selected_well.__screen_height;
                     this.txbuttons.forEach((button, index) => {
                         let buttonX = 100 + x + index * (buttonWidth + 10);
-                        ctx.shadowBlur = 10;
-                        ctx.shadowOffsetX = 2;
-                        ctx.shadowOffsetY = 2;
-                        ctx.fillStyle = 'black';
                         let buttonHeight = button.height;
-
                         let circleRadius = Math.min(bsize, buttonHeight) / 2;
-                        let centerX = buttonX + bsize / 2;
-                        let centerY = buttonY + buttonHeight / 2;
-                        ctx.fillStyle = styles.data.bgColor;
-                        if (button.isHighlighted) {
-                            ctx.fillStyle = 'cyan';
-                        }
-                        ctx.beginPath();
-                        ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.shadowBlur = 7;
-                        ctx.shadowOffsetX = 1;
-                        ctx.shadowOffsetY = 1;
-                        ctx.strokeStyle = 'lightGray';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                        ctx.font = `${circleRadius}px Arial`;
-                        ctx.fillStyle = 'navy';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(button.letter, centerX, centerY);
+                        this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, circleRadius,
+                            !!(button.isHighlighted || (this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name))));
                     });
                 }
                 ctx.shadowBlur = 0;

@@ -8,7 +8,7 @@ Formula-connected product assumptions and production-cost builder for Ion Works.
 Ion parameters
 --------------
 param(1): Product description (required)
-param(2): OpenAI model (optional; default: gpt-4o-mini)
+param(2): Claude model (optional; default: claude-haiku-4-5)
 param(3): Temperature (optional; default: 0.15)
 param(4): Product/category hint (optional)
 

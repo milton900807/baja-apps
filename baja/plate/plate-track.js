@@ -308,27 +308,27 @@ function (progress) {
                     onAllMessagesShown = null,
 
                     totalMemoryBytes = 2 * 1024 * 1024 * 1024,
-                    label = 'Memory loading',
+                    label = 'Processing',
 
                     showTimer = true,
-                    timerPrefix = 'Time',
+                    timerPrefix = 'Elapsed',
                     timerFont = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
                     timerColor = 'rgba(0,0,0,0.6)',
                     timerOffsetY = 36,
 
-                    initialNote = 'hold on... crunching the numbers...',
+                    initialNote = 'Preparing your request…',
                     initialNoteDuration = 2000,
                     estimatedTotalSeconds = 60,
                     showProgressBarDuringNote = false,
-                    doneMessage = 'loading results...',
+                    doneMessage = 'Loading results…',
 
                     badgeRadius = 16,
-                    badgeFill = '#111',
+                    badgeFill = '#0a2540',
                     badgeStroke = 'rgba(0,0,0,0.15)',
                     badgeStrokeWidth = 1,
-                    badgeText = 'LJ',
+                    badgeText = 'BAJA',
                     badgeTextColor = '#ffffff',
-                    badgeFont = 'bold 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+                    badgeFont = 'bold 9px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
                 } = {}
             ) {
                 this.x = x;
@@ -350,7 +350,7 @@ function (progress) {
                 this.onAllMessagesShown = typeof onAllMessagesShown === 'function' ? onAllMessagesShown : null;
 
                 this.totalMemoryBytes = Math.max(1, Number(totalMemoryBytes) || 2 * 1024 * 1024 * 1024);
-                this.label = String(label || 'Memory loading');
+                this.label = String(label || 'Processing');
 
                 this.showTimer = !!showTimer;
                 this.timerPrefix = String(timerPrefix || '');
@@ -373,7 +373,7 @@ function (progress) {
                 this.badgeFill = String(badgeFill);
                 this.badgeStroke = String(badgeStroke);
                 this.badgeStrokeWidth = Number(badgeStrokeWidth) || 1;
-                this.badgeText = String(badgeText || 'LJ');
+                this.badgeText = String(badgeText || 'BAJA');
                 this.badgeTextColor = String(badgeTextColor || '#fff');
                 this.badgeFont = String(badgeFont);
 
@@ -417,74 +417,47 @@ function (progress) {
             }
 
             draw(ctx) {
-
                 const s = this.scale;
                 ctx.save();
                 ctx.translate(this.x, this.y);
                 ctx.scale(s, s);
 
-                const baseR = 36;
-                const arcWidth = 6;
-                const spin = this.t * 2.2;
-                const sweep = Math.PI * 0.75;
+                const NAVY = '#0a2540', CYAN = '#1aa3bd';
+                const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
+                // Ring: a quiet track with a single cyan arc sweeping round it. The orbiting
+                // dots of the old design are gone; the badge in the centre carries the brand.
+                const baseR = 30;
+                const arcWidth = 4;
+                const spin = this.t * 2.2;
+                const sweep = Math.PI * 0.7;
+                ctx.lineCap = 'round';
                 ctx.beginPath();
                 ctx.arc(0, 0, baseR, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+                ctx.strokeStyle = 'rgba(10,37,64,0.10)';
                 ctx.lineWidth = arcWidth;
-                ctx.lineCap = 'round';
                 ctx.stroke();
-
                 ctx.beginPath();
                 ctx.arc(0, 0, baseR, spin, spin + sweep);
-                ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+                ctx.strokeStyle = CYAN;
                 ctx.lineWidth = arcWidth;
-                ctx.lineCap = 'round';
                 ctx.stroke();
-
-                const orbits = 3;
-                const orbitR = baseR + 10;
-                for (let i = 0; i < orbits; i++) {
-                    const a = spin * 1.4 + (i * Math.PI * 2) / orbits;
-                    const px = Math.cos(a) * orbitR;
-                    const py = Math.sin(a) * orbitR;
-                    const sz = 4 + 2 * Math.sin(this.t * 3 + i);
-                    ctx.beginPath();
-                    ctx.arc(px, py, sz, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-                    ctx.fill();
-                }
 
                 this._drawBadge(ctx);
 
-
-
+                // Progress: a thin bar with no tick marks.
                 const progress = this._progressValue();
-                const barW = 140;
-                const barH = 12;
-                const barY = baseR + 22;
+                const barW = 180, barH = 5;
+                const barY = baseR + 18;
                 const showBarNow = this.showProgressBarDuringNote ? true : !this._noteShown;
-
                 if (showBarNow) {
-                    this._drawRoundedRect(ctx, -barW / 2, barY, barW, barH, 6, 'rgba(0,0,0,0.12)', 1);
-                    const fillW = Math.max(2, Math.floor(barW * progress));
-                    this._fillRoundedRect(ctx, -barW / 2, barY, fillW, barH, 6, 'rgba(0,0,0,0.75)');
-
-                    const segments = 7;
-                    for (let i = 1; i < segments; i++) {
-                        const tx = -barW / 2 + (barW * i) / segments;
-                        ctx.beginPath();
-                        ctx.moveTo(tx, barY);
-                        ctx.lineTo(tx, barY + barH);
-                        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                    }
+                    this._fillRoundedRect(ctx, -barW / 2, barY, barW, barH, 2.5, 'rgba(10,37,64,0.10)');
+                    const fillW = Math.max(barH, Math.floor(barW * progress));
+                    this._fillRoundedRect(ctx, -barW / 2, barY, fillW, barH, 2.5, CYAN);
                 }
 
-                const baseY = barY + barH + 8;
-                const statusY = baseY + 22;
-
+                // Status card: the current step in navy, the elapsed time in a muted line
+                // beneath it, on a white card with a hairline border and a soft shadow.
                 let statusText = '';
                 if (this._noteShown) {
                     statusText = this.initialNote;
@@ -497,24 +470,43 @@ function (progress) {
                 }
 
                 if (statusText) {
-                    const font = '23px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-                    ctx.font = font;
+                    const primaryFont = `500 14px ${FONT}`;
+                    const secondaryFont = `12px ${FONT}`;
+                    const secondary = this.showTimer
+                        ? ((this.timerPrefix ? this.timerPrefix + ' ' : '') + this._fmtTime(this.t))
+                        : '';
+
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
+                    ctx.font = primaryFont;
+                    const w1 = ctx.measureText(statusText).width;
+                    ctx.font = secondaryFont;
+                    const w2 = secondary ? ctx.measureText(secondary).width : 0;
 
-                    this._drawBlurryBackdrop(ctx, 0, statusY, statusText, {
-                        font,
-                        padX: 16,
-                        padY: 10,
-                        radius: 12,
-                        blurPx: 10,
-                        baseFill: 'rgba(255,255,255,0.72)',
-                        blurFill: 'rgba(255,255,255,0.9)',
-                        stroke: 'rgba(0,0,0,0.10)'
-                    });
+                    const padX = 18, padY = 11;
+                    const h1 = 17, h2 = secondary ? 14 : 0, lineGap = secondary ? 5 : 0;
+                    const cardW = Math.max(w1, w2) + padX * 2;
+                    const cardH = padY * 2 + h1 + lineGap + h2;
+                    const cardY = barY + barH + 14;
+                    const cardX = -cardW / 2;
 
-                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-                    ctx.fillText(statusText, 0, statusY);
+                    ctx.save();
+                    ctx.shadowColor = 'rgba(10,37,64,0.16)';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 3;
+                    this._fillRoundedRect(ctx, cardX, cardY, cardW, cardH, 10, 'rgba(255,255,255,0.97)');
+                    ctx.restore();
+                    this._drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 10, 'rgba(10,37,64,0.14)', 1);
+
+                    ctx.fillStyle = NAVY;
+                    ctx.font = primaryFont;
+                    ctx.fillText(statusText, 0, cardY + padY + h1 / 2);
+                    if (secondary) {
+                        ctx.fillStyle = 'rgba(10,37,64,0.62)';
+                        ctx.font = secondaryFont;
+                        ctx.fillText(secondary, 0, cardY + padY + h1 + lineGap + h2 / 2);
+                    }
                 }
 
                 ctx.restore();
@@ -613,7 +605,17 @@ function (progress) {
                     ctx.stroke();
                 }
 
+                // Fit the label inside the circle: "BAJA" is wider than the old two-letter
+                // badge, so shrink the font until the text sits within ~80% of the diameter.
                 ctx.font = this.badgeFont;
+                const maxW = this.badgeRadius * 2 * 0.8;
+                let w = ctx.measureText(this.badgeText).width;
+                if (w > maxW) {
+                    const m = /(\d+(?:\.\d+)?)px/.exec(this.badgeFont);
+                    const px = m ? parseFloat(m[1]) : 9;
+                    const fit = Math.max(6, Math.floor(px * maxW / w));
+                    ctx.font = this.badgeFont.replace(/\d+(?:\.\d+)?px/, fit + 'px');
+                }
                 ctx.fillStyle = this.badgeTextColor;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -4446,7 +4448,7 @@ function (progress) {
                         this.clearActionGlyphs();
                         setTimeout(() => {
                             this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                                this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), "navy", 'rgb(205, 255, 155)', 2)
+                                this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', 2)
                             this.menu_vis = true;
                             this.menu_width = 550
                             this.menu_vis = true;
@@ -4681,7 +4683,7 @@ function (progress) {
                     index++;
                 }
                 const cols = 1;
-                this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                this.menu = new Menu(m, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                 this.menu_vis = true;
 
             }
@@ -5121,7 +5123,7 @@ function (progress) {
                         if (plate.name === 'Assumptions') {
                             this.addActionGlyph(this, "Click here to calculate PnL", async () => {
                                 let t = this.getTableByName('Assumptions')
-                                this.setMessage('PnL', 5)
+                                this.setMessage('Profit and loss', 5)
                                 let ts = (t.toValueFormulaJSON())
                                 let pnl = await exec('py/openai/pnl.py', "Create profit and loss from assumptions table.", ts)
                                 let r = await exec('baja/draw/data-model-to-tables-gpt', this, pnl)
@@ -5152,7 +5154,7 @@ function (progress) {
 
                             if (this.root.length === 2 && plate.name === 'PnL' && foundPnL) {
                                 this.addActionGlyph(this, "Click for 10 time table", async () => {
-                                    this.setMessage("Timeline...", 5)
+                                    this.setMessage("Building timeline…", 5)
                                     let ls = [
                                     ]
                                     for (let p of this.root) {
@@ -5171,7 +5173,7 @@ function (progress) {
                                 this.addActionGlyph(this, "Click for cash-in-hand timeline", async () => {
                                     const pnl_timeline = () => {
                                         const pt = this;
-                                        pt.setMessage("Generating Timeline...", 5)
+                                        pt.setMessage("Generating timeline…", 5)
                                         setTimeout(async () => {
                                             ls = [
                                             ]
@@ -5227,7 +5229,7 @@ function (progress) {
                                                 w.selectIt();
                                             }
                                             this.zoomouttoFit();
-                                            pt.setMessage("Crunching more friggin numbers", 5)
+                                            pt.setMessage("Calculating…", 5)
 
                                             setTimeout(() => {
                                                 function toMillis(x) { return ensureDateUTC(x).getTime(); }
@@ -5397,7 +5399,7 @@ function (progress) {
                                                 setTimeout(() => {
                                                     this.setPlotCenter(plot)
                                                 }, 3000)
-                                                this.setMessage("Green arrows are input controls. NOTE: Not all are used...", 1);
+                                                this.setMessage("Green arrows mark input controls. Not all of them are used.", 1);
                                             })
                                         }, 2000)
                                     }
@@ -5704,7 +5706,7 @@ function (progress) {
                                     console.error("Stack trace:");
                                     console.error(exception.stack);
                                     if (displayedOnce) {
-                                        this.setMessage('Failed @ ' + calculation_key, 2)
+                                        this.setMessage('Failed at ' + calculation_key, 2)
                                         displayedOnce = true;
                                     }
 
@@ -5850,7 +5852,7 @@ function (progress) {
                         console.error("Stack trace:");
                         console.error(exception.stack);
                         if (!displayedOnce) {
-                            this.setMessage('Failed @ ' + calculation_key, 2);
+                            this.setMessage('Failed at ' + calculation_key, 2);
                             displayedOnce = true;
                         }
                         this.attr__displayComputationEvents = null;
@@ -6109,7 +6111,7 @@ function (progress) {
                         console.error("Stack trace:");
                         console.error(exception.stack);
                         if (displayedOnce) {
-                            this.setMessage('Failed @ ' + calculation_key, 2)
+                            this.setMessage('Failed at ' + calculation_key, 2)
                             displayedOnce = true;
                         }
 
@@ -8325,7 +8327,7 @@ function (progress) {
                     })
                 }
                 let cols = Math.ceil(ml.length / 20);
-                this.__bookmark_menu = new Menu(ml, 0, 60, 'rgb(205, 255, 155)', 'navy', cols)
+                this.__bookmark_menu = new Menu(ml, 0, 60, 'rgba(255,255,255,0.98)', '#0a2540', cols)
             }
 
 
@@ -8426,7 +8428,7 @@ function (progress) {
 
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
                 })
                 ml.push({
                     label: this.attr__displayBookMarks ? 'Hide bookmarks on canvas' : 'Show bookmarks on canvas',
@@ -8434,7 +8436,7 @@ function (progress) {
                         this.attr__displayBookMarks = !this.attr__displayBookMarks;
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
                 });
 
                 ml.push({
@@ -8460,7 +8462,7 @@ function (progress) {
 
                                     },
                                     bg: 'lightRed',
-                                    fg: 'black'
+                                    fg: '#0a2540'
                                 })
                             }
                             ml.push({
@@ -8471,14 +8473,14 @@ function (progress) {
                             })
 
                             let cols = Math.ceil(ml.length / 10);
-                            this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                            this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                             this.menu.title = "Delete bookmark..."
                             this.menu_vis = true;
                         }, 100)
 
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
 
                 })
 
@@ -8496,7 +8498,7 @@ function (progress) {
 
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
 
                 })
                 let cols = Math.ceil(ml.length / 20);
@@ -8513,12 +8515,12 @@ function (progress) {
                         click: (xwc, ywc) => {
                         },
                         bg: 'orange',
-                        fg: 'black'
+                        fg: '#0a2540'
 
                     })
                 }
                 let cols = Math.ceil(ml.length / 20);
-                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                 this.menu.title = "Views..."
                 this.menu_vis = true;
 
@@ -8563,7 +8565,7 @@ function (progress) {
 
                                         },
                                         bg: 'lightRed',
-                                        fg: 'black'
+                                        fg: '#0a2540'
                                     })
                                 }
                                 ml.push({
@@ -8573,14 +8575,14 @@ function (progress) {
                                     }
                                 })
                                 let cols = Math.ceil(ml.length / 10);
-                                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                                 this.menu.title = "Delete bookmark..."
                                 this.menu_vis = true;
                             }, 100)
 
                         },
                         bg: 'orange',
-                        fg: 'black'
+                        fg: '#0a2540'
 
                     })
                     ml.push({
@@ -8654,18 +8656,18 @@ function (progress) {
 
                                         },
                                         bg: 'lightRed',
-                                        fg: 'black'
+                                        fg: '#0a2540'
                                     })
                                 }
                                 let cols = Math.ceil(ml.length / 10);
-                                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                                 this.menu.title = "Delete bookmark..."
                                 this.menu_vis = true;
                             }, 100)
 
                         },
                         bg: 'orange',
-                        fg: 'black'
+                        fg: '#0a2540'
 
                     })
 
@@ -8677,7 +8679,7 @@ function (progress) {
                         await exec('baja/table/show-flow-editor')
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
 
                 })
                 ml.push({
@@ -8686,12 +8688,12 @@ function (progress) {
                         await exec('baja/table/show-ljscript-library', null, this)
                     },
                     bg: 'orange',
-                    fg: 'black'
+                    fg: '#0a2540'
 
                 })
 
                 let cols = Math.ceil(ml.length / 20);
-                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                this.menu = new Menu(ml, this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200), this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
                 this.menu.title = "Execute LJScript..."
                 this.menu_vis = true;
 
@@ -8705,7 +8707,7 @@ function (progress) {
                         this.undo()
                     }
                 })
-                this.menu = new Menu(ml, this.grid.Xwc(10), this.grid.Ywc(20), 'rgb(0, 87, 163)', 'black')
+                this.menu = new Menu(ml, this.grid.Xwc(10), this.grid.Ywc(20), 'rgba(255,255,255,0.98)', '#0a2540')
             }
 
             mouseMove(x, y) {
@@ -8916,11 +8918,11 @@ function (progress) {
                 this.grid.rescale();
 
                 if (this.__stack && this.__stack.length > 0) {
-                    this.__stack_menu = new Menu(ml, this.grid.Xwc(10), this.grid.Ywc(20), 'rgb(0, 87, 163)', 'black')
+                    this.__stack_menu = new Menu(ml, this.grid.Xwc(10), this.grid.Ywc(20), 'rgba(255,255,255,0.98)', '#0a2540')
                     this.__stack_menu.menu_type = 'xx-small-left'
                 }
                 if (this.__redostack && this.__redostack.length > 0) {
-                    this.__redo_stack_menu = new Menu(rl, this.grid.Xwc(10), this.grid.Ywc(20), 'lightGray', 'black')
+                    this.__redo_stack_menu = new Menu(rl, this.grid.Xwc(10), this.grid.Ywc(20), 'rgba(255,255,255,0.98)', '#0a2540')
                     this.__redo_stack_menu.menu_type = 'xx-small-right'
                 }
 
@@ -9527,7 +9529,7 @@ function (progress) {
                             setTimeout(() => {
                                 this.wb(t);
 
-                                this.setMessage(" Click and drag to move the selected points...")
+                                this.setMessage("Click and drag to move the selected points")
                                 this.menu = null;
                                 this.menu_vis = false;
                             }, 200)
@@ -9732,7 +9734,7 @@ function (progress) {
                             const copytable = HM(c);
                             navigator.clipboard.writeText(copytable).then(() => {
 
-                                this.setMessage(" Tables copied")
+                                this.setMessage("Tables copied")
                                 console.log("Object copied to clipboard!");
                             }).catch(err => {
                                 console.error("Failed to copy object to clipboard: ", err);
@@ -10977,8 +10979,8 @@ function (progress) {
                         m,
                         this.grid.Xwc(this.grid.xi + 20),
                         this.grid.Ywc(this.grid.yi + 20),
-                        'rgb(205, 255, 155)',
-                        'black',
+                        'rgba(255,255,255,0.98)',
+                        '#0a2540',
                         cols
                     );
                     return this.setOptionsMenu(smenu2);
@@ -14749,7 +14751,7 @@ function (progress) {
                             const currentstate = 'glyphs_array:' + JSON.stringify(selected_glyphs)
                             navigator.clipboard.writeText(currentstate).then(() => {
                                 console.log("Object copied to clipboard!");
-                                pm.plateTrack.setMessage(" Copied ")
+                                pm.plateTrack.setMessage("Copied")
                             }).catch(err => {
                                 console.error("Failed to copy object to clipboard: ", err);
                             });
@@ -14770,7 +14772,7 @@ function (progress) {
 
                             if (!clipboardText || !clipboardText.startsWith('glyphs_array:')) {
                                 console.warn('Clipboard does not contain glyph data.');
-                                pm.plateTrack.setMessage(" Invalid Paste ");
+                                pm.plateTrack.setMessage("Nothing valid to paste");
                                 return;
                             }
 
@@ -14780,10 +14782,10 @@ function (progress) {
                             selected_glyphs = pastedGlyphs;
 
                             console.log('Glyph state pasted from clipboard:', selected_glyphs);
-                            pm.plateTrack.setMessage(" Pasted ");
+                            pm.plateTrack.setMessage("Pasted");
                         } catch (exception) {
                             console.error("Failed to paste object from clipboard:", exception);
-                            pm.plateTrack.setMessage(" Paste Failed ");
+                            pm.plateTrack.setMessage("Paste failed");
                         }
                     }
                 });
@@ -15690,7 +15692,7 @@ function (progress) {
                 const cols = 2;
                 this.menu = new Menu(m,
                     this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#1f2937', cols)
+                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * m.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
 
                 this.menu.title = title;
                 this.menu_vis = true;
@@ -17098,9 +17100,9 @@ function (progress) {
 
 
                 if (alreadyExists) {
-                    this.setMessage(" You already have a table with that name..");
+                    this.setMessage("A table with that name already exists.");
                     setTimeout(() => {
-                        this.setMessage(" You can change the name of the table and then add this.");
+                        this.setMessage("Rename the table, then add it.");
                     }, 3000);
                     return;
                 }
@@ -17768,7 +17770,7 @@ function (progress) {
                     const ml = this.generateTableMenu();
                     this.__tables_menu = new Menu(ml,
                         this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                        this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                        this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
 
                     return ch;
                 }
@@ -17779,7 +17781,7 @@ function (progress) {
                 const cols = 2;
                 this.__tables_menu = new Menu(ml,
                     this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
-                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgb(205, 255, 155)', 'navy', cols)
+                    this.grid.Ywc(this.grid.yi + this.grid.height / 2 - 20 * ml.length / 2), 'rgba(255,255,255,0.98)', '#0a2540', cols)
             }
 
             getTablesAndPlots() {
@@ -21383,7 +21385,7 @@ function (progress) {
                             } else if (this.attr__showTablesMenu) {
                                 let m = this.generateTables();
                                 let cols = Math.ceil(m.length / 10);
-                                this.__tables_menu = new Menu(m, 0, 40, 'rgb(205, 255, 155)', 'navy', cols)
+                                this.__tables_menu = new Menu(m, 0, 40, 'rgba(255,255,255,0.98)', '#0a2540', cols)
 
                                 this.__tables_menu.x = this.grid.Xwc(2);
                                 this.__tables_menu.y = this.grid.Ywc(70);
@@ -21452,71 +21454,14 @@ function (progress) {
                         this.___imageCaptureRect.draw(ctx)
                     }
 
+                    // Top-centre message: one style for every message type (see _drawTopMessage).
                     if (this.__msgb) {
-                        const text = this.__msgb;
-                        const font = '20px Arial';
-                        const msgX = ctx.canvas.width / 2;
-                        const msgY = 40;
-
-
-
-                        this._drawBlurryBubble(ctx, msgX, msgY, text, {
-                            font,
-                            padX: 20,
-                            padY: 12,
-                            radius: 10,
-                            blurPx: 12,
-                            baseFill: 'rgba(57, 49, 78, 0.97)',
-                            blurFill: 'rgba(255,255,255,0.9)',
-                            stroke: 'rgb(163, 0, 109)',
-                            textFill: 'yellow',
-                            align: 'center',
-                            baseline: 'middle'
-                        });
-                    } else
-                        if (this.__msgc) {
-
-                            const text = this.__msgc;
-                            const font = '20px Arial';
-                            const msgX = ctx.canvas.width / 2;
-                            const msgY = 40;
-
-                            this._drawBlurryBubble(ctx, msgX, msgY, text, {
-                                font,
-                                padX: 18,
-                                padY: 8,
-                                radius: 10,
-                                blurPx: 10,
-                                baseFill: 'rgba(255,255,255,0.45)',
-                                blurFill: 'rgba(255,255,255,0.85)',
-                                stroke: 'rgba(0,0,0,0.10)',
-                                textFill: 'black',
-                                align: 'center',
-                                baseline: 'top'
-                            });
-                        }
-                        else
-                            if (this.__msg) {
-
-                                const text = this.__msg;
-                                const font = '20px Arial';
-                                const msgX = ctx.canvas.width / 2;
-                                const msgY = 40;
-
-                                this._drawBlurryBubble(ctx, msgX, msgY, text, {
-                                    font,
-                                    padX: 18,
-                                    padY: 8,
-                                    radius: 10,
-                                    blurPx: 10,
-                                    baseFill: 'rgba(255,255,255,0.45)',
-                                    blurFill: 'rgba(255,255,255,0.85)',
-                                    stroke: 'rgba(0,0,0,0.10)',
-                                    textFill: 'black',
-                                    align: 'center',
-                                    baseline: 'top'
-                                });
-                            }
+                        this._drawTopMessage(ctx, this.__msgb, 'notice');
+                    } else if (this.__msgc) {
+                        this._drawTopMessage(ctx, this.__msgc, 'status');
+                    } else if (this.__msg) {
+                        this._drawTopMessage(ctx, this.__msg, 'status');
+                    }
 
                     if (sprite && sprite === 5) {
 
@@ -21524,21 +21469,12 @@ function (progress) {
                         const centerY = this.grid.yi + this.grid.height / 2;
                         sprite = new FinancialCalcSpriteWithStatus(centerX - 18, centerY - 18, 1, {
                             messages: [
-                                "Engine vLJ18.908e4b (1min)",
-                                "crunching more numbers...",
-                                "Can take up to 2 min",
-                                "Normalizing distributions...",
-                                "Activating recurrent memory units...",
-                                "Synchronizing distributed nodes...",
-                                "Simulating inference pathways...",
-                                "Generating model...",
-                                "Testing robustness...",
-                                "Compressing model checkpoints...",
-                                "Validating accuracy across benchmarks...",
-                                "Mapping semantic relationships...",
-                                "Aligning multi-modal embeddings...",
-                                "Finalizing inference graph...",
-                                "Rendering AI output pipelines...",
+                                "Building the model (this can take up to two minutes)…",
+                                "Reading the assumptions…",
+                                "Deriving formulas…",
+                                "Connecting tables…",
+                                "Validating calculations…",
+                                "Laying out the canvas…",
                                 "Model build complete"
                             ]
                             ,
@@ -21789,7 +21725,7 @@ function (progress) {
                     const centerY = this.grid.yi + this.grid.height / 2;
                     sprite = new FinancialCalcSpriteWithStatus(centerX - 18, centerY - 18, 1, {
                         messages: [
-                            "Bootstrapping AI engine v" + (Math.random() * 100).toFixed(2),
+                            "Starting the model builder…",
                             "Finalizing inference graph...",
                             "Rendering AI output pipelines...",
                             "Model build complete"
@@ -21804,6 +21740,55 @@ function (progress) {
 
                     })
                 }
+            }
+
+            // Top-centre message, in the same look as the rest of the app: a white card with
+            // a hairline navy border, a soft shadow and 14px navy text. A 'notice' (msgType 1)
+            // inverts to a navy card with white text so it stands out for its longer stay.
+            _drawTopMessage(ctx, text, kind) {
+                const msg = ('' + (text == null ? '' : text)).trim();
+                if (!msg) return;
+                const NAVY = '#0a2540';
+                const notice = kind === 'notice';
+                const rr = (x, y, w, h, r) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.lineTo(x + w - r, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + h - r);
+                    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                    ctx.lineTo(x + r, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                    ctx.lineTo(x, y + r);
+                    ctx.quadraticCurveTo(x, y, x + r, y);
+                    ctx.closePath();
+                };
+                ctx.save();
+                ctx.font = '500 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const maxW = Math.max(120, ctx.canvas.width - 48);
+                let shown = msg;
+                while (shown.length > 4 && ctx.measureText(shown).width > maxW) {
+                    shown = shown.slice(0, -2).replace(/[\s…]+$/, '') + '…';
+                }
+                const w = Math.ceil(ctx.measureText(shown).width) + 36;
+                const h = 36;
+                const x = Math.round(ctx.canvas.width / 2 - w / 2);
+                const y = 16;
+                ctx.shadowColor = 'rgba(10,37,64,0.18)';
+                ctx.shadowBlur = 12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 3;
+                ctx.fillStyle = notice ? NAVY : 'rgba(255,255,255,0.97)';
+                rr(x, y, w, h, 10);
+                ctx.fill();
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = notice ? NAVY : 'rgba(10,37,64,0.14)';
+                ctx.lineWidth = 1;
+                rr(x, y, w, h, 10);
+                ctx.stroke();
+                ctx.fillStyle = notice ? '#ffffff' : NAVY;
+                ctx.fillText(shown, x + w / 2, y + h / 2 + 0.5);
+                ctx.restore();
             }
 
             setMessage(_msg, msgType) {

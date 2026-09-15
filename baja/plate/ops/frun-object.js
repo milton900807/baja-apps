@@ -307,21 +307,23 @@ function (expression, pt) {
             }, 0);
         }
 
+        // Element-wise absolute value. This used to SUM the items (a copy of sumArray with the
+        // wrong name), so ABS(PnL[Net_Income]) returned the signed net income unchanged and a
+        // payback formula dividing by it came out negative. Cell objects keep their shape so
+        // the result still carries uid/group for the caller that writes it back.
         function abs(arr) {
-            if (!Array.isArray(arr)) {
-                throw new Error("Input must be an array");
-            }
-
-            return arr.reduce((sum, item) => {
-                if (typeof item === 'number') {
-                    return sum + item;
-                } else if (typeof item === 'object' && item !== null && typeof item.value === 'number') {
-                    return sum + item.value;
-                } else {
-                    throw new Error("Array must contain only numbers or objects with a numeric 'value' property");
+            const one = (item) => {
+                if (typeof item === 'number') return Math.abs(item);
+                if (item && typeof item === 'object' && 'value' in item) {
+                    const n = Number(item.value);
+                    return { ...item, value: Number.isFinite(n) ? Math.abs(n) : item.value };
                 }
-            }, 0);
-
+                const n = Number(item);
+                if (Number.isFinite(n)) return Math.abs(n);
+                throw new Error("ABS: value is not a number");
+            };
+            if (Array.isArray(arr)) return arr.map(one);
+            return [one(arr)];
         }
 
         function sumproduct(args, results, res) {
@@ -1883,11 +1885,12 @@ function (expression, pt) {
                     );
                     computedResult = performElementWiseOperation(functionName, left, right);
                 }
-                if (functionName === '<') {
+                if (['<', '<=', '>', '>=', '==', '!='].includes(functionName)) {
+                    // Every comparison, stored like any other step so IF(...) can read it.
                     const [left, right] = args.map(arg =>
-                        results[arg] ? results[arg] : arg
+                        results[arg] !== undefined ? results[arg] : arg
                     );
-                    return compareObjectsOrValues(left, right, '<', res, results)
+                    computedResult = [compareObjectsOrValues(left, right, functionName, res, results)];
                 }
                 else if (functionName === 'access') {
                     const [objectName, key] = args;
@@ -1900,7 +1903,16 @@ function (expression, pt) {
                         } else {
                             let r = await parseSingleVariable(`${objectName}[${key}]`, pt.getTablesByName(), results);
                             if (!r || r.length === 0) {
-                                throw new Error('Missing reference : ' + `${objectName}[${key}]`)
+                                // "ABSPnL[Net_Income]" is a function name run into a table name with the
+                                // parentheses left out; say so rather than reporting a table nobody named.
+                                let hint = '';
+                                try {
+                                    const m = String(objectName).match(/^(abs|sum|min|max|average|mean|sqrt|round|log|ceil|floor|if)([A-Za-z_]\w*)$/i);
+                                    if (m && pt && pt.getTableByName && pt.getTableByName(m[2])) {
+                                        hint = ' — did you mean ' + m[1].toUpperCase() + '(' + m[2] + '[' + key + '])?';
+                                    }
+                                } catch (e) { hint = ''; }
+                                throw new Error('Missing reference : ' + `${objectName}[${key}]` + hint)
                             }
                             computedResult = r;
                         }
@@ -1957,10 +1969,9 @@ function (expression, pt) {
                 }
                 else if (functionName === 'ABS' || functionName === 'abs') {
                     if (args && args.length === 1) {
-                        computedResult = [abs(results[args[0]])];
+                        computedResult = abs(results[args[0]] !== undefined ? results[args[0]] : args[0]);
                     } else {
-
-                        computedResult = [abs(res)];
+                        computedResult = abs(res);
                     }
                 }
                 else if (functionName === 'ceil') {
@@ -2047,16 +2058,29 @@ function (expression, pt) {
                         computedResult = res[1];
                     } else {
                         const resolveValue = (arg) => {
-                            return results[arg]
+                            if (results[arg] !== undefined) return results[arg];
+                            // A literal (10, 0.5, "text") that never went through a step of its own.
+                            if (typeof arg === 'string' && arg.trim() !== '' && !isNaN(arg)) return [parseFloat(arg)];
+                            return results[arg];
+                        };
+                        // The truth of a stored step: unwrap arrays and cell objects down to the value.
+                        const truthy = (v) => {
+                            if (Array.isArray(v)) return v.length > 0 ? truthy(v[0]) : false;
+                            if (v && typeof v === 'object' && 'value' in v) return truthy(v.value);
+                            if (typeof v === 'string') { const t = v.trim().toLowerCase(); return !(t === '' || t === 'false' || t === '0'); }
+                            return !!v;
                         };
                         const evalCondition = (condArg) => {
                             if (typeof condArg !== 'string') {
-                                return !!resolveValue(condArg);
+                                return truthy(resolveValue(condArg));
+                            }
+                            if (results[condArg] !== undefined) {
+                                return truthy(results[condArg]);
                             }
 
                             if (Object.prototype.hasOwnProperty.call(res, condArg) &&
                                 res[condArg] !== undefined) {
-                                return !!resolveValue(condArg);
+                                return truthy(resolveValue(condArg));
                             }
 
                             const parts = condArg.split('_');
@@ -2085,7 +2109,7 @@ function (expression, pt) {
                             }
 
                             if (!leftKey || !rightKey) {
-                                return !!resolveValue(condArg);
+                                return truthy(resolveValue(condArg));
                             }
 
                             const leftVal = resolveValue(leftKey);

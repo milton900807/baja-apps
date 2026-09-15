@@ -1540,7 +1540,7 @@ function (path, config) {
                 pm.plateTrack.addNextAvailableX(plate)
 
                 image.onload = () => {
-                    pm.plateTrack.setMessage(" Image added ")
+                    pm.plateTrack.setMessage("Image added")
                 }
             }
 
@@ -2958,11 +2958,11 @@ function (path, config) {
                         }
                         pm.plateTrack.zoomouttoFit();
                         setTimeout(() => {
-                            pm.plateTrack.setMessage("This is not a complete model but a good start...", 1)
+                            pm.plateTrack.setMessage("This is a starting model, not a complete one. Review and refine it.", 1)
                             setTimeout(() => {
                                 pm.plateTrack.layoutCompactTetris();
                                 setTimeout(() => {
-                                    pm.plateTrack.setMessage("Green arrows are input contros. NOTE: Not all are used... ", 1)
+                                    pm.plateTrack.setMessage("Green arrows mark input controls. Not all of them are used.", 1)
                                     setTimeout(async () => {
 
                                         let MPlot = await exec('flexigraph/plot.js');
@@ -3273,11 +3273,11 @@ function (path, config) {
                                                                 })
                                                                 let content = sequenceTextEditor.getContent();
                                                                 const user_prompt = content;
-                                                                plate_graph.plateTrack.setMessage("Generating Assumptions...", 5)
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
                                                                 let model = await exec('py/openai/assumptions.py', em, getUser(), content);
                                                                 exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
                                                                     plate_graph.plateTrack.setMessage(null)
-                                                                    plate_graph.plateTrack.setMessage("These are the Assumptions! You will edit these.", 1)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. Edit them as needed.", 1)
                                                                     setTimeout(() => {
                                                                         plate_graph.plateTrack.killSprite()
                                                                         let pr = []
@@ -3299,7 +3299,7 @@ function (path, config) {
                                                                             let pnl = await exec('py/openai/pnl.py', user_prompt, ts)
 
                                                                             let r = await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, pnl)
-                                                                            plate_graph.plateTrack.setMessage("Profit and Loss formulas added ---formulas that use the assumptions", 1)
+                                                                            plate_graph.plateTrack.setMessage("Profit and loss formulas added, based on the assumptions.", 1)
 
                                                                             setTimeout(async () => {
                                                                                 let pr = []
@@ -3441,12 +3441,12 @@ function (path, config) {
                                                                                         pm.plateTrack.zoomouttoFit();
 
                                                                                         setTimeout(() => {
-                                                                                            pm.plateTrack.setMessage("This is not a complete model but a good start...", 1)
+                                                                                            pm.plateTrack.setMessage("This is a starting model, not a complete one. Review and refine it.", 1)
                                                                                             pt.addNextAvailableX(plot);
                                                                                             setTimeout(() => {
                                                                                                 pm.plateTrack.layoutCompactTetris();
                                                                                                 setTimeout(() => {
-                                                                                                    pm.plateTrack.setMessage("Green arrows are input contros. NOTE: Not all are used... ", 1)
+                                                                                                    pm.plateTrack.setMessage("Green arrows mark input controls. Not all of them are used.", 1)
 
                                                                                                     setTimeout(async () => {
 
@@ -3461,7 +3461,7 @@ function (path, config) {
                                                                                                             }, 25000)
                                                                                                         }
 
-                                                                                                        pm.plateTrack.setMessage("Green arrows are input contros. NOTE: Not all are used... ", 1)
+                                                                                                        pm.plateTrack.setMessage("Green arrows mark input controls. Not all of them are used.", 1)
 
                                                                                                     }, 10000)
 
@@ -3617,14 +3617,14 @@ function (path, config) {
                                                                 })
                                                                 let content = sequenceTextEditor.getContent();
                                                                 const user_prompt = content;
-                                                                plate_graph.plateTrack.setMessage("Generating Assumptions...", 5)
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
                                                                 let model = await exec('py/openai/assumptions.py', em, content)
                                                                 let model_captial = await exec('py/openai/capital-assumptions.py', em, getUser(), content)
                                                                 await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model_captial)
 
                                                                 exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
                                                                     plate_graph.plateTrack.setMessage(null)
-                                                                    plate_graph.plateTrack.setMessage("These are the Assumptions! You will edit these.", 1)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. Edit them as needed.", 1)
                                                                     setTimeout(() => {
                                                                         plate_graph.plateTrack.killSprite()
                                                                         let pr = []
@@ -3645,7 +3645,7 @@ function (path, config) {
                                                                             let ts = (t.toValueFormulaJSON())
                                                                             let pnl = await exec('py/openai/pnl.py', user_prompt, ts)
                                                                             let r = await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, pnl)
-                                                                            plate_graph.plateTrack.setMessage("Profit and Loss formulas added ---formulas that use the assumptions", 1)
+                                                                            plate_graph.plateTrack.setMessage("Profit and loss formulas added, based on the assumptions.", 1)
 
                                                                             setTimeout(async () => {
                                                                                 let pr = []
@@ -3789,12 +3789,12 @@ function (path, config) {
                                                                                         pt.killSprite();
 
                                                                                         setTimeout(() => {
-                                                                                            pm.plateTrack.setMessage("This is not a complete model but a good start...", 1)
+                                                                                            pm.plateTrack.setMessage("This is a starting model, not a complete one. Review and refine it.", 1)
                                                                                             pt.addNextAvailableX(plot);
                                                                                             setTimeout(() => {
                                                                                                 pm.plateTrack.layoutCompactTetris();
                                                                                                 setTimeout(() => {
-                                                                                                    pm.plateTrack.setMessage("Green arrows are input contros. NOTE: Not all are used... ", 1)
+                                                                                                    pm.plateTrack.setMessage("Green arrows mark input controls. Not all of them are used.", 1)
 
                                                                                                 }, 4000)
 
@@ -3937,7 +3937,7 @@ function (path, config) {
 
                                                                 hideAllModal();
                                                                 CurrentLayout.reset('mainPanel')
-                                                                plate_graph.plateTrack.setMessage("Generating Assumptions...", 5)
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
 
                                                                 let interval = null;
                                                                 let em = new EngineMonitor((msg) => {
@@ -3952,7 +3952,7 @@ function (path, config) {
 
                                                                 exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
                                                                     plate_graph.plateTrack.setMessage(null)
-                                                                    plate_graph.plateTrack.setMessage("These are the Assumptions! You can edit/add these.", 1)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. You can edit them or add more.", 1)
                                                                     setTimeout(async () => {
 
                                                                         let t = plate_graph.plateTrack.getTableByName('Assumptions')
@@ -4087,7 +4087,7 @@ function (path, config) {
 
                                                                 hideAllModal();
                                                                 CurrentLayout.reset('mainPanel')
-                                                                plate_graph.plateTrack.setMessage("Generating Assumptions...", 5)
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
 
                                                                 let interval = null;
                                                                 let em = new EngineMonitor((msg) => {
@@ -4102,7 +4102,7 @@ function (path, config) {
 
                                                                 exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
                                                                     plate_graph.plateTrack.setMessage(null)
-                                                                    plate_graph.plateTrack.setMessage("These are the Assumptions! You can edit/add these.", 1)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. You can edit them or add more.", 1)
                                                                     setTimeout(async () => {
 
                                                                         // let t = plate_graph.plateTrack.getTableByName('Assumptions')
@@ -4376,7 +4376,7 @@ function (path, config) {
                 })
                 file_items.push({
                     'label': 'Download SVG', 'ionfunction': createIonFunction(() => {
-                        graph.setMessage(" Generating SVG... ")
+                        graph.setMessage("Generating SVG…")
                         graph.saveToSVG();
                     })
                 })
@@ -4458,6 +4458,17 @@ function (path, config) {
                 'component': {
                     wid: 'menu',
                     data: {
+                        // Tool lookup in the menubar text field: every item in the menus below is
+                        // searchable by name. Typing lists matches, Tab completes, Enter runs the
+                        // tool (the widget does that itself); cmd only sees text that matched
+                        // nothing.
+                        toolLookup: true,
+                        placeholder: 'Find a tool… (Tab completes)',
+                        cmd: createIon(async (str, panel) => {
+                            const s = ('' + (str || '')).trim();
+                            if (!s) return;
+                            graph.setMessageCenter('No tool named "' + s + '". Type part of a name and pick from the list.', 30);
+                        }),
 
                         menus: [
                             {
@@ -4475,14 +4486,14 @@ function (path, config) {
                                         label: 'Timeline', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/timeline', pm)
 
-                                            graph.setMessageCenter('Click and drag a box... ', 40)
+                                            graph.setMessageCenter('Click and drag to place it', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Table', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/table-selection-list', pm)
-                                            graph.setMessageCenter('Click and drag a box... ', 40)
+                                            graph.setMessageCenter('Click and drag to place it', 40)
 
                                         })
                                     },
@@ -4491,49 +4502,49 @@ function (path, config) {
                                         label: 'Postit Note', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-postit.js', pm.plateTrack)
 
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Simple Arrow', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-arrow.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click and drag the arrow... ', 40)
+                                            graph.setMessageCenter('Click and drag to draw the arrow', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Notebook', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-simple-note.js', pm.plateTrack)
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Arrow Note (left)', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'left')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Arrow Note (right)', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'right')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Arrow Note (Up)', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'up')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
                                     {
                                         label: 'Arrow Note (Down)', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-arrow-note.js', pm.plateTrack, 'down')
-                                            graph.setMessageCenter('Click on the spot you want to post a note... ', 40)
+                                            graph.setMessageCenter('Click where the note should go', 40)
 
                                         })
                                     },
@@ -4845,7 +4856,7 @@ function (path, config) {
                     wb(null)
 
                 graph.setMessage('')
-                graph.setMessageCenter(' bajabio ', 40)
+                graph.setMessageCenter('BAJA', 40)
                 pm.plateTrack.__canvas__ = graph.graph.canvas;
                 CurrentLayout.stash('graph-canvas', graph.graph.canvas)
                 CurrentLayout.stash('plate-track', pm)

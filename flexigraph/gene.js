@@ -417,27 +417,27 @@ function (progress, options) {
                     onAllMessagesShown = null,
 
                     totalMemoryBytes = 2 * 1024 * 1024 * 1024,
-                    label = 'Memory loading',
+                    label = 'Processing',
 
                     showTimer = true,
-                    timerPrefix = 'Time',
+                    timerPrefix = 'Elapsed',
                     timerFont = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
                     timerColor = 'rgba(0,0,0,0.6)',
                     timerOffsetY = 36,
 
-                    initialNote = 'hold on... crunching the numbers...',
+                    initialNote = 'Preparing your request…',
                     initialNoteDuration = 2000,
                     estimatedTotalSeconds = 60,
                     showProgressBarDuringNote = false,
-                    doneMessage = 'loading results...',
+                    doneMessage = 'Loading results…',
 
                     badgeRadius = 16,
                     badgeFill = '#111',
                     badgeStroke = 'rgba(0,0,0,0.15)',
                     badgeStrokeWidth = 1,
-                    badgeText = 'LJ',
+                    badgeText = 'BAJA',
                     badgeTextColor = '#ffffff',
-                    badgeFont = 'bold 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+                    badgeFont = 'bold 9px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
                 } = {}
             ) {
                 this.x = x;
@@ -459,7 +459,7 @@ function (progress, options) {
                 this.onAllMessagesShown = typeof onAllMessagesShown === 'function' ? onAllMessagesShown : null;
 
                 this.totalMemoryBytes = Math.max(1, Number(totalMemoryBytes) || 2 * 1024 * 1024 * 1024);
-                this.label = String(label || 'Memory loading');
+                this.label = String(label || 'Processing');
 
                 this.showTimer = !!showTimer;
                 this.timerPrefix = String(timerPrefix || '');
@@ -482,7 +482,7 @@ function (progress, options) {
                 this.badgeFill = String(badgeFill);
                 this.badgeStroke = String(badgeStroke);
                 this.badgeStrokeWidth = Number(badgeStrokeWidth) || 1;
-                this.badgeText = String(badgeText || '');
+                this.badgeText = String(badgeText || 'BAJA');
                 this.badgeTextColor = String(badgeTextColor || '#fff');
                 this.badgeFont = String(badgeFont);
 
@@ -720,7 +720,17 @@ function (progress, options) {
                     ctx.stroke();
                 }
 
+                // Fit the label inside the circle: "BAJA" is wider than the old two-letter
+                // badge, so shrink the font until the text sits within ~80% of the diameter.
                 ctx.font = this.badgeFont;
+                const maxW = this.badgeRadius * 2 * 0.8;
+                let w = ctx.measureText(this.badgeText).width;
+                if (w > maxW) {
+                    const m = /(\d+(?:\.\d+)?)px/.exec(this.badgeFont);
+                    const px = m ? parseFloat(m[1]) : 9;
+                    const fit = Math.max(6, Math.floor(px * maxW / w));
+                    ctx.font = this.badgeFont.replace(/\d+(?:\.\d+)?px/, fit + 'px');
+                }
                 ctx.fillStyle = this.badgeTextColor;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';

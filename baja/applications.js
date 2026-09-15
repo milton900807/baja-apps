@@ -7,7 +7,7 @@ function (options) {
     //
     //     Design      Oligo  ·  Neoantigen  ·  mRNA  ·  Assay
     //     Explore     Chromosomes  ·  Library
-    //     Programme   Project  ·  Analytics
+    //     Programme   Project  ·  Analytics  ·  Financial Modeling
     //
     // Returned rather than shown, so the caller decides where it goes. The home screen puts
     // it above the file browser.
@@ -102,6 +102,13 @@ function (options) {
                         icon: 'icons/svg/analytics',
                         path: 'cpd/baja-analytics',
                         args: ['', cfg(), '/app/cpd/baja-analytics']
+                    },
+                    {
+                        label: 'Financial Modeling',
+                        description: 'The table editor: assumptions, profit-and-loss and capital models built from plain-language descriptions, with a formula engine and timelines.',
+                        icon: 'icons/svg/financial-modeling',
+                        path: 'cpd/editor',
+                        args: ['', cfg(), '/app/cpd/editor']
                     }
                 ]
             }

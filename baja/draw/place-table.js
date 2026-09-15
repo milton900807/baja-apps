@@ -42,7 +42,7 @@ function (platetrack, type, type_path, _name, callback) {
                 pl.setWidth(pl.getDefaultWidth(platetrack))
                 pl.setHeight(pl.getDefaultHeight(platetrack))
                 await platetrack.panToNextSpot(pl.getWidth());
-                platetrack.setMessage(" Loading...")
+                platetrack.setMessage("Loading…")
 
                 platetrack.addNextAvailableX(pl)
 
@@ -92,7 +92,7 @@ function (platetrack, type, type_path, _name, callback) {
             plate.setHeight(plate.getDefaultHeight(platetrack))
             await platetrack.panToNextSpot(plate.getWidth());
             platetrack.addNextAvailableX(plate)
-            platetrack.setMessage(" Loading...")
+            platetrack.setMessage("Loading…")
 
             setTimeout(() => {
                 platetrack.zoomintoplate(plate)

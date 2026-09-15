@@ -10,7 +10,7 @@ capital need, buffer, and runway duration.
 Ion params
 -----------
 param(1): all tables JSON (inline or path) — includes Capital_Assumptions, PnL, etc.
-param(2): model (optional; default: gpt-4o-mini)
+param(2): Claude model (optional; default: claude-haiku-4-5)
 param(3): temperature (optional; default: 0.15)
 """
 

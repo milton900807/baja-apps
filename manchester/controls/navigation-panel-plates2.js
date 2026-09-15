@@ -796,9 +796,9 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                                     panel.setText('');
                                 }
-                                plate_graph.plateTrack.setMessage('Crunching the numbers...', 3)
+                                plate_graph.plateTrack.setMessage('Calculating…', 3)
                                 setTimeout(() => {
-                                    plate_graph.plateTrack.setMessage('Crunching the numbers...', 3)
+                                    plate_graph.plateTrack.setMessage('Calculating…', 3)
 
                                     plate_graph.plateTrack.updateCalculations();
                                 }, 100)

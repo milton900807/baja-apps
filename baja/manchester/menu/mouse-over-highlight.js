@@ -4604,6 +4604,37 @@ function (graph, genegraph_panel_layout) {
                                     }
                                 },
                                 {
+                                    // One click to the secretion model, which is the layer most
+                                    // often wanted straight off a selection. The card in the ML
+                                    // Models Library is the same run with the documentation
+                                    // attached; this skips the catalogue.
+                                    label: 'Secretion profile',
+                                    move: () => { },
+                                    click: async () => {
+                                        // Captured BEFORE the menu closes: selectedTrack is the
+                                        // hover target and dismissing the menu can clear it, which
+                                        // left the runner with no track and waiting for a click
+                                        // that the re-armed hover handler swallowed.
+                                        let __t = selectedTrack;
+                                        if (!__t) {
+                                            try {
+                                                const sel = (graph.track || []).filter((k) => k && k.showResizeBar);
+                                                if (sel.length === 1) __t = sel[0];
+                                            } catch (e) { }
+                                        }
+                                        graph.showSideMenu(null);
+                                        try {
+                                            await exec('baja/bio/protein/secretion-profile.js', graph,
+                                                genegraph_panel_layout,
+                                                __t ? [__t] : [], null, 'light_hm');
+                                        } catch (e) {
+                                            // A module that fails to load used to reject into
+                                            // nothing, so the item looked inert.
+                                            try { graph.setMessage(' Secretion profile failed to load: ' + e + ' '); } catch (e2) { }
+                                        }
+                                    }
+                                },
+                                {
                                     label: 'New...',
                                     click: () => {
                                         let data_menu = []

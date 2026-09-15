@@ -107,6 +107,21 @@ function () {
         })
 
     })
+    myfiles_button.push({
+        label: 'Financial Modeling',
+        ionfunction: createIonFunction(async () => {
+            view = '' + getUser();
+
+            let config = {
+                silent: true,
+                user: getUser(),
+                mode: 'editor'
+            }
+
+            exec('cpd/editor', '', config, `/app/cpd/editor`)
+        })
+
+    })
 
     return myfiles_button;
 

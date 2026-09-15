@@ -10,7 +10,7 @@ Ion params
 ----------
 param(1): user prompt (str)
 param(2): assumptions JSON (inline JSON string or path to a JSON file) — must be {name, cols, rows, wells:[...]}
-param(3): model (optional; default: gpt-4o-mini)
+param(3): Claude model (optional; default: claude-haiku-4-5)
 param(4): temperature (optional; default: 0.15)
 """
 
