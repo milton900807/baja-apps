@@ -4329,6 +4329,24 @@ function (progress) {
                 }
                 if (typeof __selected === 'string')
                     return;
+                // Live co-editing: one person at a time on a table. Someone else's lock
+                // refuses the selection and says who has it; ours is claimed (and the
+                // previous selection handed back with its latest state).
+                if (this.__collab && __selected && __selected !== this.selectedPlate) {
+                    if (this.__collab.isLockedByOther(__selected.uid)) {
+                        const h = this.__collab.lockHolder(__selected.uid);
+                        try { this.setMessage((h && h.user ? h.user.split('@')[0] : 'Someone') + ' is editing "' + (__selected.name || 'this table') + '". Wait until they let go.', 1); } catch (e) { }
+                        return;
+                    }
+                    if (this.selectedPlate && this.selectedPlate !== __selected) this.__collab.release(this.selectedPlate);
+                    this.__collab.acquire(__selected).then((r) => {
+                        if (!r || r.ok) return;
+                        try { this.setMessage((r.holder && r.holder.user ? r.holder.user.split('@')[0] : 'Someone') + ' just took "' + (__selected.name || 'this table') + '".', 1); } catch (e) { }
+                        if (this.selectedPlate === __selected) { try { __selected.deselectAll && __selected.deselectAll(); } catch (e) { } this.selectedPlate = null; }
+                    });
+                } else if (this.__collab && !__selected && this.selectedPlate) {
+                    this.__collab.release(this.selectedPlate);
+                }
                 this.selectedPlate = __selected;
                 if (selectedListener && this.selectedPlate) {
                     selectedListener(this.selectedPlate.uid)
@@ -6305,6 +6323,17 @@ function (progress) {
                 this.selectGlyph__(glyph)
             }
             selectGlyph__(glyph) {
+                if (this.__collab && glyph) {
+                    if (this.__collab.isLockedByOther(glyph.uid)) {
+                        const h = this.__collab.lockHolder(glyph.uid);
+                        try { this.setMessage((h && h.user ? h.user.split('@')[0] : 'Someone') + ' is editing that object. Wait until they let go.', 1); } catch (e) { }
+                        return;
+                    }
+                    for (const g of (selected_glyphs || [])) if (g && g !== glyph) this.__collab.release(g);
+                    this.__collab.acquire(glyph).then((r) => {
+                        if (r && !r.ok) { try { this.setMessage('Someone just took that object.', 1); } catch (e) { } this.clearActionGlyphs(); selected_glyphs = []; }
+                    });
+                }
                 this.clearActionGlyphs();
                 selected_glyphs = []
                 selected_glyphs.push(glyph)
@@ -21382,6 +21411,8 @@ function (progress) {
                         }
                     };
 
+                    if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
+
                     const nonGlyphObjects = [
                         ...this.root,
                         ...this.m_plots
@@ -21973,6 +22004,7 @@ function (progress) {
 
             removePlate(plate) {
                 this.deselectAll();
+                if (this.__collab && plate && plate.uid) this.__collab.broadcastRemove(plate.uid, 'plate');
                 if (plate === this.selectedPlate) {
                     this.setSelected(null);
                 }
@@ -21994,7 +22026,46 @@ function (progress) {
                     const index = this.glyphs.indexOf(g);
                     if (index >= 0) {
                         this.glyphs.splice(index, 1);
+                        if (this.__collab && g && g.uid) this.__collab.broadcastRemove(g.uid, 'glyph');
                     }
+                }
+            }
+
+            // A change from the other person in the live session: replace (or add) the object
+            // by uid, or remove it. Objects we currently hold are never overwritten (the
+            // session filters those before calling).
+            async collabApply(kind, objectId, state, fromUser) {
+                const uid = '' + objectId;
+                if (kind === 'remove') {
+                    const p = this.root.find(x => x && ('' + x.uid) === uid);
+                    if (p) { const i = this.root.indexOf(p); if (i >= 0) this.root.splice(i, 1); if (this.selectedPlate === p) this.selectedPlate = null; }
+                    const g = (this.glyphs || []).find(x => x && ('' + x.uid) === uid);
+                    if (g) { const i = this.glyphs.indexOf(g); if (i >= 0) this.glyphs.splice(i, 1); }
+                    return;
+                }
+                if (!state || typeof state !== 'object') return;
+                if (kind === 'glyph') {
+                    const Glyph = await exec('baja/draw/glyph.js');
+                    const fresh = Glyph.buildFromJSON(state);
+                    if (!fresh) return;
+                    fresh.uid = uid;
+                    const i = (this.glyphs || []).findIndex(x => x && ('' + x.uid) === uid);
+                    if (i >= 0) this.glyphs[i] = fresh; else this.glyphs.push(fresh);
+                    return;
+                }
+                const fresh = Plate.buildPlateFromJSON(state);
+                if (!fresh) return;
+                fresh.uid = uid;
+                const existing = this.root.find(x => x && ('' + x.uid) === uid);
+                if (existing) {
+                    if (this.selectedPlate === existing) this.selectedPlate = fresh;
+                    this.replacePlate(existing, fresh);
+                } else {
+                    this.root.push(fresh);
+                }
+                try { this.generateTableMenu && this.generateTableMenu(); } catch (e) { }
+                if (!this.__collabRecalc) {
+                    this.__collabRecalc = setTimeout(() => { this.__collabRecalc = null; try { this.updateCalculations(); } catch (e) { } }, 400);
                 }
             }
 

@@ -47,6 +47,11 @@ function (path, config) {
     let htmlP;
 
     let user = getUser();
+    // A co-editing link: /app/cpd/baja-analytics?share=<code>. Resolved (asynchronously,
+    // below) to the shared copy's path before the document is loaded.
+    let __collabShareCode = '';
+    try { __collabShareCode = ('' + (new URL(window.location.href).searchParams.get('share') || '')).trim(); } catch (e) { __collabShareCode = ''; }
+    if (__collabShareCode && user && (!path || !path.length)) path = '/pending-share.bjb';
     if (!user || user.length <= 0) {
         if (path != null && path.length > 0) {
             let t = decodeURIComponent(path)
@@ -392,6 +397,14 @@ function (path, config) {
             }, 10 * 60);
 
             let { Track, TrackRef } = await exec('baja/bio/track-flexi.js')
+            let __loadedSharedFrom = '';
+            if (__collabShareCode && getUser()) {
+                try {
+                    const __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser()));
+                    if (__r && __r.path) { path = __r.path; config = config || {}; config.user = getUser(); }
+                    else if (__r && __r.message) { try { infoPrompt(__r.message); } catch (e) { } path = ''; }
+                } catch (e) { console.warn('share-open failed', e); path = ''; }
+            }
 
             // Files are saved as .bjb (save-as-obj-tp appends it); .bajabio is the older name.
             if (path.endsWith('.bajabio') || path.endsWith('.bjb')) {
@@ -409,6 +422,7 @@ function (path, config) {
                         if (!jsonobj.path.startsWith('/')) {
                             jsonobj.path = '/' + jsonobj.path;
                         }
+                        __loadedSharedFrom = jsonobj.path;
                         rs = await POSTJSON(jsonobj, host_ + '/load-file');
                         if (rs.plateTrack)
                             rs.plateTrack.file = path;
@@ -476,6 +490,15 @@ function (path, config) {
             }
             let Icon = await exec('flexigraph/shapes/icon.js')
             graph.folder = path;
+            // Join the document's live session: locks, presence and object sync with anyone
+            // else who has this file open (shared copies are reached through their pointer).
+            try {
+                const __collabPath = (typeof __loadedSharedFrom === 'string' && __loadedSharedFrom) ? __loadedSharedFrom : ((path && /\.(bjb|bajabio)$/i.test(path)) ? path : '');
+                if (__collabPath && getUser()) {
+                    pm.plateTrack.__collab = await exec('baja/plate/collab/collab-session.js', pm.plateTrack, { path: __collabPath, graph });
+                    if (pm.plateTrack.__collab) pm.plateTrack.__collabDoc = __collabPath;
+                }
+            } catch (e) { console.warn('live session not started', e); }
             function handleShiftClick(event) {
 
                 if (event.shiftKey && event.type === 'mousedown') {
@@ -2185,6 +2208,13 @@ function (path, config) {
 
             progressBar(60);
             let saveAsSaveScreen = async () => {
+                // In a live session the document lives at its shared path, and that is where
+                // both people's saves go.
+                if (pm.plateTrack.__collab && pm.plateTrack.__collabDoc) {
+                    try { await pm.plateTrack.__collab.save(graph); }
+                    catch (e) { try { pm.plateTrack.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); } catch (e2) { } }
+                    return;
+                }
                 await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path)
             }
             let openSaveScreen = async () => {
@@ -2248,6 +2278,13 @@ function (path, config) {
                 }
             })
 
+            file_items.push({
+                label: 'Share for co-editing…',
+                click: async (xwc, ywc) => {
+                    await exec('baja/plate/collab/share-for-coediting.js', pm.plateTrack, graph, pm)
+                },
+                move: () => { }
+            })
             file_items.push({
                 label: 'Copy All',
                 click: async (xwc, ywc) => {
@@ -5839,6 +5876,45 @@ function (path, config) {
                         menus: [
                             {
                                 'label': 'Build', 'items': ai_create_file_items
+                            },
+                            {
+                                // Live co-editing: share by email, and while a shared document is open,
+                                // copy its link or save it where both people work.
+                                label: 'Share',
+                                items: [
+                                    {
+                                        label: 'Share for co-editing…', ionfunction: createIonFunction(async () => {
+                                            await exec('baja/plate/collab/share-for-coediting.js', pm.plateTrack, graph, pm)
+                                        })
+                                    },
+                                    {
+                                        label: 'Copy co-editing link', ionfunction: createIonFunction(async () => {
+                                            const url = pm.plateTrack.__collabShareUrl;
+                                            if (!url) {
+                                                pm.plateTrack.setMessage('Share the document with someone first; the link is created then.', 1);
+                                                await exec('baja/plate/collab/share-for-coediting.js', pm.plateTrack, graph, pm);
+                                                return;
+                                            }
+                                            try { await navigator.clipboard.writeText(url); pm.plateTrack.setMessage('Link copied: ' + url, 2); }
+                                            catch (e) { pm.plateTrack.setMessage(url, 1); }
+                                        })
+                                    },
+                                    {
+                                        label: 'Save shared document', ionfunction: createIonFunction(async () => {
+                                            if (!(pm.plateTrack.__collab && pm.plateTrack.__collabDoc)) {
+                                                pm.plateTrack.setMessage('This document is not shared yet. Use Share for co-editing first.', 1);
+                                                return;
+                                            }
+                                            try { await pm.plateTrack.__collab.save(graph); }
+                                            catch (e) { pm.plateTrack.setMessage('Could not save the shared document: ' + (e && e.message ? e.message : e), 1); }
+                                        })
+                                    },
+                                    {
+                                        label: 'Who has access…', ionfunction: createIonFunction(async () => {
+                                            await exec('baja/plate/collab/share-for-coediting.js', pm.plateTrack, graph, pm)
+                                        })
+                                    }
+                                ]
                             },
 
                             {

@@ -316,7 +316,14 @@ function (plate_graph) {
 
                     const pt = plate_graph.plateTrack;
                     const m = [
-
+                        {
+                            label: 'Share for co-editing…',
+                            click: async (x, y) => {
+                                await exec('baja/plate/collab/share-for-coediting.js', plate_graph.plateTrack, CurrentLayout.getStashed('graph'), plate_graph)
+                            },
+                            move: () => { },
+                            bg: '#1aa3bd', fg: 'white'
+                        }
                     ]
                     const vp = plate_graph.plateTrack.getTablesAndPlots();
                     for (let v of vp) {
@@ -885,6 +892,17 @@ function (plate_graph) {
                 }
             },
             {
+                x: 34, y: 0, label: 'Share for co-editing', ionFunction: createIonFunction(async () => {
+                    await exec('baja/plate/collab/share-for-coediting.js', plate_graph.plateTrack, CurrentLayout.getStashed('graph'), plate_graph)
+                }),
+                icon: await exec('icons/svg/share'),
+                mouseOver: createIonFunction(() => {
+                    plate_graph.plateTrack.setMessage("Share this workbook with a person and edit it together", 2)
+                }), draw: (grid, ctx, mo, md, img) => {
+                    drawRoundedRectIcon(34, grid, ctx, mo, md, img)
+                }
+            },
+            {
                 x: 24, y: 0,
                 label: 'Compute!',
                 ionFunction: createIonFunction(async () => {
@@ -1059,7 +1077,7 @@ function (plate_graph) {
                 'height': 25,
                 'grid': {
                     xmin: 0,
-                    xmax: 35,
+                    xmax: 37,
                     ymin: -0.01,
                     ymax: 1,
                     xinset: 0,
