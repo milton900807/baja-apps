@@ -631,37 +631,7 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
         }
         if (!placed) { warn('Candidates were designed but none could be placed on the track.'); restoreHover(); return false; }
         try { if (graph.wake) graph.wake(); } catch (e) { }
-
-        // TEMPORARY DIAGNOSTIC OUTPUT. Log to the console and show a JSON panel so the exact
-        // variant coordinate, ASO span, and whether each target carries the alt are visible on
-        // real data. Remove once the allele-selective orientation/coverage is confirmed.
-        try {
-            dbgCtx.py = {
-                considered: r.considered, discriminating: r.discriminating,
-                rejected: (function () { try { return JSON.parse(r.rejected || '{}'); } catch (e) { return {}; } })(),
-            };
-            step('allele-selective diagnostic: ' + JSON.stringify(dbgCtx));
-            try { console.log('ALLELE-SELECTIVE DIAGNOSTIC', dbgCtx); } catch (e) { }
-            // Shown through showSideMenu (this file's own dialog idiom, always available here),
-            // not showModal (which is not in scope in this module and failed silently).
-            const V = dbgCtx.variant, S = dbgCtx.strand, W = dbgCtx.window;
-            const rows = [
-                { label: '▼ Allele-selective diagnostic (Close at the bottom)', move: () => { }, click: () => { } },
-                { label: 'variant ' + V.name + '  genomic ' + V.genomic_ref + '>' + V.genomic_alt + '  coding ' + V.coding0_ref + '>' + V.coding0_alt + '  txStrand ' + V.transcriptStrand, move: () => { }, click: () => { } },
-                { label: 'track-frame allele ' + V.track_frame_ref + '>' + V.track_frame_alt + '   snp.xi ' + V.snp_xi + '  vX ' + V.vX + '  vEnd ' + V.vEnd, move: () => { }, click: () => { } },
-                { label: 'geneStrand ' + S.geneStrand + '  orient ' + S.orient + '  minus ' + S.minus + '  track.strand ' + S.track_strand + '  track.xi ' + S.track_xi, move: () => { }, click: () => { } },
-                { label: 'window viStart ' + W.viStart + '  viEnd ' + W.viEnd + '  refTx ' + W.refTx + '  altTx ' + W.altTx, move: () => { }, click: () => { } },
-                { label: 'wt  (transcript) ' + W.wt, move: () => { }, click: () => { } },
-                { label: 'mut (transcript) ' + W.mut, move: () => { }, click: () => { } },
-            ];
-            dbgCtx.compounds.slice(0, 12).forEach((c, i) => {
-                rows.push({ label: '#' + (i + 1) + ' ' + c.name + '  P' + c.variant_position_in_antisense + '  covers=' + c.covers_variant + '  carriesAlt=' + c.target_carries_alt, move: () => { }, click: () => { } });
-                rows.push({ label: '     ref ' + c.ref_along_track, move: () => { }, click: () => { } });
-                rows.push({ label: '     tgt ' + c.target_along_track + '   diffs ' + (c.target_differs_from_ref_at.join(', ') || 'NONE'), move: () => { }, click: () => { } });
-            });
-            rows.push({ label: 'Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
-            graph.showSideMenu(rows, null, 'Allele diagnostic ▸');
-        } catch (e) { }
+        try { dbgCtx.py = { considered: r.considered, discriminating: r.discriminating, rejected: (function () { try { return JSON.parse(r.rejected || '{}'); } catch (e) { return {}; } })() }; } catch (e) { }
 
         // ---- 6. SHOW WHAT LANDED ------------------------------------------------------------
         //
@@ -751,6 +721,30 @@ function (server, graph, genegraph_panel_layout, presetTrack) {
             + '. ' + (best.chemistry_label || chem.label) + '. Best: ' + best.discrimination + ', score ' + best.score + '. ';
         try { graph.setResultMessage(msg); } catch (e) { say(msg); }
         restoreHover();
+        // TEMPORARY DIAGNOSTIC — shown LAST, after restoreHover and the result message, so
+        // nothing clears it. Full object to the console; a readable panel via showSideMenu
+        // (this file's own dialog). Remove once the allele question is settled.
+        try {
+            try { console.log('ALLELE-SELECTIVE DIAGNOSTIC', dbgCtx); } catch (e) { }
+            const V = dbgCtx.variant, S = dbgCtx.strand, W = dbgCtx.window;
+            const rows = [
+                { label: '▼ Allele diagnostic — Close at the bottom', move: () => { }, click: () => { } },
+                { label: 'variant ' + V.name + '   genomic ' + V.genomic_ref + '>' + V.genomic_alt + '   coding0 ' + V.coding0_ref + '>' + V.coding0_alt + '   txStrand ' + V.transcriptStrand, move: () => { }, click: () => { } },
+                { label: 'track-frame allele ' + V.track_frame_ref + '>' + V.track_frame_alt + '   snp.xi ' + V.snp_xi + '   vX ' + V.vX + '   vEnd ' + V.vEnd, move: () => { }, click: () => { } },
+                { label: 'geneStrand ' + S.geneStrand + '   orient ' + S.orient + '   minus ' + S.minus + '   track.strand ' + S.track_strand + '   track.xi ' + S.track_xi, move: () => { }, click: () => { } },
+                { label: 'window viStart ' + W.viStart + '   viEnd ' + W.viEnd + '   refTx ' + W.refTx + '   altTx ' + W.altTx, move: () => { }, click: () => { } },
+                { label: 'wt  @vi=' + (W.wt || '')[W.viStart] + '   ' + W.wt, move: () => { }, click: () => { } },
+                { label: 'mut @vi=' + (W.mut || '')[W.viStart] + '   ' + W.mut, move: () => { }, click: () => { } },
+            ];
+            dbgCtx.compounds.slice(0, 10).forEach((c, i) => {
+                rows.push({ label: '#' + (i + 1) + ' ' + c.name + '   covers=' + c.covers_variant + '   carriesAlt=' + c.target_carries_alt, move: () => { }, click: () => { } });
+                rows.push({ label: '     ref ' + c.ref_along_track, move: () => { }, click: () => { } });
+                rows.push({ label: '     tgt ' + c.target_along_track + '   diffs ' + (c.target_differs_from_ref_at.join(', ') || 'NONE'), move: () => { }, click: () => { } });
+                rows.push({ label: '     syn ' + c.synthesisSequence, move: () => { }, click: () => { } });
+            });
+            rows.push({ label: 'Close', move: () => { }, click: () => { try { graph.showSideMenu(null); } catch (e) { } } });
+            setTimeout(() => { try { graph.showSideMenu(rows, null, 'Allele diagnostic ▸'); } catch (e) { } }, 400);
+        } catch (e) { }
         return true;
     })();
 }
