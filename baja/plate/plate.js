@@ -7200,10 +7200,14 @@ function () {
                             )
                         );
 
-                        s = applyRule("(1) or (0)", s, (x) => x.replace(/\((1|0)\)/g, "$1"));
+                        // A "(" that follows an identifier character is a FUNCTION CALL, not a
+                        // grouping: abs(PnL[Net_Income]) must keep its parentheses. Without the
+                        // lookbehind the rule turned it into absPnL[Net_Income] and the model then
+                        // looked for a table called absPnL.
+                        s = applyRule("(1) or (0)", s, (x) => x.replace(/(?<![A-Za-z0-9_\]])\((1|0)\)/g, "$1"));
 
                         s = applyRule("(simple_token) => simple_token", s, (x) =>
-                            x.replace(/\(([A-Za-z_][A-Za-z0-9_\[\].]*)\)/g, "$1")
+                            x.replace(/(?<![A-Za-z0-9_\]])\(([A-Za-z_][A-Za-z0-9_\[\].]*)\)/g, "$1")
                         );
 
                         s = applyRule("remove +0", s, (x) => x.replace(/\+0(?![\d.])/g, ""));
