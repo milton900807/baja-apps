@@ -8848,7 +8848,7 @@ function (MGrid) {
                                 console.log(pngBase64);
 
                                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
-                                await exec('manchester/io/save-timeline-to-public.js', graph, genegraph_panel_layout, '', '/app/cpd/editor', im)
+                                await exec('manchester/io/save-timeline-to-public.js', graph, genegraph_panel_layout, '', '/app/cpd/baja-analytics', im)
                             }
                             publicPublish();
                         },
@@ -13247,6 +13247,20 @@ function (MGrid) {
             }
 
             drawPlot(pt, ctx, fixed) {
+
+                // Recursive merge of two theme fragments (objects deep, arrays and scalars
+                // replaced). Defined here, at the top of drawPlot, because resolvePointTheme
+                // below uses it and the only copy lived inside the interval branch further
+                // down -- out of scope, so every point with a theme threw "deepMerge is not
+                // defined" on each frame.
+                const deepMerge = (a = {}, b = {}) => {
+                    const out = { ...a };
+                    for (const k in b) {
+                        const v = b[k];
+                        out[k] = (v && typeof v === "object" && !Array.isArray(v)) ? deepMerge(a[k] || {}, v) : v;
+                    }
+                    return out;
+                };
 
                 const resolvePointTheme = (baseTheme, point) => {
                     let t = baseTheme || {};

@@ -2056,7 +2056,7 @@ function (path, config) {
                 showModal(v)
             }
             let openSaveScreen = async () => {
-                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/editor')
+                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/baja-analytics')
                 showModal(v)
             }
             let importSaveScreen = async () => {
@@ -2078,9 +2078,9 @@ function (path, config) {
 
                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                 if (pm.plateTrack && im) {
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/editor', im)
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics', im)
                 } else {
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/editor')
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics')
                 }
             }
             progressBar(80);
@@ -4339,7 +4339,7 @@ function (path, config) {
                 file_items.push({
                     'label': 'New...', 'ionfunction': createIonFunction(async () => {
                         let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete all and start over?', async () => {
-                            pm.plateTrack.reset('/app/cpd/editor');
+                            pm.plateTrack.reset('/app/cpd/baja-analytics');
 
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, null)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)

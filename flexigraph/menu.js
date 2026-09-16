@@ -325,6 +325,8 @@ function () {
                     let itemsPerColumn = this.getItemsPerColumn();
                     this.highlight = column * itemsPerColumn + row + this.scrollIndex;
                     if (this.highlight < this.list.length) {
+                        const __it = this.list[this.highlight];
+                        if (__it && (__it.type === 'text' || __it.type === 'separator')) { this.highlight = -1; return; }
                         if (this.list[this.highlight] && this.list[this.highlight].click) {
                             // Remember the item being clicked. A submenu opened from inside this
                             // handler is titled after it -- "Layers", "Models" -- which is the
@@ -385,6 +387,8 @@ function () {
                     if (this.highlight >= this.list.length) {
                         this.highlight = -1;
                     }
+                    const hi = this.list[this.highlight];
+                    if (hi && (hi.type === 'text' || hi.type === 'separator')) this.highlight = -1;   // wording is not a target
                 } else {
                     this.highlight = -1;
                     this.stopScrolling();
@@ -699,8 +703,24 @@ function () {
                         continue;
                     }
 
+                    // Text rows (type: 'text') are plain wording, not something to click: no
+                    // highlight, no pill, muted ink. They carry a message inside a menu.
+                    const isText = menuItem.type === 'text';
+                    // Emphasised actions (emphasis: 'danger' | 'primary') are filled pills --
+                    // sunset orange for a destructive verb, cyan for the main one -- so the one
+                    // action in a confirmation reads as a button among the wording.
+                    const emph = (!isText && menuItem.emphasis) ? ('' + menuItem.emphasis) : '';
+                    const emphFill = emph === 'danger' ? '#FD5E53' : (emph === 'primary' ? '#1aa3bd' : '');
+
                     // Row background: hover highlight (with an accent bar) or a per-item bg
-                    if (isHi) {
+                    if (isText) {
+                        // nothing behind the wording
+                    } else if (emphFill) {
+                        ctx.fillStyle = emphFill;
+                        menuRoundPath(ctx, x + 6, y + 2, width - 12, height - 4, 8);
+                        ctx.fill();
+                        if (isHi) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; menuRoundPath(ctx, x + 6, y + 2, width - 12, height - 4, 8); ctx.fill(); }
+                    } else if (isHi) {
                         ctx.fillStyle = menuItem.sg || this.sg || '#eef2f8';
                         menuRoundPath(ctx, x, y, width, height, itemRadius);
                         ctx.fill();
@@ -715,10 +735,12 @@ function () {
 
                     // Label: left-aligned, ellipsis-truncated
                     if (menuItem.label) {
-                        ctx.font = '13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-                        ctx.fillStyle = isHi ? (menuItem.sf || this.sf || '#1d4ed8')
+                        ctx.font = (emphFill ? '600 ' : '') + '13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+                        ctx.fillStyle = emphFill ? '#ffffff'
+                            : isText ? (menuItem.fg || this.textInk || (this.panelBg && /rgba?\(\s*(?:[0-9]|[1-5][0-9]|6[0-4])\s*,/.test(this.panelBg) ? 'rgba(234,246,249,0.85)' : '#4a5a70'))
+                            : isHi ? (menuItem.sf || this.sf || '#1d4ed8')
                             : (menuItem.fg || this.fg || '#344054');
-                        ctx.textAlign = 'left';
+                        ctx.textAlign = emphFill ? 'center' : 'left';
 
                         let textToDisplay = menuItem.label;
                         const availableWidth = width - 24;
@@ -727,7 +749,7 @@ function () {
                         }
                         if (textToDisplay !== menuItem.label) textToDisplay += '…';
 
-                        ctx.fillText(textToDisplay, x + 12, y + height / 2);
+                        ctx.fillText(textToDisplay, emphFill ? x + width / 2 : x + 12, y + height / 2);
                     }
                 }
 

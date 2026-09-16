@@ -44,19 +44,32 @@ function (message, execFunction, yesLabel) {
                 return lines.length ? lines : [''];
             };
 
-            const lines = wrap(message, 46);
+            // The wording is TEXT rows (plain, not clickable), a rule separates it from the
+            // actions, the action is a filled pill (orange for a destructive verb, cyan
+            // otherwise), and Cancel is an ordinary row. Each has its own look, so nobody
+            // takes the message for a choice or misses the one button that matters.
+            const lines = wrap(message, 146);
             const items = lines.map((ln, i) => ({
+                type: 'text',
                 label: (i === 0 ? '⚠  ' : '      ') + ln,
                 move: () => { },
-                click: () => { }            // header rows: clicking just dismisses (like Cancel)
+                click: () => { }
             }));
+            items.push({ type: 'separator', label: '', move: () => { }, click: () => { } });
+            const destructive = /^(remove|delete|clear|discard|overwrite|replace|reset|start fresh)$/i.test(actionLabel);
             items.push({
-                label: '✓  ' + actionLabel,
+                label: actionLabel,
+                emphasis: destructive ? 'danger' : 'primary',
                 move: () => { },
                 click: () => { doAction(); }
             });
-            // showMenu() auto-appends a Cancel entry and centers the panel on the canvas.
-            graph.showMenu(items, 0, 0, 380);
+            // Cancel is added here so every graph shows one (gene.js appends its own only
+            // when the list has none; gene2plates appends nothing).
+            items.push({ label: 'Cancel', move: () => { }, click: () => { } });
+            // Wide enough for the longest line of wording, within reason.
+            const longest = lines.reduce((m, l) => Math.max(m, ('' + l).length), 0);
+            const width = Math.max(380, Math.min(760, longest * 7 + 60));
+            graph.showMenu(items, 0, 0, width);
             return null;
         }
     } catch (e) { }

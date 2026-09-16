@@ -2059,7 +2059,7 @@ function (path, config) {
                 showModal(v)
             }
             let openSaveScreen = async () => {
-                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/editor')
+                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/baja-analytics')
                 showModal(v)
             }
             let importSaveScreen = async () => {
@@ -2081,9 +2081,9 @@ function (path, config) {
 
                 let im = pngBase64.replace(/^data:image\/png;base64,/, '');
                 if (pm.plateTrack && im) {
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/editor', im)
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics', im)
                 } else {
-                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/editor')
+                    await exec('manchester/io/save-as-obj-tp-public.js', graph, genegraph_panel_layout, path, '/app/cpd/baja-analytics')
                 }
             }
             progressBar(80);

@@ -9226,7 +9226,25 @@ function (progress) {
                     const mobile = (typeof isMobile === 'function' && isMobile());
                     px += Math.max(barH, mobile ? 72 : 0) + (mobile ? 40 : 0);
                 } catch (e) { }
+                // The free-plan bar (users without a subscription) is docked over the bottom of
+                // the window: leave its height too, so the last rows scroll clear of it.
+                px += this.__bottomChromePx();
                 return px;
+            }
+            // Height of anything the app shell docks over the bottom of the canvas: the
+            // free-plan bar, or its collapsed corner tab. Measured live, so a subscriber pays
+            // nothing and the collapsed tab costs only its own height.
+            __bottomChromePx() {
+                try {
+                    let h = 0;
+                    for (const sel of ['.freebar', '.freetab', '.freeentry']) {
+                        const el = document.querySelector(sel);
+                        if (!el) continue;
+                        const r = el.getBoundingClientRect();
+                        if (r && r.height > 0 && r.bottom >= window.innerHeight - 2) h = Math.max(h, Math.ceil(r.height));
+                    }
+                    return h ? h + 10 : 0;
+                } catch (e) { return 0; }
             }
             __maxWorldBounds(obj) {
                 if (!obj) return null;
@@ -9313,23 +9331,55 @@ function (progress) {
                 // width would otherwise blow its rows up to the size of the screen. When the
                 // width-fit would exceed that, zoom out to the cap and centre the table.
                 const MAX_CELL_PX = 40;
+                // ... and never smaller than 40px wide by 10px tall: a wide table fitted to
+                // the width would shrink its cells to slivers. When the width-fit would go
+                // below that, zoom IN to the minimum; the table is then wider than the view
+                // and scrolls sideways (see __maxScrollX and the x clamp in __maxEnforceView).
+                const MIN_CELL_W_PX = 40, MIN_CELL_H_PX = 10;
+                let hscroll = false;
                 if (!(typeof obj.drawPlot === 'function') && obj.grid && obj.wells) {
                     const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
+                    const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length || 1);
                     const cellWorldH = obj.grid.height / rows;
+                    const cellWorldW = obj.grid.width / cols;
                     const minYRange = cellWorldH * ch / MAX_CELL_PX;
                     if (Number.isFinite(minYRange) && yRange < minYRange) {
                         yRange = minYRange;
                         xRange = yRange * (cw / ch);
                     }
+                    // Minimum size: the range that shows a cell at exactly the minimum.
+                    const maxXRangeW = cellWorldW * cw / MIN_CELL_W_PX;
+                    const maxXRangeH = (cellWorldH * ch / MIN_CELL_H_PX) * (cw / ch);
+                    const maxXRange = Math.min(maxXRangeW, maxXRangeH);
+                    if (Number.isFinite(maxXRange) && maxXRange > 0 && xRange > maxXRange) {
+                        xRange = maxXRange;
+                        yRange = xRange * (ch / cw);
+                        hscroll = true;
+                    }
                 }
                 const centerX = (b.x0 + b.x1) / 2;
-                const xmin = (xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac);
+                const xmin = hscroll ? (b.x0 - width * sideFrac) : ((xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac));
                 const xmax = xmin + xRange;
                 const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
-                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b };
+                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b, hscroll, sideFrac };
                 AnimateGrid.INTERUPT = true;
                 try { new AnimateGrid(this.grid).animateTo(xmin, xmax, ymin, ymax, 18); } catch (e) {
                     this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
+                }
+                // A window resize while maximized: the fit was made for the old width, so
+                // the object is refitted and recentred once the resize settles. The canvas
+                // itself is watched too, for panels that change its size without the window.
+                if (!this.__maxResize) {
+                    let t = null;
+                    this.__maxResize = () => {
+                        if (t) clearTimeout(t);
+                        t = setTimeout(() => { t = null; try { if (this.__maximized) this.maximizeObject(this.__maximized); } catch (e) { } }, 180);
+                    };
+                    try { window.addEventListener('resize', this.__maxResize); } catch (e) { }
+                    try {
+                        const c = document.querySelector('canvas[tabindex]') || document.querySelector('canvas');
+                        if (c && typeof ResizeObserver === 'function') { this.__maxRO = new ResizeObserver(() => this.__maxResize()); this.__maxRO.observe(c); }
+                    } catch (e) { }
                 }
                 if (!this.__maxKey) {
                     this.__maxKey = (e) => {
@@ -9498,6 +9548,8 @@ function (progress) {
                 this.__maxExitRect = null;
                 this.__maxMenuRect = null;
                 if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
+                if (this.__maxResize) { try { window.removeEventListener('resize', this.__maxResize); } catch (e) { } this.__maxResize = null; }
+                if (this.__maxRO) { try { this.__maxRO.disconnect(); } catch (e) { } this.__maxRO = null; }
                 AnimateGrid.INTERUPT = true;
                 const before = this.__maxGridBefore;
                 this.__maxGridBefore = null;
@@ -9517,7 +9569,17 @@ function (progress) {
                 const cw = Math.max(1, g.width), ch = Math.max(1, g.height);
                 const xRange = this.__maxBounds.xmax - this.__maxBounds.xmin;
                 if (!(xRange > 0)) return;
-                if (Math.abs(g.xmin - this.__maxBounds.xmin) > 1e-9 || Math.abs(g.xmax - this.__maxBounds.xmax) > 1e-9) {
+                if (this.__maxBounds.hscroll) {
+                    // Wider than the view: keep the range, clamp the window within the table.
+                    const bb = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
+                    const pad = (bb.x1 - bb.x0) * (this.__maxBounds.sideFrac || 0);
+                    const lo = bb.x0 - pad, hi = bb.x1 + pad;
+                    let xmin = g.xmin;
+                    if (Math.abs((g.xmax - g.xmin) - xRange) > 1e-9) xmin = g.xmin;
+                    if (xmin + xRange > hi) xmin = hi - xRange;
+                    if (xmin < lo) xmin = lo;
+                    if (Math.abs(g.xmin - xmin) > 1e-9 || Math.abs(g.xmax - (xmin + xRange)) > 1e-9) { g.xmin = xmin; g.xmax = xmin + xRange; }
+                } else if (Math.abs(g.xmin - this.__maxBounds.xmin) > 1e-9 || Math.abs(g.xmax - this.__maxBounds.xmax) > 1e-9) {
                     g.xmin = this.__maxBounds.xmin; g.xmax = this.__maxBounds.xmax;
                 }
                 const yRange = xRange * (ch / cw);
@@ -9572,6 +9634,22 @@ function (progress) {
                 g.rescale();
             }
             // Wheel while maximized: vertical scroll within the object, clamped to its extent.
+            // Sideways scroll of a maximized table wider than the view (cells at their
+            // minimum size). Positive deltaPx moves the view right. Clamped to the table.
+            __maxScrollX(deltaPx) {
+                if (!this.__maximized || !this.__maxBounds || !this.__maxBounds.hscroll) return;
+                const g = this.grid;
+                g.rescale();
+                const bb = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
+                const xRange = g.xmax - g.xmin;
+                const pad = (bb.x1 - bb.x0) * (this.__maxBounds.sideFrac || 0);
+                const lo = bb.x0 - pad, hi = bb.x1 + pad;
+                let xmin = g.xmin + deltaPx * (xRange / Math.max(1, g.width));
+                if (xmin + xRange > hi) xmin = hi - xRange;
+                if (xmin < lo) xmin = lo;
+                g.xmin = xmin; g.xmax = xmin + xRange;
+                g.rescale();
+            }
             __maxScroll(deltaPx) {
                 if (!this.__maximized || !this.__maxBounds) return;
                 const g = this.grid;
@@ -9592,6 +9670,20 @@ function (progress) {
                 g.ymax = ymax; g.ymin = ymin; g.rescale();
             }
             // 'exit' when the point is on the Exit button, 'inside' when on the object, else null.
+            // The cell-button strip (M, fill, delete...) sits to the RIGHT of the selected
+            // cell and can reach well past the table's edge when that cell is in the last
+            // column. A press there must count as inside the maximized object, or it is taken
+            // for a backdrop click and deselects the cell instead of pressing the button.
+            __maxOnCellButtons(x, y) {
+                try {
+                    const o = this.__maximized, w = this.selected_well;
+                    if (!o || !w || typeof o.drawPlot === 'function' || !Number.isFinite(w.__screen_x)) return false;
+                    const n = (o.txbuttons && o.txbuttons.length) || 5;
+                    const x0 = w.__screen_x + (w.__screen_width || 0), x1 = x0 + 8 + n * 36 + 4;
+                    const y0 = w.__screen_y - 4, y1 = w.__screen_y + (w.__screen_height || 0) + 4;
+                    return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+                } catch (e) { return false; }
+            }
             __maxHit(x, y) {
                 if (!this.__maximized) return null;
                 const r = this.__objectOnly ? null : this.__maxExitRect;
@@ -9602,6 +9694,7 @@ function (progress) {
                 if (m && x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) return 'menu';
                 const box = this.__maxScreenBox();
                 if (box && x >= box.x - 40 && x <= box.x + box.w + 40 && y >= box.y - 40 && y <= box.y + box.h + 40) return 'inside';
+                if (this.__maxOnCellButtons(x, y)) return 'inside';
                 return null;
             }
             __drawMaximizeChrome(ctx) {
@@ -19342,7 +19435,15 @@ function (progress) {
                 const marginX = 2
                 const marginY = 2
 
-                await ag.animateTo(xmin - marginX, xmax + marginX, ymin - marginY - 5, ymax + marginY + 5, 50);
+                // Room at the bottom for anything the shell docks there (the free-plan bar):
+                // its height, in world units at the fitted scale, is added under the tables.
+                let chromeWorld = 0;
+                try {
+                    const chromePx = this.__bottomChromePx();
+                    if (chromePx > 0 && this.grid.height > 0) chromeWorld = (height + 2 * marginY + 10) * chromePx / Math.max(1, this.grid.height - chromePx);
+                } catch (e) { }
+
+                await ag.animateTo(xmin - marginX, xmax + marginX, ymin - marginY - 5 - chromeWorld, ymax + marginY + 5, 50);
 
             }
 
@@ -20956,6 +21057,12 @@ function (progress) {
 
                 }
 
+                // The scroll floor drops by the height of anything docked over the bottom of
+                // the window (the free-plan bar), so the last rows can scroll clear of it.
+                try {
+                    const chromePx = this.__bottomChromePx();
+                    if (chromePx > 0 && Number.isFinite(ymin)) { this.grid.rescale(); ymin -= chromePx * (this.grid.ymax - this.grid.ymin) / Math.max(1, this.grid.height); }
+                } catch (e) { }
                 this.minObjectY = ymin;
                 this.maxObjectY = ymax;
                 minObjectX = xmin;
@@ -22205,7 +22312,9 @@ function (progress) {
                     if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
 
-                    if (!isMobile()) {
+                    // Maximized: none of the workbench chrome (undo stacks, the menu plate,
+                    // the bookmark strip, the tables menu, the side menu) is painted.
+                    if (!isMobile() && !this.__maximized) {
                         if (this.__stack && this.__stack.length > 0) {
                             if (!this.__stack_menu || !this.__stack_menu.draw) {
                                 this.__stack = [];

@@ -925,7 +925,7 @@ function (path, config) {
             let mouse_down = false;
             // Mobile finger tracking: the world point under the finger when the pan began
             // (kept there by moving the grid), and the last screen y for the maximized scroll.
-            let __touchPx = null, __touchPy = null, __touchSy = null;
+            let __touchPx = null, __touchPy = null, __touchSy = null, __touchSx = null;
 
             let dragnavigate = () => {
                 draw = null;
@@ -1267,7 +1267,7 @@ function (path, config) {
                 // does the pan). Nothing is selected, dragged or resized under a finger; once
                 // an object is maximized, taps inside it work as on the desktop.
                 if (isMobile() && pm.plateTrack) {
-                    __touchPx = null; __touchPy = null; __touchSy = scy;
+                    __touchPx = null; __touchPy = null; __touchSy = scy; __touchSx = scx;
                     if (pm.plateTrack.mobileTap && pm.plateTrack.mobileTap(scx, scy)) return;
                     if (!pm.plateTrack.__maximized) return;
                 }
@@ -1412,8 +1412,11 @@ function (path, config) {
                     if (mouse_down && !smenu) {
                         if (pt.__maximized) {
                             if (pt.__maxDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } }   // the chart/timeline itself is being moved
-                            else if (__touchSy != null) { try { pt.__maxScroll(__touchSy - scy); } catch (e) { } }
-                            __touchSy = scy;
+                            else if (__touchSy != null) {
+                                try { pt.__maxScroll(__touchSy - scy); } catch (e) { }
+                                try { if (__touchSx != null) pt.__maxScrollX(__touchSx - scx); } catch (e) { }   // a wide table also scrolls sideways
+                            }
+                            __touchSy = scy; __touchSx = scx;
                         } else {
                             const g = pt.grid;
                             if (__touchPx == null) { __touchPx = g.Xwc(scx); __touchPy = g.Ywc(scy); }
@@ -2392,8 +2395,8 @@ function (path, config) {
                 await exec('manchester/io/save-as-obj-tp.js', graph, genegraph_panel_layout, path)
             }
             let openSaveScreen = async () => {
-                let v = await exec('baja/table/io/open-yakro', graph, pm, '/app/cpd/baja-analytics')
-                showModal(v)
+                // A plain folder browser over the canvas (the old card collapsed to nothing here).
+                await exec('baja/plate/views/open-workbook.js', pm.plateTrack, graph, pm)
             }
             let importSaveScreen = async () => {
                 let v = await exec('baja/table/io/import-yakro', graph)
@@ -2451,6 +2454,13 @@ function (path, config) {
                 }
             })
 
+            file_items.push({
+                label: 'Shared documents…',
+                click: async (xwc, ywc) => {
+                    await exec('baja/plate/collab/shared-documents.js', pm.plateTrack, graph, pm)
+                },
+                move: () => { }
+            })
             file_items.push({
                 label: 'Share for co-editing…',
                 click: async (xwc, ywc) => {
@@ -3221,6 +3231,490 @@ function (path, config) {
 
 
 
+
+                // Financial-model builders, the same as the editor's Build menu.
+                // (The blocks bind plate_graph to pm themselves.)
+                ai_create_file_items.push({
+                    'label': 'P&L With Capital', 'ionfunction': createIonFunction(async () => {
+                        const plate_graph = pm;
+                        const pt = pm.plateTrack;
+                        let sequenceTextEditor;
+                        let descHook = createIonFunction((p) => {
+                            sequenceTextEditor = p;
+                        });
+                        const txt = 'I want to create a small therapeutics company with two commercial products for rare disease indications. ';
+                        let initalText = true;
+                        setTimeout(() => {
+                            let i = 0;
+                            let currentText = '';
+
+                            const interval = setInterval(() => {
+
+                                currentText += txt[i];
+                                if (!initalText) {
+                                    sequenceTextEditor.setContent('');
+                                    clearInterval(interval)
+                                    return;
+                                }
+                                sequenceTextEditor.setContent(currentText);
+                                i++;
+
+                                if (i >= txt.length) {
+                                    clearInterval(interval);
+                                }
+                            }, 10);
+                        }, 450);
+
+                        let sequence_input = {
+                            wid: 'card',
+                            "height": "500px",
+                            data: {
+                                "style.padding-top": '1px',
+                                "style.border": '1px',
+                                "style.height": "500px",
+                                cards: [
+                                    [
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: `
+
+                                                <H4>
+  <font color="navy">
+
+                                                Describe the model you want to create below:
+                                                </font> </h4>
+                                                `
+                                            }
+
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'text-editor',
+                                                refCallback: descHook,
+                                                data: {
+                                                    height: "600px",
+                                                    showButton: false,
+                                                    editorOptions: {
+                                                        value: '',
+                                                        language: 'text', automaticLayout: true, fontSize: 24, lineNumbers: "off",
+                                                        suggestOnTriggerCharacters: false,
+                                                        quickSuggestions: false,
+                                                        parameterHints: { enabled: false },
+                                                        minimap: { enabled: false },
+                                                        fontFamily: "Courier New, monospace",
+                                                        placeholder: "Enter a paragraph that describes the timeline you want to create.  For example:  I want to create a timeline that describes important milestones about Vasco De Gamma around the Cape of Good Hope",
+                                                        cursorStyle: "block"
+                                                    },
+                                                    onDidFocusEditorWidget: createIon(() => {
+                                                        if (initalText)
+                                                            sequenceTextEditor.setContent("")
+                                                        initalText = false;
+                                                    }),
+
+                                                    keybinding: {
+                                                        'Ctrl+Enter': createIonFunction((content, lineNumber, col) => {
+                                                        })
+                                                    },
+                                                }
+                                            }
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: '<hr>'
+                                            }
+                                        },
+                                        {
+                                            'component': {
+                                                wid: 'mt-button', data: {
+                                                    buttons: [
+                                                        {
+                                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+
+                                                            })
+                                                        },
+                                                        {
+                                                            label: 'Build', ionFunction: createIonFunction(async () => {
+
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+
+                                                                let interval = null;
+                                                                let em = new EngineMonitor((msg) => {
+                                                                    plate_graph.plateTrack.updateSprite(msg)
+                                                                });
+                                                                em.addProgressListener(async (v) => {
+                                                                    if (v >= 100) {
+                                                                    }
+                                                                })
+                                                                let content = sequenceTextEditor.getContent();
+                                                                const user_prompt = content;
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
+                                                                let model = await exec('py/openai/assumptions.py', em, content)
+                                                                let model_captial = await exec('py/openai/capital-assumptions.py', em, getUser(), content)
+                                                                await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model_captial)
+
+                                                                exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
+                                                                    plate_graph.plateTrack.setMessage(null)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. Edit them as needed.", 1)
+                                                                    setTimeout(() => {
+                                                                        plate_graph.plateTrack.killSprite()
+                                                                        let pr = []
+                                                                        let formula = []
+                                                                        for (let p of plate_graph.plateTrack.root) {
+                                                                            pr.push(p.toValueFormulaJSON())
+                                                                            formula.push({ 'Table': p.name, 'HAS these assignments': p.getFormula() })
+                                                                        }
+
+                                                                        let g = CurrentLayout.getStashed('graph')
+                                                                        if (g)
+                                                                            g.touchMe();
+
+                                                                        pt.updateCalculations();
+                                                                        setTimeout(async () => {
+                                                                            let t = plate_graph.plateTrack.getTableByName('Assumptions')
+                                                                            plate_graph.plateTrack.setMessage('PnL', 5)
+                                                                            let ts = (t.toValueFormulaJSON())
+                                                                            let pnl = await exec('py/openai/pnl.py', user_prompt, ts)
+                                                                            let r = await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, pnl)
+                                                                            plate_graph.plateTrack.setMessage("Profit and loss formulas added, based on the assumptions.", 1)
+
+                                                                            setTimeout(async () => {
+                                                                                let pr = []
+                                                                                let formula = []
+                                                                                for (let p of plate_graph.plateTrack.root) {
+                                                                                    pr.push(p.toValueFormulaJSON())
+                                                                                    formula.push({ 'Table': p.name, 'HAS these assignments': p.getFormula() })
+                                                                                }
+                                                                                let g = CurrentLayout.getStashed('graph')
+                                                                                if (g)
+                                                                                    g.touchMe();
+                                                                                let items = []
+                                                                                plate_graph.plateTrack.updateCalculations();
+                                                                                setTimeout(async () => {
+                                                                                    let ls = [
+                                                                                    ]
+                                                                                    for (let p of plate_graph.plateTrack.root) {
+                                                                                        ls.push(p.toValueFormulaJSON())
+                                                                                    }
+
+                                                                                    let g = CurrentLayout.getStashed('graph')
+                                                                                    if (g)
+                                                                                        g.touchMe();
+
+                                                                                    pt.layoutCompactTetris();
+                                                                                    plate_graph.plateTrack.setMessage("Timeline...", 5)
+
+                                                                                    let model4 = await exec('py/openai/time-money.py', ls)
+                                                                                    plate_graph.plateTrack.updateCalculations();
+                                                                                    let __d = await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model4);
+
+                                                                                    let model3 = await exec('py/openai/capital-required.py', ls)
+                                                                                    let rrr = await exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model3);
+                                                                                    pt.killSprite();
+                                                                                    pt.zoomouttoFit();
+
+                                                                                    pt.layoutCompactTetris();
+
+                                                                                    plate_graph.plateTrack.updateCalculations();
+                                                                                    for (let p of plate_graph.plateTrack.root) {
+                                                                                        ls.push(p.toValueFormulaJSON())
+                                                                                    }
+
+                                                                                    for (let p of plate_graph.plateTrack.root) {
+                                                                                        p.selectWellsByString('[1:][1:]')
+                                                                                        const se = p.getSelectedWellsInOrder();
+                                                                                        for (let w of se) {
+                                                                                            items.push({
+                                                                                                id: w.uid,
+                                                                                                value: w.value,
+                                                                                                fields: Object.keys(w.group),
+                                                                                                wtype: ''
+                                                                                            })
+                                                                                        }
+                                                                                    }
+
+                                                                                    plate_graph.plateTrack.updateCalculations();
+                                                                                    pt.separatePlatesOverTime({
+                                                                                        spacing: 0,
+                                                                                        durationMs: 5_000,
+                                                                                        iterationsPerFrame: 8,
+                                                                                        explodeFrac: 0.13,
+                                                                                        explodeStep: 1,
+                                                                                        wanderStep: 0.5,
+                                                                                        jitterReseedRate: 0.25,
+                                                                                        keepStrictCenter: true
+                                                                                    });
+
+                                                                                    setTimeout(async () => {
+                                                                                        ls = [
+                                                                                        ]
+                                                                                        for (let p of pm.plateTrack.root) {
+                                                                                            ls.push(p.toValueUID())
+                                                                                        }
+                                                                                        let model4 = await exec('py/openai/find-waterfall-plot-wells.py', getUser(), ls)
+                                                                                        const plotFactory = await exec('flexigraph/plot.js', MGrid);
+                                                                                        const MPlot = (await plotFactory) || plotFactory;
+
+                                                                                        const getWellsFromJSON = (root, data) => {
+                                                                                            const wellsList = Array.isArray(data?.wells) ? data.wells : [];
+                                                                                            if (!Array.isArray(root) || !root.length) return [];
+                                                                                            const plateMap = new Map();
+                                                                                            for (const plate of root) {
+                                                                                                const name = plate?.name || plate?.plate || plate?.id;
+                                                                                                if (name) plateMap.set(String(name), plate);
+                                                                                            }
+                                                                                            const out = [];
+                                                                                            for (const w of wellsList) {
+                                                                                                const plateName = w?.plate;
+                                                                                                const plate = plateMap.get(plateName);
+                                                                                                if (!plate || !Array.isArray(plate.wells)) continue;
+
+                                                                                                const col = Number(w?.x) - 1;
+                                                                                                const row = Number(w?.y) - 1;
+
+                                                                                                if (row > 0) {
+
+                                                                                                    if (!Number.isFinite(col) || !Number.isFinite(row)) continue;
+
+                                                                                                    const colArr = plate.wells[col];
+                                                                                                    if (!Array.isArray(colArr)) continue;
+
+                                                                                                    const well = colArr[row];
+
+                                                                                                    const rightColArr = plate.wells[col + 1][row];
+                                                                                                    const right = Array.isArray(rightColArr) ? rightColArr[row] : null;
+
+                                                                                                    if (well) {
+                                                                                                        out.push(well);
+                                                                                                        out.push(rightColArr);
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+
+                                                                                            return out;
+                                                                                        }
+
+                                                                                        let wells = getWellsFromJSON(pm.plateTrack.root, model4)
+                                                                                        for (let w of wells) {
+                                                                                            w.selectIt();
+                                                                                        }
+                                                                                        const points = MPlot.buildWaterfallFromGroups(wells)
+                                                                                        pm.plateTrack.deselectAll();
+                                                                                        const scatterData = { points };
+                                                                                        const plot = new MPlot(scatterData, MGrid);
+                                                                                        plot.type = 'waterfall';
+                                                                                        const maxX = Math.max(...scatterData.points.map(p => p.x));
+                                                                                        const maxY = Math.max(...scatterData.points.map(p => p.y));
+                                                                                        plot.grid.setxmax(maxX);
+                                                                                        plot.grid.setymax(maxY);
+                                                                                        plot.errorBarColor = 'gray';
+                                                                                        plot.fitScaleToData = false;
+                                                                                        plot.grid.setxmin(0); plot.name = 'Income Statement – Waterfall';
+                                                                                        plot.x_axis_label = '';
+                                                                                        plot.y_axis_label = 'USD';
+                                                                                        plot.setWidth(pt.grid.worldWidth(300))
+                                                                                        plot.setHeight(pt.grid.worldHeight(250))
+
+                                                                                        pm.plateTrack.zoomouttoFit();
+
+                                                                                        pt.killSprite();
+
+                                                                                        setTimeout(() => {
+                                                                                            pm.plateTrack.setMessage("This is a starting model, not a complete one. Review and refine it.", 1)
+                                                                                            pt.addNextAvailableX(plot);
+                                                                                            setTimeout(() => {
+                                                                                                pm.plateTrack.layoutCompactTetris();
+                                                                                                setTimeout(() => {
+                                                                                                    pm.plateTrack.setMessage("Green arrows mark input controls. Not all of them are used.", 1)
+
+                                                                                                }, 4000)
+
+                                                                                            }, 1000)
+
+                                                                                        }, 1000)
+
+                                                                                    }, 200)
+
+                                                                                }, 400)
+                                                                            }, 100)
+                                                                            plate_graph.plateTrack.___formula_integrity_report = pnl;
+                                                                        }, 1000)
+                                                                    }, 3000)
+                                                                    plate_graph.plateTrack.___formula_integrity_report = model;
+                                                                })
+                                                            })
+                                                        }
+
+                                                    ]
+
+                                                }
+                                            }
+                                        }
+                                    ]]
+                            }
+                        }
+                        CurrentLayout.setComponent('mainPanel', sequence_input)
+
+                    })
+                })
+
+                ai_create_file_items.push({
+                    'label': 'Product Assumptions', 'ionfunction': createIonFunction(async () => {
+                        const plate_graph = pm;
+                        const pt = pm.plateTrack;
+                        let sequenceTextEditor;
+                        let descHook = createIonFunction((p) => {
+                            sequenceTextEditor = p;
+                        });
+                        const txt = 'create a rat cage for pharma safety studies that has video cameras and peizo floor for tracking gate and an accelermoter for tracking vibrations ';
+                        let initalText = true;
+                        setTimeout(() => {
+                            let i = 0;
+                            let currentText = '';
+
+                            const interval = setInterval(() => {
+
+                                currentText += txt[i];
+                                if (!initalText) {
+                                    sequenceTextEditor.setContent('');
+                                    clearInterval(interval)
+                                    return;
+                                }
+                                sequenceTextEditor.setContent(currentText);
+                                i++;
+
+                                if (i >= txt.length) {
+                                    clearInterval(interval);
+                                }
+                            }, 10);
+                        }, 150);
+
+                        let sequence_input = {
+                            wid: 'card',
+                            "height": "300px",
+                            data: {
+                                "style.padding-top": '1px',
+                                "style.border": '1px',
+                                "style.height": "200px",
+                                cards: [
+                                    [
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: `
+
+                                                <H4>
+                                                      <font color="navy">
+                                                Write a paragraph that describes the project:
+                                                </font> </h4>
+                                                `
+                                            }
+
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'text-editor',
+                                                refCallback: descHook,
+                                                data: {
+                                                    height: "600px",
+                                                    showButton: false,
+                                                    editorOptions: {
+                                                        value: '',
+                                                        language: 'text', automaticLayout: true, fontSize: 24, lineNumbers: "off",
+                                                        suggestOnTriggerCharacters: false,
+                                                        quickSuggestions: false,
+                                                        parameterHints: { enabled: false },
+                                                        minimap: { enabled: false },
+                                                        fontFamily: "Courier New, monospace",
+                                                        placeholder: "",
+                                                        cursorStyle: "block"
+                                                    },
+                                                    onDidFocusEditorWidget: createIon(() => {
+                                                        if (initalText)
+                                                            sequenceTextEditor.setContent("")
+                                                        initalText = false;
+                                                    }),
+
+                                                    keybinding: {
+                                                        'Ctrl+Enter': createIonFunction((content, lineNumber, col) => {
+                                                        })
+                                                    },
+                                                }
+                                            }
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: '<hr>'
+                                            }
+                                        },
+                                        {
+                                            'component': {
+                                                wid: 'mt-button', data: {
+                                                    buttons: [
+                                                        {
+                                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+
+                                                            })
+                                                        },
+                                                        {
+                                                            label: 'Build', ionFunction: createIonFunction(async () => {
+
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+                                                                plate_graph.plateTrack.setMessage("Generating assumptions…", 5)
+
+                                                                let interval = null;
+                                                                let em = new EngineMonitor((msg) => {
+                                                                    plate_graph.plateTrack.updateSprite(msg)
+                                                                });
+                                                                em.addProgressListener(async (v) => {
+                                                                    if (v >= 100) {
+                                                                    }
+                                                                })
+                                                                let content = sequenceTextEditor.getContent();
+                                                                let model = await exec('py/openai/assumptions-product.py', em, content)
+
+                                                                exec('baja/draw/data-model-to-tables-gpt', plate_graph.plateTrack, model).then(async r => {
+                                                                    plate_graph.plateTrack.setMessage(null)
+                                                                    plate_graph.plateTrack.setMessage("Assumptions loaded. You can edit them or add more.", 1)
+                                                                    setTimeout(async () => {
+
+                                                                        // let t = plate_graph.plateTrack.getTableByName('Assumptions')
+                                                                        // let ts = t.toValueFormulaJSON()
+
+                                                                        plate_graph.plateTrack.updateCalculations();
+                                                                        plate_graph.plateTrack.killSprite()
+                                                                    }, 3000)
+                                                                    plate_graph.plateTrack.___formula_integrity_report = model;
+                                                                })
+                                                            })
+                                                        }
+
+                                                    ]
+
+                                                }
+                                            }
+                                        }
+                                    ]]
+                            }
+                        }
+                        CurrentLayout.setComponent('mainPanel', sequence_input)
+
+                    })
+                })
 
                 ai_create_file_items.push({
                     'label': 'ΔΔCt analysis', 'ionfunction': createIonFunction(async () => {

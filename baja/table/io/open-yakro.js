@@ -446,6 +446,12 @@ function (graph, pm, reference_object) {
                                         "ionfunction.path": createIonFunction(async (path, nodes) => {
                                             let p = path.path;
                                             p = p.substring(0, p.lastIndexOf('/'))
+                                            // The shared folders hold code-named subfolders: show the
+                                            // shared documents by name, person and date instead.
+                                            try {
+                                                const pp = '' + ((path && path.path) || '');
+                                                if (/\/(shared|shared_with_me)\/?$/.test(pp)) exec('baja/plate/collab/shared-documents.js', pm && pm.plateTrack, graph, pm);
+                                            } catch (e) { }
                                         })
                                     }
                                 }

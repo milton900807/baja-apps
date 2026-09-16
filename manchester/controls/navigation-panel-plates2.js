@@ -11,9 +11,18 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 return Array.isArray(list) ? list : [];
             } catch (e) { return []; }
         };
+        // File: the main menu's items (New, Open, Import, Save as, ...), first on every
+        // menubar so it sits left of Build the way it does in the editor. `items` is filled
+        // further down; the arrow reads it when a menubar is built, so it is complete then.
+        const fileMenu = () => (Array.isArray(items) && items.length) ? [{ label: 'File', items: items }] : [];
         const shareMenu = () => [{
             label: 'Share',
             items: [
+                {
+                    label: 'Shared documents…', ionfunction: createIonFunction(async () => {
+                        await exec('baja/plate/collab/shared-documents.js', pt, CurrentLayout.getStashed('graph'), plate_graph)
+                    })
+                },
                 {
                     label: 'Share for co-editing…', ionfunction: createIonFunction(async () => {
                         await exec('baja/plate/collab/share-for-coediting.js', pt, CurrentLayout.getStashed('graph'), plate_graph)
@@ -101,7 +110,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
             items.push({
                 'label': 'New...', 'ionfunction': createIonFunction(async () => {
                     let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete all and start over?', async () => {
-                        pm.plateTrack.reset('/app/cpd/editor');
+                        pm.plateTrack.reset('/app/cpd/baja-analytics');
 
                         let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, null)
                         CurrentLayout.setComponent('selectedPanel', button_canvas2)
@@ -849,6 +858,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }, 100)
                             }),
                             menus: [
+                                ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
@@ -875,6 +885,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 execCMD(str);
                             }),
                             menus: [
+                                ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
@@ -927,6 +938,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 }
                             }),
                             menus: [
+                                ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
@@ -971,6 +983,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                             }),
                             menus: [
+                                ...fileMenu(),
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
@@ -1190,6 +1203,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         }
                     }),
                     menus: [
+                        ...fileMenu(),
                         ...appMenus(),
                         ...shareMenu(),
                         {
@@ -1233,6 +1247,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
                         }),
                         menus: [
+                            ...fileMenu(),
                             ...appMenus(),
                             ...shareMenu(),
                             {
@@ -1319,8 +1334,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
         }
         let openSaveScreen = async () => {
             let g = CurrentLayout.getStashed('graph')
-            let v = await exec('baja/table/io/open-yakro', g, plate_graph, '/app/cpd/baja-analytics')
-            showModal(v)
+            // A plain folder browser over the canvas (the old card collapsed to nothing here).
+            await exec('baja/plate/views/open-workbook.js', pt, g, plate_graph)
         }
         let importSaveScreen = async () => {
             let g = CurrentLayout.getStashed('graph')
@@ -1337,11 +1352,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     pt.createPlateFromFormula(str)
                 }),
                 menus: [
+                    ...fileMenu(),
                     ...appMenus(),
                     ...shareMenu(),
-                    {
-                        'label': `Main menu`, 'items': mm
-                    },
+                    // "Main menu" was these same items; File carries them now. Kept only for
+                    // a visitor who is not signed in, whose list is different.
+                    ...(MSGraph.isLoggedIn() ? [] : [{ 'label': `Main menu`, 'items': mm }]),
 
                 ],
 

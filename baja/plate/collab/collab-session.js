@@ -145,6 +145,7 @@ function (pt, opts) {
 
         // ---- sync -----------------------------------------------------------------------
         session.broadcastObject = (obj, kind) => {
+            session.dirty = true;   // this client changed something: the autosave will write it
             const uid = uidOf(obj);
             if (!uid || !session.connected || !session.docId) return;
             let state = null;
@@ -153,6 +154,7 @@ function (pt, opts) {
             if (session.held[uid]) session.held[uid].lastJson = snapshot(obj);
         };
         session.broadcastRemove = (uid, kind) => {
+            session.dirty = true;
             if (!uid || !session.connected || !session.docId) return;
             delete session.held[uid];
             socket.emit('docObjectUpdate', { docId: session.docId, objectId: '' + uid, kind: 'remove', state: { kind: kind || 'plate' } });
@@ -216,7 +218,8 @@ function (pt, opts) {
         }, 1500);
 
         // ---- save -----------------------------------------------------------------------
-        session.save = async (g) => {
+        session.save = async (g, opts) => {
+            const quiet = !!(opts && opts.quiet);
             const target = g || graph;
             if (!target) throw new Error('nothing to save');
             const seen = new WeakSet();
@@ -233,9 +236,55 @@ function (pt, opts) {
             });
             const r = await POSTJSON({ user: me, path: docPath, value }, host + '/collab/save');
             if (!r || r.status !== 'saved') throw new Error((r && r.error) || 'save failed');
-            try { pt.setMessage('Saved the shared document', 2); } catch (e) { }
+            session.dirty = false;
+            session.lastSavedAt = Date.now();
+            if (!quiet) { try { pt.setMessage('Saved the shared document', 2); } catch (e) { } }
             return r;
         };
+
+        // ---- background autosave --------------------------------------------------------
+        // Every 20 seconds, if THIS client changed something since the last save, the shared
+        // document is written in the background. It waits for an idle moment, skips while a
+        // cell or note is being edited, never runs two saves at once, and says nothing unless
+        // a save fails. Other clients save their own changes, so nothing is written twice.
+        session.dirty = false;
+        session.saving = false;
+        const AUTOSAVE_MS = 20000;
+        const editing = () => {
+            try { if (pt.isTextActive && pt.isTextActive()) return true; } catch (e) { }
+            try { if (document.getElementById('baja-mobile-cell-input')) return true; } catch (e) { }
+            try { if (pt.selectedPlate && pt.selectedPlate.textActive && pt.selected_well) return true; } catch (e) { }
+            return false;
+        };
+        const autosave = () => {
+            if (!session.dirty || session.saving || !session.connected || !docPath) return;
+            if (editing()) return;   // try again next tick, after the edit
+            const run = async () => {
+                if (session.saving || !session.dirty) return;
+                session.saving = true;
+                try { await session.save(graph, { quiet: true }); }
+                catch (e) { session.__autosaveFails = (session.__autosaveFails || 0) + 1; if (session.__autosaveFails === 3) { try { pt.setMessage('The shared document could not be saved in the background. Use Save shared document.', 3); } catch (x) { } } }
+                finally { session.saving = false; }
+            };
+            if (typeof requestIdleCallback === 'function') requestIdleCallback(() => { run(); }, { timeout: 5000 });
+            else setTimeout(run, 0);
+        };
+        session.__autosaveTimer = setInterval(autosave, AUTOSAVE_MS);
+        // A last chance on the way out: a synchronous beacon with the current document.
+        session.__onLeave = () => {
+            try {
+                if (!session.dirty || !docPath) return;
+                const seen = new WeakSet();
+                const value = JSON.stringify(graph, function (key, v) {
+                    if (key === 'canvas') return;
+                    if (key != null && ('' + key).toLowerCase().startsWith('_')) return null;
+                    if (typeof v === 'object' && v !== null) { if (seen.has(v)) return '[a_c]'; seen.add(v); }
+                    return v;
+                });
+                navigator.sendBeacon(host + '/collab/save', new Blob([JSON.stringify({ user: me, path: docPath, value })], { type: 'application/json' }));
+            } catch (e) { }
+        };
+        try { window.addEventListener('pagehide', session.__onLeave); } catch (e) { }
 
         // ---- overlays -------------------------------------------------------------------
         const NAVY = '#0a2540', CYAN = '#1aa3bd', ORANGE = '#FD5E53';
@@ -293,13 +342,34 @@ function (pt, opts) {
             ctx.restore();
             return w;
         };
+        // A padlock in a small disc: the mark of your own lock. No words, the outline says
+        // the rest; a badge with a name is kept for locks held by someone else.
+        const lockIcon = (ctx, x, y, fill) => {
+            const r = 11, cx = x + r, cy = y + r;
+            ctx.save();
+            ctx.shadowColor = 'rgba(10,37,64,0.25)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+            ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+            ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+            // shackle
+            ctx.beginPath(); ctx.arc(cx, cy - 1.5, 3.2, Math.PI, 0); ctx.stroke();
+            // body
+            rr(ctx, cx - 4.5, cy - 1.5, 9, 7, 1.5); ctx.fill();
+            ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(cx, cy + 2, 1.1, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+            return 2 * r;
+        };
         session.drawOverlays = (ctx) => {
             if (!ctx || session.destroyed) return;
             const ids = Object.keys(session.locks);
+            // Maximized: only the maximized object's own lock is shown. Outlines and badges
+            // of the other objects belong to a workbench the user is not looking at.
+            const maxed = pt.__maximized || null;
             for (const uid of ids) {
                 const l = session.locks[uid];
                 const obj = findObject(uid);
                 if (!obj) continue;
+                if (maxed && obj !== maxed) continue;
                 const box = screenBox(obj);
                 if (!box) continue;
                 const mine = l.user && l.user.toLowerCase() === me;
@@ -311,7 +381,7 @@ function (pt, opts) {
                 ctx.stroke();
                 ctx.restore();
                 if (!mine) badge(ctx, box.x - 3, box.y - 26, '🔒 ' + shortName(l.user) + ' is editing', ORANGE, '#ffffff');
-                else badge(ctx, box.x - 3, box.y - 26, 'You are editing', CYAN, '#ffffff');
+                else lockIcon(ctx, box.x - 3, box.y - 27, CYAN);   // yours: just the padlock
             }
             // Presence: everyone in the document, top right.
             const others = (session.users || []).filter(u => u && u.user && u.user.toLowerCase() !== me);
@@ -336,6 +406,9 @@ function (pt, opts) {
         };
 
         session.destroy = () => {
+            try { clearInterval(session.__autosaveTimer); } catch (e) { }
+            try { window.removeEventListener('pagehide', session.__onLeave); } catch (e) { }
+            try { if (session.dirty) session.__onLeave(); } catch (e) { }
             session.destroyed = true;
             clearInterval(ticker);
             try { session.releaseAll(); } catch (e) { }

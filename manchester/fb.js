@@ -472,6 +472,84 @@ function (__path, __header) {
                 } catch (e) { }
             };
 
+            // The home page's file routing, by kind. One function, driven by the widget below
+            // and by the embedded browser that now shows the file structure.
+            const homeFileClick = async (element) => {
+                    if (('' + (element.name || element.path || '')).toLowerCase().endsWith('.gz')) {
+                        // Applies straight onto the currently-open graph's tracks and comes
+                        // right back here -- no clear(), this isn't navigating anywhere.
+                        await applyGzFileToCurrentGraph(element);
+                        try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                        return;
+                    }
+                    if (isKaryotype(element)) {
+                        const kpath = element.path;
+                        clear();
+                        window.history.pushState({ 'karyotype': kpath }, 'karyotype',
+                            `/app/manchester/karyotype?path=${kpath}`);
+                        exec('manchester/karyotype', kpath);
+                        return;
+                    }
+
+                    // NO clear() HERE. It used to run before any of the type checks, so a
+                    // click on a file nothing opens wiped the screen and then fell through
+                    // to nothing -- a blank page, and the folder you were browsing gone.
+                    // Every branch below that actually navigates clears for itself.
+                    let config = {
+                        silent: true,
+                        user: getUser()
+                    }
+                    // Same route as the handler above: a neoantigen design opens in the
+                    // Liverpool editor.
+                    if (element.path.endsWith('.liverpool')) {
+                        const lvpath = element.path;
+                        window.history.pushState({ 'liverpool': lvpath }, 'liverpool', `/app/liverpool/editor?path=${lvpath}`);
+                        exec('liverpool/editor', lvpath);
+                        return;
+                    }
+                    // Same route as the handler above.
+                    if (element.path.endsWith('.tottenham')) {
+                        const ttpath = element.path;
+                        window.history.pushState({ 'tottenham': ttpath }, 'tottenham', `/app/tottenham/editor?path=${ttpath}`);
+                        exec('tottenham/editor', ttpath);
+                        return;
+                    }
+                    if (element.path.endsWith('.bjb')) {
+                        clear();
+                        let config = {
+                            silent: true,
+                            user: getUser(),
+                            mode: 'editor'
+                        }
+                        exec('cpd/baja-analytics', element.path, config, `/app/cpd/baja-analytics`)
+                    }
+                    else if (element.path.endsWith(".baja")) {
+
+                        const path = element.path;
+                        clear();
+                        window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
+                        exec('manchester/editor', path, { mode: 'editor' })
+                    }
+                    else {
+                        // NOTHING IN THIS WORKSPACE OPENS THIS FILE.
+                        //
+                        // What stood here was an icon list with Open, Open Folder and
+                        // Download, every one of them wired to an empty function, and the
+                        // list was never rendered. So the click did nothing except the
+                        // clear() above it.
+                        //
+                        // Offer the three things that ARE possible with a file whose
+                        // contents this application does not understand.
+                        await exec('baja/lib/file-actions.js', {
+                            element: element,
+                            drive: 'user',
+                            onChanged: () => {
+                                try { if (userFiles_panel && userFiles_panel.refresh) userFiles_panel.refresh(); } catch (e) { }
+                            }
+                        });
+                    }
+            };
+
             let ww = {
                 wid: 'simple-file-browser',
                 width: '100%',
@@ -514,81 +592,7 @@ function (__path, __header) {
                         }
                     }),
 
-                    "ionfunction.fileClick": createIonFunction(async (element) => {
-                        if (('' + (element.name || element.path || '')).toLowerCase().endsWith('.gz')) {
-                            // Applies straight onto the currently-open graph's tracks and comes
-                            // right back here -- no clear(), this isn't navigating anywhere.
-                            await applyGzFileToCurrentGraph(element);
-                            try { CurrentLayout.reset('mainPanel'); } catch (e) { }
-                            return;
-                        }
-                        if (isKaryotype(element)) {
-                            const kpath = element.path;
-                            clear();
-                            window.history.pushState({ 'karyotype': kpath }, 'karyotype',
-                                `/app/manchester/karyotype?path=${kpath}`);
-                            exec('manchester/karyotype', kpath);
-                            return;
-                        }
-
-                        // NO clear() HERE. It used to run before any of the type checks, so a
-                        // click on a file nothing opens wiped the screen and then fell through
-                        // to nothing -- a blank page, and the folder you were browsing gone.
-                        // Every branch below that actually navigates clears for itself.
-                        let config = {
-                            silent: true,
-                            user: getUser()
-                        }
-                        // Same route as the handler above: a neoantigen design opens in the
-                        // Liverpool editor.
-                        if (element.path.endsWith('.liverpool')) {
-                            const lvpath = element.path;
-                            window.history.pushState({ 'liverpool': lvpath }, 'liverpool', `/app/liverpool/editor?path=${lvpath}`);
-                            exec('liverpool/editor', lvpath);
-                            return;
-                        }
-                        // Same route as the handler above.
-                        if (element.path.endsWith('.tottenham')) {
-                            const ttpath = element.path;
-                            window.history.pushState({ 'tottenham': ttpath }, 'tottenham', `/app/tottenham/editor?path=${ttpath}`);
-                            exec('tottenham/editor', ttpath);
-                            return;
-                        }
-                        if (element.path.endsWith('.bjb')) {
-                            clear();
-                            let config = {
-                                silent: true,
-                                user: getUser(),
-                                mode: 'editor'
-                            }
-                            exec('cpd/baja-analytics', element.path, config, `/app/cpd/baja-analytics`)
-                        }
-                        else if (element.path.endsWith(".baja")) {
-
-                            const path = element.path;
-                            clear();
-                            window.history.pushState({ 'rna-screen': path }, 'yak', `/app/manchester/editor?path=${path}`);
-                            exec('manchester/editor', path, { mode: 'editor' })
-                        }
-                        else {
-                            // NOTHING IN THIS WORKSPACE OPENS THIS FILE.
-                            //
-                            // What stood here was an icon list with Open, Open Folder and
-                            // Download, every one of them wired to an empty function, and the
-                            // list was never rendered. So the click did nothing except the
-                            // clear() above it.
-                            //
-                            // Offer the three things that ARE possible with a file whose
-                            // contents this application does not understand.
-                            await exec('baja/lib/file-actions.js', {
-                                element: element,
-                                drive: 'user',
-                                onChanged: () => {
-                                    try { if (userFiles_panel && userFiles_panel.refresh) userFiles_panel.refresh(); } catch (e) { }
-                                }
-                            });
-                        }
-                    }),
+                    "ionfunction.fileClick": createIonFunction(async (element) => { return homeFileClick(element); }),
                     "ionfunction.openfile": createIonFunction(async (file, text) => {
                     }
                     ),
@@ -599,6 +603,51 @@ function (__path, __header) {
                     })
                 }
             }
+
+            // The file structure of the home page: the same browser Analytics opens with,
+            // embedded. It replaces the Angular file-browser widget in the layout; that widget
+            // (ww) stays defined for the flows that still reference it.
+            let home_fb_host = {
+                wid: 'html',
+                data: '<div id="baja-home-fb" style="width:100%;height:calc(100vh - 150px);min-height:420px;"></div>'
+            };
+            const mountHomeBrowser = () => {
+                // The placeholder div is inside an html widget that Angular re-renders; the
+                // browser itself lives on the body, pinned over the placeholder's box, so a
+                // re-render only moves the anchor. Mounted once; afterwards the tick just
+                // re-pins it, and takes it down when the home page is gone.
+                try { clearInterval(window.__bajaHomeFbTimer); } catch (e) { }
+                try { if (window.__bajaHomeFb && window.__bajaHomeFb.destroy) window.__bajaHomeFb.destroy(); } catch (e) { }
+                window.__bajaHomeFb = null;
+                let mounting = false, gone = 0;
+                const go = async () => {
+                    const el = document.getElementById('baja-home-fb');
+                    const ctl = window.__bajaHomeFb;
+                    if (!el) {
+                        if (ctl && ++gone > 5) { try { ctl.destroy(); } catch (e) { } window.__bajaHomeFb = null; clearInterval(window.__bajaHomeFbTimer); }
+                        else if (ctl) ctl.reposition();
+                        return;
+                    }
+                    gone = 0;
+                    if (ctl && ctl.alive && ctl.alive()) { ctl.anchor(el); return; }
+                    if (mounting) return;
+                    mounting = true;
+                    try {
+                        const c = await exec('baja/plate/views/open-workbook.js', null, null, null, __path, {
+                            container: el,
+                            onFile: (node) => homeFileClick(node),
+                            hideExtensions: ['vcf', 'vcf.gz', 'bed', 'bed.gz', 'json', 'part'],
+                            onPath: (pp) => {
+                                try { if (/\/(shared|shared_with_me)\/?$/.test('' + pp)) exec('baja/plate/collab/shared-documents.js', null, null, null); } catch (e) { }
+                            }
+                        });
+                        if (c) { window.__bajaHomeFb = c; userFiles_panel = c; }
+                    } catch (e) { console.warn('home browser', e); }
+                    mounting = false;
+                };
+                setTimeout(go, 50);
+                window.__bajaHomeFbTimer = setInterval(go, 400);
+            };
 
             let caret = {
                 wid: 'html',
@@ -709,6 +758,16 @@ function (__path, __header) {
 
                                     })
                                 },
+
+                                {
+                                    // Baja-Analytics: tables with a formula engine, timelines and
+                                    // charts. Opens blank; a saved .bjb opens by clicking the file.
+                                    'label': 'Baja-Analytics', 'ionfunction': createIonFunction(async () => {
+                                        clear();
+                                        try { window.history.pushState({ 'bjb': '' }, 'analytics', '/app/cpd/baja-analytics'); } catch (e) { }
+                                        await exec('cpd/baja-analytics', '', { silent: true, user: getUser(), mode: 'editor' }, '/app/cpd/baja-analytics');
+                                    })
+                                },
                             ]
                         },
                         {
@@ -744,6 +803,7 @@ function (__path, __header) {
                                                 // and it cannot land half-mounted.
                                                 try { clear(); } catch (e) { }
                                                 try { showWidget(usermain_layout); } catch (e) { }
+                                                mountHomeBrowser();
                                                 try { CurrentLayout.stash('mainFilePanel1', usermain_layout); } catch (e) { }
                                                 // After the redraw: the panel ref is rebound by the
                                                 // browser's own refCallback, so the listing that gets
@@ -867,7 +927,7 @@ function (__path, __header) {
                 [
                     {
                         'width': '100%',
-                        'component': ww
+                        'component': home_fb_host   // the embedded browser mounts here (see mountHomeBrowser)
                     },
                     {
                         'width': '100%',
@@ -937,6 +997,7 @@ function (__path, __header) {
             showWidget(
                 usermain_layout
             );
+            mountHomeBrowser();
 
             CurrentLayout.stash('mainFilePanel1', usermain_layout)
 

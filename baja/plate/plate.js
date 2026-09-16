@@ -758,7 +758,13 @@ function () {
                     },
                     {
                         name: `I`, x: 0, y: 10, width: 30, height: 20, action: async (well, pt) => {
-                            return this.showLJScript(pt)
+                            // The one way to the text window on the desktop.
+                            const ws = this.getSelectedWellsInOrder() || [];
+                            const w = ws.length ? ws : ((well || pt.selected_well) ? [well || pt.selected_well] : []);
+                            if (!w.length) { try { pt.setMessage('Select a cell first.', 2); } catch (e) { } return; }
+                            let value = w[0].value;
+                            try { const f = pt.getFormulaForWell(this.name + this.getWellRange([w[0]])); if (f && f.length) value = f; } catch (e) { }
+                            return this.showWellAction(pt, value, null, w);
                         },
                         highlight: async (bx, by, x, y, pt) => {
                             this.isHighlighted = false;
@@ -8783,6 +8789,7 @@ function () {
                 let startIndex = null;
                 let currentSelected = [];
                 let cursorIndex = null;
+                let cellButtonPressed = false;   // the press landed on a cell button
 
                 freezFrame = true;
                 singleSelect = false;
@@ -8877,6 +8884,7 @@ function () {
                     }
 
                     const hitCellButton = getCellButtonAt(x, y);
+                    cellButtonPressed = !!hitCellButton;
                     if (hitCellButton) {
                         hitCellButton.button.action(pt.selected_well, pt);
                         return;
@@ -8927,9 +8935,10 @@ function () {
                         if (w[0].icon) {
                             this.showIconMenu(pt, w[0]);
                         } else if (previous_well === current_well) {
-                            // Maximized on the desktop: the text window opens only from the
-                            // menu ("Edit cell text…"); a phone keeps its in-place field.
-                            if (!(pt.__maximized === this && !isMobile())) this.showWellAction(pt, __value, ref, w);
+                            // Desktop: the text window opens only from the cell's "i" button (or
+                            // the maximized menu's "Edit cell text…"); a double-click just keeps
+                            // the cell selected. A phone keeps its in-place field.
+                            if (isMobile()) this.showWellAction(pt, __value, ref, w);
                         }
 
                         singleSelect = false;
@@ -8981,7 +8990,8 @@ function () {
                 };
 
                 let mouseMoveListener = async (x, y) => {
-                    const hoverCellButton = getCellButtonAt(x, y);
+                    const dragging = md && startIndex != null;
+                    const hoverCellButton = dragging ? null : getCellButtonAt(x, y);
 
                     clearCellButtonHighlights();
 
@@ -9199,7 +9209,8 @@ function () {
                         }
                     }
 
-                    const releasedCellButton = getCellButtonAt(x, y);
+                    const releasedCellButton = cellButtonPressed ? getCellButtonAt(x, y) : null;
+                    cellButtonPressed = false;
 
                     if (releasedCellButton) {
                         releasedCellButton.button.action(pt.selected_well, pt);
@@ -15412,31 +15423,33 @@ function () {
                                 this.attr__displayNumberValues = false;
                             }
 
+                            // Maximized: the labels sit on the navy backdrop beyond the white sheet
+                            // (which ends 18px past the table), so they are drawn white, and the
+                            // row numbers move further out to clear the sheet's edge.
+                            const maxed = !!this.__maximizedView;
+                            const labelInk = maxed ? '#ffffff' : 'gray';
+                            const rowGap = maxed ? 36 : 20;
                             for (let x = this.grid.xmin; x < this.grid.xmax; x++) {
                                 const textX = graph.X(this.grid.X(x + 0.5));
-                                const textY = graph.Y((this.grid.yi + this.getHeight(pt))) - 15;
+                                const textY = graph.Y((this.grid.yi + this.getHeight(pt))) - (maxed ? 26 : 15);
                                 const text = `${x} (${getExcelColumnName(x)})`;
 
                                 const textMetrics = ctx.measureText(text);
                                 const textWidth = textMetrics.width;
 
-                                ctx.fillStyle = 'gray';
+                                ctx.fillStyle = labelInk;
                                 ctx.fillText(text, textX - textWidth / 2, textY);
 
                                 for (let y = Math.max(min_y, this.row_vis_start); y < max_y && y < this.row_vis_stop; y++) {
                                     if (this.wells && this.wells[x] != null && this.wells[x][y] != null) {
-                                        const rowTextX = graph.X(this.grid.xi) - 20;
+                                        const rowTextX = graph.X(this.grid.xi) - rowGap;
                                         const rowTextY = graph.Y(this.grid.Y(y + 0.5));
                                         const rowText = '' + y;
 
                                         const rowMetrics = ctx.measureText(rowText);
                                         const rowWidth = rowMetrics.width;
 
-                                        ctx.fillStyle = 'white';
-                                        ctx.beginPath();
-                                        ctx.fill();
-
-                                        ctx.fillStyle = 'gray';
+                                        ctx.fillStyle = labelInk;
                                         ctx.fillText(rowText, rowTextX - rowWidth / 2, rowTextY);
                                     }
                                 }

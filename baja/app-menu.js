@@ -118,7 +118,7 @@ function () {
                 mode: 'editor'
             }
 
-            exec('cpd/editor', '', config, `/app/cpd/editor`)
+            exec('cpd/baja-analytics', '', config, `/app/cpd/baja-analytics`)
         })
 
     })

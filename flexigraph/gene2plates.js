@@ -3238,6 +3238,8 @@ function (plateManager, progress) {
                     // A maximized table/timeline/chart scrolls vertically instead of zooming.
                     if (plateManager && plateManager.plateTrack && plateManager.plateTrack.__maximized) {
                         try { plateManager.plateTrack.__maxScroll(dy); } catch (e) { }
+                        // A trackpad's sideways scroll (or Shift+wheel) moves a wide table sideways.
+                        try { const dx = evt.shiftKey ? dy : (evt.deltaX || 0); if (dx) plateManager.plateTrack.__maxScrollX(dx); } catch (e) { }
                         return;
                     }
                     const direction = dy > 0 ? 1 : -1;

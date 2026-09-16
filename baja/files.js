@@ -289,6 +289,12 @@ function (path) {
                 }
                 ),
                 "ionfunction.path": createIonFunction(async (path) => {
+                    // The shared folders hold code-named subfolders: show the shared documents
+                    // by name, person and date instead.
+                    try {
+                        const pp = '' + ((path && path.path) || path || '');
+                        if (/\/(shared|shared_with_me)\/?$/.test(pp)) exec('baja/plate/collab/shared-documents.js', null, null, null);
+                    } catch (e) { }
                     path_j = path;
                 })
             }
@@ -414,6 +420,12 @@ function (path) {
                     }
                     ),
                     "ionfunction.path": createIonFunction(async (path, nodes) => {
+                    // The shared folders hold code-named subfolders: show the shared documents
+                    // by name, person and date instead.
+                    try {
+                        const pp = '' + ((path && path.path) || path || '');
+                        if (/\/(shared|shared_with_me)\/?$/.test(pp)) exec('baja/plate/collab/shared-documents.js', null, null, null);
+                    } catch (e) { }
 
                         console.log(" - - - - - -path : " + path);
 
