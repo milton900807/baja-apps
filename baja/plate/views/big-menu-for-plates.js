@@ -1812,6 +1812,16 @@ function (pt, sp) {
                     click: () => { sp.showColorMenu(pt); },
                     bg: 'yellow', fg: 'black'
                 },
+                // Data Type at the top level (it was two clicks down, under Data...): the
+                // full-screen library of cell data types for the selected cells.
+                {
+                    label: 'Data Type',
+                    click: async () => {
+                        smenu = null;
+                        await exec('baja/plate/views/well-type-library.js', pt, sp);
+                    },
+                    bg: 'yellow', fg: 'black'
+                },
 
                 {
                     label: 'Data...',

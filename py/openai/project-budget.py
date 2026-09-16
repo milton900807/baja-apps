@@ -106,7 +106,9 @@ def plan(prompt: str) -> Dict[str, Any]:
             "membership dues, sponsorship or other income, and spends on staff, materials, facilities, travel, "
             "outreach and the like. Return only JSON matching the schema. Amounts are per month in USD unless the "
             "text says otherwise; convert yearly figures to monthly. Give 2 to 5 income sources and 4 to 10 expense "
-            "categories with realistic amounts for the project described; a few one-off costs with dates; and 5 to 10 "
+            "categories with realistic amounts for the project described. ALSO give 2 to 8 ONE-TIME project costs "
+            "(equipment, set-up, permits and licences, launch, training, close-out and the like), each a single amount "
+            "with the date it falls due inside the project; these are separate from the monthly categories. And 5 to 10 "
             "dated milestones (kickoff, hires, deliverables, reviews, completion) spread across the project. "
             f"Dates are YYYY-MM-DD; if the text gives no start, start next month after {today}. Duration in months."
         ),
@@ -141,11 +143,11 @@ def build(prompt: str) -> Dict[str, Any]:
     months = max(1, int(p.get("duration_months") or 12))
     end = _add_months(start, months)
 
-    A, I, E, B = "Project_Assumptions", "Project_Income", "Project_Expenses", "Project_Budget"
+    A, I, E, O, B = "Project_Assumptions", "Project_Income", "Project_Expenses", "Project_One_Time_Costs", "Project_Budget"
     tables: Dict[str, Any] = {}
     formulas: Dict[str, str] = {}
     ann: Dict[str, str] = {}
-    units: Dict[str, Dict[str, str]] = {A: {}, I: {}, E: {}, B: {}}
+    units: Dict[str, Dict[str, str]] = {A: {}, I: {}, E: {}, O: {}, B: {}}
 
     # ---- assumptions: the inputs (values the user edits) ----
     rows_a: List[Tuple[str, Any, str]] = [
@@ -157,7 +159,10 @@ def build(prompt: str) -> Dict[str, Any]:
     taken: set = set()
     inc = [(_unique(taken, _label(x["label"])), float(x["monthly_amount"]), x.get("note", "")) for x in (p.get("income") or []) if x.get("label")]
     exp = [(_unique(taken, _label(x["label"])), float(x["monthly_amount"]), x.get("note", "")) for x in (p.get("expenses") or []) if x.get("label")]
-    one = [(_unique(taken, _label(x["label"])), float(x["amount"]), _date(x.get("date"), start)) for x in (p.get("one_off_costs") or []) if x.get("label")]
+    # A one-time cost falls due inside the project: a date the model put before the
+    # kickoff or after the end is pulled to the nearest edge.
+    clamp = lambda d: min(max(d, start), end)
+    one = [(_unique(taken, _label(x["label"])), float(x["amount"]), clamp(_date(x.get("date"), start))) for x in (p.get("one_off_costs") or []) if x.get("label")]
     for lab, amt, note in inc:
         rows_a.append((f"{lab}_Per_Month", amt, "USD/month"))
     for lab, amt, note in exp:
@@ -200,18 +205,36 @@ def build(prompt: str) -> Dict[str, Any]:
     tables[_key(E, 0, r)] = "Total_Expenses_Per_Month"
     formulas[_key(E, 1, r)] = "+".join(exp_labels) if exp_labels else "0"
     r += 1
-    one_labels = []
-    for lab, amt, d in one:
-        tables[_key(E, 0, r)] = f"{lab}_One_Off"
-        formulas[_key(E, 1, r)] = f"{A}[{lab}_One_Off]"
-        one_labels.append(f"{E}[{lab}_One_Off]")
-        r += 1
-    tables[_key(E, 0, r)] = "One_Off_Costs_Total"
-    formulas[_key(E, 1, r)] = "+".join(one_labels) if one_labels else "0"
+    tables[_key(E, 0, r)] = "Monthly_Expenses_Over_Project"
+    formulas[_key(E, 1, r)] = f"{E}[Total_Expenses_Per_Month]*{A}[Duration_Months]"
+    r += 1
+    tables[_key(E, 0, r)] = "One_Time_Costs_Total"
+    formulas[_key(E, 1, r)] = f"{O}[Total_One_Time_Costs]"
     r += 1
     tables[_key(E, 0, r)] = "Total_Expenses_Over_Project"
-    formulas[_key(E, 1, r)] = f"{E}[Total_Expenses_Per_Month]*{A}[Duration_Months]+{E}[One_Off_Costs_Total]"
-    ann[E] = "Monthly costs by category, plus one-off costs."
+    formulas[_key(E, 1, r)] = f"{E}[Monthly_Expenses_Over_Project]+{E}[One_Time_Costs_Total]"
+    ann[E] = "Monthly costs by category; the one-time costs come from their own table."
+
+    # ---- one-time costs: each item with its amount and the date it falls due ----
+    # Their own table, so they read as what they are: the equipment, set-up, launch and
+    # close-out costs paid once, on a date, on top of the monthly categories. The amounts
+    # are inputs in the Assumptions (edit them there); the dates sit beside them here.
+    tables[_key(O, 0, 0)] = "Label"; tables[_key(O, 1, 0)] = "Value"
+    r = 1
+    one_labels = []
+    for lab, amt, d in one:
+        tables[_key(O, 0, r)] = lab
+        formulas[_key(O, 1, r)] = f"{A}[{lab}_One_Off]"
+        one_labels.append(f"{O}[{lab}]")
+        units[O][lab] = "USD"
+        r += 1
+        tables[_key(O, 0, r)] = f"{lab}_Due"
+        tables[_key(O, 1, r)] = d.strftime("%Y-%m-%d")
+        r += 1
+    tables[_key(O, 0, r)] = "Total_One_Time_Costs"
+    formulas[_key(O, 1, r)] = "+".join(one_labels) if one_labels else "0"
+    units[O]["Total_One_Time_Costs"] = "USD"
+    ann[O] = "One-time project costs: paid once, on the date shown, in addition to the monthly expenses."
 
     # ---- budget: the P&L of a project ----
     rows_b = [
@@ -219,6 +242,8 @@ def build(prompt: str) -> Dict[str, Any]:
         ("Total_Expenses_Per_Month", f"{E}[Total_Expenses_Per_Month]"),
         ("Net_Per_Month", f"{B}[Total_Income_Per_Month]-{B}[Total_Expenses_Per_Month]"),
         ("Total_Income_Over_Project", f"{I}[Total_Income_Over_Project]"),
+        ("Monthly_Expenses_Over_Project", f"{E}[Monthly_Expenses_Over_Project]"),
+        ("Total_One_Time_Costs", f"{O}[Total_One_Time_Costs]"),
         ("Total_Expenses_Over_Project", f"{E}[Total_Expenses_Over_Project]"),
         ("Net_Over_Project", f"{B}[Total_Income_Over_Project]-{B}[Total_Expenses_Over_Project]"),
         ("Reserve_At_End", f"{A}[Opening_Reserve]+{B}[Net_Over_Project]"),
@@ -272,14 +297,14 @@ def build(prompt: str) -> Dict[str, Any]:
             "Months": q_months,
             "Income": f"{inc_pm}*{q_months}",
             "Expenses": f"{exp_pm}*{q_months}",
-            "One_Off_Costs": one_q,
+            "One_Time_Costs": one_q,
             "Budget_Required": f"{exp_pm}*{q_months}+{one_q}",
             "Cumulative_Budget_Required": f"{exp_pm}*{so_far}+{one_cum}",
             "Net": f"{inc_pm}*{q_months}-({exp_pm}*{q_months}+{one_q})",
             "Reserve_At_Quarter_End": f"{A}[Opening_Reserve]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum})",
         }
 
-    row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Off_Costs",
+    row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Time_Costs",
                  "Budget_Required", "Cumulative_Budget_Required", "Net", "Reserve_At_Quarter_End"]
     for r, lab in enumerate(row_order, start=1):
         tables[_key(Q, 0, r)] = lab
@@ -301,7 +326,7 @@ def build(prompt: str) -> Dict[str, Any]:
         "Months": f"{A}[Duration_Months]",
         "Income": f"{I}[Total_Income_Over_Project]",
         "Expenses": f"{exp_pm}*{A}[Duration_Months]",
-        "One_Off_Costs": all_ones,
+        "One_Time_Costs": all_ones,
         "Budget_Required": f"{E}[Total_Expenses_Over_Project]",
         "Cumulative_Budget_Required": f"{E}[Total_Expenses_Over_Project]",
         "Net": f"{B}[Net_Over_Project]",

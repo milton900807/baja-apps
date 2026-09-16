@@ -3242,7 +3242,9 @@ function (plateManager, progress) {
                         try { const dx = evt.shiftKey ? dy : (evt.deltaX || 0); if (dx) plateManager.plateTrack.__maxScrollX(dx); } catch (e) { }
                         return;
                     }
-                    const direction = dy > 0 ? 1 : -1;
+                    // Wheel forward (deltaY < 0) zooms IN, wheel back zooms OUT, the way maps
+                    // and browsers do. Reversed on request: it used to be the other way round.
+                    const direction = dy > 0 ? -1 : 1;
 
                     const zoomStep = 10;
 

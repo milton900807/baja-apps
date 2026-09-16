@@ -157,7 +157,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     let confirm = await exec('baja/lib/confirm.js', 'Are you sure you want to delete all and start over?', async () => {
                         pm.plateTrack.reset('/app/cpd/baja-analytics');
 
-                        let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, null)
+                        // Rebuild the menubar from the REAL plate manager, not the local
+                        // { plateTrack } stand-in: the Build and Draw menus hang off it
+                        // (plate_graph.__appMenus) and vanished after New when the stand-in
+                        // was handed over instead.
+                        let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', plate_graph, null)
                         CurrentLayout.setComponent('selectedPanel', button_canvas2)
                     })
                     showModal(confirm)

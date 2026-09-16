@@ -2389,14 +2389,30 @@ function (path, config) {
             };
             // Selection tools on the menubar: icon buttons (a leaf item with an icon and no
             // label renders as an icon button). Each arms one gesture on the workbench.
+            // Zoom while something is maximized: a maximized TIMELINE zooms its time window
+            // about its centre (the same helper the pinch uses; a factor under 1 zooms in).
+            // Any other maximized object pins the view, so the buttons say so.
+            const maximizedZoom = (factor) => {
+                const pt = pm.plateTrack;
+                const o = pt.__maximized;
+                try {
+                    if (pt.__tlIs && pt.__tlIs(o)) {
+                        const box = pt.__maxScreenBox ? pt.__maxScreenBox() : null;
+                        const cx = box ? box.x + box.w / 2 : pt.grid.width / 2;
+                        pt.__tlZoomAt(o, factor, cx);
+                        return;
+                    }
+                } catch (e) { console.warn('timeline zoom', e); }
+                pt.setMessage('Exit maximize to zoom the canvas.', 2);
+            };
             const selectTools = [
                 // Zoom: the same steps as the Draw menu's Zoom in / Zoom out. A maximized
-                // object pins the view, so the buttons say so instead of fighting it.
+                // timeline zooms through time instead (maximizedZoom above).
                 {
                     icon: 'zoom_in', color: '#ffffff', tooltip: 'Zoom in',
                     ionfunction: createIonFunction(async () => {
                         try {
-                            if (pm.plateTrack && pm.plateTrack.__maximized) { pm.plateTrack.setMessage('Exit maximize to zoom the canvas.', 2); return; }
+                            if (pm.plateTrack && pm.plateTrack.__maximized) { maximizedZoom(1 / 1.25); return; }
                             pm.plateTrack.wb(null); await zoomStep(1.25);
                         } catch (e) { console.warn(e); }
                     })
@@ -2405,7 +2421,7 @@ function (path, config) {
                     icon: 'zoom_out', color: '#ffffff', tooltip: 'Zoom out',
                     ionfunction: createIonFunction(async () => {
                         try {
-                            if (pm.plateTrack && pm.plateTrack.__maximized) { pm.plateTrack.setMessage('Exit maximize to zoom the canvas.', 2); return; }
+                            if (pm.plateTrack && pm.plateTrack.__maximized) { maximizedZoom(1.25); return; }
                             pm.plateTrack.wb(null); await zoomStep(1 / 1.25);
                         } catch (e) { console.warn(e); }
                     })

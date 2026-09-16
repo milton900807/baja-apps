@@ -9601,7 +9601,12 @@ function (progress) {
                 const d = this.__msDrag;
                 if (!d || !d.moved || !Number.isFinite(d.px)) return;
                 let text = '';
-                try { text = this.__tlFmt(new Date(d.p.date).getTime()); } catch (e) { return; }
+                // With the day of the week: "Tue, Nov 3, 2026".
+                try {
+                    const dt = new Date(d.p.date);
+                    text = isNaN(dt) ? '' : dt.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+                } catch (e) { return; }
+                if (!text) return;
                 const name = (d.p.name || '').toString();
                 ctx.save();
                 ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
