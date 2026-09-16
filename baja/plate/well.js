@@ -1041,7 +1041,7 @@ function () {
                             const ay = screen_y + inset;
                             const aw = Math.max(1, screen_width - inset * 2);
                             const ah = Math.max(1, screen_height - inset * 2);
-                            drawPunchyArrow(ctx, ax, ay, aw, ah, { arrowDepthPct: 0.01 });
+                            if (!(this.select || this.__editing || this.__highlight__)) drawPunchyArrow(ctx, ax, ay, aw, ah, { arrowDepthPct: 0.01 });   // not on the cell being edited
                             ctx.restore();
                         }
                     }
@@ -1061,7 +1061,7 @@ function () {
                         const ay = screen_y + inset;
                         const aw = Math.max(1, screen_width - inset * 2);
                         const ah = Math.max(1, screen_height - inset * 2);
-                        drawPunchyArrow(ctx, ax, ay, aw, ah, { arrowDepthPct: 0.01 });
+                        if (!(this.select || this.__editing || this.__highlight__)) drawPunchyArrow(ctx, ax, ay, aw, ah, { arrowDepthPct: 0.01 });   // not on the cell being edited
                         ctx.restore();
                     }
                 }

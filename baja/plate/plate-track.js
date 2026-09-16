@@ -8216,6 +8216,47 @@ function (progress) {
                     if (hit === 'exit' || hit === 'menu') return;
                     // The scroll indicator on the right edge: press to jump, drag to scroll.
                     if (x >= this.grid.width - 18 && y > 46) { this.__maxScrollDrag = true; this.__maxScrollTo(y); return; }
+                    // A press on the BODY of a maximized chart or timeline starts a drag that
+                    // moves it: the canvas cannot pan while maximized, so the drag is the
+                    // object's. Tabs and buttons above the body keep their own handling.
+                    this.__maxDrag = null;
+                    // A press inside a maximized TABLE: if it is released without moving, the
+                    // tapped cell opens for editing (see mouseUp). A finger has no double-click.
+                    this.__maxTap = null;
+                    try {
+                        const o = this.__maximized;
+                        if (hit === 'inside' && !(typeof o.drawPlot === 'function') && !o.shape && !this.menu) {
+                            this.__maxTap = { x, y, prev: this.selected_well };
+                        }
+                    } catch (e) { }
+                    try {
+                        const o = this.__maximized;
+                        if (hit === 'inside' && typeof o.drawPlot === 'function' && !this.menu) {
+                            // The object's screen box comes from its world bounds (refreshed
+                            // every frame); its own grid.height is only kept for square plots.
+                            // The tabs and buttons sit above the box, so they are excluded.
+                            const box = this.__maxScreenBox();
+                            const tol = (typeof isMobile === 'function' && isMobile()) ? 24 : 0;
+                            if (box && x >= box.x - tol && x <= box.x + box.w + tol && y >= box.y - tol && y <= box.y + box.h + tol) {
+                                this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
+                                // Timeline gestures: a held press (550 ms, still) starts a time
+                                // range that the next tap closes; a double tap adds a milestone
+                                // (handled on release).
+                                this.__tlCancelPress();
+                                if (this.__tlIs(o) && !this.__tlRange) {
+                                    this.__tlPointer = { x, y };
+                                    this.__tlPressTimer = setTimeout(() => {
+                                        this.__tlPressTimer = null;
+                                        const d = this.__maxDrag;
+                                        if (!d || d.moved || this.__maximized !== o) return;
+                                        this.__tlRange = { startX: this.__tlXUnitsAt(o, x), y: this.__tlYUnitsAt(o, y), sx: x };
+                                        this.__tlLastTap = null;
+                                        try { this.setMessage('Range starts ' + this.__tlFmt(this.__tlXToMs(o, this.__tlRange.startX)) + '. Tap where it ends.', 3); } catch (e) { }
+                                    }, 550);
+                                }
+                            }
+                        }
+                    } catch (e) { }
                     if (!hit && !this.menu) {
                         // A click on the backdrop, outside the maximized object, clears its
                         // cell selection (maximize mode only; the normal canvas is unchanged).
@@ -8382,9 +8423,55 @@ function (progress) {
             mouseUp(x, y) {
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
+                    if (this.__maxDrag) {
+                        const d = this.__maxDrag; this.__maxDrag = null;
+                        this.__tlCancelPress();
+                        if (d.moved) return;
+                        const o = this.__maximized;
+                        if (this.__tlIs(o) && !this.menu) {
+                            const now = Date.now();
+                            if (this.__tlRange) {
+                                // Second tap: close the range.
+                                const r = this.__tlRange; this.__tlRange = null;
+                                this.__tlAddRange(o, r, x, y);
+                                return;
+                            }
+                            const lt = this.__tlLastTap;
+                            if (lt && (now - lt.t) < 400 && Math.abs(lt.x - x) < 30 && Math.abs(lt.y - y) < 30) {
+                                this.__tlLastTap = null;
+                                this.__tlAddMilestone(o, x, y);
+                                return;
+                            }
+                            this.__tlLastTap = { t: now, x, y };
+                        }
+                    }
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit') { this.exitMaximize(); return; }
                     if (hit === 'menu') { this.__maxOpenMenu(); return; }
+                    if (this.__maxTap) {
+                        const t = this.__maxTap; this.__maxTap = null;
+                        try {
+                            const o = this.__maximized;
+                            if (hit === 'inside' && o && o.getWell && o.showWellAction && !this.menu) {
+                                const well = o.getWell(this.grid.Xwc(x), this.grid.Ywc(y));
+                                // Not a tap on the button strip under the previously selected cell.
+                                const pv = t.prev;
+                                const onStrip = !!(pv && Number.isFinite(pv.__screen_y) && y >= pv.__screen_y + (pv.__screen_height || 0)
+                                    && y <= pv.__screen_y + (pv.__screen_height || 0) + 32 && x >= (pv.__screen_x || 0) + 100);
+                                if (well && !onStrip) {
+                                    setTimeout(() => {
+                                        try {
+                                            if (this.__maximized !== o || this.menu) return;
+                                            if (this.selected_well !== well) { try { o.deselectAll(); } catch (e) { } try { well.selectIt(); } catch (e) { } this.selected_well = well; }
+                                            let value = well.value;
+                                            try { const f = this.getFormulaForWell(o.name + o.getWellRange([well])); if (f && f.length) value = f; } catch (e) { }
+                                            o.showWellAction(this, value, null, [well]);
+                                        } catch (e) { console.warn('cell tap', e); }
+                                    }, 40);
+                                }
+                            }
+                        } catch (e) { }
+                    }
                     if (!hit && !this.menu) return;
                 }
                 if (isMobile()) {
@@ -8450,6 +8537,7 @@ function (progress) {
                 // Tab belongs to the table while one is selected: it walks the cells. Left to the
                 // browser it moves focus to the next control on the page and every keystroke
                 // after that goes there instead of the canvas.
+                if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;   // the phone's cell field owns its keys
                 if (event && event.key === 'Tab' && (this.selectedPlate || (typeof textActive !== 'undefined' && textActive))) {
                     try { event.preventDefault(); event.stopPropagation(); } catch (e) { }
                     try {
@@ -8903,6 +8991,27 @@ function (progress) {
             mouseMove(x, y) {
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
+                    if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
+                    if (this.__maxDrag) {
+                        const d = this.__maxDrag, o = this.__maximized, g = this.grid;
+                        g.rescale();
+                        if (Math.abs(x - d.sx) + Math.abs(y - d.sy) > 3) { if (!d.moved) this.__tlCancelPress(); d.moved = true; }
+                        this.__tlPointer = { x, y };
+                        // A timeline: the drag pans THROUGH it, moving its time window under the
+                        // finger (a pending range is left alone). A chart is moved as an object.
+                        if (this.__tlIs(o)) {
+                            if (d.lastX == null) d.lastX = d.sx;
+                            if (d.moved && !this.__tlRange) this.__tlPanPx(o, x - d.lastX);
+                            d.lastX = x;
+                            return;
+                        }
+                        if (d.moved && Number.isFinite(d.ox) && Number.isFinite(d.oy)) {
+                            o.x = d.ox + (x - d.sx) * (g.xmax - g.xmin) / Math.max(1, g.width);
+                            o.y = d.oy - (y - d.sy) * (g.ymax - g.ymin) / Math.max(1, g.height);
+                            try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                        }
+                        return;
+                    }
                     // The object stays put: any move or resize that started is cancelled.
                     try { const o = this.__maximized; if (o.__moving) o.__moving = false; if (o.__resizing) o.__resizing = false; } catch (e) { }
                 }
@@ -9085,7 +9194,18 @@ function (progress) {
             }
             __maxBottomPx(obj) {
                 const o = obj || this.__maximized;
-                return 50 + ((o && typeof o.drawPlot === 'function') ? 120 : 0);
+                let px = 50 + ((o && typeof o.drawPlot === 'function') ? 120 : 0);
+                // The navigation bar floats over the bottom of the canvas: leave room for it
+                // (its measured height, or a phone-sized allowance) so the last rows and the
+                // chart labels can scroll clear of it. Larger again on a phone, where the bar
+                // is taller and the screen shorter.
+                try {
+                    const bar = document.getElementById('baja-nav-panel');
+                    const barH = bar ? Math.ceil(bar.getBoundingClientRect().height) + 14 : 0;
+                    const mobile = (typeof isMobile === 'function' && isMobile());
+                    px += Math.max(barH, mobile ? 72 : 0) + (mobile ? 40 : 0);
+                } catch (e) { }
+                return px;
             }
             __maxWorldBounds(obj) {
                 if (!obj) return null;
@@ -9141,9 +9261,11 @@ function (progress) {
                 const b = this.__maxWorldBounds(obj);
                 if (!b) { try { this.setMessage('This object cannot be maximized.', 2); } catch (e) { } return; }
                 if (!this.__maximized) this.__maxGridBefore = JSON.parse(JSON.stringify(this.grid));
-                if (this.__maximized && this.__maximized !== obj) this.__maxRestoreButtons(this.__maximized);
+                if (this.__maximized && this.__maximized !== obj) { this.__maxRestoreButtons(this.__maximized); try { this.__maximized.__maximizedView = false; } catch (e) { } }
                 this.__maxHideButtons(obj);
                 this.__maximized = obj;
+                try { obj.__maximizedView = true; } catch (e) { }   // painters draw the title for the navy backdrop
+                try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) window.__bajaNavPanel.refresh(); } catch (e) { }
                 // Any side control already showing (e.g. Deselect Cells) is dismissed.
                 try { this.side_menu = null; this.__last_side_menu_ref = null; } catch (e) { }
                 // No panning of the canvas and no moving of the object while maximized: the
@@ -9151,11 +9273,7 @@ function (progress) {
                 // below pins the view every frame as a backstop. Only the scroll moves.
                 try {
                     const gg = CurrentLayout.getStashed('graph');
-                    if (gg && gg.graph) {
-                        gg.graph.__suppressPan = true;
-                        // On a phone the finger drag that would pan scrolls the maximized object instead.
-                        gg.graph.__touchScroll = (dy) => { try { this.__maxScroll(dy); } catch (e) { } };
-                    }
+                    if (gg && gg.graph) gg.graph.__suppressPan = true;
                 } catch (e) { }
                 this.__maxAnimating = true;
                 if (this.__maxAnimTimer) clearTimeout(this.__maxAnimTimer);
@@ -9165,7 +9283,10 @@ function (progress) {
                 const cw = Math.max(1, this.grid.width), ch = Math.max(1, this.grid.height);
                 const HEADER = this.__maxTopPx(obj);   // title bar + 50px buffer (+ label room for plots)
                 const width = Math.max(1e-6, b.x1 - b.x0);
-                let xRange = width * 1.08;
+                // Charts and timelines fit the width almost edge to edge (1% each side); tables
+                // keep the 4% breathing room around their buttons.
+                const sideFrac = (typeof obj.drawPlot === 'function') ? 0.01 : 0.04;
+                let xRange = width * (1 + 2 * sideFrac);
                 let yRange = xRange * (ch / cw);
                 // A table's cells are capped at 40px tall: a narrow table fitted to the
                 // width would otherwise blow its rows up to the size of the screen. When the
@@ -9181,7 +9302,7 @@ function (progress) {
                     }
                 }
                 const centerX = (b.x0 + b.x1) / 2;
-                const xmin = (xRange > width * 1.08) ? (centerX - xRange / 2) : (b.x0 - width * 0.04);
+                const xmin = (xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac);
                 const xmax = xmin + xRange;
                 const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
                 this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b };
@@ -9190,11 +9311,94 @@ function (progress) {
                     this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
                 }
                 if (!this.__maxKey) {
-                    this.__maxKey = (e) => { if (e && e.key === 'Escape' && this.__maximized && !this.__objectOnly) { e.preventDefault(); this.exitMaximize(); } };
+                    this.__maxKey = (e) => {
+                        if (!(e && e.key === 'Escape' && this.__maximized)) return;
+                        if (this.__tlRange) { e.preventDefault(); this.__tlRange = null; try { this.setMessage('Range cancelled', 1); } catch (x) { } return; }
+                        if (!this.__objectOnly) { e.preventDefault(); this.exitMaximize(); }
+                    };
                     try { window.addEventListener('keydown', this.__maxKey, true); } catch (e) { }
                 }
                 if (!this.__objectOnly) { try { this.setMessage('Maximized: ' + (obj.name || 'object') + '. Scroll to move down, Escape or Exit to return.', 2); } catch (e) { } }
             }
+            // ---- Timeline time window ---------------------------------------------------
+            // A timeline draws the dates startDate..endDate across its axis range xmin..xmax
+            // and re-derives every dated point from that window each frame. Navigating time
+            // therefore means moving the DATES, not the axis: these helpers do that, stamping
+            // a date on any point that has none first so it travels with the window.
+            __tlIs(o) { return !!(o && typeof o.drawPlot === 'function' && o.type === 'timeline' && o.startDate && o.endDate && o.grid); }
+            __tlWin(o) {
+                const s = (o.startDate instanceof Date) ? o.startDate.getTime() : new Date(o.startDate).getTime();
+                const e = (o.endDate instanceof Date) ? o.endDate.getTime() : new Date(o.endDate).getTime();
+                return { xmin: o.grid.xmin, xmax: o.grid.xmax, startMs: s, endMs: e, range: o.grid.xmax - o.grid.xmin, span: e - s };
+            }
+            __tlXToMs(o, xUnits) { const w = this.__tlWin(o); return w.startMs + (xUnits - w.xmin) / (w.range || 1) * w.span; }
+            __tlMsToX(o, ms) { const w = this.__tlWin(o); return w.xmin + (ms - w.startMs) / (w.span || 1) * w.range; }
+            // Screen x -> axis units. grid.Xwc() adds xi where it should subtract it, so every
+            // caller in the plot passes x - 2*xi; the same here.
+            __tlXUnitsAt(o, x) { o.grid.rescale(); return o.grid.Xwc(x - 2 * o.grid.xi); }
+            __tlYUnitsAt(o, y) { o.grid.rescale(); return o.grid.Ywc(y - 2 * o.grid.yi); }
+            __tlStampDates(o) {
+                for (const p of ((o.scatterData && o.scatterData.points) || [])) {
+                    if (!p) continue;
+                    if (p.date == null && Number.isFinite(p.x)) p.date = new Date(this.__tlXToMs(o, p.x));
+                    if (p.type === 'interval' && p.__startDate == null && Number.isFinite(p.startX)) p.__startDate = new Date(this.__tlXToMs(o, p.startX));
+                }
+            }
+            __tlSetWindow(o, startMs, endMs) {
+                if (!(Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)) return;
+                this.__tlStampDates(o);
+                o.startDate = new Date(startMs); o.endDate = new Date(endMs);
+                for (const p of ((o.scatterData && o.scatterData.points) || [])) {
+                    if (!p) continue;
+                    if (p.date != null) { const t = new Date(p.date).getTime(); if (Number.isFinite(t)) p.x = this.__tlMsToX(o, t); }
+                    if (p.type === 'interval' && p.__startDate != null) { const t = new Date(p.__startDate).getTime(); if (Number.isFinite(t)) p.startX = this.__tlMsToX(o, t); }
+                }
+                o.fitScaleToData = false;
+            }
+            // Pan the window by a screen distance (finger / mouse drag through the timeline).
+            __tlPanPx(o, dxPx) {
+                const w = this.__tlWin(o);
+                const dt = -dxPx / Math.max(1, o.grid.width || 1) * w.span;
+                if (Number.isFinite(dt) && dt !== 0) this.__tlSetWindow(o, w.startMs + dt, w.endMs + dt);
+            }
+            // Zoom the window by a factor about a screen x (pinch: fingers apart -> factor < 1).
+            __tlZoomAt(o, factor, x) {
+                const w = this.__tlWin(o);
+                const c = this.__tlXToMs(o, this.__tlXUnitsAt(o, x));
+                const ns = c - (c - w.startMs) * factor, ne = c + (w.endMs - c) * factor;
+                if (ne - ns >= 60 * 1000) this.__tlSetWindow(o, ns, ne);
+            }
+            __tlFmt(ms) { const d = new Date(ms); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+            // A milestone at a screen point, named by the user.
+            async __tlAddMilestone(o, x, y) {
+                const xu = this.__tlXUnitsAt(o, x), yu = this.__tlYUnitsAt(o, y);
+                const ms = this.__tlXToMs(o, xu);
+                let va = null;
+                try { va = await prompt('Milestone on ' + this.__tlFmt(ms), ['Text'], { 'Text': '' }, 300, 300); } catch (e) { va = null; }
+                if (!va || va['Text'] == null) return;
+                if (!o.scatterData) o.scatterData = { points: [] };
+                if (!Array.isArray(o.scatterData.points)) o.scatterData.points = [];
+                o.scatterData.points.push({ x: xu, y: yu, type: 'milestone', name: '' + va['Text'], color: 'red', date: new Date(ms) });
+                try { if (this.__collab && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                try { this.setMessage('Milestone added on ' + this.__tlFmt(ms), 2); } catch (e) { }
+            }
+            // A time range from a held press to a second tap, named by the user.
+            async __tlAddRange(o, r, x, y) {
+                const xu = this.__tlXUnitsAt(o, x);
+                let a = r.startX, b = xu;
+                if (b < a) { const t = a; a = b; b = t; }
+                const sMs = this.__tlXToMs(o, a), eMs = this.__tlXToMs(o, b);
+                let va = null;
+                try { va = await prompt(this.__tlFmt(sMs) + ' to ' + this.__tlFmt(eMs), ['Text'], { 'Text': '' }, 300, 300); } catch (e) { va = null; }
+                if (!va || va['Text'] == null) return;
+                if (!o.scatterData) o.scatterData = { points: [] };
+                if (!Array.isArray(o.scatterData.points)) o.scatterData.points = [];
+                o.scatterData.points.push({ x: b, startX: a, y: r.y, type: 'interval', name: '' + va['Text'], color: '#0a2540', date: new Date(eMs), __startDate: new Date(sMs) });
+                try { if (this.__collab && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                try { this.setMessage('Range added: ' + this.__tlFmt(sMs) + ' to ' + this.__tlFmt(eMs), 2); } catch (e) { }
+            }
+            __tlCancelPress() { try { clearTimeout(this.__tlPressTimer); } catch (e) { } this.__tlPressTimer = null; }
+
             // The topmost object under a screen point: a note, a chart or timeline, or a table.
             objectAt(x, y) {
                 try { const g = this.getGlyph(x, y); if (g) return { obj: g, kind: 'glyph' }; } catch (e) { }
@@ -9249,9 +9453,14 @@ function (progress) {
                 if (!this.__maximized) return;
                 if (this.__objectOnly) return;   // a single-object share has nowhere to go back to
                 this.__maxRestoreButtons(this.__maximized);
+                try { this.__maximized.__maximizedView = false; } catch (e) { }
                 this.__maximized = null;
+                this.__maxDrag = null; this.__maxTap = null;
+                this.__tlRange = null; this.__tlLastTap = null; this.__tlCancelPress();
+                this.__maxRestoreRect = null;
+                try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) setTimeout(() => window.__bajaNavPanel && window.__bajaNavPanel.refresh(), 0); } catch (e) { }
                 this.__maxScrollDrag = false;
-                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) { gg.graph.__suppressPan = false; gg.graph.__touchScroll = null; } } catch (e) { }
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 this.__maxExitRect = null;
                 this.__maxMenuRect = null;
                 if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
@@ -9353,6 +9562,8 @@ function (progress) {
                 if (!this.__maximized) return null;
                 const r = this.__objectOnly ? null : this.__maxExitRect;
                 if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'exit';
+                const u = this.__objectOnly ? null : this.__maxRestoreRect;
+                if (u && x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h) return 'exit';
                 const m = this.__maxMenuRect;
                 if (m && x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) return 'menu';
                 const box = this.__maxScreenBox();
@@ -9401,6 +9612,26 @@ function (progress) {
                     ctx.fillText(ml, mx + mw / 2, my + mh / 2 + 0.5);
                     this.__maxMenuRect = { x: mx, y: my, w: mw, h: mh };
                 }
+                this.__maxRestoreRect = null;
+                // A time range being picked: a cyan band from the held press to the pointer.
+                try {
+                    const r = this.__tlRange;
+                    if (r && this.__tlIs(obj)) {
+                        obj.grid.rescale();
+                        const box = this.__maxScreenBox();
+                        const x0 = obj.grid.X(r.startX);
+                        const x1 = (this.__tlPointer && Number.isFinite(this.__tlPointer.x)) ? this.__tlPointer.x : x0;
+                        const top = box ? box.y : 52, hgt = box ? box.h : (H - 52);
+                        ctx.fillStyle = 'rgba(26,163,189,0.22)';
+                        ctx.fillRect(Math.min(x0, x1), top, Math.max(2, Math.abs(x1 - x0)), hgt);
+                        ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.moveTo(x0, top); ctx.lineTo(x0, top + hgt); ctx.stroke();
+                        ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        ctx.fillStyle = '#0a2540'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+                        const lbl = this.__tlFmt(this.__tlXToMs(obj, r.startX)) + ' \u2192 ' + this.__tlFmt(this.__tlXToMs(obj, this.__tlXUnitsAt(obj, x1))) + '   (tap to end, Escape to cancel)';
+                        ctx.fillText(lbl, Math.min(x0, x1) + 6, top + 6);
+                    }
+                } catch (e) { }
                 // Scroll indicator on the right when the object is taller than the view.
                 try {
                     const b = this.__maxWorldBounds(obj) || (this.__maxBounds && this.__maxBounds.b);

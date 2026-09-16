@@ -21,6 +21,7 @@ function (path, config) {
         }
     } catch (e) { }
     try { window.__bajaCpdListeners = []; } catch (e) { }
+    try { if (window.__bajaNavPanel && window.__bajaNavPanel.destroy) window.__bajaNavPanel.destroy(); } catch (e) { }
     const __track = (target, type, fn, capture) => {
         try { window.__bajaCpdListeners.push([target, type, fn, capture]); } catch (e) { }
         try { target.addEventListener(type, fn, capture); } catch (e) { }
@@ -522,6 +523,9 @@ function (path, config) {
                     if (pm.plateTrack.__collab) pm.plateTrack.__collabDoc = __collabPath;
                 }
             } catch (e) { console.warn('live session not started', e); }
+            // Navigation bar: camera history (a view held 20 s becomes a place; Back /
+            // Forward walk them) and bookmarks that open any object maximized.
+            try { pm.plateTrack.__nav = await exec('baja/plate/views/navigation-history.js', pm.plateTrack, graph); } catch (e) { console.warn('navigation bar', e); }
             // Single-object share: find the object once the document is on the canvas and
             // pin the view to it. A few tries, because the plots are rebuilt on the first
             // frames after a load.
@@ -586,6 +590,7 @@ function (path, config) {
             }
 
             __track(document, 'keydown', async (event) => {
+                if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;
 
                 if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
                     event.preventDefault();
@@ -913,6 +918,9 @@ function (path, config) {
             let px = 0;
             let py = 0;
             let mouse_down = false;
+            // Mobile finger tracking: the world point under the finger when the pan began
+            // (kept there by moving the grid), and the last screen y for the maximized scroll.
+            let __touchPx = null, __touchPy = null, __touchSy = null;
 
             let dragnavigate = () => {
                 draw = null;
@@ -1251,6 +1259,7 @@ function (path, config) {
                 // does the pan). Nothing is selected, dragged or resized under a finger; once
                 // an object is maximized, taps inside it work as on the desktop.
                 if (isMobile() && pm.plateTrack) {
+                    __touchPx = null; __touchPy = null; __touchSy = scy;
                     if (pm.plateTrack.mobileTap && pm.plateTrack.mobileTap(scx, scy)) return;
                     if (!pm.plateTrack.__maximized) return;
                 }
@@ -1312,6 +1321,7 @@ function (path, config) {
                 py = 0;
                 mouse_down = false;
                 // Mobile, nothing maximized and no menu open: the release ends a pan, nothing more.
+                __touchPx = null; __touchPy = null; __touchSy = null;
                 if (isMobile() && pm.plateTrack && !pm.plateTrack.menu && !pm.plateTrack.__maximized) return;
                 if (!smenu && pm.plateTrack) {
                     pm.plateTrack.mouseUp(scx, scy)
@@ -1381,9 +1391,30 @@ function (path, config) {
                 if (pm.plateTrack.isTextActive()) {
                     return null
                 }
-                // Mobile: a moving finger pans (or scrolls the maximized object); it never
-                // drags a table, resizes a chart or extends a cell selection.
-                if (isMobile() && pm.plateTrack && !pm.plateTrack.menu) return null;
+                // Mobile: a moving finger pans the canvas, or scrolls the maximized object; it
+                // never drags a table, resizes a chart or extends a cell selection. The pan is
+                // done HERE on the plate-track grid: the graph's own touch pan moves a grid
+                // Analytics does not draw with, which is why a finger drag showed nothing.
+                if (isMobile() && pm.plateTrack && !pm.plateTrack.menu) {
+                    const pt = pm.plateTrack;
+                    if (mouse_down && !smenu) {
+                        if (pt.__maximized) {
+                            if (pt.__maxDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } }   // the chart/timeline itself is being moved
+                            else if (__touchSy != null) { try { pt.__maxScroll(__touchSy - scy); } catch (e) { } }
+                            __touchSy = scy;
+                        } else {
+                            const g = pt.grid;
+                            if (__touchPx == null) { __touchPx = g.Xwc(scx); __touchPy = g.Ywc(scy); }
+                            else {
+                                const xd = __touchPx - g.Xwc(scx), yd = __touchPy - g.Ywc(scy);
+                                g.setxmin(g.getxmin() + xd); g.setxmax(g.getxmax() + xd);
+                                g.setymin(g.getymin() + yd); g.setymax(g.getymax() + yd);
+                                g.rescale();
+                            }
+                        }
+                    }
+                    return null;
+                }
 
                 current_mousex = scx;
                 current_mousey = scy;
@@ -1610,8 +1641,8 @@ function (path, config) {
 
 
             __track(window, 'keydown', async (event) => {
-
-
+                // Keys typed into the mobile cell field belong to it alone.
+                if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;
                 if (pm.plateTrack.isTextActive()) {
                     if (event.key === 'Escape') {
                         pm.plateTrack.setTextActive(false)
@@ -6363,13 +6394,30 @@ function (path, config) {
                 __xb.setAttribute('role', 'button');
                 __xb.setAttribute('tabindex', '0');
                 __xb.setAttribute('aria-label', 'Close this workspace');
-                __xb.textContent = '\u2715';
-                __xb.style.cssText = 'position:fixed;top:44px;right:14px;z-index:2147483000;'
-                    + 'width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
-                    + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
-                    + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-                __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
-                __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
+                // Not in the top-right corner: that is where the object buttons and the
+                // maximized title bar live, and the ✕ sat on top of them. It joins the
+                // navigation bar at the bottom right when that exists, else stands bottom-left.
+                const __navBar = document.getElementById('baja-nav-panel');
+                if (__navBar) {
+                    // A small round ✕ icon at the end of the bar, not a labelled button.
+                    const __d = (typeof isMobile === 'function' && isMobile()) ? 26 : 22;
+                    __xb.textContent = '\u2715';
+                    __xb.style.cssText = 'width:' + __d + 'px;height:' + __d + 'px;margin-left:4px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                        + 'background:rgba(255,255,255,0.10);color:#eaf6f9;font:700 11px Arial,sans-serif;line-height:1;cursor:pointer;user-select:none;'
+                        + 'border:1px solid rgba(255,255,255,0.22);flex:0 0 auto;';
+                    __xb.onmouseenter = () => { try { __xb.style.background = '#FD5E53'; __xb.style.borderColor = '#FD5E53'; } catch (e) { } };
+                    __xb.onmouseleave = () => { try { __xb.style.background = 'rgba(255,255,255,0.10)'; __xb.style.borderColor = 'rgba(255,255,255,0.22)'; } catch (e) { } };
+                } else {
+                    __xb.textContent = '\u2715';
+                    __xb.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:2147483000;'
+                        + 'width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                        + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
+                        + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
+                }
+                if (!__navBar) {
+                    __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
+                    __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
+                }
                 const __goHome = async () => {
                     let __leave = true;
                     try {
@@ -6381,6 +6429,7 @@ function (path, config) {
                     } catch (e) { __leave = false; }
                     if (!__leave) return;
                     try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
+                    try { if (window.__bajaNavPanel && window.__bajaNavPanel.destroy) window.__bajaNavPanel.destroy(); } catch (e) { }
                     try {
                         for (const rec of (window.__bajaCpdListeners || [])) {
                             try { rec[0].removeEventListener(rec[1], rec[2], rec[3]); } catch (e) { }
@@ -6394,7 +6443,7 @@ function (path, config) {
                 __xb.onkeydown = (e) => {
                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
                 };
-                document.body.appendChild(__xb);
+                (__navBar || document.body).appendChild(__xb);
             } catch (e) { console.log('[analytics] close button failed: ' + e); }
 
             working.status = 'complete'

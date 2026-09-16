@@ -214,7 +214,7 @@ function () {
 
             drawInputFieldWithRedBorder(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius, well);
 
-            drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
+            if (!(well.select || well.__editing || well.__highlight__)) drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
                 arrowDepthPct: 0.10
             });
 
@@ -353,7 +353,7 @@ function () {
 
                 const cornerRadius = 4 * scaleFactor;
                 drawInputField(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius, well);
-                drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
+                if (!(well.select || well.__editing || well.__highlight__)) drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
                     arrowDepthPct: 0.10
                 });
 
@@ -2100,7 +2100,7 @@ function () {
                 drawInputFieldWithRedBorder(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius, well);
                 ctx.restore();
 
-                drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
+                if (!(well.select || well.__editing || well.__highlight__)) drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
                     arrowDepthPct: 0.10
                 });
                 let raw = parseFloat((well.value || "").toString().replace(/[^\d.-]/g, ''));
@@ -2250,7 +2250,7 @@ function () {
 
                 drawInputFieldWithRedBorder(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius, well);
 
-                drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
+                if (!(well.select || well.__editing || well.__highlight__)) drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
                     arrowDepthPct: 0.10
                 });
 
@@ -2290,7 +2290,7 @@ function () {
 
                 drawInputFieldWithRedBorder(ctx, screen_x, screen_y, screen_width, screen_height, cornerRadius, well);
 
-                drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
+                if (!(well.select || well.__editing || well.__highlight__)) drawPunchyArrow(ctx, screen_x, screen_y, screen_width, screen_height, {
                     arrowDepthPct: 0.10
                 });
 

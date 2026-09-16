@@ -3545,6 +3545,7 @@ function (MGrid) {
                     ctx.fillStyle = 'lightBlue';
                     ctx.font = '21px Arial';
                     ctx.textAlign = 'center';
+                    if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                     ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                 }
             }
@@ -3688,6 +3689,7 @@ function (MGrid) {
                         ctx.fillStyle = 'lightGray';
                         ctx.font = '21px Arial';
                         ctx.textAlign = 'center';
+                        if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                         ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                     }
 
@@ -3850,6 +3852,7 @@ function (MGrid) {
                         ctx.fillStyle = 'lightGray';
                         ctx.font = '21px Arial';
                         ctx.textAlign = 'center';
+                        if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                         ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                     }
 
@@ -13082,6 +13085,7 @@ function (MGrid) {
                     ctx.fillStyle = 'lightGray';
                     ctx.font = '21px Arial';
                     ctx.textAlign = 'center';
+                    if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, grid.xi + grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                     ctx.fillText(this.name, grid.xi + grid.width / 2, this.grid.yi - 10);
                 }
 
@@ -13630,7 +13634,9 @@ function (MGrid) {
                         const timelinePoints = this.scatterData.points;
                         if (!timelinePoints || timelinePoints.length === 0) return;
                         const grid = this.grid;
-                        grid.setInset(100, 50)
+                        // A 100px inset each side left a wide empty band at both ends of every
+                        // timeline; the milestones now run close to the edges of the frame.
+                        grid.setInset(24, 50)
                         const xMin = this.grid.xmin;
                         const xMax = this.grid.xmax;
                         grid.rescale();
@@ -13777,6 +13783,12 @@ function (MGrid) {
                         const showMonths = pxPerMonth >= 45;
                         const showYears = pxPerYear >= 10;
 
+                        // Not maximized: the points, and above all the range arrows, are clipped to the
+                        // timeline's frame, so a range that runs past the visible window stops at the
+                        // border instead of shooting across the canvas. Maximized, the frame IS the view.
+                        const __clipFrame = !this.__maximizedView;
+                        if (__clipFrame) { ctx.save(); ctx.beginPath(); ctx.rect(grid.xi - 2, grid.yi - 2, grid.width + 4, grid.height + 4); ctx.clip(); }
+                        try {
                         for (const point of sortedPoints) {
                             if (point.y > this.grid.ymax) {
                                 point.y = this.grid.ymax;
@@ -14942,6 +14954,7 @@ function (MGrid) {
                                 }
                             }
                         }
+                        } finally { if (__clipFrame) ctx.restore(); }   // a return inside the loop must not leave the clip on
 
                         for (const fn of behindLabels) fn();
                         for (const fn of labelLayer) fn();

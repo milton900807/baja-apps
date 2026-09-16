@@ -885,6 +885,11 @@ function () {
                     if (__dw.length && __dw.every(x => x && x.skin_type === 'DATE')) {
                         return exec('baja/plate/views/date-picker.js', pt, this, __dw);
                     }
+                    // A phone gets a plain field over the cell, not the modal text window.
+                    if (typeof isMobile === 'function' && isMobile()) {
+                        const __mw = (w && w.length) ? w : __dw;
+                        if (__mw && __mw.length) return exec('baja/plate/views/mobile-cell-editor.js', pt, this, __mw);
+                    }
                 } catch (e) { }
                 if (this.plateType === 'package') {
                     let m = [

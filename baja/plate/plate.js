@@ -1045,6 +1045,11 @@ function () {
                     if (__dw.length && __dw.every(x => x && x.skin_type === 'DATE')) {
                         return exec('baja/plate/views/date-picker.js', pt, this, __dw);
                     }
+                    // A phone gets a plain field over the cell, not the modal text window.
+                    if (typeof isMobile === 'function' && isMobile()) {
+                        const __mw = (w && w.length) ? w : __dw;
+                        if (__mw && __mw.length) return exec('baja/plate/views/mobile-cell-editor.js', pt, this, __mw);
+                    }
                 } catch (e) { }
                 if (this.plateType === 'package') {
                     let m = [
@@ -15073,17 +15078,22 @@ function () {
 
                 ctx.save();
 
-                ctx.globalAlpha = 0.2;
-                ctx.fillStyle = "#4a4dff";
+                // Maximized: the title sits on the navy backdrop, so it is drawn solid white
+                // with a navy halo (readable on the white sheet too) instead of the faint blue.
+                const maxed = !!this.__maximizedView;
+                ctx.globalAlpha = maxed ? 1 : 0.2;
+                ctx.fillStyle = maxed ? '#ffffff' : "#4a4dff";
+                ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
                 ctx.shadowColor = "transparent";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
 
                 ctx.save();
-                ctx.font = `${topFontPx}px Arial`;
+                ctx.font = maxed ? `600 ${topFontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` : `${topFontPx}px Arial`;
                 const topCenterX = x + w / 2;
                 const topCenterY = (y - h - topFontPx * 2);
                 const topMaxWidth = Math.max(0, w - padX * 2);
+                if (maxed) ctx.strokeText(name, topCenterX, topCenterY, topMaxWidth);
                 ctx.fillText(name, topCenterX, topCenterY, topMaxWidth);
                 ctx.restore();
 
@@ -15094,6 +15104,7 @@ function () {
                 ctx.translate(leftInnerX, leftCenterY);
                 ctx.rotate(-Math.PI / 2);
                 const sideMaxWidth = Math.max(0, h - padY * 2);
+                if (maxed) ctx.strokeText(name, 0, 0, sideMaxWidth);
                 ctx.fillText(name, 0, 0, sideMaxWidth);
                 ctx.restore();
 

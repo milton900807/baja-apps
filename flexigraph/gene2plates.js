@@ -2891,6 +2891,44 @@ function (plateManager, progress) {
 
                 this.pinchListener = (evt) => {
 
+                    // A maximized chart or timeline: the pinch zooms ITS x axis (time), centred
+                    // on the point between the fingers, instead of the canvas, which is pinned
+                    // while maximized. Zooming the axis turns the timeline's auto-fit off, so the
+                    // zoom stays.
+                    try {
+                        const pt = plateManager.plateTrack;
+                        const o = pt && pt.__maximized;
+                        if (o && pt.__tlIs && pt.__tlIs(o)) {
+                            // A timeline shows startDate..endDate across its axis: zoom the DATES
+                            // about the point between the fingers (plate-track remaps the points).
+                            if (this.prev) {
+                                const dNow = Math.hypot(evt.xf - evt.xi, evt.yf - evt.yi);
+                                const dPrev = Math.hypot(this.prev.xf - this.prev.xi, this.prev.yf - this.prev.yi);
+                                if (dNow > 8 && dPrev > 8) pt.__tlZoomAt(o, dPrev / dNow, (evt.xi + evt.xf) / 2);   // apart -> < 1 -> in
+                            }
+                            this.prev = evt;
+                            return;
+                        }
+                        if (o && typeof o.drawPlot === 'function' && o.grid && typeof o.setxmin === 'function') {
+                            // Any other chart: zoom its own x axis about the pinch centre.
+                            if (this.prev) {
+                                const dNow = Math.hypot(evt.xf - evt.xi, evt.yf - evt.yi);
+                                const dPrev = Math.hypot(this.prev.xf - this.prev.xi, this.prev.yf - this.prev.yi);
+                                if (dNow > 8 && dPrev > 8) {
+                                    const scale = dPrev / dNow;
+                                    o.grid.rescale();
+                                    const cx = o.grid.Xwc((evt.xi + evt.xf) / 2 - 2 * o.grid.xi);
+                                    const xmin = o.grid.xmin, xmax = o.grid.xmax;
+                                    const nmin = cx - (cx - xmin) * scale, nmax = cx + (xmax - cx) * scale;
+                                    if (Number.isFinite(nmin) && Number.isFinite(nmax) && nmax > nmin) { o.setxmin(nmin); o.setxmax(nmax); }
+                                }
+                            }
+                            this.prev = evt;
+                            return;
+                        }
+                        if (o) { this.prev = evt; return; }   // a maximized table: the pinned view does not zoom
+                    } catch (e) { }
+
                     if (!this.prev) {
                         this.prev = evt
                     } else {

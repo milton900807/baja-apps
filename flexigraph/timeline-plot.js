@@ -439,7 +439,9 @@ function (MGrid) {
                     this.grid = new Grid(this.x, this.y, this.w, this.h);
                 else
                     this.grid = new MGrid(this.x, this.y, this.w, this.h);
-                this.grid.setInset(40, 40)
+                // A narrow horizontal inset: the 40px each side left a wide empty band at both
+                // ends of every timeline. The vertical inset keeps its room for the axis rows.
+                this.grid.setInset(18, 40)
                 this.tabWidth = 20;
                 this.tabGap = 5;
                 this.margin = { top: 50, right: 60, bottom: 50, left: 60 };
@@ -1092,6 +1094,7 @@ function (MGrid) {
                     ctx.fillStyle = 'lightBlue';
                     ctx.font = '21px Arial';
                     ctx.textAlign = 'center';
+                    if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                     ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                 }
             }
@@ -1235,6 +1238,7 @@ function (MGrid) {
                         ctx.fillStyle = 'navy';
                         ctx.font = '21px Arial';
                         ctx.textAlign = 'center';
+                        if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                         ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                     }
 
@@ -1373,6 +1377,7 @@ function (MGrid) {
                         ctx.fillStyle = 'navy';
                         ctx.font = '21px Arial';
                         ctx.textAlign = 'center';
+                        if (this.__maximizedView) { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0a2540'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10); }   // maximized: white title, navy halo
                         ctx.fillText(this.name, this.grid.xi + this.grid.width / 2, this.grid.yi - 10);
                     }
 
