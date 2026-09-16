@@ -3223,22 +3223,98 @@ function (path, config) {
 
 
                 ai_create_file_items.push({
-                    'label': 'ddct', 'ionfunction': createIonFunction(async () => {
-                        let tables = plate_graph.plateTrack.root
+                    'label': 'ΔΔCt analysis', 'ionfunction': createIonFunction(async () => {
+                        // ΔΔCt relative quantification on the Ct table already on the canvas.
+                        // py/analytics/ddct-analysis.py is deterministic: it finds the Ct table,
+                        // its Sample / Target / Ct / Condition columns, the housekeeping gene(s)
+                        // and the calibrator group, and returns finished tables. When it cannot
+                        // decide (no housekeeping name, no control label, several Ct tables) it
+                        // answers needs_input and we ask with a canvas menu, then run again.
+                        const pt = pm.plateTrack;
+                        const Plate = await exec('baja/plate/plate');
+                        const GenericWell = await exec('baja/plate/well');
 
-                        let interval = null;
-                        let em = new EngineMonitor((msg) => {
-                            pm.plateTrack.updateSprite(msg)
-                        });
-                        em.addProgressListener(async (v) => {
-                            if (v >= 100) {
+                        const canvasTables = () => (pt.root || [])
+                            .filter(p => p && Array.isArray(p.wells) && p.wells.length
+                                && p.plateType !== 'package' && typeof p.toValueFormulaJSON === 'function')
+                            .map(p => p.toValueFormulaJSON());
+
+                        // Result tables are plain values (no formulas): the analysis is a
+                        // snapshot of the source table, documented by the *_ddCt_settings table.
+                        const drawTable = (spec) => {
+                            const headers = spec.headers || [];
+                            const rows = spec.rows || [];
+                            const existing = (pt.root || []).find(p => p && p.name === spec.name);
+                            if (existing) pt.removePlate(existing);
+                            const plate = new Plate(spec.name, Math.max(1, headers.length), rows.length + 1);
+                            plate.last_touched = new Date();
+                            for (let c = 0; c < headers.length; c++) {
+                                const col = plate.wells[c] || (plate.wells[c] = []);
+                                for (let r = 0; r <= rows.length; r++) {
+                                    const w = new GenericWell(`${String.fromCharCode(65 + (c % 26))}${r + 1}`);
+                                    const v = r === 0 ? headers[c] : (rows[r - 1] || [])[c];
+                                    w.setValue(v === undefined || v === null ? '' : v, true);
+                                    col[r] = w;
+                                }
                             }
-                        })
-                        let result = await exec('py/openai/ddct-ai-suggest.py', em, tables);
-                        showModal({
-                            wid: 'json',
-                            data: JSON.stringify(result)
-                        })
+                            plate.applycolumnheaders?.();
+                            pt.addPlateWithConsistentWellSize(plate);
+                            return plate;
+                        };
+
+                        const closeMenu = () => { pt.menu = null; pt.menu_vis = false; };
+
+                        const run = async (options) => {
+                            const tables = canvasTables();
+                            if (!tables.length) {
+                                pt.setMessage('Put a table with Ct values on the canvas first (Sample, Target and Ct columns, or one Ct column per gene).', 1.1);
+                                return;
+                            }
+                            pt.setMessage('ΔΔCt analysis…', 5);
+                            let result;
+                            try {
+                                result = await exec('py/analytics/ddct-analysis.py', tables, options || {});
+                            } catch (e) {
+                                pt.killSprite();
+                                pt.setMessage('ΔΔCt analysis failed: ' + (e && e.message ? e.message : e), 1.1);
+                                return;
+                            }
+                            pt.killSprite();
+
+                            if (!result || result.status === 'error') {
+                                pt.setMessage((result && result.error) || 'ΔΔCt analysis failed', 1.1);
+                                return;
+                            }
+
+                            if (result.status === 'needs_input') {
+                                const optionKey = { table: 'table', reference: 'reference_targets', calibrator: 'calibrator' }[result.need];
+                                const items = (result.choices || []).map(choice => ({
+                                    label: String(choice),
+                                    click: async () => {
+                                        closeMenu();
+                                        const next = Object.assign({}, options || {});
+                                        next[optionKey] = result.need === 'reference' ? [choice] : choice;
+                                        await run(next);
+                                    }
+                                }));
+                                items.push({ label: 'Cancel', click: closeMenu });
+                                pt.showMenuWithTitle(result.title || 'ΔΔCt analysis', items);
+                                return;
+                            }
+
+                            const drawn = (result.tables || []).map(drawTable);
+                            const d = result.detection || {};
+                            const summary = `ΔΔCt: ${(d.targets || []).join(', ')} normalised to ${(d.reference_targets || []).join(' + ')}, calibrator ${(d.calibrator || []).join(', ')}`;
+                            pt.setMessage(summary, 1.1);
+                            if (Array.isArray(result.notes) && result.notes.length) {
+                                pt.setMessage(result.notes.join(' · '), 2);
+                            }
+                            const g = CurrentLayout.getStashed('graph');
+                            if (g) g.touchMe();
+                            if (drawn[0]) pt.zoomintoplate(drawn[0]);
+                        };
+
+                        await run({});
                     })
                 })
 
