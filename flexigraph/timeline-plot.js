@@ -462,6 +462,11 @@ function (MGrid) {
                         move: () => { }
                     },
                     {
+                        label: 'Share this timeline…',
+                        click: async (x, y) => { pt.shareObject(this); },
+                        move: () => { }
+                    },
+                    {
                         label: 'Hide rows',
                         click: async (x, y) => {
                         },
@@ -2067,6 +2072,11 @@ function (MGrid) {
                 menuList.push({
                     label: 'Maximize',
                     click: async (scx, scy) => { pt.maximizeObject(this); },
+                    move: () => { }
+                });
+                menuList.push({
+                    label: 'Share this timeline…',
+                    click: async (scx, scy) => { pt.shareObject(this); },
                     move: () => { }
                 });
 

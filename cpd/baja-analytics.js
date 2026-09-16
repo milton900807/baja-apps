@@ -398,10 +398,13 @@ function (path, config) {
 
             let { Track, TrackRef } = await exec('baja/bio/track-flexi.js')
             let __loadedSharedFrom = '';
+            // A share narrowed to one object: the recipient gets only that object, maximized.
+            let __shareObject = null;
             if (__collabShareCode && getUser()) {
                 try {
                     const __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser()));
                     if (__r && __r.path) { path = __r.path; config = config || {}; config.user = getUser(); }
+                    if (__r && __r.object && __r.object.id && !__r.mine) __shareObject = { kind: __r.object.kind, id: '' + __r.object.id, label: __r.object.label || '', owner: __r.owner || '' };
                     else if (__r && __r.message) { try { infoPrompt(__r.message); } catch (e) { } path = ''; }
                 } catch (e) { console.warn('share-open failed', e); path = ''; }
             }
@@ -519,6 +522,27 @@ function (path, config) {
                     if (pm.plateTrack.__collab) pm.plateTrack.__collabDoc = __collabPath;
                 }
             } catch (e) { console.warn('live session not started', e); }
+            // Single-object share: find the object once the document is on the canvas and
+            // pin the view to it. A few tries, because the plots are rebuilt on the first
+            // frames after a load.
+            if (__shareObject) {
+                const pt = pm.plateTrack;
+                const findShared = () => {
+                    const id = __shareObject.id;
+                    for (const p of pt.root || []) if (p && ('' + (p.uid || p.id)) === id) return p;
+                    for (const m of pt.m_plots || []) if (m && ('' + (m.uid || m.id)) === id) return m;
+                    for (const g of pt.glyphs || []) if (g && ('' + (g.uid || g.id)) === id) return g;
+                    return null;
+                };
+                let tries = 0;
+                const pin = () => {
+                    const obj = findShared();
+                    if (obj) { try { pt.enterObjectOnly(obj, { owner: __shareObject.owner, label: __shareObject.label }); } catch (e) { console.warn('object share', e); } return; }
+                    if (++tries < 20) setTimeout(pin, 400);
+                    else { try { pt.setMessage('The shared ' + (__shareObject.label || 'object') + ' is no longer in this document.', 2); } catch (e) { } }
+                };
+                setTimeout(pin, 600);
+            }
             function handleShiftClick(event) {
 
                 if (event.shiftKey && event.type === 'mousedown') {
@@ -1222,6 +1246,14 @@ function (path, config) {
                     pm.plateTrack.setTextActive(false);
                     return;
                 }
+                // Mobile: a tap on a table, chart, timeline or note opens it maximized for
+                // editing, and a finger drag on the open canvas pans it (flexigraph/graph.js
+                // does the pan). Nothing is selected, dragged or resized under a finger; once
+                // an object is maximized, taps inside it work as on the desktop.
+                if (isMobile() && pm.plateTrack) {
+                    if (pm.plateTrack.mobileTap && pm.plateTrack.mobileTap(scx, scy)) return;
+                    if (!pm.plateTrack.__maximized) return;
+                }
                 if (pm.plateTrack.__redo_stack_menu && pm.plateTrack.__redo_stack_menu.mouseUp && pm.plateTrack.__redo_stack_menu.isIn(pm.plateTrack.grid,
                     pm.plateTrack.grid.Xwc(scx), pm.plateTrack.grid.Ywc(scy))) {
                     this.__redo_stack_menu.mouseUp(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))
@@ -1279,6 +1311,8 @@ function (path, config) {
                 px = 0;
                 py = 0;
                 mouse_down = false;
+                // Mobile, nothing maximized and no menu open: the release ends a pan, nothing more.
+                if (isMobile() && pm.plateTrack && !pm.plateTrack.menu && !pm.plateTrack.__maximized) return;
                 if (!smenu && pm.plateTrack) {
                     pm.plateTrack.mouseUp(scx, scy)
                 }
@@ -1347,6 +1381,9 @@ function (path, config) {
                 if (pm.plateTrack.isTextActive()) {
                     return null
                 }
+                // Mobile: a moving finger pans (or scrolls the maximized object); it never
+                // drags a table, resizes a chart or extends a cell selection.
+                if (isMobile() && pm.plateTrack && !pm.plateTrack.menu) return null;
 
                 current_mousex = scx;
                 current_mousey = scy;

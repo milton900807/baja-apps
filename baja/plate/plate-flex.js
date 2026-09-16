@@ -879,6 +879,13 @@ function () {
             }
 
             async showWellAction(pt, __value, ref, w) {
+                // A DATE cell is set from a calendar, not the text editor.
+                try {
+                    const __dw = (this.getSelectedWellsInOrder && this.getSelectedWellsInOrder()) || [];
+                    if (__dw.length && __dw.every(x => x && x.skin_type === 'DATE')) {
+                        return exec('baja/plate/views/date-picker.js', pt, this, __dw);
+                    }
+                } catch (e) { }
                 if (this.plateType === 'package') {
                     let m = [
                     ]
@@ -2172,19 +2179,31 @@ function () {
             // border, soft shadow; hover fills cyan (delete fills sunset orange) with a
             // white glyph. Glyphs are drawn, not typed, so they stay crisp at any zoom.
             // Geometry (centre, radius) is unchanged, so hit-testing is unaffected.
-            _paintTableButton(ctx, button, cx, cy, r, hover) {
+            _paintTableButton(ctx, button, cx, cy, r, hover, variant) {
                 const NAVY = '#0a2540', CYAN = '#1aa3bd', ORANGE = '#FD5E53';
                 const name = String((button && button.name) || '');
                 const isClose = name === 'close';
-                const fill = hover ? (isClose ? ORANGE : CYAN) : '#ffffff';
-                const ink = hover ? '#ffffff' : NAVY;
+                // Cell-level buttons (under a selected cell) are filled navy, the delete one
+                // orange, lifted the same way as the row buttons.
+                const isCell = variant === 'cell';
+                // Row-level add/remove buttons are filled and lifted (colour, deeper shadow) so
+                // they read as controls against the table; the title-bar buttons stay quiet.
+                const isRow = (name === '+' || name === '-') || isCell;
+                const rowFill = isCell ? (isClose ? ORANGE : NAVY) : (name === '+' ? CYAN : ORANGE);
+                const fill = isRow ? (hover ? (isCell ? CYAN : NAVY) : rowFill) : (hover ? (isClose ? ORANGE : CYAN) : '#ffffff');
+                const ink = (hover || isRow) ? '#ffffff' : NAVY;
                 ctx.save();
-                ctx.shadowColor = 'rgba(0,0,0,0.18)';
-                ctx.shadowBlur = 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
+                ctx.shadowColor = isRow ? 'rgba(10,37,64,0.35)' : 'rgba(0,0,0,0.18)';
+                ctx.shadowBlur = isRow ? 8 : 4; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = isRow ? 3 : 1;
                 ctx.fillStyle = fill;
                 ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
                 ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-                ctx.strokeStyle = hover ? fill : 'rgba(10,37,64,0.28)';
+                if (isRow) {
+                    // A light inner rim gives the disc a little relief.
+                    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.arc(cx, cy, r - 1.5, 0, Math.PI * 2); ctx.stroke();
+                }
+                ctx.strokeStyle = isRow ? fill : (hover ? fill : 'rgba(10,37,64,0.28)');
                 ctx.lineWidth = 1;
                 ctx.stroke();
                 ctx.strokeStyle = ink; ctx.fillStyle = ink;
@@ -2267,7 +2286,7 @@ function () {
                     index++;
                 }
 
-                if (this.attr__RowAddRemoveButtons) {
+                if (this.attr__RowAddRemoveButtons && this.selected) {
                     let xinit = graph.X(this.grid.xi);
                     index = 0;
                     for (let button of this.bottom_buttons) {
@@ -8582,7 +8601,7 @@ function () {
                             });
                         }
 
-                        if (this.attr__RowAddRemoveButtons) {
+                        if (this.attr__RowAddRemoveButtons && this.selected) {
                             if (this.isInsideBottomButtons(pt.grid, x, y)) {
                                 const bu = this.isInsideBottomButtons(pt.grid, x, y)
                                 bu.action(null, null, x, y, pt);
@@ -13754,7 +13773,7 @@ function () {
                         let buttonHeight = button.height;
                         let circleRadius = Math.min(bsize, buttonHeight) / 2;
                         this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, circleRadius,
-                            !!(button.isHighlighted || (this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name))));
+                            !!(button.isHighlighted || (this.highlightbutton && (this.highlightbutton === button || this.highlightbutton === button.name))), 'cell');
                     });
                 }
                 ctx.shadowBlur = 0;

@@ -119,6 +119,10 @@ function () {
             handleMouseUp(x, y, pt) {
                 let msub = [
                     {
+                        label: 'Share this object…',
+                        click: async (x, y) => { try { pt.shareObject(this); } catch (e) { console.error(e); } },
+                    },
+                    {
                         label: 'Remove',
                         click: async (x, y) => {
                             try {

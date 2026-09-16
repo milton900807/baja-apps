@@ -3089,8 +3089,12 @@ function (plateManager, progress) {
                     }
 
                     if (this.menuVisible()) {
-                        await this.menu.mouseUp(this.graph, xwc, ywc)
-                        this.menu = null;
+                        // Run the item, then close THIS menu only. An item may open another
+                        // menu while it runs (a confirmation such as "Delete the row?"): a
+                        // blanket null here wiped that one a few milliseconds after it appeared.
+                        const __m = this.menu;
+                        await __m.mouseUp(this.graph, xwc, ywc)
+                        if (this.menu === __m) this.menu = null;
                         if (isMobile()) {
 
                         }
@@ -4203,17 +4207,6 @@ function (plateManager, progress) {
                     }
                     ctx.textAlign = 'left';
 
-                    if (this.menu) {
-                        this.graph.drawMenu(this.menu, ctx)
-                    }
-                    ctx.textAlign = 'left';
-
-                    if (this.bookmark_menu && this.showBookmarks) {
-                        this.graph.drawMenu(this.bookmark_menu, ctx)
-                    }
-                    if (this.chapter_menu && this.showChapters) {
-                        this.graph.drawMenu(this.chapter_menu, ctx)
-                    }
 
                     if (!this.plateTrack || this.plateTrack.uid != plateManager.plateTrack.uid)
                         this.plateTrack = plateManager.plateTrack;
@@ -4226,6 +4219,22 @@ function (plateManager, progress) {
                     }
                     if (this.currentShape) {
                         this.currentShape.draw(this.graph)
+                    }
+
+                    // Menus go on LAST. The plate track (every table, chart and timeline) is
+                    // painted by post_graphics_modifications just above; drawn before it, the
+                    // centre menu, and any confirmation such as "Delete the row?", sat under
+                    // the tables.
+                    ctx.textAlign = 'left';
+                    if (this.menu) {
+                        this.graph.drawMenu(this.menu, ctx)
+                    }
+                    ctx.textAlign = 'left';
+                    if (this.bookmark_menu && this.showBookmarks) {
+                        this.graph.drawMenu(this.bookmark_menu, ctx)
+                    }
+                    if (this.chapter_menu && this.showChapters) {
+                        this.graph.drawMenu(this.chapter_menu, ctx)
                     }
 
                     ctx.shadowBlur = 0;

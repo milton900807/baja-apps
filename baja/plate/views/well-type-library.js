@@ -66,7 +66,7 @@ function (pt, plate) {
             // Status and dates
             T('BOOL', 'Status and dates', 'Checkbox', 'True or false, drawn as a tick box.', 'Input'),
             T('STATUS', 'Status and dates', 'Status', 'A state word with a coloured dot: done, pending, blocked.', 'Display'),
-            T('DATE', 'Status and dates', 'Date', 'A date, shown as year, month and day.', 'Display'),
+            T('DATE', 'Status and dates', 'Date', 'A date picked from a calendar (double-click the cell to choose), shown as year, month and day.', 'Input'),
             T('BUTTON', 'Status and dates', 'Button', 'A clickable button that runs the cell\'s action.', 'Action'),
             T('CONTROL', 'Status and dates', 'Control', 'Marks the cell as a control input for the model.', 'Input'),
 
@@ -110,6 +110,11 @@ function (pt, plate) {
                 const label = key ? key.replace(/_/g, ' ') : 'default';
                 if (pt && pt.setMessage) pt.setMessage(wells.length + (wells.length === 1 ? ' cell' : ' cells') + ' set to ' + label, 2);
             } catch (e) { }
+            // A date cell is chosen from a calendar: open it straight away so the first
+            // value goes in without a second trip through the menu.
+            if (key === 'DATE' && wells.length) {
+                setTimeout(() => { try { hideAllModal(); } catch (e) { } try { exec('baja/plate/views/date-picker.js', pt, plate, wells); } catch (e) { } }, 250);
+            }
         }
 
         const what = wells.length === 0 ? 'No cells are selected.'

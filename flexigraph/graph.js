@@ -214,7 +214,14 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                                         }
                                     } catch (e) { }
                                     const t = touches[0];
-                                    if (this.__lastTouch) {
+                                    if (this.__suppressPan) {
+                                        // A maximized table, chart or timeline: the finger scrolls it
+                                        // (plate-track installs __touchScroll) instead of panning the view.
+                                        if (this.__lastTouch && typeof this.__touchScroll === 'function') {
+                                            try { this.__touchScroll(-(t.clientY - this.__lastTouch.y)); } catch (e) { }
+                                        }
+                                        this.__lastTouch = { x: t.clientX, y: t.clientY };
+                                    } else if (this.__lastTouch) {
                                         let pw = 800, ph = 600;
                                         try {
                                             const el = (evt.target && evt.target.getBoundingClientRect) ? evt.target : null;

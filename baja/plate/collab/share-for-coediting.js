@@ -1,4 +1,10 @@
-function (pt, graph, pm) {
+function (pt, graph, pm, objectRef) {
+    // objectRef (optional): { kind: 'plate'|'plot'|'glyph', id, label }. With it the share is
+    // narrowed to ONE object: the recipient sees only that table, chart, timeline or note,
+    // maximized, and edits it under the usual lock. The whole workbook still travels so
+    // formulas that reach other tables keep working.
+    const objectOnly = (objectRef && objectRef.id) ? { kind: '' + objectRef.kind, id: '' + objectRef.id, label: '' + (objectRef.label || '') } : null;
+    const objectNoun = objectOnly ? (objectOnly.kind === 'plot' ? 'chart' : objectOnly.kind === 'glyph' ? 'note' : 'table') : '';
 
     // SHARE FOR CO-EDITING. The owner names an email address; the workbook is copied into a
     // folder only that address may read (/share-with), the recipient gets a link that opens it
@@ -37,9 +43,14 @@ function (pt, graph, pm) {
         const fieldCss = 'width:100%;box-sizing:border-box;background:#f4f7fa;color:#0a2540;border:1px solid #c7d2dd;border-radius:8px;padding:10px;font:13px system-ui,sans-serif;';
         panel.innerHTML = ''
             + '<button id="ce-x" title="Close" aria-label="Close" style="position:absolute;top:8px;right:10px;cursor:pointer;border:none;background:transparent;color:#6b7a90;font:700 18px system-ui;line-height:1;padding:4px 8px;">✕</button>'
-            + '<div style="font:600 16px system-ui,sans-serif;margin-bottom:4px;padding-right:24px;">Share "' + esc(rawName) + '" for co-editing</div>'
-            + '<div style="font-size:12.5px;color:#4a5a70;margin-bottom:12px;">They get a link that opens this workbook in Analytics once they sign in. You both work on the same document: '
-            + 'a table, timeline or note can be edited by one person at a time, and a lock badge shows who has it.</div>'
+            + '<div style="font:600 16px system-ui,sans-serif;margin-bottom:4px;padding-right:24px;">' + (objectOnly
+                ? ('Share the ' + objectNoun + ' "' + esc(objectOnly.label || objectNoun) + '" with someone')
+                : ('Share "' + esc(rawName) + '" for co-editing')) + '</div>'
+            + '<div style="font-size:12.5px;color:#4a5a70;margin-bottom:12px;">' + (objectOnly
+                ? ('They get a link that opens just this ' + objectNoun + ', maximized, once they sign in. The rest of "' + esc(rawName) + '" stays out of view. '
+                    + 'You both work on it live: one person edits it at a time, and a lock badge shows who has it.')
+                : ('They get a link that opens this workbook in Analytics once they sign in. You both work on the same document: '
+                    + 'a table, timeline or note can be edited by one person at a time, and a lock badge shows who has it.')) + '</div>'
             + '<label style="font-size:12px;color:#6b7a90;">Email address (one or more, separated by commas)</label>'
             + '<input id="ce-to" type="text" autocomplete="off" placeholder="name@example.org" style="' + fieldCss + 'margin:4px 0 10px;">'
             + '<label style="font-size:12px;color:#6b7a90;">Message (optional)</label>'
@@ -91,7 +102,7 @@ function (pt, graph, pm) {
         const refresh = async () => {
             try {
                 const r = body(await GETJSON(host_ + '/share-with?user=' + encodeURIComponent(user) + '&name=' + encodeURIComponent(docName)));
-                const shares = (r && r.shares) || [];
+                const shares = ((r && r.shares) || []).filter((x) => objectOnly ? (x.object && ('' + x.object.id) === objectOnly.id) : !x.object);
                 $('ce-existing').innerHTML = shares.length
                     ? '<div style="font:600 11px system-ui;letter-spacing:.08em;text-transform:uppercase;color:#6b7a90;margin-bottom:4px;">Already shared with</div>' + shares.map(s => row(s, false)).join('')
                     : '';
@@ -126,7 +137,7 @@ function (pt, graph, pm) {
             let last = null;
             for (const to of raw) {
                 try {
-                    const r = body(await POSTJSON({ user, to, name: docName, value, message }, host_ + '/share-with'));
+                    const r = body(await POSTJSON({ user, to, name: docName, value, message, object: objectOnly }, host_ + '/share-with'));
                     if (r && r.error) out.push('<div style="color:#b42318;font-size:12px;margin:4px 0;">' + esc(to) + ': ' + esc(r.error) + '</div>');
                     else { out.push(row(r, true)); last = r; }
                 } catch (e) { out.push('<div style="color:#b42318;font-size:12px;margin:4px 0;">' + esc(to) + ': ' + esc(e && e.message ? e.message : e) + '</div>'); }
@@ -137,7 +148,9 @@ function (pt, graph, pm) {
             btn.disabled = false; btn.textContent = 'Share';
             if (last) {
                 await switchToShared(last);
-                $('ce-status').textContent = 'You are now working on the shared copy; saves go there, and you will see when ' + shortName(last.to) + ' picks something up.';
+                $('ce-status').textContent = objectOnly
+                    ? ('You are now working on the shared copy; ' + shortName(last.to) + ' sees only this ' + objectNoun + ', and you will see when they pick it up.')
+                    : ('You are now working on the shared copy; saves go there, and you will see when ' + shortName(last.to) + ' picks something up.');
             }
             await refresh();
         };

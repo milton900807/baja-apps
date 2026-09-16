@@ -4831,6 +4831,7 @@ function (MGrid) {
                     exec('flexigraph/show-mobile-menu.js', 0, 0, m, null, null, 'mainPanel')
                 } else {
                     m = this.getOptionsMenuList(pt)
+                    m.unshift({ label: (this.type === timeline ? 'Share this timeline…' : 'Share this chart…'), click: async () => { pt.shareObject(this); }, move: () => { } });
                     m.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
                     // A short, grouped list reads top-down in one column; long flat lists keep 3.
                     const cols = m.length > 12 ? 3 : 1;

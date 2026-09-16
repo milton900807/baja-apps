@@ -883,7 +883,11 @@ function () {
 
                 const toDateStr = (v) => {
                     try {
-                        const d = (v instanceof Date) ? v : new Date(v);
+                        // A bare YYYY-MM-DD (what the date chooser writes) is a local date;
+                        // new Date() would read it as UTC midnight and show the day before
+                        // in the Americas.
+                        const m = (typeof v === 'string') ? v.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+                        const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : ((v instanceof Date) ? v : new Date(v));
                         if (isNaN(d.getTime())) return null;
                         const yyyy = d.getFullYear();
                         const dd = String(d.getDate()).padStart(2, '0');

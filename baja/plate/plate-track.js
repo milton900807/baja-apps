@@ -1942,6 +1942,33 @@ function (progress) {
             return refs;
         }
 
+        // Endpoints for an arrow between two cells: the tail leaves the source cell at its
+        // border and the tip stops at the border of the target cell, so the head sits in
+        // the gap and never covers the target's text. Centre-to-centre put the head on top
+        // of the value. A very short arrow (neighbouring cells) keeps its tip on the target
+        // border and extends its thin tail back into the source cell instead.
+        function cellArrowEndpoints(fromW, toW, minLen = 28) {
+            const fx = fromW.__screen_x + (fromW.__screen_width || 0) / 2;
+            const fy = fromW.__screen_y + (fromW.__screen_height || 0) / 2;
+            const tx = toW.__screen_x + (toW.__screen_width || 0) / 2;
+            const ty = toW.__screen_y + (toW.__screen_height || 0) / 2;
+            const dx = tx - fx, dy = ty - fy;
+            const len = Math.hypot(dx, dy);
+            if (!len) return { tailX: fx, tailY: fy, tipX: tx, tipY: ty };
+            const ux = dx / len, uy = dy / len;
+            // Distance from a cell centre to its border along (ux, uy).
+            const border = (w, h) => Math.min(
+                Math.abs(ux) > 1e-6 ? (w / 2) / Math.abs(ux) : Infinity,
+                Math.abs(uy) > 1e-6 ? (h / 2) / Math.abs(uy) : Infinity);
+            const dFrom = border(fromW.__screen_width || 0, fromW.__screen_height || 0);
+            const dTo = border(toW.__screen_width || 0, toW.__screen_height || 0);
+            const tipX = tx - ux * dTo, tipY = ty - uy * dTo;
+            let tailD = dFrom;
+            const gap = len - dFrom - dTo;
+            if (gap < minLen) tailD = Math.max(0, len - dTo - minLen);
+            return { tailX: fx + ux * tailD, tailY: fy + uy * tailD, tipX, tipY };
+        }
+
         function drawArrow(ctx, sx, sy, tx, ty, opts = {}) {
 
             const {
@@ -3698,17 +3725,15 @@ function (progress) {
                         const fromWWidth = fromW.__screen_width ?? 0;
                         const fromWHeight = fromW.__screen_height ?? 0;
 
-                        const tailX = fromW.__screen_x + fromWWidth / 2;
-                        const tailY = fromW.__screen_y + fromWHeight / 2;
-
-                        const tipX = toW.__screen_x + toWWidth / 2;
-                        const tipY = toW.__screen_y + toWHeight / 2;
+                        const { tailX, tailY, tipX, tipY } = cellArrowEndpoints(fromW, toW);
 
                         const color = colors[colorIndex++ % colors.length];
 
                         drawArrow(ctx, tailX, tailY, tipX, tipY, {
                             color,
                             lineWidth: 2,
+                            padStart: 2,
+                            padEnd: 3,
                             headLength: 18,
                             headWidth: 16,
                             shadowBlur: 3,
@@ -3748,9 +3773,12 @@ function (progress) {
                             let toW = edge.toW.__screen_width;
                             let fromH = edge.fromW.__screen_height;
                             let toH = edge.toW.__screen_height;
-                            drawArrow(ctx, sx + fromW / 2, sy + fromH / 2, tx + toW / 2, ty + toH / 2, {
+                            const __ep = cellArrowEndpoints(edge.fromW, edge.toW);
+                            drawArrow(ctx, __ep.tailX, __ep.tailY, __ep.tipX, __ep.tipY, {
                                 color: 'rgba(15, 255, 7, 0.7)',
                                 lineWidth: 2,
+                                padStart: 2,
+                                padEnd: 3,
                                 headLength: 18,
                                 headWidth: 16,
                                 shadowBlur: 3,
@@ -4351,6 +4379,7 @@ function (progress) {
                 // Maximized view follows the selection: choosing another table, timeline or
                 // chart (from the object list, a menu or the search) maximizes that one.
                 if (this.__maximized && __selected && __selected !== this.__maximized) {
+                    if (this.__objectOnly) { this.selectedPlate = null; return; }   // only the shared object is on offer
                     try { this.maximizeObject(__selected); } catch (e) { }
                 }
                 if (selectedListener && this.selectedPlate) {
@@ -6332,6 +6361,7 @@ function (progress) {
                 }
                 this.activePlot = plot;
                 if (this.__maximized && plot && plot !== this.__maximized) {
+                    if (this.__objectOnly) { this.activePlot = null; return; }
                     try { this.maximizeObject(plot); } catch (e) { }
                 }
             }
@@ -8417,6 +8447,17 @@ function (progress) {
             }
 
             handleKeyDown(event) {
+                // Tab belongs to the table while one is selected: it walks the cells. Left to the
+                // browser it moves focus to the next control on the page and every keystroke
+                // after that goes there instead of the canvas.
+                if (event && event.key === 'Tab' && (this.selectedPlate || (typeof textActive !== 'undefined' && textActive))) {
+                    try { event.preventDefault(); event.stopPropagation(); } catch (e) { }
+                    try {
+                        const el = document.activeElement;
+                        const c = (this.grid && this.grid.ctx && this.grid.ctx.canvas) || (el && el.tagName === 'CANVAS' ? el : document.querySelector('canvas[tabindex]'));
+                        if (c && c.focus && el !== c) c.focus({ preventScroll: true });
+                    } catch (e) { }
+                }
                 // Ignore Ctrl+Z (and Cmd+Z on Mac if you want)
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
                     return;
@@ -9108,7 +9149,14 @@ function (progress) {
                 // No panning of the canvas and no moving of the object while maximized: the
                 // graph widget's navigate-mode pan honours this flag, and __maxEnforceView()
                 // below pins the view every frame as a backstop. Only the scroll moves.
-                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                try {
+                    const gg = CurrentLayout.getStashed('graph');
+                    if (gg && gg.graph) {
+                        gg.graph.__suppressPan = true;
+                        // On a phone the finger drag that would pan scrolls the maximized object instead.
+                        gg.graph.__touchScroll = (dy) => { try { this.__maxScroll(dy); } catch (e) { } };
+                    }
+                } catch (e) { }
                 this.__maxAnimating = true;
                 if (this.__maxAnimTimer) clearTimeout(this.__maxAnimTimer);
                 this.__maxAnimTimer = setTimeout(() => { this.__maxAnimating = false; this.__maxAnimTimer = null; }, 450);
@@ -9142,17 +9190,68 @@ function (progress) {
                     this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
                 }
                 if (!this.__maxKey) {
-                    this.__maxKey = (e) => { if (e && e.key === 'Escape' && this.__maximized) { e.preventDefault(); this.exitMaximize(); } };
+                    this.__maxKey = (e) => { if (e && e.key === 'Escape' && this.__maximized && !this.__objectOnly) { e.preventDefault(); this.exitMaximize(); } };
                     try { window.addEventListener('keydown', this.__maxKey, true); } catch (e) { }
                 }
-                try { this.setMessage('Maximized: ' + (obj.name || 'object') + '. Scroll to move down, Escape or Exit to return.', 2); } catch (e) { }
+                if (!this.__objectOnly) { try { this.setMessage('Maximized: ' + (obj.name || 'object') + '. Scroll to move down, Escape or Exit to return.', 2); } catch (e) { } }
+            }
+            // The topmost object under a screen point: a note, a chart or timeline, or a table.
+            objectAt(x, y) {
+                try { const g = this.getGlyph(x, y); if (g) return { obj: g, kind: 'glyph' }; } catch (e) { }
+                for (let i = (this.m_plots || []).length - 1; i >= 0; i--) {
+                    const p = this.m_plots[i];
+                    try { if (p && p.inside && p.inside(this.grid, x, y)) return { obj: p, kind: 'plot' }; } catch (e) { }
+                }
+                try { const pl = this.getPlate(this.grid.Xwc(x), this.grid.Ywc(y)); if (pl) return { obj: pl, kind: 'plate' }; } catch (e) { }
+                return null;
+            }
+            // Mobile: a tap on an object opens it maximized for editing (a finger has no room
+            // for the desktop's drag, resize and hover). Returns true when it did so; while an
+            // object is already maximized the tap goes through the normal handling (cells,
+            // the Menu pill, Exit, the backdrop).
+            mobileTap(x, y) {
+                if (this.__maximized || this.menu) return false;
+                const t = this.objectAt(x, y);
+                if (!t) return false;
+                try {
+                    if (t.kind === 'plate') this.setSelected(t.obj);
+                    else if (t.kind === 'plot') this.setActive(t.obj);
+                    else this.selectGlyph__(t.obj);
+                } catch (e) { }
+                try { this.maximizeObject(t.obj); } catch (e) { return false; }
+                return true;
+            }
+            // Share ONE object (table, chart, timeline, note) with a person: the same
+            // co-editing share as the workbook, narrowed to this object. The recipient sees
+            // only it, maximized, and edits it under the usual per-object lock.
+            shareObject(obj) {
+                if (!obj) return;
+                const kind = (typeof obj.drawPlot === 'function') ? 'plot' : (obj.shape ? 'glyph' : 'plate');
+                const id = '' + (obj.uid || obj.id || '');
+                if (!id) { try { this.setMessage('This object cannot be shared yet: it has no identity.', 2); } catch (e) { } return; }
+                const label = ('' + (obj.name || obj.comment || (kind === 'plot' ? (obj.type === 'timeline' ? 'Timeline' : 'Chart') : kind === 'glyph' ? 'Note' : 'Table'))).slice(0, 80);
+                const graph = CurrentLayout.getStashed('graph');
+                const pm = CurrentLayout.getStashed('plate-track');
+                return exec('baja/plate/collab/share-for-coediting.js', this, graph, pm, { kind, id, label });
+            }
+            // The recipient's side of a single-object share: only this object, maximized,
+            // with no way out of the maximized view (there is nothing else to see).
+            enterObjectOnly(obj, info) {
+                if (!obj) return false;
+                this.__objectOnly = { obj, owner: (info && info.owner) || '', label: (info && info.label) || (obj.name || '') };
+                const isTable = !(typeof obj.drawPlot === 'function') && !obj.shape;
+                if (isTable) { try { this.setSelected(obj); } catch (e) { } }
+                this.maximizeObject(obj);
+                try { this.setMessage('Shared with you by ' + (this.__objectOnly.owner || 'the owner') + ': ' + (obj.name || 'this object') + '. Your edits are seen live.', 3); } catch (e) { }
+                return true;
             }
             exitMaximize() {
                 if (!this.__maximized) return;
+                if (this.__objectOnly) return;   // a single-object share has nowhere to go back to
                 this.__maxRestoreButtons(this.__maximized);
                 this.__maximized = null;
                 this.__maxScrollDrag = false;
-                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) { gg.graph.__suppressPan = false; gg.graph.__touchScroll = null; } } catch (e) { }
                 this.__maxExitRect = null;
                 this.__maxMenuRect = null;
                 if (this.__maxKey) { try { window.removeEventListener('keydown', this.__maxKey, true); } catch (e) { } this.__maxKey = null; }
@@ -9252,7 +9351,7 @@ function (progress) {
             // 'exit' when the point is on the Exit button, 'inside' when on the object, else null.
             __maxHit(x, y) {
                 if (!this.__maximized) return null;
-                const r = this.__maxExitRect;
+                const r = this.__objectOnly ? null : this.__maxExitRect;
                 if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 'exit';
                 const m = this.__maxMenuRect;
                 if (m && x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) return 'menu';
@@ -9281,16 +9380,17 @@ function (progress) {
                 ctx.fillText(kind + ': ' + (obj.name || 'untitled'), 16, 22);
                 ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 ctx.fillStyle = 'rgba(234,246,249,0.7)';
-                ctx.fillText('Scroll to move down. Escape to return.', 16 + Math.ceil((() => { ctx.save(); ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const w = ctx.measureText(kind + ': ' + (obj.name || 'untitled')).width; ctx.restore(); return w; })()) + 18, 22);
+                ctx.fillText(this.__objectOnly ? 'Shared with you. Scroll to move down.' : 'Scroll to move down. Escape to return.', 16 + Math.ceil((() => { ctx.save(); ctx.font = '600 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; const w = ctx.measureText(kind + ': ' + (obj.name || 'untitled')).width; ctx.restore(); return w; })()) + 18, 22);
                 // Right side of the title bar: [ Menu ▾ ] [ Exit maximize ]. The Menu pill stands
                 // in for the object's own buttons, which are hidden while maximized.
-                const label = 'Exit maximize';
+                // A single-object share has no Exit: the badge names who shared it instead.
+                const label = this.__objectOnly ? ('Shared by ' + (this.__objectOnly.owner || 'the owner')) : 'Exit maximize';
                 ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 const bw = Math.ceil(ctx.measureText(label).width) + 28, bh = 28;
                 const bx = W - bw - 14, by = 8;
-                ctx.fillStyle = '#1aa3bd'; rr(bx, by, bw, bh, 8); ctx.fill();
+                ctx.fillStyle = this.__objectOnly ? 'rgba(255,255,255,0.14)' : '#1aa3bd'; rr(bx, by, bw, bh, 8); ctx.fill();
                 ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 0.5);
-                this.__maxExitRect = { x: bx, y: by, w: bw, h: bh };
+                this.__maxExitRect = this.__objectOnly ? null : { x: bx, y: by, w: bw, h: bh };
                 {
                     const ml = 'Menu \u25BE';
                     const mw = Math.ceil(ctx.measureText(ml).width) + 28, mh = 28;
@@ -21816,6 +21916,14 @@ function (progress) {
                         this.drawPackageExportParentLine(obj, ctx);
                         drawObj(obj);
                     }
+                    // The active plot (a timeline or chart being edited) is redrawn on top of
+                    // the other canvas items, and the lock badges over it. Both belong HERE,
+                    // before the chrome: drawn any later they covered the side menu, the
+                    // tables menu and the maximized title bar.
+                    if (this.activePlot) {
+                        this.activePlot.drawPlot(this.grid, ctx, this.activePlot.grid);
+                    }
+                    if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
 
                     if (!isMobile()) {
@@ -21907,12 +22015,6 @@ function (progress) {
 
                     }
 
-                    if (this.activePlot) {
-                        this.activePlot.drawPlot(this.grid, ctx, this.activePlot.grid);
-                    }
-                    // Lock badges and presence go on last: the active plot (a timeline being
-                    // edited) is redrawn just above, and used to paint over them.
-                    if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     ctx.fillStyle = 'black'
 
                     if (this.msgType === 10 && this.__msgc) {
