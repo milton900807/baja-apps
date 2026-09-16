@@ -818,6 +818,42 @@ function () {
                 this.name = _name;
             }
 
+            // The text the default painter shows for this cell (numbers formatted, dollars
+            // with two decimals). Shared by the painter and the column fit.
+            __displayText() {
+                let displayValue = '';
+                if (typeof this.value === 'string') {
+                    displayValue = this.value;
+                } else if (this.value != null) {
+                    try { displayValue = Number.isInteger(this.value) ? this.value.toString() : this.value.toFixed(5); }
+                    catch (e) { displayValue = this.value != null ? this.value.toString() : ''; }
+                }
+                if (this.group && (this.group['dollar'] || this.group['$'])) {
+                    const num = parseFloat(displayValue);
+                    if (!isNaN(num)) displayValue = '$' + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+                }
+                return displayValue;
+            }
+            // The largest font size (px) at which this cell's text fits inside it, or null
+            // when there is nothing to fit. Binary search on the measured width and height.
+            fitFontPx(ctx) {
+                const text = this.__displayText();
+                if (!text || !ctx) return null;
+                const w = (this.__screen_width || 0) * 0.85, h = (this.__screen_height || 0) * 0.85;
+                if (!(w > 0 && h > 0)) return null;
+                const fam = this.font || 'Arial';
+                let lo = 6, hi = Math.min(48, Math.floor(h));
+                if (hi <= lo) return lo;
+                while (lo < hi) {
+                    const mid = Math.ceil((lo + hi) / 2);
+                    ctx.font = `${mid}px ${fam}`;
+                    const m = ctx.measureText(text);
+                    const th = (m.actualBoundingBoxAscent ?? mid) + (m.actualBoundingBoxDescent ?? mid * 0.25);
+                    if (m.width <= w && th <= h) lo = mid; else hi = mid - 1;
+                }
+                return lo;
+            }
+
             selectIt() {
                 this.select = true;
                 this.textSelected = true;
@@ -1012,12 +1048,8 @@ function () {
 
 
                 const applyFontSize = (size) => {
-                    size = 10;
-                    if (this.font) {
-                        ctx.font = `${size}px ${this.font}`;
-                    } else {
-                        ctx.font = `${size}pt Arial`;
-                    }
+                    // Honour the size (this was pinned to 10pt, so the fitting below never ran).
+                    ctx.font = `${Math.max(6, Math.round(size))}px ${this.font || 'Arial'}`;
                 };
 
                 applyFontSize(baseFontSize);
@@ -1094,28 +1126,7 @@ function () {
                 ctx.fillStyle = this.fgcolor || 'black';
                 ctx.shadowBlur = 0;
 
-                let displayValue = '';
-                if (typeof this.value === 'string') {
-                    displayValue = this.value;
-                } else if (this.value != null) {
-                    try {
-                        displayValue = Number.isInteger(this.value)
-                            ? this.value.toString()
-                            : this.value.toFixed(5);
-                    } catch (e) {
-                        displayValue = this.value != null ? this.value.toString() : '';
-                    }
-                }
-
-                if (this.group && (this.group['dollar'] || this.group['$'])) {
-                    const num = parseFloat(displayValue);
-                    if (!isNaN(num)) {
-                        displayValue = '$' + new Intl.NumberFormat('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        }).format(num);
-                    }
-                }
+                let displayValue = this.__displayText();
 
                 if (displayValue) {
 
@@ -1123,6 +1134,11 @@ function () {
                     const maxWidth = screen_width * 0.85;
                     const maxHeight = screen_height * 0.85;
 
+                    // The column's shared size (the largest at which every cell's text in the
+                    // column fits, computed by the table) wins over the per-cell fit below.
+                    if (Number.isFinite(this.__colFontPx) && this.__colFontPx > 0) {
+                        applyFontSize(this.__colFontPx);
+                    } else
                     while (true) {
                         applyFontSize(testFontSize);
                         const m = ctx.measureText(displayValue);

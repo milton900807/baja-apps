@@ -3693,6 +3693,7 @@ function (progress) {
                 ctx.save();
                 ctx.lineWidth = 1.5;
                 ctx.setLineDash([4, 3]);
+                ctx.globalAlpha = 0.35;   // a hint of where the value comes from, not a diagram
 
                 const colors = [
                     '#1f77b4',
@@ -3731,13 +3732,13 @@ function (progress) {
 
                         drawArrow(ctx, tailX, tailY, tipX, tipY, {
                             color,
-                            lineWidth: 2,
+                            lineWidth: 1.25,
                             padStart: 2,
                             padEnd: 3,
-                            headLength: 18,
-                            headWidth: 16,
-                            shadowBlur: 3,
-                            shadowColor: 'rgba(0,0,0,0.12)'
+                            headLength: 11,
+                            headWidth: 8,
+                            shadowBlur: 0,
+                            shadowColor: 'transparent'
                         });
                     }
                 }
@@ -3754,6 +3755,7 @@ function (progress) {
                 ctx.lineWidth = 1.25;
                 ctx.setLineDash([4, 3]);
                 ctx.strokeStyle = 'lightBlue'
+                ctx.globalAlpha = 0.35;
 
                 let wells = table.getSelectedWellsInOrder();
 
@@ -3775,14 +3777,14 @@ function (progress) {
                             let toH = edge.toW.__screen_height;
                             const __ep = cellArrowEndpoints(edge.fromW, edge.toW);
                             drawArrow(ctx, __ep.tailX, __ep.tailY, __ep.tipX, __ep.tipY, {
-                                color: 'rgba(15, 255, 7, 0.7)',
-                                lineWidth: 2,
+                                color: '#1aa3bd',
+                                lineWidth: 1.25,
                                 padStart: 2,
                                 padEnd: 3,
-                                headLength: 18,
-                                headWidth: 16,
-                                shadowBlur: 3,
-                                shadowColor: 'rgba(0,0,0,0.1)'
+                                headLength: 11,
+                                headWidth: 8,
+                                shadowBlur: 0,
+                                shadowColor: 'transparent'
                             });
                         }
                     }
@@ -8463,6 +8465,9 @@ function (progress) {
                                         try {
                                             if (this.__maximized !== o || this.menu) return;
                                             if (this.selected_well !== well) { try { o.deselectAll(); } catch (e) { } try { well.selectIt(); } catch (e) { } this.selected_well = well; }
+                                            // Desktop: the tap only selects; typing goes straight into the cell and
+                                            // the text window is opened from the menu. A phone gets its in-place field.
+                                            if (!(typeof isMobile === 'function' && isMobile())) return;
                                             let value = well.value;
                                             try { const f = this.getFormulaForWell(o.name + o.getWellRange([well])); if (f && f.length) value = f; } catch (e) { }
                                             o.showWellAction(this, value, null, [well]);
@@ -21959,7 +21964,8 @@ function (progress) {
                         console.log("Failed to update share status");
                     }
 
-                    if (this.formulas && Object.keys(this.formulas).length > 0 && this.attr__drawFormulaConnections) {
+                    // No arrows in the maximized view: the tables they point at are not shown.
+                    if (this.formulas && Object.keys(this.formulas).length > 0 && this.attr__drawFormulaConnections && !this.__maximized) {
                         let keys = Object.keys(this.formulas);
                         for (let k of keys) {
                             try {
@@ -22077,6 +22083,7 @@ function (progress) {
                             obj.drawPlot(this, ctx);
                         } else if (obj.draw) {
                             obj.draw(this, ctx);
+                            // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
                             this.drawFormulaReverseDependencyArrows(obj, ctx, this.grid)
                         }
@@ -22144,7 +22151,7 @@ function (progress) {
                     }
 
                     for (let obj of allObjects) {
-                        this.drawPackageExportParentLine(obj, ctx);
+                        if (!this.__maximized) this.drawPackageExportParentLine(obj, ctx);
                         drawObj(obj);
                     }
                     // The active plot (a timeline or chart being edited) is redrawn on top of

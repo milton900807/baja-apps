@@ -7972,6 +7972,20 @@ function () {
                 const withMaximize = (list) => {
                     if (Array.isArray(list) && !list.some(i => i && i.label === 'Maximize')) {
                         list.unshift({ label: 'Share this table…', click: async () => { pt.shareObject(this); }, move: () => { } });
+                        if (pt.__maximized === this) {
+                            // The only way to the text window while maximized.
+                            list.unshift({
+                                label: 'Edit cell text…', move: () => { },
+                                click: async () => {
+                                    const ws = this.getSelectedWellsInOrder() || [];
+                                    const w = ws.length ? ws : (pt.selected_well ? [pt.selected_well] : []);
+                                    if (!w.length) { try { pt.setMessage('Select a cell first.', 2); } catch (e) { } return; }
+                                    let value = w[0].value;
+                                    try { const f = pt.getFormulaForWell(this.name + this.getWellRange([w[0]])); if (f && f.length) value = f; } catch (e) { }
+                                    this.showWellAction(pt, value, null, w);
+                                }
+                            });
+                        }
                         list.unshift({ label: 'Maximize', click: async () => { pt.maximizeObject(this); }, move: () => { } });
                     }
                     return list;
@@ -8890,7 +8904,9 @@ function () {
                         if (w[0].icon) {
                             this.showIconMenu(pt, w[0]);
                         } else if (previous_well === current_well) {
-                            this.showWellAction(pt, __value, ref, w);
+                            // Maximized on the desktop: the text window opens only from the
+                            // menu ("Edit cell text…"); a phone keeps its in-place field.
+                            if (!(pt.__maximized === this && !isMobile())) this.showWellAction(pt, __value, ref, w);
                         }
 
                         singleSelect = false;
@@ -14313,6 +14329,9 @@ function () {
                         } else {
 
                             if (max_x - min_x < 100 && max_y - min_y < 100) {
+                                // One font size per column: the largest at which every cell's text
+                                // in the column fits (headers and skinned cells keep their own).
+                                try { this.__columnFonts(ctx, min_x, max_x, Math.max(min_y, this.row_vis_start), Math.min(max_y, this.row_vis_stop)); } catch (e) { }
                                 for (let x = min_x; x < max_x; x++) {
                                     for (let y = Math.max(min_y, this.row_vis_start); y < max_y && y < this.row_vis_stop; y++) {
                                         if (this.wells && this.wells[x] != null && this.wells[x][y] != null) {
@@ -15066,6 +15085,39 @@ function () {
                 this.draw(pt, ctx, scx, scy);
             }
 
+            // Per-column font size for the default cell painter: the largest size at which
+            // every cell's text in the column fits its cell, so a column reads at one size and
+            // nothing is cut off. Measured only when a column's cells or texts change.
+            __columnFonts(ctx, x0, x1, y0, y1) {
+                if (!this.__colFontCache) this.__colFontCache = {};
+                for (let x = x0; x < x1; x++) {
+                    const col = this.wells && this.wells[x];
+                    if (!col) continue;
+                    const cells = [];
+                    let key = '';
+                    for (let y = y0; y < y1; y++) {
+                        const w = col[y];
+                        if (!w) continue;
+                        cells.push(w);
+                        key += (w.__screen_width | 0) + ':' + (w.__screen_height | 0) + ':' + (w.value == null ? '' : ('' + w.value)) + '|';
+                    }
+                    const c = this.__colFontCache[x];
+                    let px;
+                    if (c && c.key === key) px = c.px;
+                    else {
+                        px = Infinity;
+                        for (const w of cells) {
+                            if (!w.fitFontPx || w.skin_transient || w.skin_type) continue;
+                            if (w.isHeader && w.isHeader()) continue;
+                            const f = w.fitFontPx(ctx);
+                            if (f != null) px = Math.min(px, f);
+                        }
+                        if (!Number.isFinite(px)) px = null;
+                        this.__colFontCache[x] = { key, px };
+                    }
+                    for (const w of cells) w.__colFontPx = (w.skin_transient || w.skin_type || (w.isHeader && w.isHeader())) ? null : px;
+                }
+            }
             drawBackgroundTableTitles(ctx, name, x, y, w, h) {
                 if (!name) return;
 
@@ -15099,7 +15151,9 @@ function () {
 
                 ctx.save();
                 ctx.font = `${sideFontPx}px Arial`;
-                const leftInnerX = x + padX;
+                // Off the LEFT edge of the table, not over the first column's values: the
+                // rotated line's centre sits a little more than half a font height outside.
+                const leftInnerX = x - Math.max(10, sideFontPx * 0.8);
                 const leftCenterY = y - h / 2;
                 ctx.translate(leftInnerX, leftCenterY);
                 ctx.rotate(-Math.PI / 2);

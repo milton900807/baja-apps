@@ -551,9 +551,9 @@ function () {
                 //
                 // Only the PANEL grows, and it grows upward: items are laid out from py and
                 // __bounds() measures the item area alone, so hit testing is untouched by this.
-                const titleH = (this.title && !this.externalTitle) ? 34 : 0;
-                const titleTextY = 13;      // text centre, from the top of the panel
-                const titleRuleY = 27;      // the hairline, near the bottom of the header band
+                const titleH = (this.title && !this.externalTitle) ? 36 : 0;
+                const titleTextY = 15;      // text centre, from the top of the panel
+                const titleRuleY = 30;      // the rule at the bottom of the header band
 
                 // Unified menu panel: white card with soft shadow + neutral border
                 const panelX = px;
@@ -613,30 +613,32 @@ function () {
                 } catch (e) { }
 
                 if (this.title && !this.externalTitle) {
+                    // The heading is a distinct BAND, not a first row: navy with white small
+                    // caps on a light menu, a lighter band on the navy centre menu, and a solid
+                    // rule beneath. Nobody should take it for something to click.
+                    //
                     // SAVED AND RESTORED AROUND THE WHOLE HEADER. The item labels below are
-                    // drawn at y + height/2 with NO textBaseline of their own (see the fillText
-                    // near the end of this loop), so they inherit whatever is current. Setting
-                    // 'middle' here without putting it back would shift every label in every
-                    // titled menu, which is a far bigger change than the one intended.
+                    // drawn with no textBaseline of their own and inherit whatever is current.
                     ctx.save();
-                    ctx.font = this.titleFont || '600 13px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
-                    ctx.fillStyle = this.titleColor || '#111827';
+                    let dark = false;
+                    try {
+                        const m = ('' + (this.panelBg || '')).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+                        if (m) dark = (0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3]) < 128;
+                    } catch (e) { }
+                    const bandH = titleRuleY;
+                    ctx.beginPath();
+                    menuRoundPath(ctx, panelX, panelY, panelW, panelH, 10);
+                    ctx.clip();
+                    ctx.fillStyle = this.titleBandBg || (dark ? 'rgba(255,255,255,0.10)' : '#0a2540');
+                    ctx.fillRect(panelX, panelY, panelW, bandH);
+                    ctx.fillStyle = this.panelBorder || '#1aa3bd';
+                    ctx.fillRect(panelX, panelY + bandH - 2, panelW, 2);       // the rule: solid, two pixels
+                    ctx.font = this.titleFont || '700 11px Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+                    try { ctx.letterSpacing = '0.08em'; } catch (e) { }
+                    ctx.fillStyle = this.titleColor || (dark ? '#eaf6f9' : '#ffffff');
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
-                    ctx.fillText(this.title, panelX + 12, panelY + titleTextY);
-                    // The separator takes the panel's own border colour so it belongs to the
-                    // menu it is in -- cyan on the navy centre menu, neutral on the light one --
-                    // held well below full strength so it divides without competing with the
-                    // heading. The half-pixel offset keeps a 1px line crisp rather than smeared
-                    // across two rows of pixels.
-                    ctx.globalAlpha = 0.42;
-                    ctx.strokeStyle = this.panelBorder || 'rgba(16,24,40,0.55)';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    const __ruleY = Math.round(panelY + titleRuleY) + 0.5;
-                    ctx.moveTo(panelX + 10, __ruleY);
-                    ctx.lineTo(panelX + panelW - 10, __ruleY);
-                    ctx.stroke();
+                    ctx.fillText(('' + this.title).toUpperCase(), panelX + 12, panelY + titleTextY);
                     ctx.restore();
                 } else if (this.title && this.externalTitle) {
                     // Track name as a VERTICAL chip (rotated 90°) running along the menu's

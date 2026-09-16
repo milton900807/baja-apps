@@ -1234,6 +1234,9 @@ function (path, config) {
 
             let default_mousedownListener = async (scx, scy) => {
                 AnimateGrid.INTERUPT = true;
+                // A centre menu is up (the graph's, e.g. a confirmation or an object menu):
+                // the press belongs to the menu and must not reach the tables beneath it.
+                if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) return;
                 mouse_down = true;
                 let mmx = pm.plateTrack.grid.Xwc(scx);
                 let mmy = pm.plateTrack.grid.Ywc(scy);
@@ -1320,6 +1323,9 @@ function (path, config) {
                 px = 0;
                 py = 0;
                 mouse_down = false;
+                // The release that picks a menu item stays with the menu (the graph resolves
+                // it); the tables underneath never see it.
+                if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) { __touchPx = null; __touchPy = null; __touchSy = null; return; }
                 // Mobile, nothing maximized and no menu open: the release ends a pan, nothing more.
                 __touchPx = null; __touchPy = null; __touchSy = null;
                 if (isMobile() && pm.plateTrack && !pm.plateTrack.menu && !pm.plateTrack.__maximized) return;
@@ -1391,6 +1397,7 @@ function (path, config) {
                 if (pm.plateTrack.isTextActive()) {
                     return null
                 }
+                if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) return null;   // the menu tracks the pointer, not the table
                 // Mobile: a moving finger pans the canvas, or scrolls the maximized object; it
                 // never drags a table, resizes a chart or extends a cell selection. The pan is
                 // done HERE on the plate-track grid: the graph's own touch pan moves a grid
