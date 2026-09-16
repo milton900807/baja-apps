@@ -3255,29 +3255,22 @@ function (progress) {
                 this.grid.rescale();
                 if (plate.highlight) plate.highlight();
                 const viewW = Math.max(1, this.grid.width), viewH = Math.max(1, this.grid.height);
-                const plateW = Math.max(1e-9, plate.grid.width || 0);
-                let plateH = 0;
-                try { plateH = (typeof plate.getHeight === 'function') ? plate.getHeight(this) : plate.grid.height; } catch (e) { plateH = plate.grid.height; }
-                plateH = Math.max(1e-9, plateH || 0);
-                // The smallest cell decides the floor.
-                let cw = Infinity, ch = Infinity;
-                try {
-                    for (const col of (plate.wells || [])) {
-                        for (const w of (col || [])) {
-                            if (!w) continue;
-                            if (Number.isFinite(w.w) && w.w > 0) cw = Math.min(cw, w.w);
-                            if (Number.isFinite(w.h) && w.h > 0) ch = Math.min(ch, w.h);
-                        }
-                    }
-                } catch (e) { }
-                if (!Number.isFinite(cw)) cw = plateW / Math.max(1, (plate.wells || []).length);
-                if (!Number.isFinite(ch)) ch = plateH / Math.max(1, ((plate.wells || [])[0] || []).length);
-                // World units per pixel: the same on both axes so cells keep their shape.
-                const wppFit = Math.max(plateW * MARGIN / viewW, plateH * MARGIN / viewH);   // whole table in view
-                const wppCell = Math.min(cw / MIN_W, ch / MIN_H);                           // cells no smaller than the floor
+                // The table's rectangle on the CANVAS (track world units), as maximize uses it.
+                const b = this.__maxWorldBounds(plate);
+                if (!b) return;
+                const plateW = Math.max(1e-9, b.x1 - b.x0), plateH = Math.max(1e-9, b.yTop - b.yBot);
+                // A cell's world size is the table's world size divided by its rows and
+                // columns (the table's own grid counts cells; it is not in canvas units).
+                const rows = Math.max(1, (plate.grid.ymax - plate.grid.ymin) || (plate.wells && plate.wells[0] ? plate.wells[0].length : 1));
+                const cols = Math.max(1, (plate.grid.xmax - plate.grid.xmin) || (plate.wells ? plate.wells.length : 1));
+                const cellWorldW = plateW / cols, cellWorldH = plateH / rows;
+                // Canvas world units per screen pixel, the same on both axes so cells keep
+                // their shape: the whole table in view, unless that puts a cell under the
+                // floor, in which case the floor wins and the table overflows the window.
+                const wppFit = Math.max(plateW * MARGIN / viewW, plateH * MARGIN / viewH);
+                const wppCell = Math.min(cellWorldW / MIN_W, cellWorldH / MIN_H);
                 const wpp = Math.min(wppFit, wppCell);
-                const cx = plate.grid.xi + plateW / 2;
-                const cy = plate.grid.yi + plateH / 2;
+                const cx = (b.x0 + b.x1) / 2, cy = (b.yTop + b.yBot) / 2;
                 await this.zoomto(cx, cy, viewW * wpp, viewH * wpp);
                 this.setSelected(plate);
             }
@@ -8259,6 +8252,7 @@ function (progress) {
             }
 
             mouseDown(x, y) {
+                if (this.__selectGesture) return;
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit' || hit === 'menu') return;
@@ -8487,6 +8481,7 @@ function (progress) {
 
             mouseUp(x, y) {
                 if (this.__msDrag) { this.__msDragEnd(); return; }
+                if (this.__selectGesture) return;
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
                     // A bookmark chosen from the maximized view: a bookmark is a place on the
@@ -9086,6 +9081,7 @@ function (progress) {
 
             mouseMove(x, y) {
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
+                if (this.__selectGesture) return;
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
                     if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
@@ -9592,12 +9588,112 @@ function (progress) {
                     try { pushHistory(HM(o)); } catch (e) { }
                     try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
                 }
+                d.px = x; d.py = y;
                 const xu = this.__tlXUnitsAt(o, x);
                 p.x = xu;
                 p.date = new Date(this.__tlXToMs(o, xu));
                 p.y = d.y0 + (this.__tlYUnitsAt(o, y) - d.yu0);
                 try { this.setMessage((p.name || 'Milestone') + ': ' + this.__tlFmt(p.date.getTime()), 3); } catch (e) { }
             }
+            // The date of a milestone being dragged, painted on the canvas by the pointer
+            // (the message line alone is too far from the hand to read while dragging).
+            __msDrawDate(ctx) {
+                const d = this.__msDrag;
+                if (!d || !d.moved || !Number.isFinite(d.px)) return;
+                let text = '';
+                try { text = this.__tlFmt(new Date(d.p.date).getTime()); } catch (e) { return; }
+                const name = (d.p.name || '').toString();
+                ctx.save();
+                ctx.font = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                const nameW = name ? ctx.measureText(name).width : 0;
+                ctx.font = '700 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                const dateW = ctx.measureText(text).width;
+                const w = Math.max(dateW, nameW) + 24, h = name ? 46 : 30;
+                let x = d.px + 16, y = d.py - h - 12;
+                if (x + w > this.grid.width - 6) x = d.px - w - 16;
+                if (y < 6) y = d.py + 18;
+                ctx.shadowColor = 'rgba(10,37,64,0.35)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+                ctx.fillStyle = '#0a2540';
+                ctx.beginPath();
+                const r = 8;
+                ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
+                ctx.shadowColor = 'transparent';
+                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(text, x + 12, y + (name ? 16 : h / 2));
+                if (name) { ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.fillStyle = '#9fdbe6'; ctx.fillText(name.length > 40 ? name.slice(0, 39) + '…' : name, x + 12, y + 33); }
+                // a stem down to the milestone
+                ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+                ctx.beginPath(); ctx.moveTo(d.px, d.py); ctx.lineTo(x < d.px ? x + w : x, Math.min(y + h, Math.max(y, d.py))); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ---- Lasso / rectangle selection over the whole workbench --------------------
+            // Started from the toolbar buttons. The next press-drag-release traces a lasso
+            // (freehand) or a rectangle; the polygon then goes through lassoSelect, which
+            // picks up points of every chart and timeline, and tables, plots and notes that
+            // lie inside. The canvas does not pan while the gesture is armed; Esc cancels.
+            startSelectGesture(kind) {
+                const isRect = kind === 'rect';
+                const graphOf = () => { try { const gg = CurrentLayout.getStashed('graph'); return gg && gg.graph; } catch (e) { return null; } };
+                let pts = [], drawing = false, start = null, done = false;
+                const rectPoly = (a, b) => [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: b.y }, { x: a.x, y: b.y }, { x: a.x, y: a.y }];
+                const release = () => {
+                    if (done) return;
+                    done = true;
+                    this.__selectGesture = null;
+                    try { const gr = graphOf(); if (gr) gr.__suppressPan = false; } catch (e) { }
+                };
+                const t = {
+                    id: 'workbench-select-' + kind,
+                    priority: true,
+                    mouseDownListener: (x, y) => { drawing = true; start = { x, y }; pts = [{ x, y }]; },
+                    mouseMoveListener: (x, y) => {
+                        if (!drawing) return;
+                        if (isRect) pts = rectPoly(start, { x, y }); else pts.push({ x, y });
+                    },
+                    mouseUpListener: (x, y) => {
+                        if (!drawing) return;
+                        drawing = false;
+                        if (isRect) pts = rectPoly(start, { x, y });
+                        else { pts.push({ x, y }); if (pts.length > 1) pts.push({ x: pts[0].x, y: pts[0].y }); }
+                        const poly = pts.slice();
+                        const big = isRect ? (Math.abs(x - start.x) > 3 && Math.abs(y - start.y) > 3) : poly.length > 3;
+                        release();
+                        try { this.wb(null); } catch (e) { }
+                        if (!big) { try { this.setMessage('Selection cancelled', 2); } catch (e) { } return; }
+                        try { this.lassoSelect(poly, this.grid); } catch (e) { console.warn('select', e); }
+                        let n = 0;
+                        try { for (const p of (this.m_plots || [])) for (const q of ((p.scatterData && p.scatterData.points) || [])) if (q && q.isSelected) n++; } catch (e) { }
+                        try { this.setMessage(n ? (n + ' point' + (n === 1 ? '' : 's') + ' selected') : 'No points inside; tables and notes inside are selected', 2); } catch (e) { }
+                    },
+                    keydown: (ev) => {
+                        if (ev && ev.key === 'Escape') { drawing = false; release(); try { this.wb(null); } catch (e) { } try { this.setMessage('Selection cancelled', 2); } catch (e) { } }
+                    },
+                    draw: (grid, ctx) => {
+                        if (!pts.length) return;
+                        ctx.save();
+                        ctx.strokeStyle = '#0a2540'; ctx.fillStyle = 'rgba(26,163,189,0.12)';
+                        ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(pts[0].x, pts[0].y);
+                        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+                        if (!drawing || isRect) ctx.closePath();
+                        ctx.fill(); ctx.stroke();
+                        ctx.restore();
+                    },
+                    close: () => { release(); },
+                    menuManager: null
+                };
+                this.__selectGesture = kind;
+                try { const gr = graphOf(); if (gr) gr.__suppressPan = true; } catch (e) { }
+                try { this.setMessage(isRect ? 'Drag a rectangle around what to select. Esc cancels.' : 'Draw around what to select. Esc cancels.', 3); } catch (e) { }
+                this.wb(t);
+            }
+
             __msDragEnd() {
                 const d = this.__msDrag; this.__msDrag = null;
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
@@ -22430,6 +22526,7 @@ function (progress) {
                     // the other canvas items, and the lock badges over it. Both belong HERE,
                     // before the chrome: drawn any later they covered the side menu, the
                     // tables menu and the maximized title bar.
+                    try { this.__msDrawDate(ctx); } catch (e) { }
                     if (this.activePlot) {
                         // drawPlot takes the TRACK (it reads pt.grid); handing it the grid itself
                         // threw "Cannot read properties of undefined (reading 'screenWidth')" on

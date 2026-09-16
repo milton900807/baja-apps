@@ -11,6 +11,51 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 return Array.isArray(list) ? list : [];
             } catch (e) { return []; }
         };
+        // MOBILE: the menubar is a phone width. Spelled-out labels do not fit, so every
+        // top-level menu becomes an icon (its label survives as the tooltip), and the bar is
+        // split in two, stacked: the app menus (File, Build, Draw, Share) on the first, the
+        // context menus for the selected table or point and the tool buttons on the second.
+        // The command input stays on the first bar only (a bar without `cmd` has none).
+        const MOBILE_ICONS = { 'file': 'folder_open', 'build': 'construction', 'draw': 'draw', 'share': 'share', 'main menu': 'menu' };
+        const iconFor = (m) => {
+            const l = ('' + (m.label || '')).trim().toLowerCase();
+            if (MOBILE_ICONS[l]) return MOBILE_ICONS[l];
+            if (m.__ctx === 'point') return 'place';
+            if (m.__ctx === 'table') return 'table_chart';
+            return 'more_horiz';
+        };
+        const finishMenubar = (menuItm) => {
+            try {
+                if (typeof isMobile !== 'function' || !isMobile()) return menuItm;
+                const data = menuItm && menuItm.data ? menuItm.data : null;
+                const menus = data && Array.isArray(data.menus) ? data.menus : null;
+                if (!menus || !menus.length) return menuItm;
+                const APP = new Set(['file', 'build', 'draw', 'share', 'main menu']);
+                const first = [], second = [];
+                for (const m of menus) {
+                    if (!m) continue;
+                    const l = ('' + (m.label || '')).trim().toLowerCase();
+                    const hasItems = Array.isArray(m.items) && m.items.length > 0;
+                    if (hasItems) {
+                        const mm = Object.assign({}, m, { icon: m.icon || iconFor(m), tooltip: m.tooltip || m.label || '', color: m.color || '#ffffff' });
+                        delete mm.label;
+                        (APP.has(l) ? first : second).push(mm);
+                    } else {
+                        // leaf buttons (the selection tools) go on the second bar
+                        second.push(m);
+                    }
+                }
+                if (!second.length) { data.menus = first; return menuItm; }
+                const bar1 = Object.assign({}, menuItm, { data: Object.assign({}, data, { menus: first }) });
+                const d2 = Object.assign({}, data, { menus: second });
+                delete d2.cmd; delete d2.placeholder; delete d2.text; delete d2.txtListener; delete d2.toolLookup;
+                const bar2 = { wid: 'menu', data: d2 };
+                return {
+                    wid: 'card',
+                    data: { cards: [[{ title: '', component: bar1 }, { title: '', component: bar2 }]] }
+                };
+            } catch (e) { return menuItm; }
+        };
         // File: the main menu's items (New, Open, Import, Save as, ...), first on every
         // menubar so it sits left of Build the way it does in the editor. `items` is filled
         // further down; the arrow reads it when a menubar is built, so it is complete then.
@@ -862,12 +907,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
-                                    'label': `${menu_title}`, 'items': m
+                                    'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
                             ]
                         }
                     }
-                    resolve(menuItm)
+                    resolve(finishMenubar(menuItm))
                 } else {
 
                     let mbb = null;
@@ -889,16 +934,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
-                                    'label': `${menu_title}`, 'items': m
+                                    'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
                                 {
-                                    'label': `${name}`, 'items': sp
+                                    'label': `${name}`, 'items': sp, __ctx: 'point'
                                 },
 
                             ]
                         }
                     }
-                    resolve(menuItm)
+                    resolve(finishMenubar(menuItm))
                 }
 
             } else {
@@ -942,14 +987,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
-                                    'label': `${menu_title}`, 'items': m
+                                    'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
 
                             ]
                         }
                     }
 
-                    resolve(menuItm)
+                    resolve(finishMenubar(menuItm))
 
                 } else {
 
@@ -987,16 +1032,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                 ...appMenus(),
                                 ...shareMenu(),
                                 {
-                                    'label': `${menu_title}`, 'items': m
+                                    'label': `${menu_title}`, 'items': m, __ctx: 'table'
                                 },
                                 {
-                                    'label': `${name}`, 'items': sp
+                                    'label': `${name}`, 'items': sp, __ctx: 'point'
                                 },
 
                             ]
                         }
                     }
-                    resolve(menuItm)
+                    resolve(finishMenubar(menuItm))
                 }
             }
         }
@@ -1207,12 +1252,12 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         ...appMenus(),
                         ...shareMenu(),
                         {
-                            'label': `${menu_title}`, 'items': m
+                            'label': `${menu_title}`, 'items': m, __ctx: 'table'
                         },
                     ]
                 }
             }
-            resolve(menuItm)
+            resolve(finishMenubar(menuItm))
         }
 
         if (selectedPoint) {
@@ -1251,16 +1296,16 @@ function (plate_graph, selectedPlate, selectedPoint) {
                             ...appMenus(),
                             ...shareMenu(),
                             {
-                                'label': `${menu_title}`, 'items': m
+                                'label': `${menu_title}`, 'items': m, __ctx: 'table'
                             },
                             {
-                                'label': `${name}`, 'items': sp
+                                'label': `${name}`, 'items': sp, __ctx: 'point'
                             },
 
                         ]
                     }
                 }
-                resolve(menuItm)
+                resolve(finishMenubar(menuItm))
             }
         }
 
@@ -1365,7 +1410,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
 
             }
         }
-        resolve(menuItm)
+        resolve(finishMenubar(menuItm))
 
     })
 }

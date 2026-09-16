@@ -2371,9 +2371,22 @@ function (path, config) {
                 for (const g of buildLibraryLive) if (g.items.length) buildTop.push(g);
                 return buildTop;
             };
+            // Selection tools on the menubar: icon buttons (a leaf item with an icon and no
+            // label renders as an icon button). Each arms one gesture on the workbench.
+            const selectTools = [
+                {
+                    icon: 'gesture', color: '#ffffff', tooltip: 'Lasso select: draw around points, tables and notes',
+                    ionfunction: createIonFunction(() => { try { pm.plateTrack.startSelectGesture('lasso'); } catch (e) { console.warn(e); } })
+                },
+                {
+                    icon: 'highlight_alt', color: '#ffffff', tooltip: 'Rectangle select: drag a box around points, tables and notes',
+                    ionfunction: createIonFunction(() => { try { pm.plateTrack.startSelectGesture('rect'); } catch (e) { console.warn(e); } })
+                },
+            ];
             pm.__appMenus = () => [
                 { label: 'Build', items: refreshBuildLibrary() },
                 drawMenu,
+                ...selectTools,
             ]
 
             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm)
