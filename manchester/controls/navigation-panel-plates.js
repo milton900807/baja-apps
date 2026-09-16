@@ -24,39 +24,30 @@ function (plate_graph) {
             let centerX = buttonX + bsize / 2;
             let centerY = buttonY + bsize / 2;
 
-            ctx.fillStyle = 'white';
-
-            if (mo || highlighted) {
-                ctx.fillStyle = 'cyan';
-            }
-
-            ctx.shadowBlur = 6;
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-
+            // The application's button look: flat navy, cyan when hovered or active, a
+            // faint white rim, a soft shadow. The glyph is drawn white so it reads on navy.
+            const active = mo || highlighted;
+            ctx.save();
+            ctx.shadowBlur = active ? 10 : 6;
+            ctx.shadowColor = 'rgba(0,0,0,0.22)';
+            ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 3;
+            ctx.fillStyle = md ? '#FD5E53' : (active ? '#1aa3bd' : '#0b2545');
             ctx.beginPath();
             ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
             ctx.fill();
-
-            ctx.shadowBlur = 6;
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
-            ctx.closePath();
-            ctx.clip();
-
-            ctx.restore();
-
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 0;
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+            ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+            ctx.lineWidth = 1;
             ctx.stroke();
-
             if (img) {
-                ctx.drawImage(img, centerX - circleRadius, centerY - circleRadius, circleRadius * 2, circleRadius * 2);
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, circleRadius, 0, 2 * Math.PI);
+                ctx.clip();
+                try { ctx.filter = 'brightness(0) invert(1)'; } catch (e) { }
+                const pad = Math.max(3, circleRadius * 0.22);
+                ctx.drawImage(img, centerX - circleRadius + pad, centerY - circleRadius + pad, (circleRadius - pad) * 2, (circleRadius - pad) * 2);
             }
+            ctx.restore();
         };
 
         const drawRoundedRectIcon = (
@@ -90,21 +81,17 @@ function (plate_graph) {
             // ---------------------------------
             // Modern color palette
             // ---------------------------------
-            const borderColor = isActive
-                ? 'rgba(59,130,246,0.95)'
-                : 'rgba(30,41,59,0.14)';
-
-            const topFill = isActive
-                ? 'rgba(239,246,255,1)'
-                : 'rgba(255,255,255,1)';
-
-            const bottomFill = isActive
-                ? 'rgba(219,234,254,1)'
-                : 'rgba(241,245,249,1)';
+            // The application's button look: flat navy (#0b2545), cyan when hovered or
+            // active, sunset orange while pressed, a faint white rim -- the same palette
+            // as the button-canvas widget everywhere else. No gradient, no gloss.
+            const fillColor = isPressed ? '#FD5E53' : (isActive ? '#1aa3bd' : '#0b2545');
+            const borderColor = 'rgba(255,255,255,0.14)';
+            const topFill = fillColor;
+            const bottomFill = fillColor;
 
             const shadowColor = isPressed
-                ? 'rgba(15,23,42,0.10)'
-                : 'rgba(15,23,42,0.18)';
+                ? 'rgba(0,0,0,0.12)'
+                : 'rgba(0,0,0,0.22)';
 
             // ---------------------------------
             // Rounded rect helper
@@ -174,7 +161,7 @@ function (plate_graph) {
                 radius
             );
 
-            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';   // the inner edge stays almost flat
             ctx.lineWidth = 1;
             ctx.stroke();
 
@@ -192,8 +179,9 @@ function (plate_graph) {
             // ---------------------------------
             if (img) {
 
-                // minimal padding so icon fills the oval
-                const padding = 3;
+                // The glyph is drawn white so it reads on the navy pill.
+                try { ctx.filter = 'brightness(0) invert(1)'; } catch (e) { }
+                const padding = 4;
 
                 ctx.drawImage(
                     img,

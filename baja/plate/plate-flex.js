@@ -8322,11 +8322,11 @@ function () {
 
                 if (this.txbuttons && this.txbuttons.length > 0) {
                     let buttonWidth = 20;
-                    let buttonY = pt.selected_well.__screen_y + pt.selected_well.__screen_height;
+                    let buttonY = this.__cellBtnY(pt.selected_well, 20);
 
                     for (let index = 0; index < this.buttons.length; index++) {
                         let button = this.txbuttons[index];
-                        let buttonX = 100 + pt.selected_well.__screen_x + index * (buttonWidth + 10);
+                        let buttonX = this.__cellBtnX(pt.selected_well, index, buttonWidth);
                         let buttonHeight = button.height;
 
                         if (
@@ -8343,6 +8343,23 @@ function () {
                 return false;
             }
 
+            // ---- Cell buttons: to the RIGHT of the selected cell, after a short delay ----
+            // They used to sit under the cell, 100px in, where the release of the click that
+            // selected the cell could land on one. Now they sit beside the cell, vertically
+            // centred on it, and appear (and accept clicks) only a second after selection.
+            __cellBtnReady(well) {
+                const t = well && well.timeSelected;
+                return !(t && (Date.now() - t) < 1000);
+            }
+            __cellBtnX(well, index, buttonWidth) {
+                if (!well || !this.__cellBtnReady(well)) return -1e9;   // off-canvas: neither drawn nor hit
+                return (well.__screen_x || 0) + (well.__screen_width || 0) + 8 + index * ((buttonWidth || 30) + 6);
+            }
+            __cellBtnY(well, buttonHeight) {
+                if (!well || !this.__cellBtnReady(well)) return -1e9;
+                const h = well.__screen_height || 0;
+                return (well.__screen_y || 0) + Math.max(0, (h - (buttonHeight || 20)) / 2);
+            }
             isInsideBottomButtons(grid, mouseX, mouseY) {
                 let index = 0;
                 for (let button of this.bottom_buttons) {
@@ -8588,9 +8605,9 @@ function () {
 
                         if (this.txbuttons && this.txbuttons.length > 0 && textStyle && textStyle != 'search' && pt.selected_well) {
                             let buttonWidth = 20;
-                            let buttonY = pt.selected_well.__screen_y + pt.selected_well.__screen_height;
+                            let buttonY = this.__cellBtnY(pt.selected_well, 20);
                             this.txbuttons.forEach(async (button, index) => {
-                                let buttonX = 100 + pt.selected_well.__screen_x + index * (buttonWidth + 10);
+                                let buttonX = this.__cellBtnX(pt.selected_well, index, buttonWidth);
                                 let buttonHeight = button.height;
 
                                 if (
@@ -8736,9 +8753,9 @@ function () {
                             }
                             if (this.txbuttons && this.txbuttons.length > 0 && pt.selected_well) {
                                 let buttonWidth = 20;
-                                let buttonY = pt.selected_well.__screen_y + pt.selected_well.__screen_height;
+                                let buttonY = this.__cellBtnY(pt.selected_well, 20);
                                 await this.txbuttons.forEach(async (button, index) => {
-                                    let buttonX = 100 + pt.selected_well.__screen_x + index * (buttonWidth + 10);
+                                    let buttonX = this.__cellBtnX(pt.selected_well, index, buttonWidth);
                                     let buttonHeight = button.height;
                                     button.isHighlighted = false;
 
@@ -13772,9 +13789,9 @@ function () {
                         this.attr__RowAddRemoveButtons = false;
                     }
 
-                    let buttonY = selected_well.__screen_y + selected_well.__screen_height;
+                    let buttonY = this.__cellBtnY(selected_well, 20);
                     this.txbuttons.forEach((button, index) => {
-                        let buttonX = 100 + x + index * (buttonWidth + 10);
+                        let buttonX = this.__cellBtnX(selected_well, index, buttonWidth);
                         let buttonHeight = button.height;
                         let circleRadius = Math.min(bsize, buttonHeight) / 2;
                         this._paintTableButton(ctx, button, buttonX + bsize / 2, buttonY + buttonHeight / 2, circleRadius,

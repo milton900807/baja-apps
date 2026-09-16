@@ -8458,8 +8458,9 @@ function (progress) {
                                 const well = o.getWell(this.grid.Xwc(x), this.grid.Ywc(y));
                                 // Not a tap on the button strip under the previously selected cell.
                                 const pv = t.prev;
-                                const onStrip = !!(pv && Number.isFinite(pv.__screen_y) && y >= pv.__screen_y + (pv.__screen_height || 0)
-                                    && y <= pv.__screen_y + (pv.__screen_height || 0) + 32 && x >= (pv.__screen_x || 0) + 100);
+                                const onStrip = !!(pv && Number.isFinite(pv.__screen_y) && y >= pv.__screen_y - 4
+                                    && y <= pv.__screen_y + (pv.__screen_height || 0) + 4 && x >= (pv.__screen_x || 0) + (pv.__screen_width || 0) + 4
+                                    && x <= (pv.__screen_x || 0) + (pv.__screen_width || 0) + 8 + 6 * 36);
                                 if (well && !onStrip) {
                                     setTimeout(() => {
                                         try {
