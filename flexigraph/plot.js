@@ -13483,6 +13483,29 @@ function (MGrid) {
                 grid.rescale();
                 graph.rescale();
 
+                // A TIMELINE GROWS TO FIT ITS LABELS. Milestone panels stack upward from the
+                // axis; with enough of them the top ones sat above the frame. Last frame's
+                // topmost panel (recorded below, in the milestone branch) is compared with the
+                // frame's top edge: the shortfall, plus a margin, is added to the height at
+                // the TOP (y up, h up; the axis at the bottom stays put). Only ever grows,
+                // capped at four times the height it started with, so it cannot run away.
+                if (!isFixed && this.type === 'timeline' && Number.isFinite(this.__tlTopmostPx)) {
+                    const shortfall = (grid.yi + 8) - this.__tlTopmostPx;
+                    if (shortfall > 1) {
+                        if (!Number.isFinite(this.__tlBaseH)) this.__tlBaseH = this.h;
+                        const dy = graph.worldHeight(shortfall + 12);
+                        const maxH = this.__tlBaseH * 4;
+                        if (Number.isFinite(dy) && dy > 0 && this.h + dy <= maxH) {
+                            this.y += dy;
+                            this.h += dy;
+                            grid.yi = graph.Y(this.y);
+                            grid.height = graph.screenHeight(this.h) + 10;
+                            grid.rescale();
+                        }
+                    }
+                }
+                this.__tlTopmostPx = Infinity;
+
                 if (this.broken || !this.scatterData || !this.scatterData.points) {
                     ctx.fillStyle = brokenState.fill || "red";
                     ctx.fillRect(grid.xi, grid.yi, grid.width, grid.height);
@@ -14717,6 +14740,7 @@ function (MGrid) {
                                                 6
                                             );
                                             const adjustedFilenameY = adjustedBoxY + paddingY + nameHeight;
+                                            if (adjustedBoxY < this.__tlTopmostPx) this.__tlTopmostPx = adjustedBoxY;
 
                                             previousLabels.push({ x: nameBox.x, y: adjustedBoxY, w: nameBox.w, h: boxHeight });
 

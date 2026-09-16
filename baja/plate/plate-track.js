@@ -7972,6 +7972,40 @@ function (progress) {
                 try { await this.updateCalculations(); } catch (e) { console.warn('recalculation after repair failed', e); }
             }
 
+            // Formula completions for the menubar input: every table (inserts "Name[")
+            // and every row label of every table (inserts "Label]", tagged with its table so
+            // the input can offer only that table's labels after "Name["), plus group keys.
+            getFormulaCompletions() {
+                const out = [];
+                const plates = Array.isArray(this.root) ? this.root : [];
+                const seen = new Set();
+                for (const p of plates) {
+                    const name = (p && p.name != null ? '' + p.name : '').trim();
+                    if (!name || seen.has(name)) continue;
+                    seen.add(name);
+                    out.push({ label: name, insert: name + '[', hint: 'table' });
+                }
+                for (const p of plates) {
+                    const name = (p && p.name != null ? '' + p.name : '').trim();
+                    const col0 = p && p.wells ? p.wells[0] : null;
+                    if (!name || !Array.isArray(col0)) continue;
+                    const labs = new Set();
+                    for (let r = 1; r < col0.length; r++) {
+                        const w = col0[r];
+                        const lab = (w && w.value != null ? '' + w.value : '').trim();
+                        if (!lab || labs.has(lab) || /^[-+]?\d+(\.\d+)?$/.test(lab)) continue;
+                        labs.add(lab);
+                        out.push({ label: lab, insert: lab + ']', hint: name, table: name });
+                    }
+                }
+                try {
+                    for (const k of this.getTablesAndTagNames()) {
+                        if (!seen.has(k)) { seen.add(k); out.push({ label: k, insert: k + ' ', hint: 'tag' }); }
+                    }
+                } catch (e) { }
+                return out;
+            }
+
             getTablesAndTagNames() {
                 const plates = Array.isArray(this.root) ? this.root : [];
                 const namesArray = plates
@@ -9636,6 +9670,293 @@ function (progress) {
                 ctx.restore();
             }
 
+            // ---- Milestone rows <-> timeline points ----------------------------------------
+            // The Project build stamps each timeline point with the table (point.table) and
+            // row label (point.row) that describes it. Each point remembers the date it was
+            // last reconciled at; a Date cell that differs from that is an edit in the table
+            // and moves the point, a point date that differs is a drag on the timeline and
+            // rewrites the row's Date and Day cells. Runs from draw(), a few times a second.
+            __ymd(d) {
+                if (typeof d === 'string') { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d); if (m) return m[1] + '-' + m[2] + '-' + m[3]; }
+                const dt = (d instanceof Date) ? d : new Date(d);
+                if (isNaN(dt)) return '';
+                return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+            }
+            __parseYmd(v) {
+                const m = /^\s*(\d{4})-(\d{1,2})-(\d{1,2})/.exec('' + (v == null ? '' : v));
+                if (!m) return null;
+                const dt = new Date(+m[1], +m[2] - 1, +m[3]);
+                return isNaN(dt) ? null : dt;
+            }
+            // Required_To_Date is a formula with the months elapsed written into it at build
+            // time (monthly expenses x months, plus the one-time costs due by that date). A
+            // milestone that moves needs that formula rebuilt for its new date; the
+            // Expected_Minus_Required formula on the same row is rebuilt with it.
+            __msNum(v) { const n = parseFloat(('' + (v == null ? '' : v)).replace(/[$,\s]/g, '')); return Number.isFinite(n) ? n : NaN; }
+            // A milestone's date changed: which model is this table? A Budget column means
+            // the milestone-budget model (Required_To_Date accumulates the milestone amounts
+            // in date order, so every row is redone); otherwise the project model (monthly
+            // expenses x months plus one-time costs, for that row).
+            // Monthly expenses for the months elapsed to dt plus the one-time costs due by
+            // then, as a formula and (when the values are in) a number; null when the
+            // workbook has no Project tables (the milestone-budget model).
+            __msBaseRequired(dt) {
+                try {
+                    const valueOf = (t, label) => {
+                        if (!t || !t.wells || !t.wells[0]) return null;
+                        for (let i = 1; i < t.wells[0].length; i++) { const w = t.wells[0][i]; if (w && ('' + w.value).trim() === label) { const v = t.wells[1] && t.wells[1][i]; return v ? v.value : null; } }
+                        return null;
+                    };
+                    const A = this.getTableByName('Project_Assumptions'), E = this.getTableByName('Project_Expenses');
+                    if (!A || !E) return null;
+                    const start = this.__parseYmd(valueOf(A, 'Start_Date'));
+                    if (!start) return null;
+                    const months = Math.max(0, (dt - start) / 86400000 / 30.44);
+                    const due = []; let dueSum = 0;
+                    const O = this.getTableByName('Project_One_Time_Costs');
+                    if (O && O.wells && O.wells[0]) {
+                        for (let i = 1; i < O.wells[0].length; i++) {
+                            const w = O.wells[0][i]; const label = w ? ('' + w.value).trim() : '';
+                            if (!label.endsWith('_Due')) continue;
+                            const dd = this.__parseYmd(O.wells[1] && O.wells[1][i] ? O.wells[1][i].value : null);
+                            if (dd && dd <= dt) { due.push('Project_Assumptions[' + label.slice(0, -4) + '_One_Off]'); const amt = this.__msNum(valueOf(O, label.slice(0, -4))); if (Number.isFinite(amt)) dueSum += amt; }
+                        }
+                    }
+                    const monthly = this.__msNum(valueOf(E, 'Total_Expenses_Per_Month'));
+                    return {
+                        formula: 'Project_Expenses[Total_Expenses_Per_Month]*' + months.toFixed(2) + (due.length ? '+' + due.join('+') : ''),
+                        value: Number.isFinite(monthly) ? monthly * months + dueSum : NaN
+                    };
+                } catch (e) { return null; }
+            }
+            __msRefreshRow(plate, r, dt) {
+                try {
+                    const has = (h) => { for (let c = 0; c < plate.wells.length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === h) return true; } return false; };
+                    if (has('Budget')) return this.__msRefreshCumulative(plate);
+                } catch (e) { }
+                return this.__msRefreshRequired(plate, r, dt);
+            }
+            __msRefreshCumulative(plate) {
+                try {
+                    const colOf = (h) => { for (let c = 0; c < plate.wells.length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === h) return c; } return -1; };
+                    const cDate = colOf('Date'), cBud = colOf('Budget'), cReq = colOf('Required_To_Date');
+                    if (cDate < 0 || cBud < 0 || cReq < 0) return false;
+                    if (!plate.formula) plate.formula = {};
+                    const rows = [];
+                    let totalRow = -1;
+                    const col0 = plate.wells[0] || [];
+                    for (let r = 1; r < col0.length; r++) {
+                        const label = col0[r] ? ('' + col0[r].value).trim() : '';
+                        if (!label) continue;
+                        if (label === 'Total') { totalRow = r; continue; }
+                        const dt = this.__parseYmd(plate.wells[cDate] && plate.wells[cDate][r] ? plate.wells[cDate][r].value : null);
+                        if (!dt) continue;
+                        const kb = '[' + cBud + ':' + cBud + '][' + r + ':' + r + ']';
+                        let ref = ('' + (plate.formula[kb] || '')).replace(/^=/, '').trim();
+                        const val = this.__msNum(plate.wells[cBud] && plate.wells[cBud][r] ? plate.wells[cBud][r].value : null);
+                        if (!ref && Number.isFinite(val)) ref = String(val);    // a typed amount, no input row
+                        rows.push({ r, dt, ref, val: Number.isFinite(val) ? val : 0 });   // no ref: contributes nothing
+                    }
+                    rows.sort((a, b) => (a.dt - b.dt) || (a.r - b.r));
+                    const set = (c, r, v) => { const w = plate.wells[c] && plate.wells[c][r]; if (!w) return; try { w.setValue(v, true); } catch (e) { w.value = v; } };
+                    const refs = [];
+                    let sum = 0;
+                    let baseSeen = false;
+                    for (const row of rows) {
+                        if (row.ref) { refs.push(ref_(row.ref)); sum += row.val; }
+                        // The Project model adds monthly expenses to date and one-time costs due;
+                        // the milestone-budget model has no such tables and accumulates alone.
+                        const base = this.__msBaseRequired(row.dt);
+                        if (base) baseSeen = true;
+                        const parts = (base ? [base.formula] : []).concat(refs);
+                        plate.formula['[' + cReq + ':' + cReq + '][' + row.r + ':' + row.r + ']'] = parts.length ? parts.join('+') : '0';
+                        const v = (base ? base.value : 0) + sum;
+                        if (Number.isFinite(v)) set(cReq, row.r, Math.round(v));
+                    }
+                    if (totalRow >= 0 && refs.length) {
+                        plate.formula['[' + cReq + ':' + cReq + '][' + totalRow + ':' + totalRow + ']'] = refs.join('+');
+                        plate.formula['[' + cBud + ':' + cBud + '][' + totalRow + ':' + totalRow + ']'] = refs.join('+');
+                        set(cReq, totalRow, Math.round(sum)); set(cBud, totalRow, Math.round(sum));
+                    }
+                    console.log('[milestone sync] re-accumulated', plate.name, rows.length, 'rows; milestone budgets', Math.round(sum), baseSeen ? '+ monthly and one-time costs' : '');
+                    return true;
+                } catch (e) { console.warn('milestone accumulate', e); return false; }
+                function ref_(x) { return /[+\-*\/]/.test(x) ? '(' + x + ')' : x; }
+            }
+            __msRefreshRequired(plate, r, dt) {
+                try {
+                    const colOf = (h) => { for (let c = 0; c < plate.wells.length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === h) return c; } return -1; };
+                    const cReq = colOf('Required_To_Date'), cDiff = colOf('Expected_Minus_Required'), cExp = colOf('Expected_Budget');
+                    if (cReq < 0) { console.warn('[milestone sync] no Required_To_Date column in', plate.name); return false; }
+                    const valueOf = (t, label) => {
+                        if (!t || !t.wells || !t.wells[0]) return null;
+                        for (let i = 1; i < t.wells[0].length; i++) { const w = t.wells[0][i]; if (w && ('' + w.value).trim() === label) { const v = t.wells[1] && t.wells[1][i]; return v ? v.value : null; } }
+                        return null;
+                    };
+                    const A = this.getTableByName('Project_Assumptions');
+                    const start = this.__parseYmd(valueOf(A, 'Start_Date'));
+                    if (!start) { console.warn('[milestone sync] no Start_Date in Project_Assumptions'); return false; }
+                    const months = Math.max(0, (dt - start) / 86400000 / 30.44);
+                    const due = [];
+                    let dueSum = 0;
+                    const O = this.getTableByName('Project_One_Time_Costs');
+                    if (O && O.wells && O.wells[0]) {
+                        for (let i = 1; i < O.wells[0].length; i++) {
+                            const w = O.wells[0][i]; const label = w ? ('' + w.value).trim() : '';
+                            if (!label.endsWith('_Due')) continue;
+                            const dd = this.__parseYmd(O.wells[1] && O.wells[1][i] ? O.wells[1][i].value : null);
+                            if (dd && dd <= dt) {
+                                due.push('Project_Assumptions[' + label.slice(0, -4) + '_One_Off]');
+                                const amt = this.__msNum(valueOf(O, label.slice(0, -4)));
+                                if (Number.isFinite(amt)) dueSum += amt;
+                            }
+                        }
+                    }
+                    const required = 'Project_Expenses[Total_Expenses_Per_Month]*' + months.toFixed(2) + (due.length ? '+' + due.join('+') : '');
+                    if (!plate.formula) plate.formula = {};
+                    plate.formula['[' + cReq + ':' + cReq + '][' + r + ':' + r + ']'] = required;
+                    if (cDiff >= 0) {
+                        const kd = '[' + cDiff + ':' + cDiff + '][' + r + ':' + r + ']';
+                        const m = /^(Project_Assumptions\[[^\]]+_Expected_Budget\])-\(/.exec('' + (plate.formula[kd] || ''));
+                        if (m) plate.formula[kd] = m[1] + '-(' + required + ')';
+                    }
+                    // The number itself, from the live values, written into the cells NOW so
+                    // the row and the timeline show it before the recalculation lands.
+                    const monthly = this.__msNum(valueOf(this.getTableByName('Project_Expenses'), 'Total_Expenses_Per_Month'));
+                    if (Number.isFinite(monthly)) {
+                        const value = monthly * months + dueSum;
+                        const set = (c, v) => { const w = plate.wells[c] && plate.wells[c][r]; if (!w) return; try { w.setValue(v, true); } catch (e) { w.value = v; } };
+                        set(cReq, Math.round(value));
+                        if (cDiff >= 0 && cExp >= 0) {
+                            const exp = this.__msNum(plate.wells[cExp] && plate.wells[cExp][r] ? plate.wells[cExp][r].value : null);
+                            if (Number.isFinite(exp)) set(cDiff, Math.round(exp - value));
+                        }
+                        console.log('[milestone sync]', plate.name, 'row', r, '->', this.__ymd(dt), 'required', Math.round(value), '(' + months.toFixed(2) + ' months, one-time', dueSum + ')');
+                    } else {
+                        console.warn('[milestone sync] Project_Expenses[Total_Expenses_Per_Month] has no numeric value yet');
+                    }
+                    return true;
+                } catch (e) { console.warn('required-to-date', e); return false; }
+            }
+            // A milestones table: a Label column with Date and Required_To_Date columns.
+            __msTables() {
+                const out = [];
+                for (const pl of (this.root || [])) {
+                    if (!pl || !pl.wells || !pl.wells.length) continue;
+                    let hasDate = false, hasReq = false;
+                    for (let c = 0; c < pl.wells.length; c++) {
+                        const w = pl.wells[c] && pl.wells[c][0]; const h = w ? ('' + w.value).trim() : '';
+                        if (h === 'Date') hasDate = true; else if (h === 'Required_To_Date') hasReq = true;
+                    }
+                    if (hasDate && hasReq) out.push(pl);
+                }
+                return out;
+            }
+            // The row label the builder derives from a milestone's name (py: _label).
+            __msLabelOf(name) {
+                let s = ('' + (name || '')).replace(/['\u2019]/g, '').replace(/\d+/g, ' ').replace(/[^A-Za-z_ ]+/g, ' ').trim().replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+                if (s.length > 40) { const cut = s.slice(0, 40); s = cut.indexOf('_') >= 0 ? cut.slice(0, cut.lastIndexOf('_')) : cut; s = s.replace(/^_+|_+$/g, ''); }
+                return s;
+            }
+            // Points without a table/row stamp (a timeline built before the stamp existed) are
+            // linked by name to a milestones table row whose label matches.
+            __msAutoLink(o) {
+                if (o.__msAutoLinked) return;
+                o.__msAutoLinked = true;
+                const pts = (o.scatterData && o.scatterData.points) || [];
+                const tables = this.__msTables();
+                if (!tables.length) return;
+                let linked = 0;
+                for (const p of pts) {
+                    if (!p || p.type !== 'milestone') continue;
+                    if (p.table && p.row) { linked++; continue; }
+                    const want = this.__msLabelOf(p.name).toLowerCase();
+                    if (!want) continue;
+                    for (const pl of tables) {
+                        const col0 = pl.wells[0] || [];
+                        for (let i = 1; i < col0.length; i++) {
+                            const lab = col0[i] ? ('' + col0[i].value).trim() : '';
+                            const l = lab.toLowerCase();
+                            if (l === want || l === want + '_due') { p.table = pl.name; p.row = lab; linked++; break; }
+                        }
+                        if (p.table) break;
+                    }
+                }
+                console.log('[milestone sync] timeline "' + (o.name || '') + '": ' + linked + ' of ' + pts.length + ' points linked to a milestones table');
+            }
+            __syncMilestoneLinks() {
+                const now = Date.now();
+                if (this.__msSyncAt && now - this.__msSyncAt < 400) return;
+                this.__msSyncAt = now;
+                let changed = false;
+                for (const o of (this.m_plots || [])) {
+                    if (!this.__tlIs(o)) continue;
+                    try { this.__msAutoLink(o); } catch (e) { }
+                    const pts = (o.scatterData && o.scatterData.points) || [];
+                    let plate = null, colDate = -1, colDay = -1, colReq = -1, tableName = null;
+                    for (const p of pts) {
+                        if (!p || !p.table || !p.row) continue;
+                        if (p.table !== tableName) {
+                            tableName = p.table;
+                            plate = this.getTableByName(tableName);
+                            colDate = -1; colDay = -1; colReq = -1;
+                            if (plate && plate.wells) {
+                                for (let c = 0; c < plate.wells.length; c++) {
+                                    const h = plate.wells[c] && plate.wells[c][0] ? ('' + plate.wells[c][0].value).trim() : '';
+                                    if (h === 'Date') colDate = c; else if (h === 'Day') colDay = c; else if (h === 'Required_To_Date') colReq = c;
+                                }
+                            }
+                        }
+                        if (!plate || colDate < 0) continue;
+                        let r = -1;
+                        const col0 = plate.wells[0] || [];
+                        for (let i = 1; i < col0.length; i++) { if (col0[i] && ('' + col0[i].value).trim() === p.row) { r = i; break; } }
+                        if (r < 0) continue;
+                        const cell = plate.wells[colDate] && plate.wells[colDate][r];
+                        if (!cell) continue;
+                        // The row's computed Required_To_Date, shown under the milestone's name
+                        // on the timeline (the panel's second line), kept current every pass.
+                        try {
+                            if (colReq >= 0 && (p.__autoSubtitle || !p.filename)) {
+                                const rw = plate.wells[colReq] && plate.wells[colReq][r];
+                                const n = rw ? parseFloat(('' + rw.value).replace(/[$,\s]/g, '')) : NaN;
+                                if (Number.isFinite(n)) {
+                                    p.filename = 'Required to date: $' + Math.round(n).toLocaleString();
+                                    p.__autoSubtitle = true;
+                                }
+                            }
+                        } catch (e) { }
+                        const cellStr = ('' + (cell.value == null ? '' : cell.value)).trim().slice(0, 10);
+                        const pointStr = this.__ymd(p.date);
+                        if (p.__syncedDate == null) p.__syncedDate = pointStr;
+                        const set = (c, v) => { const w = plate.wells[c] && plate.wells[c][r]; if (!w) return; try { w.setValue(v, true); } catch (e) { w.value = v; } };
+                        if (cellStr && cellStr !== p.__syncedDate) {
+                            // edited in the table: move the point
+                            const dt = this.__parseYmd(cellStr);
+                            if (dt) {
+                                p.date = dt;
+                                p.__syncedDate = this.__ymd(dt);
+                                if (colDay >= 0) set(colDay, dt.toLocaleDateString(undefined, { weekday: 'short' }));
+                                if (this.__msRefreshRow(plate, r, dt)) changed = true;
+                                try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                            }
+                        } else if (pointStr && pointStr !== p.__syncedDate) {
+                            // moved on the timeline: rewrite the row
+                            set(colDate, pointStr);
+                            if (colDay >= 0) set(colDay, new Date(p.date).toLocaleDateString(undefined, { weekday: 'short' }));
+                            p.__syncedDate = pointStr;
+                            if (this.__msRefreshRow(plate, r, new Date(p.date))) changed = true;
+                        }
+                    }
+                }
+                // A rebuilt formula shows its new value only after a recalculation: one pass,
+                // a moment after the last change, so a drag does not recalculate every frame.
+                if (changed) {
+                    clearTimeout(this.__msRecalcTimer);
+                    this.__msRecalcTimer = setTimeout(() => { try { this.updateCalculations(); } catch (e) { } }, 350);
+                }
+            }
+
             // ---- Lasso / rectangle selection over the whole workbench --------------------
             // Started from the toolbar buttons. The next press-drag-release traces a lasso
             // (freehand) or a rectangle; the polygon then goes through lassoSelect, which
@@ -9703,7 +10024,31 @@ function (progress) {
                 const d = this.__msDrag; this.__msDrag = null;
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 if (!d || !d.moved) return;
-                try { this.setMessage((d.p.name || 'Milestone') + ' moved to ' + this.__tlFmt(new Date(d.p.date).getTime()) + ' (Ctrl+Z undoes)', 2); } catch (e) { }
+                // Sync NOW (not at the next throttled pass) and say what it did: the row and
+                // its new Required_To_Date, or that the point is linked to no table.
+                let note = '';
+                try {
+                    this.__msSyncAt = 0;
+                    this.__syncMilestoneLinks();
+                    const p = d.p;
+                    if (p.table && p.row) {
+                        const pl = this.getTableByName(p.table);
+                        let cReq = -1, r = -1;
+                        if (pl && pl.wells) {
+                            for (let c = 0; c < pl.wells.length; c++) { const w = pl.wells[c] && pl.wells[c][0]; if (w && ('' + w.value).trim() === 'Required_To_Date') cReq = c; }
+                            const col0 = pl.wells[0] || [];
+                            for (let i = 1; i < col0.length; i++) if (col0[i] && ('' + col0[i].value).trim() === p.row) { r = i; break; }
+                        }
+                        if (!pl) note = ' · table ' + p.table + ' not found';
+                        else if (r < 0) note = ' · row ' + p.row + ' not found in ' + p.table;
+                        else if (cReq < 0) note = ' · ' + p.table + ' has no Required_To_Date column';
+                        else { const v = this.__msNum(pl.wells[cReq][r] ? pl.wells[cReq][r].value : null); note = ' · ' + p.table + ' row ' + p.row + ': required to date ' + (Number.isFinite(v) ? '$' + Math.round(v).toLocaleString() : '(no value yet)'); }
+                    } else {
+                        note = ' · not linked to a milestones table';
+                    }
+                } catch (e) { note = ' · sync error: ' + (e && e.message || e); console.warn('[milestone sync]', e); }
+                console.log('[milestone sync] drop', d.p.name, '->', this.__ymd(d.p.date), note);
+                try { this.setMessage((d.p.name || 'Milestone') + ' moved to ' + this.__tlFmt(new Date(d.p.date).getTime()) + note + ' (Ctrl+Z undoes)', 3); } catch (e) { }
             }
 
             // The topmost object under a screen point: a note, a chart or timeline, or a table.
@@ -22113,6 +22458,7 @@ function (progress) {
                 if (!ctx && !ctx.canvas) {
                     return;
                 }
+                try { this.__syncMilestoneLinks(); } catch (e) { }
 
 
                 if (!MSGraph.isLoggedIn()) {

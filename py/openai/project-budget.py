@@ -81,8 +81,9 @@ SCHEMA = {
                           "properties": {"label": {"type": "string"}, "amount": {"type": "number"}, "date": {"type": "string"}},
                           "required": ["label", "amount", "date"]}},
         "milestones": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                       "properties": {"name": {"type": "string"}, "date": {"type": "string"}},
-                       "required": ["name", "date"]}},
+                       "properties": {"name": {"type": "string"}, "date": {"type": "string"},
+                                      "comment": {"type": "string"}, "budget": {"type": "number"}},
+                       "required": ["name", "date", "comment", "budget"]}},
         "summary": {"type": "string"},
     },
     "required": ["project_name", "start_date", "duration_months", "opening_reserve", "income", "expenses", "one_off_costs", "milestones", "summary"],
@@ -109,7 +110,10 @@ def plan(prompt: str) -> Dict[str, Any]:
             "categories with realistic amounts for the project described. ALSO give 2 to 8 ONE-TIME project costs "
             "(equipment, set-up, permits and licences, launch, training, close-out and the like), each a single amount "
             "with the date it falls due inside the project; these are separate from the monthly categories. And 5 to 10 "
-            "dated milestones (kickoff, hires, deliverables, reviews, completion) spread across the project. "
+            "dated milestones (kickoff, hires, deliverables, reviews, completion) spread across the project, each with a "
+            "one-sentence comment on what it means for the project and budget: the amount in USD it takes to deliver THAT "
+            "milestone itself (a deliverable, an event, a purchase tied to it; 0 when it costs nothing beyond the monthly "
+            "categories and one-time costs). "
             f"Dates are YYYY-MM-DD; if the text gives no start, start next month after {today}. Duration in months."
         ),
         input=prompt,
@@ -169,6 +173,18 @@ def build(prompt: str) -> Dict[str, Any]:
         rows_a.append((f"{lab}_Per_Month", amt, "USD/month"))
     for lab, amt, d in one:
         rows_a.append((f"{lab}_One_Off", amt, "USD"))
+    # The plan's milestones, each with its own budget (an input, <label>_Budget), in date
+    # order: they accumulate into Required_To_Date and count in the expenses.
+    plan_ms: List[Dict[str, Any]] = []
+    for m in (p.get("milestones") or []):
+        nm = str(m.get("name") or "Milestone")
+        plan_ms.append({"name": nm, "lab": _unique(taken, _label(nm)), "date": clamp(_date(m.get("date"), start)),
+                        "comment": str(m.get("comment") or ""), "budget": float(m.get("budget") or 0)})
+    plan_ms.sort(key=lambda x: x["date"])
+    ms_lab = {m["name"]: m["lab"] for m in plan_ms}
+    for m in plan_ms:
+        rows_a.append((f"{m['lab']}_Budget", m["budget"], "USD"))
+    ms_refs_all = [f"{A}[{m['lab']}_Budget]" for m in plan_ms]
     tables[_key(A, 0, 0)] = "Label"; tables[_key(A, 1, 0)] = "Value"
     for r, (lab, val, unit) in enumerate(rows_a, start=1):
         tables[_key(A, 0, r)] = lab
@@ -211,9 +227,12 @@ def build(prompt: str) -> Dict[str, Any]:
     tables[_key(E, 0, r)] = "One_Time_Costs_Total"
     formulas[_key(E, 1, r)] = f"{O}[Total_One_Time_Costs]"
     r += 1
+    tables[_key(E, 0, r)] = "Milestone_Budgets_Total"
+    formulas[_key(E, 1, r)] = "+".join(ms_refs_all) if ms_refs_all else "0"
+    r += 1
     tables[_key(E, 0, r)] = "Total_Expenses_Over_Project"
-    formulas[_key(E, 1, r)] = f"{E}[Monthly_Expenses_Over_Project]+{E}[One_Time_Costs_Total]"
-    ann[E] = "Monthly costs by category; the one-time costs come from their own table."
+    formulas[_key(E, 1, r)] = f"{E}[Monthly_Expenses_Over_Project]+{E}[One_Time_Costs_Total]+{E}[Milestone_Budgets_Total]"
+    ann[E] = "Monthly costs by category; the one-time costs and the milestone budgets come from their own tables."
 
     # ---- one-time costs: each item with its amount and the date it falls due ----
     # Their own table, so they read as what they are: the equipment, set-up, launch and
@@ -244,6 +263,7 @@ def build(prompt: str) -> Dict[str, Any]:
         ("Total_Income_Over_Project", f"{I}[Total_Income_Over_Project]"),
         ("Monthly_Expenses_Over_Project", f"{E}[Monthly_Expenses_Over_Project]"),
         ("Total_One_Time_Costs", f"{O}[Total_One_Time_Costs]"),
+        ("Total_Milestone_Budgets", f"{E}[Milestone_Budgets_Total]"),
         ("Total_Expenses_Over_Project", f"{E}[Total_Expenses_Over_Project]"),
         ("Net_Over_Project", f"{B}[Total_Income_Over_Project]-{B}[Total_Expenses_Over_Project]"),
         ("Reserve_At_End", f"{A}[Opening_Reserve]+{B}[Net_Over_Project]"),
@@ -278,6 +298,9 @@ def build(prompt: str) -> Dict[str, Any]:
         # dated on or after a, before b (the project's final quarter closes on its end)
         return [f"{A}[{lab}_One_Off]" for lab, amt, d in one if a <= d < b or (b >= end and d >= a)]
 
+    def ms_between(a: datetime, b: datetime) -> List[str]:
+        return [f"{A}[{m['lab']}_Budget]" for m in plan_ms if a <= m["date"] < b or (b >= end and m["date"] >= a)]
+
     inc_pm = f"{I}[Total_Income_Per_Month]"
     exp_pm = f"{E}[Total_Expenses_Per_Month]"
     tables[_key(Q, 0, 0)] = "Label"
@@ -291,6 +314,10 @@ def build(prompt: str) -> Dict[str, Any]:
         ones_so_far = one_offs_between(start, q_end)
         one_q = "+".join(ones) if ones else "0"
         one_cum = "+".join(ones_so_far) if ones_so_far else "0"
+        msq = ms_between(q_start, q_end)
+        ms_cum = ms_between(start, q_end)
+        ms_q = "+".join(msq) if msq else "0"
+        ms_c = "+".join(ms_cum) if ms_cum else "0"
         return {
             "Period_Start": q_start.strftime("%Y-%m-%d"),
             "Period_End": q_end.strftime("%Y-%m-%d"),
@@ -298,13 +325,14 @@ def build(prompt: str) -> Dict[str, Any]:
             "Income": f"{inc_pm}*{q_months}",
             "Expenses": f"{exp_pm}*{q_months}",
             "One_Time_Costs": one_q,
-            "Budget_Required": f"{exp_pm}*{q_months}+{one_q}",
-            "Cumulative_Budget_Required": f"{exp_pm}*{so_far}+{one_cum}",
-            "Net": f"{inc_pm}*{q_months}-({exp_pm}*{q_months}+{one_q})",
-            "Reserve_At_Quarter_End": f"{A}[Opening_Reserve]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum})",
+            "Milestone_Budgets": ms_q,
+            "Budget_Required": f"{exp_pm}*{q_months}+{one_q}+{ms_q}",
+            "Cumulative_Budget_Required": f"{exp_pm}*{so_far}+{one_cum}+{ms_c}",
+            "Net": f"{inc_pm}*{q_months}-({exp_pm}*{q_months}+{one_q}+{ms_q})",
+            "Reserve_At_Quarter_End": f"{A}[Opening_Reserve]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum}+{ms_c})",
         }
 
-    row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Time_Costs",
+    row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Time_Costs", "Milestone_Budgets",
                  "Budget_Required", "Cumulative_Budget_Required", "Net", "Reserve_At_Quarter_End"]
     for r, lab in enumerate(row_order, start=1):
         tables[_key(Q, 0, r)] = lab
@@ -327,6 +355,7 @@ def build(prompt: str) -> Dict[str, Any]:
         "Income": f"{I}[Total_Income_Over_Project]",
         "Expenses": f"{exp_pm}*{A}[Duration_Months]",
         "One_Time_Costs": all_ones,
+        "Milestone_Budgets": f"{E}[Milestone_Budgets_Total]",
         "Budget_Required": f"{E}[Total_Expenses_Over_Project]",
         "Cumulative_Budget_Required": f"{E}[Total_Expenses_Over_Project]",
         "Net": f"{B}[Net_Over_Project]",
@@ -347,7 +376,8 @@ def build(prompt: str) -> Dict[str, Any]:
         d = _date(m.get("date"), start)
         ms.append({"name": str(m.get("name") or "Milestone"), "date": d, "color": "#0a2540"})
     for lab, amt, d in one:
-        ms.append({"name": f"{lab.replace('_', ' ')} (${amt:,.0f})", "date": d, "color": "#FD5E53"})
+        # the name only: the amount lives in the One-Time Costs table, not on the label
+        ms.append({"name": lab.replace('_', ' '), "date": d, "color": "#FD5E53"})
     ms.append({"name": "Kickoff", "date": start, "color": "#1aa3bd"})
     ms.append({"name": "Project end", "date": end, "color": "#1aa3bd"})
     ms.sort(key=lambda x: x["date"])
@@ -357,6 +387,61 @@ def build(prompt: str) -> Dict[str, Any]:
         hrs = (m["date"] - dmin).total_seconds() / 3600.0
         points.append({"x": hrs, "y": round(random.uniform(0.35, 0.65), 3), "type": "milestone",
                        "name": m["name"], "color": m["color"], "date": m["date"].isoformat()})
+
+    # ---- milestones table: every dated point, its comment, its budget, and what is required ----
+    # One row per point on the timeline (kickoff, the plan's milestones, one-time costs
+    # falling due, project end): date and weekday, comment, the milestone's own Budget (an
+    # input in the Assumptions), and Required_To_Date: monthly expenses for the months
+    # elapsed, plus the one-time costs due by then, plus the budgets of every milestone
+    # dated up to and including this one, accumulated in date order. Each row's label is
+    # stamped on its timeline point (point.row) so the two stay in step on the workbench.
+    M = "Project_Milestones"
+    units[M] = {}
+    by_name = {m["name"]: m for m in plan_ms}
+    cols = ["Label", "Date", "Day", "Comment", "Budget", "Required_To_Date"]
+    for c, h in enumerate(cols):
+        tables[_key(M, c, 0)] = h
+    one_by_lab = {lab: (amt, d) for lab, amt, d in one}
+    r = 1
+    accumulated: List[str] = []
+    for pt_, m in zip(points, ms):
+        src = by_name.get(m["name"])
+        is_one = src is None and any(m["name"].startswith(lab.replace('_', ' ')) for lab in one_by_lab)
+        if src is not None:
+            lab = src["lab"]
+        else:
+            # a one-time cost's row is "<cost>_Due": the plain label is the cost itself
+            lab = _unique(taken, _label(m["name"]) + ("_Due" if is_one else ""))
+        pt_["row"] = lab
+        pt_["table"] = M
+        d = m["date"]
+        months_elapsed = max(0.0, (d - start).days / 30.44)
+        due = [f"{A}[{l}_One_Off]" for l, (a_, dd) in one_by_lab.items() if dd <= d]
+        if src is not None:
+            accumulated.append(f"{A}[{lab}_Budget]")
+            comment = src["comment"]
+        elif is_one:
+            comment = "One-time cost falls due."
+        elif m["name"] == "Kickoff":
+            comment = "Project starts."
+        else:
+            comment = "Project ends."
+        required = f"{E}[Total_Expenses_Per_Month]*{months_elapsed:.2f}" + ("+" + "+".join(due) if due else "") \
+            + ("+" + "+".join(accumulated) if accumulated else "")
+        tables[_key(M, 0, r)] = lab
+        tables[_key(M, 1, r)] = d.strftime("%Y-%m-%d")
+        tables[_key(M, 2, r)] = d.strftime("%a")
+        tables[_key(M, 3, r)] = comment
+        if src is not None:
+            formulas[_key(M, 4, r)] = f"{A}[{lab}_Budget]"
+        else:
+            tables[_key(M, 4, r)] = ""
+        formulas[_key(M, 5, r)] = required
+        r += 1
+    units[M]["Budget"] = "USD"; units[M]["Required_To_Date"] = "USD"
+    ann[M] = ("Every dated point of the timeline with its comment and its own budget (edit it in the Assumptions), and "
+              "the budget required by that date: monthly expenses so far, one-time costs due, and the milestone budgets "
+              "accumulated in date order.")
 
     return {
         "tables": tables,

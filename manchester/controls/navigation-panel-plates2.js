@@ -16,7 +16,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
         // two, stacked: the app menus (File, Build, Draw, Share) on the first, the context
         // menus for the selected table or point and the tool buttons on the second. The
         // command input stays on the first bar only (a bar without `cmd` has none).
-        const MOBILE_ICONS = { 'file': 'folder_open', 'build': 'construction', 'draw': 'draw', 'share': 'share', 'main menu': 'menu' };
+        const MOBILE_ICONS = { 'file': 'folder_open', 'build': 'bar_chart', 'draw': 'draw', 'share': 'share', 'main menu': 'menu' };
         const iconFor = (m) => {
             const l = ('' + (m.label || '')).trim().toLowerCase();
             if (MOBILE_ICONS[l]) return MOBILE_ICONS[l];
@@ -35,7 +35,10 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 for (const m of menus) {
                     if (!m) continue;
                     const l = ('' + (m.label || '')).trim().toLowerCase();
-                    const hasItems = Array.isArray(m.items) && m.items.length > 0;
+                    // An items ARRAY makes it a menu, filled or not: Build's library is a live
+                    // array that is still empty when the first menubar is built, and judged
+                    // by length it came out as a text button reading "Build".
+                    const hasItems = Array.isArray(m.items);
                     if (hasItems) {
                         const mm = Object.assign({}, m, { icon: m.icon || iconFor(m), tooltip: m.tooltip || m.label || '', color: m.color || '#ffffff' });
                         delete mm.label;
@@ -668,6 +671,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 let panel = null;
                 let select_display = createIonFunction((ref) => {
                     panel = ref;
+                    // formula completions (tables, then each table's row labels after "[") from the start
+                    try { ref.setCommands(plate_graph.plateTrack.getFormulaCompletions()); } catch (e) { }
 
                 })
 
@@ -922,13 +927,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     let mbb = null;
                     const mb = createIon((mmb) => {
                         mbb = mmb;
-                        mbb.setCommands(plate_graph.plateTrack.getTableNames());
+                        mbb.setCommands(plate_graph.plateTrack.getFormulaCompletions());
                     });
                     const sp = await selectedPlate.getSelectionElementsMenu(selectedPoint, plate_graph.plateTrack);
                     const name = selectedPoint.name;
 
                     let menuItm = {
                         wid: 'menu',
+                        refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
                             cmd: createIon(async (str, panel) => {
                                 execCMD(str);
@@ -967,6 +973,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 let panel = null;
                 let select_display = createIonFunction((ref) => {
                     panel = ref;
+                    // formula completions (tables, then each table's row labels after "[") from the start
+                    try { ref.setCommands(plate_graph.plateTrack.getFormulaCompletions()); } catch (e) { }
                 })
 
                 menu_title = truncated_title;
@@ -1018,14 +1026,14 @@ function (plate_graph, selectedPlate, selectedPoint) {
                     let mb = null;
                     const mmb = createIon((p) => {
                         mb = p;
-                        mb.setCommands(plate_graph.plateTrack.getTableNames());
+                        mb.setCommands(plate_graph.plateTrack.getFormulaCompletions());
                     })
 
                     const sp = await selectedPlate.getSelectionElementsMenu(selectedPoint, plate_graph.plateTrack);
                     const name = selectedPoint.name;
                     let menuItm = {
                         wid: 'menu',
-
+                        refCallback: mb,     // loads the completions (it was built and never attached)
                         data: {
                             cmd: createIon(async (str, panel) => {
                                 execCMD(str);
@@ -1063,6 +1071,8 @@ function (plate_graph, selectedPlate, selectedPoint) {
             let panel = null;
             let select_display = createIonFunction((ref) => {
                 panel = ref;
+                // formula completions (tables, then each table's row labels after "[") from the start
+                try { ref.setCommands(plate_graph.plateTrack.getFormulaCompletions()); } catch (e) { }
             })
 
             const pt = plate_graph.plateTrack;
@@ -1289,6 +1299,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 const name = selectedPoint.name;
                 let menuItm = {
                     wid: 'menu',
+                    refCallback: mb,     // loads its command list (it was built and never attached)
                     data: {
                         cmd: createIon(async (str, panel) => {
 
@@ -1370,7 +1381,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
         let panel = null;
         let select_display2 = createIonFunction((ref) => {
             panel = ref;
-            panel.setCommands(plate_graph.plateTrack.getTablesAndTagNames());
+            panel.setCommands(plate_graph.plateTrack.getFormulaCompletions());
         })
 
 

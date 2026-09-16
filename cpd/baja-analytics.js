@@ -48,6 +48,12 @@ function (path, config) {
     let htmlP;
 
     let user = getUser();
+    // A direct link (/app/cpd/baja-analytics?path=…, a reload, a bookmark) arrives with no
+    // config.user, while the file lists and the Open dialog pass one. The load below keys
+    // on config.user: with it the workbook is copied in (copyFromJSON) and the server checks
+    // access; without it the plain load ran and the canvas stayed empty. A signed-in user
+    // is the user, whichever way the app was reached.
+    if (user && user.length && !config.user) config.user = user;
     // A co-editing link: /app/cpd/baja-analytics?share=<code>. Resolved (asynchronously,
     // below) to the shared copy's path before the document is loaded.
     let __collabShareCode = '';
@@ -225,7 +231,9 @@ function (path, config) {
                                         }
 
                                         if (!this.selectedPoint) {
-                                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
+                                            // The editor's menubar (File, Build, Draw, Share, tools); the viewer
+                                            // variant carries none of them and lost the Build menu here.
+                                            let button_canvas2 = await exec(config.mode === 'viewer' ? 'manchester/controls/navigation-panel-plates2-viewer.js' : 'manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, null)
                                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                                             return;
                                         }
@@ -241,27 +249,41 @@ function (path, config) {
                             )
                         }
 
-                        let menuItm = {
-                            wid: 'menu',
-                            data: {
-                                cmd: createIon(async (str, panel) => {
-                                }),
-                                menus: [
-                                    {
-                                        'label': `${this.plateTrack.selectedPlate.name}`, 'items': m
-                                    },
-                                    {
-                                        'label': `[Time Points]`, 'items': sp
-                                    },
-
-                                ]
+                        // The full menubar for the selected plot (File, Build, Draw, Share, the
+                        // plot's menu, tools), with a Time Points menu for the selection added.
+                        // A menubar built here by hand carried only the plot menu and the points,
+                        // and that is where the Build menu kept going missing.
+                        const timePoints = { 'label': `[Time Points]`, 'items': sp, __ctx: 'point' };
+                        let menuItm = null;
+                        try { menuItm = await exec('manchester/controls/navigation-panel-plates2.js', pm, this.plateTrack.selectedPlate, null); } catch (e) { menuItm = null; }
+                        try {
+                            if (menuItm && menuItm.wid === 'menu' && menuItm.data && Array.isArray(menuItm.data.menus)) {
+                                menuItm.data.menus.push(timePoints);
+                            } else if (menuItm && menuItm.wid === 'card') {
+                                // mobile: two stacked bars; the context menus live on the second
+                                const row = menuItm.data && menuItm.data.cards && menuItm.data.cards[0];
+                                const bar = row && (row[1] || row[0]);
+                                if (bar && bar.component && bar.component.data && Array.isArray(bar.component.data.menus)) bar.component.data.menus.push(timePoints);
+                            }
+                        } catch (e) { }
+                        if (!menuItm) {
+                            menuItm = {
+                                wid: 'menu',
+                                data: {
+                                    cmd: createIon(async (str, panel) => { }),
+                                    menus: [
+                                        ...((pm.__appMenus && pm.__appMenus()) || []),
+                                        { 'label': `${this.plateTrack.selectedPlate.name}`, 'items': m },
+                                        timePoints,
+                                    ]
+                                }
                             }
                         }
                         CurrentLayout.setComponent('selectedPanel', menuItm)
                     } else {
                         this.selectedPoint = sel;
                         if (!this.selectedPoint) {
-                            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, null)
+                            let button_canvas2 = await exec(config.mode === 'viewer' ? 'manchester/controls/navigation-panel-plates2-viewer.js' : 'manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, null)
                             CurrentLayout.setComponent('selectedPanel', button_canvas2)
                             return;
                         }
@@ -415,6 +437,18 @@ function (path, config) {
                 } catch (e) { console.warn('share-open failed', e); path = ''; }
             }
 
+            // What a load produced, on the canvas and in the console: a refusal or an empty
+            // workbook used to look exactly like a document that failed to draw.
+            const __reportLoad = (rs, p) => {
+                try {
+                    if (rs && rs.msg) { console.warn('[load]', p, '->', rs.msg); try { infoPrompt(rs.msg + '\n' + p); } catch (e) { } return; }
+                    const t = (rs && rs.plateTrack) || {};
+                    const n = (a) => Array.isArray(a) ? a.length : 0;
+                    const tables = n(t.root), plots = n(t.m_plots), notes = n(t.glyphs), tracks = n(rs && rs.track);
+                    console.log('[load]', p, '| tables', tables, '| charts', plots, '| notes', notes, '| tracks', tracks);
+                    if (!tables && !plots && !notes && !tracks) setTimeout(() => { try { pm.plateTrack.setMessage('This workbook is empty: ' + p + ' has no tables, charts or notes.', 3); } catch (e) { } }, 1500);
+                } catch (e) { }
+            };
             // Files are saved as .bjb (save-as-obj-tp appends it); .bajabio is the older name.
             if (path.endsWith('.bajabio') || path.endsWith('.bjb')) {
                 let host_ = window['env']['apiUrl']
@@ -436,6 +470,7 @@ function (path, config) {
                         if (rs.plateTrack)
                             rs.plateTrack.file = path;
                         let p = decodeURIComponent(path).substring(index + 1)
+                    __reportLoad(rs, p);
 
                         if (rs.msg) {
                             clear();
@@ -457,6 +492,7 @@ function (path, config) {
 
                         }
                         let p = decodeURIComponent(path).substring(index + 1)
+                    __reportLoad(rs, p);
 
                         if (rs.msg) {
                             clear();
@@ -481,6 +517,7 @@ function (path, config) {
                     let rs = await POSTJSON(jsonobj, host_ + '/load-file');
                     progressBar(45)
                     let p = decodeURIComponent(path).substring(index + 1)
+                    __reportLoad(rs, p);
                     if (rs.msg && rs.msg.length) {
 
                         clear();
@@ -2354,7 +2391,7 @@ function (path, config) {
             // lands under "More", so a new builder is never lost.
             const BUILD_GROUPS = [
                 ['Timelines', ['Historical Milestones', 'Scientific Publications Timeline', 'Gantt Chart']],
-                ['Financial models', ['P&L With Capital', 'Project', 'Product Assumptions', 'Budget Assumptions']],
+                ['Financial models', ['P&L With Capital', 'Project', 'Milestone Budget', 'Product Assumptions', 'Budget Assumptions']],
                 ['Analysis', ['\u0394\u0394Ct analysis', 'Build Analytics', 'Draw connections']],
                 ['Oligo & molecule design', ['Molecule', 'siRNA', 'ssASO', 'ssASO - Chirality', 'Morpholino', 'SMILEs']],
                 ['Figures', ['SVG', 'High res SVG', 'Molecular mechanism', 'Draw genetic pathways']],
@@ -3738,6 +3775,79 @@ function (path, config) {
                                 pt.setPlotCenter(plot);
                             }
                         } catch (e) { console.warn('project timeline', e); }
+                        try { pt.updateCalculations(); } catch (e) { }
+                    })
+                })
+                ai_create_file_items.push({
+                    // The simplest project: milestones only, each with the amount it takes; the
+                    // timeline shows the budget required by each date (the amounts accumulated).
+                    'label': 'Milestone Budget', 'ionfunction': createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        // A paragraph, so the description can carry the detail a budget needs.
+                        let content = '';
+                        try {
+                            content = await exec('baja/lib/prompt-text.js', {
+                                title: 'Milestone budget',
+                                message: 'Describe the project and what it has to reach. No monthly costs: each milestone gets the amount it takes, and the timeline shows the budget required by each date.',
+                                placeholder: 'Fit out a community workshop over nine months: permits, a lease deposit, tools, a launch event, starting in March…',
+                                action: 'Build the milestones',
+                                historyKey: 'milestone-budget'   // the last 10 project descriptions, offered back
+                            });
+                        } catch (e) { content = ''; }
+                        if (!content) return;
+                        pt.setMessage('Planning the milestones…', 5);
+                        let model = null;
+                        try { model = await exec('py/openai/milestone-budget.py', content); } catch (e) { model = { error: '' + (e && e.message || e) }; }
+                        if (!model || model.error || !model.tables) {
+                            try { pt.killSprite(); } catch (e) { }
+                            pt.setMessage('The milestone budget could not be built: ' + ((model && model.error) || 'no answer'), 3);
+                            return;
+                        }
+                        const before = new Set((pt.root || []).map(x => x && x.name));
+                        let report = null;
+                        try {
+                            report = await exec('baja/draw/data-model-to-tables-gpt', pt, model);
+                        } catch (e) { try { pt.killSprite(); } catch (e2) { } pt.setMessage('The project tables could not be placed: ' + (e && e.message || e), 3); return; }
+                        const made = (pt.root || []).filter(x => x && !before.has(x.name)).map(x => x.name);
+                        // The builder's own verdict on the formulas, in the console and on the canvas.
+                        try {
+                            const rep = report && report.report ? report.report : null;
+                            console.log('[milestone budget] tables:', made, 'report:', rep);
+                            const errs = rep ? [].concat(rep.errors || [], rep.missingValues || []) : [];
+                            if (errs.length) pt.setMessage('Milestone tables built (' + made.length + '), but ' + errs.length + ' formula cell(s) did not resolve; see the console.', 3);
+                            else pt.setMessage('Milestone tables built: ' + (made.join(', ') || 'none new') + '. Edit a budget or a date; the required-by-date column and the timeline follow.', 2);
+                        } catch (e) { }
+                        try { pt.updateCalculations(); } catch (e) { }
+                        // The builder stacks every new table at the same origin; the P&L flow
+                        // spreads them with the tetris layout and stops the working sprite that
+                        // setMessage(…, 5) started. Without both, the tables sat on top of each
+                        // other and the spinner never went away.
+                        try { pt.killSprite(); } catch (e) { }
+                        try { pt.layoutCompactTetris(); } catch (e) { }
+                        // The layout animates for 800 ms and returns at once: fit and place the
+                        // timeline after the tables have reached their final spots.
+                        await new Promise(r => setTimeout(r, 900));
+                        // Show what was built: fit every object, then the timeline is placed beside.
+                        try { await pt.zoomtfit(); } catch (e) { }
+                        // The funding timeline, drawn the way the milestone builders draw theirs.
+                        try {
+                            if (model.milestones && model.milestones.length && model.window) {
+                                let MPlot = await exec('flexigraph/plot.js');
+                                const plot = new MPlot({ points: model.milestones });
+                                plot.startDate = new Date(model.window.start);
+                                plot.endDate = new Date(model.window.end);
+                                const xs = model.milestones.map(q => q.x);
+                                plot.grid.zoom(Math.min(...xs), Math.max(...xs), 0, 1);
+                                plot.w = 800; plot.h = 400;
+                                plot.type = 'timeline';
+                                plot.name = ((model.project && model.project.name) || 'Project').replace(/_/g, ' ') + ' timeline';
+                                plot.x_axis_label = 'Time'; plot.y_axis_label = '';
+                                plot.fitScaleToData = false;
+                                plot.grid.rescale();
+                                await pt.panToNextSpot(800);
+                                pt.setPlotCenter(plot);
+                            }
+                        } catch (e) { console.warn('milestone timeline', e); }
                         try { pt.updateCalculations(); } catch (e) { }
                     })
                 })

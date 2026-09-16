@@ -16,5 +16,7 @@ function () {
   <path d="M13 47 L22 39 L30 43 L40 30 L51 25" fill="none" stroke="#d9663a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="51" cy="25" r="2.6" fill="#d9663a"/>
 </svg>`;
-  return _svg;
+  // A data URI, like the other icons here: the app tiles put it in an <img src>, and the
+  // raw markup there was refused as an unknown URL scheme.
+  return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(_svg)));
 }

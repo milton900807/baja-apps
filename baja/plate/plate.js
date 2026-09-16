@@ -763,7 +763,7 @@ function () {
                             const w = ws.length ? ws : ((well || pt.selected_well) ? [well || pt.selected_well] : []);
                             if (!w.length) { try { pt.setMessage('Select a cell first.', 2); } catch (e) { } return; }
                             let value = w[0].value;
-                            try { const f = pt.getFormulaForWell(this.name + this.getWellRange([w[0]])); if (f && f.length) value = f; } catch (e) { }
+                            try { const f = this.formulaTextForWell(w[0]); if (f) value = f; } catch (e) { }
                             return this.showWellAction(pt, value, null, w);
                         },
                         highlight: async (bx, by, x, y, pt) => {
@@ -2385,6 +2385,36 @@ function () {
                 }
 
                 return wells;
+            }
+
+            // The formula behind a cell, as text with a leading "=", or null: the cell's
+            // own formula first, then the plate's formula map by the exact cell or by a
+            // range that contains it. (The track-level lookup the "i" button used first
+            // cleared the track's formula map and so never found anything.)
+            formulaTextForWell(well) {
+                if (!well) return null;
+                let f = (typeof well.formula === 'string' && well.formula.trim()) ? well.formula.trim() : '';
+                if (!f && this.formula && typeof this.formula === 'object') {
+                    const range = this.getWellRange([well]);
+                    const m = /^\[(\d+):(\d+)\]\[(\d+):(\d+)\]$/.exec(range || '');
+                    if (m) {
+                        const c = +m[1], r = +m[3];
+                        const exact = this.formula[range];
+                        if (typeof exact === 'string' && exact.trim()) f = exact.trim();
+                        else {
+                            for (const k of Object.keys(this.formula)) {
+                                const km = /^\[(\d+):(\d+)\]\[(\d+):(\d+)\]$/.exec(k);
+                                if (!km) continue;
+                                if (c >= +km[1] && c <= +km[2] && r >= +km[3] && r <= +km[4]) {
+                                    const v = this.formula[k];
+                                    if (typeof v === 'string' && v.trim()) { f = v.trim(); break; }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!f) return null;
+                return f.startsWith('=') ? f : '=' + f;
             }
 
             getWellRange(_wells) {
@@ -5736,10 +5766,7 @@ function () {
                 }
                 for (let button of b) {
                     let buttonX = init + index * bsize;
-                    let buttonY = graph.Y(this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
-                    if (buttonY < 0) {
-                        buttonY = 10;
-                    }
+                    let buttonY = this.__buttonRowY(graph, this.grid.yi + this.getHeight() + graph.worldHeight(this.margin.top));
                     index++;
                     let bbw = bsize;
                     if (
@@ -7992,7 +8019,7 @@ function () {
                                     const w = ws.length ? ws : (pt.selected_well ? [pt.selected_well] : []);
                                     if (!w.length) { try { pt.setMessage('Select a cell first.', 2); } catch (e) { } return; }
                                     let value = w[0].value;
-                                    try { const f = pt.getFormulaForWell(this.name + this.getWellRange([w[0]])); if (f && f.length) value = f; } catch (e) { }
+                                    try { const f = this.formulaTextForWell(w[0]); if (f) value = f; } catch (e) { }
                                     this.showWellAction(pt, value, null, w);
                                 }
                             });
@@ -8674,13 +8701,10 @@ function () {
                     init = grid.Xwc(0)
                 }
 
-                if (this.attr__displayMenuButtons) {
+                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid)) {
                     for (let button of b) {
                         let buttonX = init + index * bsize;
-                        let buttonY = grid.Y(this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
-                        if (buttonY < 0) {
-                            buttonY = 10;
-                        }
+                        let buttonY = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
                         index++;
                         let bbw = bsize;
                         if (
@@ -8742,16 +8766,36 @@ function () {
                 const h = well.__screen_height || 0;
                 return (well.__screen_y || 0) + Math.max(0, (h - (buttonHeight || 20)) / 2);
             }
+            // ONE visibility rule for the table's buttons, shared by drawing and hit-testing:
+            // they exist only while the table is selected and its top edge is on screen, and
+            // a row that would sit above the screen is pinned at y=10 only while the table
+            // itself still reaches into view (drawButtons' rule). The hit tests used to pin
+            // at y=10 whenever the row was above the screen, so an invisible button row
+            // could still take a click at the top of the canvas.
+            __buttonsVisible(graph) {
+                if (!this.selected || !graph) return false;
+                try {
+                    const sh = graph.screenHeight(this.getHeight());
+                    const sy = graph.Y(this.grid.yi);
+                    if (!Number.isFinite(sh) || !Number.isFinite(sy)) return false;
+                    return (sy + sh) >= 0;
+                } catch (e) { return false; }
+            }
+            __buttonRowY(graph, worldY) {
+                let y = graph.Y(worldY);
+                const sh = graph.screenHeight(this.getHeight());
+                if (y < 0 && (y + sh) > 0) y = 10;
+                return y;
+            }
             isInsideBottomButtons(grid, mouseX, mouseY) {
+                // Not drawn -> not hit: the row buttons show only for the selected table.
+                if (!this.attr__RowAddRemoveButtons || !this.__buttonsVisible(grid)) return null;
                 let index = 0;
                 for (let button of this.bottom_buttons) {
                     let xinit = grid.X(this.grid.xi);
                     let buttonX = xinit - bsize * index;
-                    let buttonY = grid.Y(this.grid.yi);
+                    let buttonY = this.__buttonRowY(grid, this.grid.yi);
                     let buttonHeight = button.height;
-                    if (buttonY < 0) {
-                        buttonY = 10;
-                    }
                     let buttonWidth = button.width || bsize;
                     if (
                         mouseX >= buttonX &&
@@ -9033,14 +9077,10 @@ function () {
                             init = pt.grid.Xwc(0);
                         }
 
-                        if (this.attr__displayMenuButtons) {
+                        if (this.attr__displayMenuButtons && this.__buttonsVisible(pt.grid)) {
                             for (let button of b) {
                                 let buttonX = init + index * bsize;
-                                let buttonY = pt.grid.Y(this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
-
-                                if (buttonY < 0) {
-                                    buttonY = 10;
-                                }
+                                let buttonY = this.__buttonRowY(pt.grid, this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
 
                                 index++;
 
@@ -9186,14 +9226,10 @@ function () {
 
                     let index = 0;
 
-                    if (this.attr__displayMenuButtons) {
+                    if (this.attr__displayMenuButtons && this.__buttonsVisible(pt.grid)) {
                         for (let button of b) {
                             let buttonX = init + index * bsize;
-                            let buttonY = pt.grid.Y(this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
-
-                            if (buttonY < 0) {
-                                buttonY = 10;
-                            }
+                            let buttonY = this.__buttonRowY(pt.grid, this.grid.yi + this.getHeight() + pt.grid.worldHeight(this.margin.top));
 
                             index++;
 
@@ -13581,10 +13617,7 @@ function () {
 
                 for (let button of b) {
                     let buttonX = init + index * bsize;
-                    let buttonY = grid.Y(this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
-                    if (buttonY < 0) {
-                        buttonY = 10;
-                    }
+                    let buttonY = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
                     index++;
                     let bbw = bsize;
                     if (
@@ -13617,13 +13650,10 @@ function () {
                     init = grid.Xwc(0)
                 }
                 index = 0;
-                if (this.attr__displayMenuButtons) {
+                if (this.attr__displayMenuButtons && this.__buttonsVisible(grid)) {
                     for (let button of this.button_set) {
                         let buttonX = init + index * bsize;
-                        let buttonY = grid.Y(this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
-                        if (buttonY < 0) {
-                            buttonY = 10;
-                        }
+                        let buttonY = this.__buttonRowY(grid, this.grid.yi + this.getHeight() + grid.worldHeight(this.margin.top));
                         index++;
                         let bbw = bsize;
                         if (

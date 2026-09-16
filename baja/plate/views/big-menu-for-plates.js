@@ -2404,6 +2404,46 @@ function (pt, sp) {
 
 
                             {
+                                // Add a term to every selected cell that already has a formula:
+                                // "+ Project_Expenses[Total_Expenses_Per_Month]*0.46" goes on the end
+                                // of each. Cells without a formula are left alone and counted.
+                                label: 'Append to formulas…', click: async () => {
+                                    const wells = sp.getSelectedWellsInOrder() || [];
+                                    if (!wells.length) { try { pt.setMessage('Select the cells first.', 2); } catch (e) { } return; }
+                                    let text = '';
+                                    try {
+                                        text = await exec('baja/lib/prompt-text.js', {
+                                            title: 'Append to the selected formulas',
+                                            message: 'Added to the end of every selected cell that has a formula. Start with an operator; without one, + is assumed.',
+                                            placeholder: '+ Project_Expenses[Total_Expenses_Per_Month]*0.46',
+                                            action: 'Append',
+                                            historyKey: 'append-formula',
+                                            completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
+                                        });
+                                    } catch (e) { text = ''; }
+                                    text = ('' + (text || '')).trim().replace(/^=/, '').trim();
+                                    if (!text) return;
+                                    if (!/^[+\-*\/^]/.test(text)) text = '+' + text;
+                                    pushHistory(HM(sp));
+                                    let n = 0, skipped = 0;
+                                    for (const w of wells) {
+                                        let f = null;
+                                        try { f = (typeof sp.formulaTextForWell === 'function') ? sp.formulaTextForWell(w) : null; } catch (e) { f = null; }
+                                        if (!f) { skipped++; continue; }
+                                        const nf = '=' + f.replace(/^=/, '').trim() + text;
+                                        try { sp.formula[sp.getWellRange([w])] = nf; } catch (e) { }
+                                        try { w.setValue(nf); } catch (e) { }
+                                        n++;
+                                    }
+                                    try { pt.updateCalculations(); } catch (e) { }
+                                    try {
+                                        pt.setMessage('Appended to ' + n + ' formula' + (n === 1 ? '' : 's')
+                                            + (skipped ? ' (' + skipped + ' selected cell' + (skipped === 1 ? ' has' : 's have') + ' no formula)' : '') + '.', 2);
+                                    } catch (e) { }
+                                },
+                                bg: 'yellow', fg: 'black'
+                            },
+                            {
                                 label: 'Edit table formula', click: async () => {
                                     function formToPlainText(form) {
                                         const lines = [];
