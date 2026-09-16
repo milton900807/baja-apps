@@ -588,6 +588,7 @@ function (plateManager, progress) {
                 }
                 this.shapes = [];
                 this.menu = null;
+                try { this.graph.menu = null; } catch (e) { }
                 this.setMouseMode('navigate')
                 this.track = [];
                 this.chem = [];
@@ -3094,7 +3095,13 @@ function (plateManager, progress) {
                         // blanket null here wiped that one a few milliseconds after it appeared.
                         const __m = this.menu;
                         await __m.mouseUp(this.graph, xwc, ywc)
-                        if (this.menu === __m) this.menu = null;
+                        if (this.menu === __m) {
+                            this.menu = null;
+                            // The graph keeps its own copy (set in showMenu); left set, it blocked
+                            // the mobile finger pan for the rest of the session.
+                            try { this.graph.menu = null; } catch (e) { }
+                            if (this.mode === 'menu') this.setMouseMode('navigate');
+                        }
                         if (isMobile()) {
 
                         }
@@ -3606,6 +3613,7 @@ function (plateManager, progress) {
             }
             hideMenu() {
                 this.menu = null;
+                try { this.graph.menu = null; } catch (e) { }
                 this.setMouseMode("navigate")
 
             }

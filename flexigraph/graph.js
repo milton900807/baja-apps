@@ -181,6 +181,8 @@ function (graphListener, mouseDownListener, mouseUpListener, mouseMoveListener, 
                             // opens on a long-press (~500ms held still), not a quick tap — a quick tap
                             // just selects. A 500ms timer arms __longPressReady; movement cancels it.
                             try {
+                                // A menu the model no longer shows must not gate the pan below.
+                                if (this.menu && mdel && !mdel.menu) this.menu = null;
                                 this.__lastTouch = null; this.__touchActive = true; this.__longPressReady = false;
                                 this.__touchStartX = (evt && evt.touches && evt.touches[0]) ? evt.touches[0].clientX : null;
                                 this.__touchStartY = (evt && evt.touches && evt.touches[0]) ? evt.touches[0].clientY : null;
