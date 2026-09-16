@@ -11,11 +11,11 @@ function (plate_graph, selectedPlate, selectedPoint) {
                 return Array.isArray(list) ? list : [];
             } catch (e) { return []; }
         };
-        // MOBILE: the menubar is a phone width. Spelled-out labels do not fit, so every
-        // top-level menu becomes an icon (its label survives as the tooltip), and the bar is
-        // split in two, stacked: the app menus (File, Build, Draw, Share) on the first, the
-        // context menus for the selected table or point and the tool buttons on the second.
-        // The command input stays on the first bar only (a bar without `cmd` has none).
+        // The menubar shows ICONS, not spelled-out labels: every top-level menu becomes an
+        // icon and its label survives as the tooltip. On a phone the bar is also split in
+        // two, stacked: the app menus (File, Build, Draw, Share) on the first, the context
+        // menus for the selected table or point and the tool buttons on the second. The
+        // command input stays on the first bar only (a bar without `cmd` has none).
         const MOBILE_ICONS = { 'file': 'folder_open', 'build': 'construction', 'draw': 'draw', 'share': 'share', 'main menu': 'menu' };
         const iconFor = (m) => {
             const l = ('' + (m.label || '')).trim().toLowerCase();
@@ -26,7 +26,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
         };
         const finishMenubar = (menuItm) => {
             try {
-                if (typeof isMobile !== 'function' || !isMobile()) return menuItm;
+                const mobile = (typeof isMobile === 'function') && isMobile();
                 const data = menuItm && menuItm.data ? menuItm.data : null;
                 const menus = data && Array.isArray(data.menus) ? data.menus : null;
                 if (!menus || !menus.length) return menuItm;
@@ -45,7 +45,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         second.push(m);
                     }
                 }
-                if (!second.length) { data.menus = first; return menuItm; }
+                if (!mobile || !second.length) { data.menus = first.concat(second); return menuItm; }
                 const bar1 = Object.assign({}, menuItm, { data: Object.assign({}, data, { menus: first }) });
                 const d2 = Object.assign({}, data, { menus: second });
                 delete d2.cmd; delete d2.placeholder; delete d2.text; delete d2.txtListener; delete d2.toolLookup;

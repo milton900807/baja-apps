@@ -22526,7 +22526,6 @@ function (progress) {
                     // the other canvas items, and the lock badges over it. Both belong HERE,
                     // before the chrome: drawn any later they covered the side menu, the
                     // tables menu and the maximized title bar.
-                    try { this.__msDrawDate(ctx); } catch (e) { }
                     if (this.activePlot) {
                         // drawPlot takes the TRACK (it reads pt.grid); handing it the grid itself
                         // threw "Cannot read properties of undefined (reading 'screenWidth')" on
@@ -22852,6 +22851,12 @@ function (progress) {
                         this.drawTextBox(ctx, text, cursorPos, textBoxX, textBoxY, textBoxWidth,
                             textBoxHeight, selectText, textStyle);
                     }
+
+                    // LAST, over everything the track paints (the timeline being dragged is
+                    // redrawn on top as the active plot, and the maximize chrome, menus and
+                    // message line come after the objects): the date a dragged milestone will
+                    // land on must stay readable while it is dragged.
+                    try { this.__msDrawDate(ctx); } catch (e) { }
 
                 }
 

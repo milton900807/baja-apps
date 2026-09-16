@@ -8882,10 +8882,12 @@ function () {
                         return;
                     }
 
+                    // A press on a cell button only ARMS it: the action runs on release, and
+                    // only if the release lands on the same button (see mouseUpListener). It
+                    // used to run here on the press and then again on the release.
                     const hitCellButton = getCellButtonAt(x, y);
-                    cellButtonPressed = !!hitCellButton;
+                    cellButtonPressed = hitCellButton ? hitCellButton.button : false;
                     if (hitCellButton) {
-                        hitCellButton.button.action(pt.selected_well, pt);
                         return;
                     }
 
@@ -9209,10 +9211,15 @@ function () {
                     }
 
                     const releasedCellButton = cellButtonPressed ? getCellButtonAt(x, y) : null;
+                    const armed = cellButtonPressed;
                     cellButtonPressed = false;
 
-                    if (releasedCellButton) {
-                        releasedCellButton.button.action(pt.selected_well, pt);
+                    if (armed) {
+                        // Released on the button that was pressed: run it. Released elsewhere:
+                        // the press is dropped, the way a normal button behaves.
+                        if (releasedCellButton && releasedCellButton.button === armed) {
+                            releasedCellButton.button.action(pt.selected_well, pt);
+                        }
                         return;
                     }
 

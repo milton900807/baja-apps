@@ -817,6 +817,22 @@ function (path, config) {
                 pm.plateTrack.grid.rescale();
             }
 
+            // A gentle, symmetric step for the toolbar buttons: the view's width and height
+            // divided (in) or multiplied (out) by the factor, about the view's centre. The
+            // menu's zoomin / zoomout above and below are 3x and 2x, too much per click.
+            let zoomStep = async (factor) => {
+                AnimateGrid.INTERUPT = true;
+                const g = pm.plateTrack.grid;
+                g.rescale();
+                smenu = null;
+                mousePriority = false;
+                const cx = (g.xmax + g.xmin) / 2, cy = (g.ymax + g.ymin) / 2;
+                const hw = Math.abs(g.xmax - g.xmin) / 2 / factor, hh = Math.abs(g.ymax - g.ymin) / 2 / factor;
+                const ag = new AnimateGrid(g);
+                await ag.animateTo(cx - hw, cx + hw, cy - hh, cy + hh, 12);
+                g.rescale();
+            }
+
             let zoomout = async () => {
                 AnimateGrid.INTERUPT = true;
 
@@ -2374,6 +2390,26 @@ function (path, config) {
             // Selection tools on the menubar: icon buttons (a leaf item with an icon and no
             // label renders as an icon button). Each arms one gesture on the workbench.
             const selectTools = [
+                // Zoom: the same steps as the Draw menu's Zoom in / Zoom out. A maximized
+                // object pins the view, so the buttons say so instead of fighting it.
+                {
+                    icon: 'zoom_in', color: '#ffffff', tooltip: 'Zoom in',
+                    ionfunction: createIonFunction(async () => {
+                        try {
+                            if (pm.plateTrack && pm.plateTrack.__maximized) { pm.plateTrack.setMessage('Exit maximize to zoom the canvas.', 2); return; }
+                            pm.plateTrack.wb(null); await zoomStep(1.25);
+                        } catch (e) { console.warn(e); }
+                    })
+                },
+                {
+                    icon: 'zoom_out', color: '#ffffff', tooltip: 'Zoom out',
+                    ionfunction: createIonFunction(async () => {
+                        try {
+                            if (pm.plateTrack && pm.plateTrack.__maximized) { pm.plateTrack.setMessage('Exit maximize to zoom the canvas.', 2); return; }
+                            pm.plateTrack.wb(null); await zoomStep(1 / 1.25);
+                        } catch (e) { console.warn(e); }
+                    })
+                },
                 {
                     icon: 'gesture', color: '#ffffff', tooltip: 'Lasso select: draw around points, tables and notes',
                     ionfunction: createIonFunction(() => { try { pm.plateTrack.startSelectGesture('lasso'); } catch (e) { console.warn(e); } })
