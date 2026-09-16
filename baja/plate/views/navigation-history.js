@@ -111,7 +111,7 @@ function (pt, graph) {
             const maxed = !!pt.__maximized;
             const docked = bar.dataset.dock === 'top';
             if (maxed) {
-                let right = 14;
+                let right = 14, top = 5;
                 try {
                     let el = null;
                     try { const c = CurrentLayout.getStashed('graph-canvas'); el = c && c.canvas; if (el && el.nativeElement) el = el.nativeElement; } catch (e) { el = null; }
@@ -119,9 +119,13 @@ function (pt, graph) {
                     const r = el ? el.getBoundingClientRect() : null;
                     const m = pt.__maxMenuRect;
                     if (r && m) right = Math.max(8, Math.round(window.innerWidth - (r.left + m.x) + 8));
+                    // The title bar is drawn at the top of the CANVAS, which sits below the
+                    // application toolbar and the menubar: the dock follows the canvas's page
+                    // position, not the page's top edge.
+                    if (r) top = Math.round(r.top + 5);
                 } catch (e) { }
                 const h = mobile ? 34 : 30;
-                bar.style.top = '5px'; bar.style.bottom = 'auto'; bar.style.right = right + 'px';
+                bar.style.top = top + 'px'; bar.style.bottom = 'auto'; bar.style.right = right + 'px';
                 bar.style.padding = '2px'; bar.style.borderRadius = '10px';
                 bar.style.background = 'rgba(255,255,255,0.10)'; bar.style.boxShadow = 'none'; bar.style.borderColor = 'rgba(255,255,255,0.25)';
                 bar.querySelectorAll('button').forEach((b) => { b.style.height = h + 'px'; b.style.minWidth = h + 'px'; });

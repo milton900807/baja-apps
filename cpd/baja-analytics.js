@@ -2333,8 +2333,46 @@ function (path, config) {
                     },
                 ]
             }
+            // The Build library: the builders grouped by what they make, each group a
+            // flyout, instead of one long flat list. An item whose label is not in the map
+            // lands under "More", so a new builder is never lost.
+            const BUILD_GROUPS = [
+                ['Timelines', ['Historical Milestones', 'Scientific Publications Timeline', 'Gantt Chart']],
+                ['Financial models', ['P&L With Capital', 'Project', 'Product Assumptions', 'Budget Assumptions']],
+                ['Analysis', ['\u0394\u0394Ct analysis', 'Build Analytics', 'Draw connections']],
+                ['Oligo & molecule design', ['Molecule', 'siRNA', 'ssASO', 'ssASO - Chirality', 'Morpholino', 'SMILEs']],
+                ['Figures', ['SVG', 'High res SVG', 'Molecular mechanism', 'Draw genetic pathways']],
+                ['Templates', ['Templates']],
+            ];
+            // The menubar keeps the ARRAYS it is given and reads them when a menu opens, and
+            // the first menubar is built before the builders below are pushed. So the groups
+            // are fixed objects whose item arrays are filled IN PLACE (never replaced): the
+            // menubar's references stay live, and refreshBuildLibrary() can run again after
+            // every push without anything going stale or empty.
+            const buildLibraryLive = BUILD_GROUPS.map(([title]) => ({ label: title, items: [] })).concat([{ label: 'More', items: [] }]);
+            // The top-level list the menubar holds: ONE array, refilled in place with the
+            // groups that have items (a filtered copy would leave the menubar holding the
+            // first, empty, copy for ever -- which is what made Build show nothing).
+            const buildTop = [];
+            const refreshBuildLibrary = () => {
+                const src = Array.isArray(ai_create_file_items) ? ai_create_file_items : [];
+                const labelOf = (it) => ('' + ((it && (it.label || it['label'])) || '')).trim();
+                const used = new Set();
+                for (const g of buildLibraryLive) g.items.length = 0;
+                BUILD_GROUPS.forEach(([title, labels], gi) => {
+                    for (const l of labels) {
+                        const it = src.find(x => labelOf(x) === l && !used.has(x));
+                        if (it) { buildLibraryLive[gi].items.push(it); used.add(it); }
+                    }
+                });
+                const more = buildLibraryLive[buildLibraryLive.length - 1];
+                for (const x of src) if (!used.has(x)) more.items.push(x);
+                buildTop.length = 0;
+                for (const g of buildLibraryLive) if (g.items.length) buildTop.push(g);
+                return buildTop;
+            };
             pm.__appMenus = () => [
-                { label: 'Build', items: ai_create_file_items },
+                { label: 'Build', items: refreshBuildLibrary() },
                 drawMenu,
             ]
 
@@ -3565,6 +3603,69 @@ function (path, config) {
                     })
                 })
 
+                ai_create_file_items.push({
+                    // A project's P&L: no revenue, ongoing donations / grants / other income,
+                    // expenses by category, a reserve, and a funding timeline.
+                    'label': 'Project', 'ionfunction': createIonFunction(async () => {
+                        const pt = pm.plateTrack;
+                        // A paragraph, so the description can carry the detail a budget needs.
+                        let content = '';
+                        try {
+                            content = await exec('baja/lib/prompt-text.js', {
+                                title: 'Project budget',
+                                message: 'Describe the project: what it does, how long it runs, who works on it, what it costs, and what carries it (donations, grants, dues, sponsorship, other income). No revenue is assumed.',
+                                placeholder: 'A two-year community food project with three staff and monthly outreach events, funded by monthly donations and one foundation grant, starting in January…',
+                                action: 'Build the budget',
+                                historyKey: 'project-budget'   // the last 10 project descriptions, offered back
+                            });
+                        } catch (e) { content = ''; }
+                        if (!content) return;
+                        pt.setMessage('Planning the project budget…', 5);
+                        let model = null;
+                        try { model = await exec('py/openai/project-budget.py', content); } catch (e) { model = { error: '' + (e && e.message || e) }; }
+                        if (!model || model.error || !model.tables) {
+                            pt.setMessage('The project budget could not be built: ' + ((model && model.error) || 'no answer'), 3);
+                            return;
+                        }
+                        const before = new Set((pt.root || []).map(x => x && x.name));
+                        let report = null;
+                        try {
+                            report = await exec('baja/draw/data-model-to-tables-gpt', pt, model);
+                        } catch (e) { pt.setMessage('The project tables could not be placed: ' + (e && e.message || e), 3); return; }
+                        const made = (pt.root || []).filter(x => x && !before.has(x.name)).map(x => x.name);
+                        // The builder's own verdict on the formulas, in the console and on the canvas.
+                        try {
+                            const rep = report && report.report ? report.report : null;
+                            console.log('[project budget] tables:', made, 'report:', rep);
+                            const errs = rep ? [].concat(rep.errors || [], rep.missingValues || []) : [];
+                            if (errs.length) pt.setMessage('Project tables built (' + made.length + '), but ' + errs.length + ' formula cell(s) did not resolve; see the console.', 3);
+                            else pt.setMessage('Project tables built: ' + (made.join(', ') || 'none new') + '. Edit the assumptions; the budget follows.', 2);
+                        } catch (e) { }
+                        try { pt.updateCalculations(); } catch (e) { }
+                        // Show what was built: fit every object, then the timeline is placed beside.
+                        try { await pt.zoomtfit(); } catch (e) { }
+                        // The funding timeline, drawn the way the milestone builders draw theirs.
+                        try {
+                            if (model.milestones && model.milestones.length && model.window) {
+                                let MPlot = await exec('flexigraph/plot.js');
+                                const plot = new MPlot({ points: model.milestones });
+                                plot.startDate = new Date(model.window.start);
+                                plot.endDate = new Date(model.window.end);
+                                const xs = model.milestones.map(q => q.x);
+                                plot.grid.zoom(Math.min(...xs), Math.max(...xs), 0, 1);
+                                plot.w = 800; plot.h = 400;
+                                plot.type = 'timeline';
+                                plot.name = ((model.project && model.project.name) || 'Project').replace(/_/g, ' ') + ' timeline';
+                                plot.x_axis_label = 'Time'; plot.y_axis_label = '';
+                                plot.fitScaleToData = false;
+                                plot.grid.rescale();
+                                await pt.panToNextSpot(800);
+                                pt.setPlotCenter(plot);
+                            }
+                        } catch (e) { console.warn('project timeline', e); }
+                        try { pt.updateCalculations(); } catch (e) { }
+                    })
+                })
                 ai_create_file_items.push({
                     'label': 'Product Assumptions', 'ionfunction': createIonFunction(async () => {
                         const plate_graph = pm;
@@ -6606,6 +6707,7 @@ function (path, config) {
 
             let interpreter = await exec('baja/engine/interpreter.js', pm.plateTrack)
 
+            try { refreshBuildLibrary(); } catch (e) { }   // the builders are all pushed by now
             let top_menubar = {
             }
 

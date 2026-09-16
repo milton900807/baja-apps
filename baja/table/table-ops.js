@@ -43,9 +43,14 @@ function () {
                     if (!table.plateType) {
                         table.plateType = 'default';
                     }
-                    let mn = await exec('baja/plate/ops/' + table.plateType, pt, table)
+                    // An ordinary table has no ops file of its own: go straight to the default
+                    // (one request, and no 404 for "ops/default" without the extension).
+                    let mn = null;
+                    if (table.plateType !== 'default') {
+                        try { mn = await exec('baja/plate/ops/' + table.plateType, pt, table) } catch (e) { mn = null; }
+                    }
                     if (!mn) {
-                        mn = await exec('baja/plate/ops/default.js', pt, table)
+                        try { mn = await exec('baja/plate/ops/default.js', pt, table) } catch (e) { mn = null; }
                     }
 
                     if (!mn) {

@@ -6017,10 +6017,17 @@ function (progress) {
                 }
                 this.formulas = cleanDictionary(this.formulas)
                 let missing = findMissingRefs(this.formulas, this.root, parseSingleVariable)
-                if (missing.missingFields) {
-                    console.warn(" There are some missing fields " + missing)
-
-                }
+                // Only a real gap is reported, and by name: the Map is always truthy, so this
+                // used to print "[object Object]" on every calculation pass.
+                try {
+                    const mf = missing && missing.missingFields;
+                    const n = mf && typeof mf.size === 'number' ? mf.size : 0;
+                    if (n > 0) {
+                        const names = [];
+                        for (const [t, labs] of mf.entries()) for (const l of labs) names.push(t + '[' + l + ']');
+                        console.warn('Formulas reference fields that do not exist: ' + names.join(', '));
+                    }
+                } catch (e) { }
                 for (let calculation_key of Object.keys(this.formulas)) {
                     try {
                         let well_ranges = calculation_key;
@@ -8216,6 +8223,8 @@ function (progress) {
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit' || hit === 'menu') return;
+                    // A press on the bookmark strip: the release handles it (see mouseUp).
+                    try { if (this.__bookmark_menu && this.__bookmark_menu.isIn && this.__bookmark_menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) return; } catch (e) { }
                     // The scroll indicator on the right edge: press to jump, drag to scroll.
                     if (x >= this.grid.width - 18 && y > 46) { this.__maxScrollDrag = true; this.__maxScrollTo(y); return; }
                     // A press on the BODY of a maximized chart or timeline starts a drag that
@@ -8425,6 +8434,18 @@ function (progress) {
             mouseUp(x, y) {
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
+                    // A bookmark chosen from the maximized view: a bookmark is a place on the
+                    // whole canvas, so the maximized view is left first, then the jump is made.
+                    try {
+                        const bm = this.__bookmark_menu;
+                        if (bm && bm.isIn && bm.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) {
+                            const wx = this.grid.Xwc(x), wy = this.grid.Ywc(y);
+                            if (!this.__objectOnly) this.exitMaximize();
+                            bm.mouseUp(this.grid, wx, wy);
+                            this.menu_vis = false;
+                            return;
+                        }
+                    } catch (e) { }
                     if (this.__maxDrag) {
                         const d = this.__maxDrag; this.__maxDrag = null;
                         this.__tlCancelPress();
@@ -22312,8 +22333,21 @@ function (progress) {
                     if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }
 
-                    // Maximized: none of the workbench chrome (undo stacks, the menu plate,
-                    // the bookmark strip, the tables menu, the side menu) is painted.
+                    // Maximized: the bookmark strip stays (it is how you get around from
+                    // there); the rest of the workbench chrome is not painted.
+                    // Whenever the workbook HAS bookmarks: the display preference that gates the
+                    // strip on the normal canvas is left aside here, since the strip is the way
+                    // out of a maximized object.
+                    if (this.__maximized && Object.keys(this.bookmarks || {}).length > 0) {
+                        try {
+                            this.buildBookmarkMenu();
+                            this.__bookmark_menu.menu_width = 120;
+                            this.__bookmark_menu.title = 'Bookmarks';
+                            this.__bookmark_menu.x = this.grid.Xwc(2);
+                            this.__bookmark_menu.y = this.grid.Ywc(56 + 36);   // under the title bar and its header band
+                            this.__bookmark_menu.draw(ctx, this.grid);
+                        } catch (e) { }
+                    }
                     if (!isMobile() && !this.__maximized) {
                         if (this.__stack && this.__stack.length > 0) {
                             if (!this.__stack_menu || !this.__stack_menu.draw) {
