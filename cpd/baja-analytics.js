@@ -405,7 +405,12 @@ function (path, config) {
                 try {
                     const __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser()));
                     if (__r && __r.path) { path = __r.path; config = config || {}; config.user = getUser(); }
-                    if (__r && __r.object && __r.object.id && !__r.mine) __shareObject = { kind: __r.object.kind, id: '' + __r.object.id, label: __r.object.label || '', owner: __r.owner || '' };
+                    if (__r && __r.object && __r.object.id && !__r.mine) {
+                        __shareObject = { kind: __r.object.kind, id: '' + __r.object.id, label: __r.object.label || '', owner: __r.owner || '' };
+                        // From the very first frame only the shared object is painted: the rest
+                        // of the workbook travels for the formulas, not for the recipient's eyes.
+                        try { pm.plateTrack.__objectOnlyId = __shareObject.id; } catch (e) { }
+                    }
                     else if (__r && __r.message) { try { infoPrompt(__r.message); } catch (e) { } path = ''; }
                 } catch (e) { console.warn('share-open failed', e); path = ''; }
             }
@@ -1717,22 +1722,14 @@ function (path, config) {
 
                         } else
                             if (event.key === 'Escape') {
+                                // Escape DESELECTS the cells (it used to clear their values,
+                                // which is Delete's job). The plate track does the deselection.
                                 event.preventDefault();
-                                if (pm.plateTrack && pm.plateTrack.selectedPlate && pm.plateTrack.selectedPlate.textActive) {
-
-                                    pm.plateTrack.selectedPlate.textActive = false;
-
+                                if (pm.plateTrack && pm.plateTrack.selectedPlate) {
+                                    try { pm.plateTrack.selectedPlate.textActive = false; } catch (e) { }
+                                    try { pm.plateTrack.selectedPlate.deselectAll(); } catch (e) { }
+                                    pm.plateTrack.selected_well = null;
                                 }
-                                else
-                                    if (pm.plateTrack) {
-                                        let se = await pm.plateTrack.getSelectedWellsInOrder()
-                                        for (let s of se) {
-                                            if (s.value != null && s.value.length > 0) {
-                                                pushHistory(HM(s))
-                                                s.value = ''
-                                            }
-                                        }
-                                    }
                             }
             });
 

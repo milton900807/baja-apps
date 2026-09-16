@@ -8543,6 +8543,20 @@ function (progress) {
                 // browser it moves focus to the next control on the page and every keystroke
                 // after that goes there instead of the canvas.
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;   // the phone's cell field owns its keys
+                // Escape on a table with selected cells: drop the selection and stop there.
+                if (event && event.key === 'Escape' && this.selectedPlate && !this.menu) {
+                    try {
+                        const p = this.selectedPlate;
+                        const sel = (p.getSelectedWellsInOrder && p.getSelectedWellsInOrder()) || [];
+                        if (sel.length || this.selected_well) {
+                            try { p.deselectAll(); } catch (e) { }
+                            this.selected_well = null;
+                            try { p.textActive = false; } catch (e) { }
+                            try { event.preventDefault(); event.stopPropagation(); } catch (e) { }
+                            return;
+                        }
+                    } catch (e) { }
+                }
                 if (event && event.key === 'Tab' && (this.selectedPlate || (typeof textActive !== 'undefined' && textActive))) {
                     try { event.preventDefault(); event.stopPropagation(); } catch (e) { }
                     try {
@@ -9206,7 +9220,8 @@ function (progress) {
                 // is taller and the screen shorter.
                 try {
                     const bar = document.getElementById('baja-nav-panel');
-                    const barH = bar ? Math.ceil(bar.getBoundingClientRect().height) + 14 : 0;
+                    // Docked in the title bar while maximized: nothing at the bottom to clear.
+                    const barH = (bar && bar.dataset.dock !== 'top') ? Math.ceil(bar.getBoundingClientRect().height) + 14 : 0;
                     const mobile = (typeof isMobile === 'function' && isMobile());
                     px += Math.max(barH, mobile ? 72 : 0) + (mobile ? 40 : 0);
                 } catch (e) { }
@@ -9270,7 +9285,7 @@ function (progress) {
                 this.__maxHideButtons(obj);
                 this.__maximized = obj;
                 try { obj.__maximizedView = true; } catch (e) { }   // painters draw the title for the navy backdrop
-                try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) window.__bajaNavPanel.refresh(); } catch (e) { }
+                try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) { window.__bajaNavPanel.refresh(); setTimeout(() => { try { window.__bajaNavPanel && window.__bajaNavPanel.refresh(); } catch (e) { } }, 120); } } catch (e) { }
                 // Any side control already showing (e.g. Deselect Cells) is dismissed.
                 try { this.side_menu = null; this.__last_side_menu_ref = null; } catch (e) { }
                 // No panning of the canvas and no moving of the object while maximized: the
@@ -9318,7 +9333,20 @@ function (progress) {
                 if (!this.__maxKey) {
                     this.__maxKey = (e) => {
                         if (!(e && e.key === 'Escape' && this.__maximized)) return;
+                        if (e.target && e.target.id === 'baja-mobile-cell-input') return;
                         if (this.__tlRange) { e.preventDefault(); this.__tlRange = null; try { this.setMessage('Range cancelled', 1); } catch (x) { } return; }
+                        // A maximized table with selected cells: Escape deselects them first.
+                        try {
+                            const o = this.__maximized;
+                            const sel = (o && o.getSelectedWellsInOrder && o.getSelectedWellsInOrder()) || [];
+                            if (sel.length || (this.selected_well && o && o.getSelectedWellsInOrder)) {
+                                e.preventDefault();
+                                try { o.deselectAll(); } catch (x) { }
+                                this.selected_well = null;
+                                try { o.textActive = false; } catch (x) { }
+                                return;
+                            }
+                        } catch (x) { }
                         if (!this.__objectOnly) { e.preventDefault(); this.exitMaximize(); }
                     };
                     try { window.addEventListener('keydown', this.__maxKey, true); } catch (e) { }
@@ -21965,7 +21993,7 @@ function (progress) {
                     }
 
                     // No arrows in the maximized view: the tables they point at are not shown.
-                    if (this.formulas && Object.keys(this.formulas).length > 0 && this.attr__drawFormulaConnections && !this.__maximized) {
+                    if (this.formulas && Object.keys(this.formulas).length > 0 && this.attr__drawFormulaConnections && !this.__maximized && !this.__objectOnlyId) {
                         let keys = Object.keys(this.formulas);
                         for (let k of keys) {
                             try {
@@ -22122,6 +22150,18 @@ function (progress) {
                     });
 
                     let allObjects = [...nonGlyphObjects, ...glyphObjects];
+                    // A single-object share, before (and after) it is pinned: only that object
+                    // exists on this canvas. Everything else is filtered out of the frame, with
+                    // a navy backdrop so the empty canvas does not read as a broken document.
+                    if (this.__objectOnlyId && !this.__maximized) {
+                        const id = '' + this.__objectOnlyId;
+                        allObjects = allObjects.filter(o => o && ('' + (o.uid || o.id)) === id);
+                        try {
+                            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+                            ctx.fillStyle = '#0a2540'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                            ctx.restore();
+                        } catch (e) { }
+                    }
                     if (this.__maximized) {
                         try { this.__maxEnforceView(); } catch (e) { }
                         // Single-object mode: navy backdrop, only the maximized object is drawn.

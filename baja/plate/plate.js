@@ -4200,7 +4200,13 @@ function () {
                         handleEnter();
                         break;
                     case 'Escape':
-
+                        // Escape drops the cell selection; the table itself stays selected.
+                        try { this.deselectAll(); } catch (e) { }
+                        pt.selected_well = null;
+                        this.textActive = false;
+                        textStyle = null;
+                        this.textBoxX = null;
+                        try { event.preventDefault(); } catch (e) { }
                         break;
                     default:
 

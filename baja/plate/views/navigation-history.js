@@ -91,8 +91,8 @@ function (pt, graph) {
         const ICON_RESTORE = svg('<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>');
         bar.innerHTML = B('nv-back', ICON_BACK, 'Back (Alt+Left)') + B('nv-fwd', ICON_FWD, 'Forward (Alt+Right)')
             + '<span style="width:1px;height:' + (H - 10) + 'px;background:rgba(255,255,255,0.18);"></span>'
-            + B('nv-places', ICON_PLACES + 'Places', 'Places the camera has stayed at') + B('nv-marks', ICON_MARKS + 'Bookmarks', 'Open a table, chart, timeline or note maximized')
-            + B('nv-restore', ICON_RESTORE + 'Un-maximize', 'Return to the whole canvas (Escape)')
+            + B('nv-places', ICON_PLACES + '<span class="nv-lbl">Places</span>', 'Places the camera has stayed at') + B('nv-marks', ICON_MARKS + '<span class="nv-lbl">Bookmarks</span>', 'Open a table, chart, timeline or note maximized')
+            + B('nv-restore', ICON_RESTORE + '<span class="nv-lbl">Un-maximize</span>', 'Return to the whole canvas (Escape)')
             + '<div id="nv-list" hidden style="position:absolute;right:0;bottom:' + (H + 14) + 'px;width:min(320px,calc(100vw - 40px));max-height:min(60vh,420px);overflow:auto;'
             + 'background:#ffffff;color:#0a2540;border:1px solid rgba(10,37,64,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(10,37,64,0.35);padding:6px;"></div>';
         document.body.appendChild(bar);
@@ -104,7 +104,42 @@ function (pt, graph) {
         const head = (t) => '<div style="font:600 11px system-ui;letter-spacing:.08em;text-transform:uppercase;color:#6b7a90;padding:8px 10px 4px;">' + t + '</div>';
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+        // Where the bar lives. On the open canvas: bottom right. While an object is
+        // maximized: docked in the navy title bar, just left of its Menu pill, so the
+        // navigation sits where the table's own menu is. The lists then open downward.
+        const dock = () => {
+            const maxed = !!pt.__maximized;
+            const docked = bar.dataset.dock === 'top';
+            if (maxed) {
+                let right = 14;
+                try {
+                    let el = null;
+                    try { const c = CurrentLayout.getStashed('graph-canvas'); el = c && c.canvas; if (el && el.nativeElement) el = el.nativeElement; } catch (e) { el = null; }
+                    if (!el || !el.getBoundingClientRect) el = document.querySelector('canvas[tabindex]') || document.querySelector('canvas');
+                    const r = el ? el.getBoundingClientRect() : null;
+                    const m = pt.__maxMenuRect;
+                    if (r && m) right = Math.max(8, Math.round(window.innerWidth - (r.left + m.x) + 8));
+                } catch (e) { }
+                const h = mobile ? 34 : 30;
+                bar.style.top = '5px'; bar.style.bottom = 'auto'; bar.style.right = right + 'px';
+                bar.style.padding = '2px'; bar.style.borderRadius = '10px';
+                bar.style.background = 'rgba(255,255,255,0.10)'; bar.style.boxShadow = 'none'; bar.style.borderColor = 'rgba(255,255,255,0.25)';
+                bar.querySelectorAll('button').forEach((b) => { b.style.height = h + 'px'; b.style.minWidth = h + 'px'; });
+                bar.querySelectorAll('.nv-lbl').forEach((l) => { l.style.display = mobile ? 'none' : ''; });
+                list.style.bottom = 'auto'; list.style.top = (h + 12) + 'px';
+                bar.dataset.dock = 'top';
+            } else if (docked || !bar.dataset.dock) {
+                bar.style.top = 'auto'; bar.style.bottom = '14px'; bar.style.right = '14px';
+                bar.style.padding = '5px'; bar.style.borderRadius = '12px';
+                bar.style.background = 'rgba(10,37,64,0.96)'; bar.style.boxShadow = '0 10px 30px rgba(10,37,64,0.35)'; bar.style.borderColor = '#1aa3bd';
+                bar.querySelectorAll('button').forEach((b) => { b.style.height = H + 'px'; b.style.minWidth = H + 'px'; });
+                bar.querySelectorAll('.nv-lbl').forEach((l) => { l.style.display = ''; });
+                list.style.top = 'auto'; list.style.bottom = (H + 14) + 'px';
+                bar.dataset.dock = 'bottom';
+            }
+        };
         const render = () => {
+            dock();
             // Un-maximize sits next to Bookmarks only while an object is maximized (and the
             // viewer is allowed out of it: a single-object share is not).
             const rs = $('nv-restore');
@@ -134,7 +169,8 @@ function (pt, graph) {
                 html += '<div style="display:flex;gap:6px;padding:6px 6px 2px;"><button id="nv-mark-now" type="button" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:600 12px system-ui;border:1px solid #1aa3bd;background:#1aa3bd;color:#fff;">Add this view</button>'
                     + '<button id="nv-clear" type="button" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:600 12px system-ui;border:1px solid #c7d2dd;background:transparent;color:#0a2540;">Clear</button></div>';
             } else {
-                const objs = allObjects();
+                // A single-object share lists only the shared object.
+                const objs = allObjects().filter(o => !pt.__objectOnlyId || ('' + (o.uid || o.id)) === ('' + pt.__objectOnlyId));
                 const groups = [['Tables', 'Table'], ['Charts', 'Chart'], ['Timelines', 'Timeline'], ['Notes', 'Note']];
                 let any = false;
                 if (pt.__maximized && !pt.__objectOnly) html += item('<span style="color:#b42318;">Exit maximize</span>', 'data-exit="1"');
@@ -187,6 +223,7 @@ function (pt, graph) {
                 if (!pt || !pt.grid) return;
                 const nowMaxed = !!pt.__maximized;
                 if (nowMaxed !== __wasMaxed) { __wasMaxed = nowMaxed; render(); }
+                else if (nowMaxed) dock();
                 if (pt.__maximized) { nav.lastView = view(); nav.dwellStart = Date.now(); return; }   // pinned view: not a place
                 const v = view();
                 if (!same(v, nav.lastView)) { nav.lastView = v; nav.dwellStart = Date.now(); return; }
