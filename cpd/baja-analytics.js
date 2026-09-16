@@ -3624,6 +3624,7 @@ function (path, config) {
                         let model = null;
                         try { model = await exec('py/openai/project-budget.py', content); } catch (e) { model = { error: '' + (e && e.message || e) }; }
                         if (!model || model.error || !model.tables) {
+                            try { pt.killSprite(); } catch (e) { }
                             pt.setMessage('The project budget could not be built: ' + ((model && model.error) || 'no answer'), 3);
                             return;
                         }
@@ -3631,7 +3632,7 @@ function (path, config) {
                         let report = null;
                         try {
                             report = await exec('baja/draw/data-model-to-tables-gpt', pt, model);
-                        } catch (e) { pt.setMessage('The project tables could not be placed: ' + (e && e.message || e), 3); return; }
+                        } catch (e) { try { pt.killSprite(); } catch (e2) { } pt.setMessage('The project tables could not be placed: ' + (e && e.message || e), 3); return; }
                         const made = (pt.root || []).filter(x => x && !before.has(x.name)).map(x => x.name);
                         // The builder's own verdict on the formulas, in the console and on the canvas.
                         try {
@@ -3642,6 +3643,15 @@ function (path, config) {
                             else pt.setMessage('Project tables built: ' + (made.join(', ') || 'none new') + '. Edit the assumptions; the budget follows.', 2);
                         } catch (e) { }
                         try { pt.updateCalculations(); } catch (e) { }
+                        // The builder stacks every new table at the same origin; the P&L flow
+                        // spreads them with the tetris layout and stops the working sprite that
+                        // setMessage(…, 5) started. Without both, the tables sat on top of each
+                        // other and the spinner never went away.
+                        try { pt.killSprite(); } catch (e) { }
+                        try { pt.layoutCompactTetris(); } catch (e) { }
+                        // The layout animates for 800 ms and returns at once: fit and place the
+                        // timeline after the tables have reached their final spots.
+                        await new Promise(r => setTimeout(r, 900));
                         // Show what was built: fit every object, then the timeline is placed beside.
                         try { await pt.zoomtfit(); } catch (e) { }
                         // The funding timeline, drawn the way the milestone builders draw theirs.

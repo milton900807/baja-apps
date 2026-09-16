@@ -3199,8 +3199,7 @@ function () {
             }
 
             removeLastRow() {
-                pushHistory(HM(this))
-                this.removeRowsDown(this.grid.ymax - 1)
+                this.removeRowsDown(this.grid.ymax - 1)     // which pushes the undo snapshot
             }
 
             removeRowsUp(fromRow) {
@@ -8824,6 +8823,7 @@ function () {
                 let rows = this.getSelectedRow();
                 if (!column && !rows || (column.length == 0 && rows.length == 0)) {
                     let confirm = await exec('baja/lib/confirm.js', 'Delete this table?', () => {
+                        pushHistory(HM(pt))     // the track: undo re-adds the table
                         this.deselectAll();
                         pt.removePlate(this)
                         setTimeout(() => {

@@ -60,16 +60,45 @@ function (pt, graph) {
         };
         const back = async () => { if (nav.index > 0) { nav.index--; await goTo(nav.history[nav.index].view); render(); } };
         const forward = async () => { if (nav.index < nav.history.length - 1) { nav.index++; await goTo(nav.history[nav.index].view); render(); } };
+        const select = (o) => {
+            if (typeof o.drawPlot === 'function') pt.setActive(o);
+            else if (o.shape) pt.selectGlyph__(o);
+            else pt.setSelected(o);
+        };
         const open = (o) => {
             try {
                 if (pt.__maximized && pt.__maximized !== o && pt.exitMaximize) pt.exitMaximize();
-                if (typeof o.drawPlot === 'function') pt.setActive(o);
-                else if (o.shape) pt.selectGlyph__(o);
-                else pt.setSelected(o);
+                select(o);
                 pt.maximizeObject(o);
             } catch (e) { console.warn('bookmark', e); }
             closeLists();
         };
+        // Zoom over to the object and centre it, for editing it in place on the workbench.
+        const goToObject = async (o) => {
+            try {
+                if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                select(o);
+                if (typeof o.drawPlot === 'function') await pt.zoomintoplot(o);
+                else if (o.shape) {
+                    const g = o.grid;
+                    if (g) {
+                        const w = g.width || 0, h = (typeof o.getHeight === 'function' ? o.getHeight(pt) : g.height) || 0;
+                        await pt.zoomto(g.xi + w / 2, g.yi + h / 2, Math.max(w * 1.8, w + 200), Math.max(h * 1.8, h + 200));
+                    }
+                } else if (pt.zoomToFitTable) await pt.zoomToFitTable(o);   // whole table, cells >= 40 x 10 px
+                else await pt.zoomintoplate(o);
+            } catch (e) { console.warn('bookmark go to', e); }
+            closeLists();
+        };
+        // Zoom out until everything on the workbench is in view.
+        const showAll = async () => {
+            try {
+                if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                if (pt.zoomouttoFit) await pt.zoomouttoFit(); else if (pt.zoomtfit) await pt.zoomtfit();
+            } catch (e) { console.warn('bookmark show all', e); }
+            closeLists();
+        };
+        const act = (attr, id, label) => '<button type="button" class="nv-act" ' + attr + '="' + id + '" style="cursor:pointer;border-radius:7px;padding:3px 8px;font:600 11px system-ui;border:1px solid #1aa3bd;background:transparent;color:#0f6e7a;white-space:nowrap;">' + label + '</button>';
 
         // ---- the bar ------------------------------------------------------------------
         const mobile = (typeof isMobile === 'function') && isMobile();
@@ -85,14 +114,12 @@ function (pt, graph) {
         const svg = (d) => '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;">' + d + '</svg>';
         const ICON_BACK = '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M15 5l-7 7 7 7"/></svg>';
         const ICON_FWD = '<svg width="' + IC + '" height="' + IC + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M9 5l7 7-7 7"/></svg>';
-        // Places: a clock with a history arrow. Bookmarks: a bookmark ribbon. Un-maximize: arrows in.
+        // Places: a clock with a history arrow. Bookmarks: a bookmark ribbon.
         const ICON_PLACES = svg('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>');
         const ICON_MARKS = svg('<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>');
-        const ICON_RESTORE = svg('<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>');
         bar.innerHTML = B('nv-back', ICON_BACK, 'Back (Alt+Left)') + B('nv-fwd', ICON_FWD, 'Forward (Alt+Right)')
             + '<span style="width:1px;height:' + (H - 10) + 'px;background:rgba(255,255,255,0.18);"></span>'
             + B('nv-places', ICON_PLACES + '<span class="nv-lbl">Places</span>', 'Places the camera has stayed at') + B('nv-marks', ICON_MARKS + '<span class="nv-lbl">Bookmarks</span>', 'Open a table, chart, timeline or note maximized')
-            + B('nv-restore', ICON_RESTORE + '<span class="nv-lbl">Un-maximize</span>', 'Return to the whole canvas (Escape)')
             + '<div id="nv-list" hidden style="position:absolute;right:0;bottom:' + (H + 14) + 'px;width:min(320px,calc(100vw - 40px));max-height:min(60vh,420px);overflow:auto;'
             + 'background:#ffffff;color:#0a2540;border:1px solid rgba(10,37,64,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(10,37,64,0.35);padding:6px;"></div>';
         document.body.appendChild(bar);
@@ -144,13 +171,8 @@ function (pt, graph) {
         };
         const render = () => {
             dock();
-            // Un-maximize sits next to Bookmarks only while an object is maximized (and the
-            // viewer is allowed out of it: a single-object share is not).
-            const rs = $('nv-restore');
-            const maxed = !!(pt.__maximized && !pt.__objectOnly);
-            rs.hidden = !maxed;
-            rs.style.background = maxed ? '#1aa3bd' : 'transparent';
-            rs.style.borderColor = maxed ? '#1aa3bd' : 'transparent';
+            // Leaving a maximized object is the title bar's "Exit maximize" pill (and
+            // Escape); a second button for it here was redundant.
             const b = $('nv-back'), f = $('nv-fwd');
             const canBack = nav.index > 0, canFwd = nav.index < nav.history.length - 1;
             b.style.opacity = canBack ? '1' : '0.35'; f.style.opacity = canFwd ? '1' : '0.35';
@@ -178,6 +200,7 @@ function (pt, graph) {
                 const groups = [['Tables', 'Table'], ['Charts', 'Chart'], ['Timelines', 'Timeline'], ['Notes', 'Note']];
                 let any = false;
                 if (pt.__maximized && !pt.__objectOnly) html += item('<span style="color:#b42318;">Exit maximize</span>', 'data-exit="1"');
+                if (!pt.__objectOnly) html += item('<span style="font-weight:600;">Show all</span><span style="color:#6b7a90;font-size:11px;">zoom out to everything</span>', 'data-all="1"');
                 for (const [title, kind] of groups) {
                     const of = objs.filter(o => kindOf(o) === kind);
                     if (!of.length) continue;
@@ -185,7 +208,12 @@ function (pt, graph) {
                     html += head(title + ' (' + of.length + ')');
                     of.forEach((o) => {
                         const cur = pt.__maximized === o;
-                        html += item('<span style="' + (cur ? 'font-weight:700;color:#0f6e7a;' : '') + '">' + esc(nameOf(o)) + '</span><span style="color:#6b7a90;font-size:11px;">' + (cur ? 'open' : 'maximize') + '</span>', 'data-obj="' + esc('' + (o.uid || o.id || '')) + '"');
+                        const id = esc('' + (o.uid || o.id || ''));
+                        // Two ways in: "Go to" zooms over and centres it on the workbench for
+                        // editing in place; "Maximize" opens it full-window. The row itself maximizes.
+                        html += item('<span style="' + (cur ? 'font-weight:700;color:#0f6e7a;' : '') + '">' + esc(nameOf(o)) + '</span>'
+                            + '<span style="display:flex;gap:4px;align-items:center;">' + act('data-goto', id, 'Go to') + (cur ? '<span style="color:#6b7a90;font-size:11px;padding:0 4px;">open</span>' : act('data-max', id, 'Maximize')) + '</span>',
+                            'data-obj="' + id + '"');
                     });
                 }
                 if (!any) html += '<div style="padding:8px 10px;font-size:12px;color:#6b7a90;">Nothing on the workbench yet.</div>';
@@ -198,14 +226,22 @@ function (pt, graph) {
                 el.onclick = async () => {
                     if (el.hasAttribute('data-place')) { nav.index = +el.getAttribute('data-place'); await goTo(nav.history[nav.index].view); closeLists(); }
                     else if (el.hasAttribute('data-exit')) { try { pt.exitMaximize(); } catch (e) { } closeLists(); }
+                    else if (el.hasAttribute('data-all')) { await showAll(); }
                     else if (el.hasAttribute('data-obj')) { const id = el.getAttribute('data-obj'); const o = allObjects().find(x => ('' + (x.uid || x.id || '')) === id); if (o) open(o); }
+                };
+            });
+            const byId = (id) => allObjects().find(x => ('' + (x.uid || x.id || '')) === id);
+            list.querySelectorAll('.nv-act').forEach((b) => {
+                b.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    if (b.hasAttribute('data-goto')) { const o = byId(b.getAttribute('data-goto')); if (o) await goToObject(o); }
+                    else if (b.hasAttribute('data-max')) { const o = byId(b.getAttribute('data-max')); if (o) open(o); }
                 };
             });
             const mk = list.querySelector('#nv-mark-now'); if (mk) mk.onclick = () => { record(view(), 'marked'); listMode = 'places'; render(); };
             const cl = list.querySelector('#nv-clear'); if (cl) cl.onclick = () => { nav.history = []; nav.index = -1; render(); };
         };
         $('nv-back').onclick = back; $('nv-fwd').onclick = forward;
-        $('nv-restore').onclick = () => { try { pt.exitMaximize(); } catch (e) { } closeLists(); };
         let __wasMaxed = !!pt.__maximized;
         $('nv-places').onclick = () => { listMode = listMode === 'places' ? null : 'places'; list.hidden = !listMode; render(); };
         $('nv-marks').onclick = () => { listMode = listMode === 'marks' ? null : 'marks'; list.hidden = !listMode; render(); };

@@ -14720,11 +14720,16 @@ function (MGrid) {
 
                                             previousLabels.push({ x: nameBox.x, y: adjustedBoxY, w: nameBox.w, h: boxHeight });
 
+                                            // The label panel, or the stem between the panel and the axis
+                                            // (a few pixels either side): both pick the milestone up.
                                             point.isInside = (mx, my) =>
-                                                mx >= nameBox.x &&
-                                                mx <= nameBox.x + nameBox.w &&
-                                                my >= adjustedBoxY &&
-                                                my <= adjustedBoxY + boxHeight;
+                                                (mx >= nameBox.x &&
+                                                    mx <= nameBox.x + nameBox.w &&
+                                                    my >= adjustedBoxY &&
+                                                    my <= adjustedBoxY + boxHeight)
+                                                || (Math.abs(mx - x) <= 8 &&
+                                                    my >= Math.min(adjustedBoxY + boxHeight, axis) - 2 &&
+                                                    my <= Math.max(adjustedBoxY + boxHeight, axis) + 6);
 
                                             behindLabels.push(() => {
                                                 ctx.save();

@@ -679,7 +679,7 @@ function () {
                     {
                         name: "-", x: 0 + bsize, y: 10, width: 20, height: 20, action: async (bx, by, x, y, pt) => {
                             let confirm = await exec('baja/lib/confirm.js', 'Delete the last row? (ctrl+z to undo)', async () => {
-                                pushHistory(HM(this))
+                                // removeRowsDown pushes the one undo snapshot for this deletion
                                 return this.removeLastRow()
                             })
                             showModal(confirm)
@@ -4512,8 +4512,7 @@ function () {
             }
 
             removeLastRow() {
-                pushHistory(HM(this))
-                this.removeRowsDown(this.grid.ymax - 1)
+                this.removeRowsDown(this.grid.ymax - 1)     // which pushes the undo snapshot
             }
 
             removeRowsUp(fromRow) {
@@ -10658,7 +10657,9 @@ function () {
                         click: async (x, y) => {
                             let confirm = await exec('baja/lib/confirm.js', 'Delete this?', async () => {
                                 setTimeout(() => {
-                                    pushHistory(HM(this))
+                                    // The whole track, not the plate: a deleted plate cannot be
+                                    // found by uid on undo, so undo restores the track that had it.
+                                    pushHistory(HM(pt))
 
                                     pt.removePlate(this)
                                     pt.wb(null)
@@ -11607,7 +11608,7 @@ function () {
             async test_menu(bx, by, mmx, mmy, pt) {
                 let confirm = await exec('baja/lib/confirm.js', 'Delete this table?', () => {
 
-                    pushHistory(HM(this))
+                    pushHistory(HM(pt))     // the track: undo re-adds the table
 
                     this.deselectAll();
                     pt.removePlate(this)

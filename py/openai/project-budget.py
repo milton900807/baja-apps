@@ -7,7 +7,8 @@ donations, grants or other income, expenses by category, a reserve, and mileston
 param(1): the user's description of the project.
 
 Returns the artifact data-model-to-tables-gpt builds from (tables keyed by cell, formulas
-keyed by cell, annotations, units) plus `milestones` and `window` for the timeline.
+keyed by cell, annotations, units) plus `milestones` and `window` for the timeline. The last
+table, Project_Quarterly, is the budget required at quarterly intervals with a project total.
 """
 from __future__ import annotations
 
@@ -115,6 +116,14 @@ def plan(prompt: str) -> Dict[str, Any]:
     return json.loads(r.output_text)
 
 
+def _add_months(d: datetime, n: int) -> datetime:
+    """Calendar months, not 30.44-day steps: a quarter that starts on the 1st ends on a 1st."""
+    y = d.year + (d.month - 1 + n) // 12
+    m = (d.month - 1 + n) % 12 + 1
+    last = [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+    return d.replace(year=y, month=m, day=min(d.day, last))
+
+
 def _date(s: str, fallback: datetime) -> datetime:
     try:
         return datetime.fromisoformat(str(s)[:10])
@@ -130,7 +139,7 @@ def build(prompt: str) -> Dict[str, Any]:
     name = _label(p.get("project_name") or "Project")
     start = _date(p.get("start_date"), datetime.now().replace(day=1) + timedelta(days=32))
     months = max(1, int(p.get("duration_months") or 12))
-    end = start + timedelta(days=int(months * 30.44))
+    end = _add_months(start, months)
 
     A, I, E, B = "Project_Assumptions", "Project_Income", "Project_Expenses", "Project_Budget"
     tables: Dict[str, Any] = {}
@@ -224,6 +233,89 @@ def build(prompt: str) -> Dict[str, Any]:
         units[B][lab] = "fraction" if lab.endswith("_Pct") else ("months" if "Months" in lab else "USD")
     ann[B] = "The project's bottom line: what it costs, what carries it, and what is left (a positive Funding_Gap must still be raised)."
 
+    # ---- quarterly: the budget required at quarterly intervals, and cumulatively ----
+    # One column per quarter of the project (a short last quarter keeps its real month
+    # count) plus a project total. Every cell is a formula back to the assumptions, so a
+    # changed cost or a re-dated one-off flows through: label references read column 1
+    # of a two-column table, so the running totals are expressed straight from the inputs
+    # rather than from the quarter before.
+    Q = "Project_Quarterly"
+    units[Q] = {}
+    nq = (months + 2) // 3
+    quarters: List[Tuple[str, datetime, datetime, int]] = []
+    for qi in range(nq):
+        q_start = _add_months(start, qi * 3)
+        q_months = min(3, months - qi * 3)
+        q_end = _add_months(start, qi * 3 + q_months)
+        quarters.append((f"Q{qi + 1}", q_start, q_end, q_months))
+
+    def one_offs_between(a: datetime, b: datetime) -> List[str]:
+        # dated on or after a, before b (the project's final quarter closes on its end)
+        return [f"{A}[{lab}_One_Off]" for lab, amt, d in one if a <= d < b or (b >= end and d >= a)]
+
+    inc_pm = f"{I}[Total_Income_Per_Month]"
+    exp_pm = f"{E}[Total_Expenses_Per_Month]"
+    tables[_key(Q, 0, 0)] = "Label"
+    for c, (qlab, q_start, q_end, q_months) in enumerate(quarters, start=1):
+        tables[_key(Q, c, 0)] = f"{qlab} {q_start.strftime('%b %Y')}"
+    total_c = len(quarters) + 1
+    tables[_key(Q, total_c, 0)] = "Project Total"
+
+    def q_rows(c: int, q_start: datetime, q_end: datetime, q_months: int, so_far: int) -> Dict[str, Any]:
+        ones = one_offs_between(q_start, q_end)
+        ones_so_far = one_offs_between(start, q_end)
+        one_q = "+".join(ones) if ones else "0"
+        one_cum = "+".join(ones_so_far) if ones_so_far else "0"
+        return {
+            "Period_Start": q_start.strftime("%Y-%m-%d"),
+            "Period_End": q_end.strftime("%Y-%m-%d"),
+            "Months": q_months,
+            "Income": f"{inc_pm}*{q_months}",
+            "Expenses": f"{exp_pm}*{q_months}",
+            "One_Off_Costs": one_q,
+            "Budget_Required": f"{exp_pm}*{q_months}+{one_q}",
+            "Cumulative_Budget_Required": f"{exp_pm}*{so_far}+{one_cum}",
+            "Net": f"{inc_pm}*{q_months}-({exp_pm}*{q_months}+{one_q})",
+            "Reserve_At_Quarter_End": f"{A}[Opening_Reserve]+{inc_pm}*{so_far}-({exp_pm}*{so_far}+{one_cum})",
+        }
+
+    row_order = ["Period_Start", "Period_End", "Months", "Income", "Expenses", "One_Off_Costs",
+                 "Budget_Required", "Cumulative_Budget_Required", "Net", "Reserve_At_Quarter_End"]
+    for r, lab in enumerate(row_order, start=1):
+        tables[_key(Q, 0, r)] = lab
+        units[Q][lab] = "months" if lab == "Months" else ("" if lab.startswith("Period") else "USD")
+    so_far = 0
+    for c, (qlab, q_start, q_end, q_months) in enumerate(quarters, start=1):
+        so_far += q_months
+        vals = q_rows(c, q_start, q_end, q_months, so_far)
+        for r, lab in enumerate(row_order, start=1):
+            v = vals[lab]
+            if isinstance(v, str) and lab not in ("Period_Start", "Period_End"):
+                formulas[_key(Q, c, r)] = v
+            else:
+                tables[_key(Q, c, r)] = v
+    all_ones = "+".join(f"{A}[{lab}_One_Off]" for lab, amt, d in one) or "0"
+    totals = {
+        "Period_Start": start.strftime("%Y-%m-%d"),
+        "Period_End": end.strftime("%Y-%m-%d"),
+        "Months": f"{A}[Duration_Months]",
+        "Income": f"{I}[Total_Income_Over_Project]",
+        "Expenses": f"{exp_pm}*{A}[Duration_Months]",
+        "One_Off_Costs": all_ones,
+        "Budget_Required": f"{E}[Total_Expenses_Over_Project]",
+        "Cumulative_Budget_Required": f"{E}[Total_Expenses_Over_Project]",
+        "Net": f"{B}[Net_Over_Project]",
+        "Reserve_At_Quarter_End": f"{B}[Reserve_At_End]",
+    }
+    for r, lab in enumerate(row_order, start=1):
+        v = totals[lab]
+        if lab in ("Period_Start", "Period_End"):
+            tables[_key(Q, total_c, r)] = v
+        else:
+            formulas[_key(Q, total_c, r)] = v
+    ann[Q] = ("The budget required at quarterly intervals: each quarter's costs and one-offs, the running total "
+              "required to that point, and the reserve left after the income of the period.")
+
     # ---- timeline: milestones, funding events and one-off costs on one axis ----
     ms: List[Dict[str, Any]] = []
     for m in (p.get("milestones") or []):
@@ -247,7 +339,7 @@ def build(prompt: str) -> Dict[str, Any]:
         "annotations": ann,
         "units": units,
         "diagnostics": "NO_ISSUES_DETECTED",
-        "project": {"name": name, "start": start.isoformat(), "end": end.isoformat(), "months": months, "summary": p.get("summary", "")},
+        "project": {"name": name, "start": start.isoformat(), "end": end.isoformat(), "months": months, "quarters": len(quarters), "summary": p.get("summary", "")},
         "milestones": points,
         "window": {"start": dmin.isoformat(), "end": dmax.isoformat()},
     }

@@ -3243,6 +3243,45 @@ function (progress) {
 
 
 
+            // Centre a table and zoom so the WHOLE table is in view, as large as that allows,
+            // but never with cells under 40 x 10 px: a big table is then shown at that cell
+            // size, centred, and the rest of it lies beyond the edges. (zoomintoplate aims
+            // for 120 x 14 px cells, which shows only a corner of a large table.)
+            async zoomToFitTable(plate, opts = {}) {
+                this.clearActionGlyphs();
+                if (!plate || !plate.grid) return;
+                const MIN_W = opts.minCellW ?? 40, MIN_H = opts.minCellH ?? 10, MARGIN = opts.margin ?? 1.12;
+                this.pushGrid();
+                this.grid.rescale();
+                if (plate.highlight) plate.highlight();
+                const viewW = Math.max(1, this.grid.width), viewH = Math.max(1, this.grid.height);
+                const plateW = Math.max(1e-9, plate.grid.width || 0);
+                let plateH = 0;
+                try { plateH = (typeof plate.getHeight === 'function') ? plate.getHeight(this) : plate.grid.height; } catch (e) { plateH = plate.grid.height; }
+                plateH = Math.max(1e-9, plateH || 0);
+                // The smallest cell decides the floor.
+                let cw = Infinity, ch = Infinity;
+                try {
+                    for (const col of (plate.wells || [])) {
+                        for (const w of (col || [])) {
+                            if (!w) continue;
+                            if (Number.isFinite(w.w) && w.w > 0) cw = Math.min(cw, w.w);
+                            if (Number.isFinite(w.h) && w.h > 0) ch = Math.min(ch, w.h);
+                        }
+                    }
+                } catch (e) { }
+                if (!Number.isFinite(cw)) cw = plateW / Math.max(1, (plate.wells || []).length);
+                if (!Number.isFinite(ch)) ch = plateH / Math.max(1, ((plate.wells || [])[0] || []).length);
+                // World units per pixel: the same on both axes so cells keep their shape.
+                const wppFit = Math.max(plateW * MARGIN / viewW, plateH * MARGIN / viewH);   // whole table in view
+                const wppCell = Math.min(cw / MIN_W, ch / MIN_H);                           // cells no smaller than the floor
+                const wpp = Math.min(wppFit, wppCell);
+                const cx = plate.grid.xi + plateW / 2;
+                const cy = plate.grid.yi + plateH / 2;
+                await this.zoomto(cx, cy, viewW * wpp, viewH * wpp);
+                this.setSelected(plate);
+            }
+
             async zoomintoplate(plate) {
                 this.clearActionGlyphs();
                 if (!plate) return;
@@ -8249,6 +8288,8 @@ function (progress) {
                             const box = this.__maxScreenBox();
                             const tol = (typeof isMobile === 'function' && isMobile()) ? 24 : 0;
                             if (box && x >= box.x - tol && x <= box.x + box.w + tol && y >= box.y - tol && y <= box.y + box.h + tol) {
+                                const mp = this.__msHit(o, x, y);
+                                if (mp) { this.__msDragStart(o, mp, x, y); return; }
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
                                 // range that the next tap closes; a double tap adds a milestone
@@ -8279,6 +8320,17 @@ function (progress) {
 
 
 
+
+                // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
+                if (!this.menu && !this.__maximized) {
+                    try {
+                        const at = this.objectAt(x, y);
+                        if (at && at.kind === 'plot' && this.__tlIs(at.obj)) {
+                            const mp = this.__msHit(at.obj, x, y);
+                            if (mp) { this.__msDragStart(at.obj, mp, x, y); return; }
+                        }
+                    } catch (e) { }
+                }
 
                 const xwc = this.grid.Xwc(x);
                 const ywc = this.grid.Ywc(y);
@@ -8406,6 +8458,8 @@ function (progress) {
             }
 
             isInAnyMenu(x, y) {
+                // A held milestone owns the pointer: the plot's own listeners must not also run.
+                if (this.__msDrag) return true;
                 const gridX = this.grid.Xwc(x);
                 const gridY = this.grid.Ywc(y);
                 if (this.attr__displayBookMarks) {
@@ -8432,6 +8486,7 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                if (this.__msDrag) { this.__msDragEnd(); return; }
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
                     // A bookmark chosen from the maximized view: a bookmark is a place on the
@@ -9030,6 +9085,7 @@ function (progress) {
             }
 
             mouseMove(x, y) {
+                if (this.__msDrag) { this.__msDragMove(x, y); return; }
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
                     if (this.__maxTap && (Math.abs(x - this.__maxTap.x) > 6 || Math.abs(y - this.__maxTap.y) > 6)) this.__maxTap = null;
@@ -9503,6 +9559,51 @@ function (progress) {
                 try { this.setMessage('Range added: ' + this.__tlFmt(sMs) + ' to ' + this.__tlFmt(eMs), 2); } catch (e) { }
             }
             __tlCancelPress() { try { clearTimeout(this.__tlPressTimer); } catch (e) { } this.__tlPressTimer = null; }
+
+            // ---- Dragging a milestone to another time ---------------------------------
+            // A press on a milestone (its label or its stem) picks it up; while it is held the
+            // timeline does not pan through time and the workbench does not pan either, so the
+            // milestone can be dropped on another date. Its DATE is what moves: the timeline
+            // re-derives every dated point's x from its date each frame, so moving x alone
+            // snapped it straight back. One undo step per drop.
+            __msHit(o, x, y) {
+                if (!this.__tlIs(o) || !o.scatterData || !Array.isArray(o.scatterData.points)) return null;
+                const pts = o.scatterData.points;
+                for (let i = pts.length - 1; i >= 0; i--) {
+                    const p = pts[i];
+                    if (!p || p.type !== 'milestone' || typeof p.isInside !== 'function') continue;
+                    try { if (p.isInside(x, y)) return p; } catch (e) { }
+                }
+                return null;
+            }
+            __msDragStart(o, p, x, y) {
+                this.__tlCancelPress();
+                this.__maxDrag = null; this.__maxTap = null;
+                this.__msDrag = { o, p, sx: x, sy: y, y0: p.y, yu0: this.__tlYUnitsAt(o, y), moved: false };
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                try { this.setMessage('Drag ' + (p.name || 'the milestone') + ' to another time and release.', 3); } catch (e) { }
+            }
+            __msDragMove(x, y) {
+                const d = this.__msDrag; if (!d) return;
+                const o = d.o, p = d.p;
+                if (!d.moved) {
+                    if (Math.abs(x - d.sx) + Math.abs(y - d.sy) < 3) return;
+                    d.moved = true;
+                    try { pushHistory(HM(o)); } catch (e) { }
+                    try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                }
+                const xu = this.__tlXUnitsAt(o, x);
+                p.x = xu;
+                p.date = new Date(this.__tlXToMs(o, xu));
+                p.y = d.y0 + (this.__tlYUnitsAt(o, y) - d.yu0);
+                try { this.setMessage((p.name || 'Milestone') + ': ' + this.__tlFmt(p.date.getTime()), 3); } catch (e) { }
+            }
+            __msDragEnd() {
+                const d = this.__msDrag; this.__msDrag = null;
+                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                if (!d || !d.moved) return;
+                try { this.setMessage((d.p.name || 'Milestone') + ' moved to ' + this.__tlFmt(new Date(d.p.date).getTime()) + ' (Ctrl+Z undoes)', 2); } catch (e) { }
+            }
 
             // The topmost object under a screen point: a note, a chart or timeline, or a table.
             objectAt(x, y) {
@@ -10234,6 +10335,7 @@ function (progress) {
                         menuList.push({
                             label: `Delete tables or plots`,
                             click: (xwc, ywc) => {
+                                pushHistory(HM(this))   // undo restores the track with them
                                 for (let o of objects) {
                                     this.removePlate(o);
                                 }
@@ -10670,6 +10772,7 @@ function (progress) {
                     menuList.push({
                         label: `Delete`,
                         click: async (xwc, ywc) => {
+                            pushHistory(HM(this))   // undo restores the track with them
                             for (let o of objects) {
                                 this.removePlate(o)
                             }
@@ -22328,7 +22431,10 @@ function (progress) {
                     // before the chrome: drawn any later they covered the side menu, the
                     // tables menu and the maximized title bar.
                     if (this.activePlot) {
-                        this.activePlot.drawPlot(this.grid, ctx, this.activePlot.grid);
+                        // drawPlot takes the TRACK (it reads pt.grid); handing it the grid itself
+                        // threw "Cannot read properties of undefined (reading 'screenWidth')" on
+                        // every frame as soon as a plot was made active.
+                        try { this.activePlot.drawPlot(this, ctx); } catch (e) { }
                     }
                     if (this.__collab) { try { this.__collab.drawOverlays(ctx); } catch (e) { } }
                     if (this.__maximized) { try { this.__drawMaximizeChrome(ctx); } catch (e) { } }

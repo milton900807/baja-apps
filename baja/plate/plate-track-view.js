@@ -2081,6 +2081,7 @@ function () {
                         menuList.push({
                             label: `Delete tables or plots`,
                             click: (xwc, ywc) => {
+                                pushHistory(HM(this))   // undo restores the track with them
                                 for (let o of objects) {
                                     this.removePlate(o);
                                 }
@@ -2258,6 +2259,7 @@ function () {
                     menuList.push({
                         label: `Delete`,
                         click: async (xwc, ywc) => {
+                            pushHistory(HM(this))   // undo restores the track with them
                             for (let o of objects) {
                                 this.removePlate(o)
                             }
@@ -4903,7 +4905,10 @@ function () {
                         }
 
                     if (this.activePlot) {
-                        this.activePlot.drawPlot(this.grid, ctx, this.activePlot.grid);
+                        // drawPlot takes the TRACK (it reads pt.grid); handing it the grid itself
+                        // threw "Cannot read properties of undefined (reading 'screenWidth')" on
+                        // every frame as soon as a plot was made active.
+                        try { this.activePlot.drawPlot(this, ctx); } catch (e) { }
                     }
 
                     if (this.__msg) {
