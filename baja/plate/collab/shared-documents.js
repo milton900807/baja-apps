@@ -91,7 +91,7 @@ function (pt, graph, pm) {
                     try { if (pt && pt.__collab) pt.__collab.destroy(); } catch (e) { }
                     try { clear(); } catch (e) { }
                     try { CurrentLayout.reset('mainPanel'); } catch (e) { }
-                    try { window.history.replaceState({ collab: code }, 'Baja - Pedregal', '/app/cpd/baja-analytics?share=' + encodeURIComponent(code)); } catch (e) { }
+                    try { window.history.replaceState({ collab: code }, 'Baja - Project', '/app/cpd/baja-analytics?share=' + encodeURIComponent(code)); } catch (e) { }
                     exec('cpd/baja-analytics', '', { silent: true, user: getUser(), mode: 'editor' }, '/app/cpd/baja-analytics');
                     return;
                 }

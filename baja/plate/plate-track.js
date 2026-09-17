@@ -8291,7 +8291,7 @@ function (progress) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit' || hit === 'menu') return;
                     // A press on the bookmark strip: the release handles it (see mouseUp).
-                    try { if (this.__bookmark_menu && this.__bookmark_menu.isIn && this.__bookmark_menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) return; } catch (e) { }
+                    try { if (this.__bookmark_menu && !this.__objectOnly && !this.__readOnly && this.__bookmark_menu.isIn && this.__bookmark_menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) return; } catch (e) { }
                     // The scroll indicator on the right edge: press to jump, drag to scroll.
                     if (x >= this.grid.width - 18 && y > 46) { this.__maxScrollDrag = true; this.__maxScrollTo(y); return; }
                     // A press on the BODY of a maximized chart or timeline starts a drag that
@@ -8303,7 +8303,7 @@ function (progress) {
                     this.__maxTap = null;
                     try {
                         const o = this.__maximized;
-                        if (hit === 'inside' && !(typeof o.drawPlot === 'function') && !o.shape && !this.menu) {
+                        if (hit === 'inside' && !(typeof o.drawPlot === 'function') && !o.shape && !this.menu && !this.__readOnly) {
                             this.__maxTap = { x, y, prev: this.selected_well };
                         }
                     } catch (e) { }
@@ -8316,9 +8316,16 @@ function (progress) {
                             const box = this.__maxScreenBox();
                             const tol = (typeof isMobile === 'function' && isMobile()) ? 24 : 0;
                             if (box && x >= box.x - tol && x <= box.x + box.w + tol && y >= box.y - tol && y <= box.y + box.h + tol) {
-                                // A finger pans; it does not pick milestones up (mobile).
-                                const mp = this.__mobile() ? null : this.__msHit(o, x, y);
-                                if (mp) { this.__msDragStart(o, mp, x, y); return; }
+                                // A finger pans; it does not pick milestones up (mobile). A view-only
+                                // viewer never does.
+                                const mp = (this.__mobile() || this.__readOnly) ? null : this.__msHit(o, x, y);
+                                // A press used to pick the milestone up straight away, so brushing
+                                // one while reading the timeline moved it. Now the pill opens its
+                                // menu and only "Move" arms the drag, for one move.
+                                if (mp) {
+                                    if (this.__msArmed === mp) { this.__msDragStart(o, mp, x, y); return; }
+                                    this.__msOpenMenu(o, mp, x, y); return;
+                                }
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
                                 // range that the next tap closes; a double tap adds a milestone
@@ -8350,6 +8357,8 @@ function (progress) {
 
 
 
+                // View only: a press on the canvas selects and edits nothing; the graph pans.
+                if (this.__readOnly) return;
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
                 // Not on a phone: there a finger pans the canvas, whatever it lands on.
                 if (!this.menu && !this.__maximized && !this.__mobile()) {
@@ -8357,7 +8366,10 @@ function (progress) {
                         const at = this.objectAt(x, y);
                         if (at && at.kind === 'plot' && this.__tlIs(at.obj)) {
                             const mp = this.__msHit(at.obj, x, y);
-                            if (mp) { this.__msDragStart(at.obj, mp, x, y); return; }
+                            if (mp) {
+                                if (this.__msArmed === mp) { this.__msDragStart(at.obj, mp, x, y); return; }
+                                this.__msOpenMenu(at.obj, mp, x, y); return;
+                            }
                         }
                     } catch (e) { }
                 }
@@ -8518,12 +8530,18 @@ function (progress) {
             mouseUp(x, y) {
                 if (this.__msDrag) { this.__msDragEnd(); return; }
                 if (this.__selectGesture) return;
+                if (this.__readOnly) {
+                    // Only the maximized scroll and pan gestures end here; taps edit nothing.
+                    if (this.__maxScrollDrag) this.__maxScrollDrag = false;
+                    if (this.__maxDrag) { this.__maxDrag = null; this.__tlCancelPress(); }
+                    return;
+                }
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollDrag = false; return; }
                     // A bookmark chosen from the maximized view: a bookmark is a place on the
                     // whole canvas, so the maximized view is left first, then the jump is made.
                     try {
-                        const bm = this.__bookmark_menu;
+                        const bm = (this.__objectOnly || this.__readOnly) ? null : this.__bookmark_menu;
                         if (bm && bm.isIn && bm.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) {
                             const wx = this.grid.Xwc(x), wy = this.grid.Ywc(y);
                             if (!this.__objectOnly) this.exitMaximize();
@@ -9117,6 +9135,7 @@ function (progress) {
 
             mouseMove(x, y) {
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
+                this.__msHoverUpdate(x, y);
                 if (this.__selectGesture) return;
                 if (this.__maximized) {
                     if (this.__maxScrollDrag) { this.__maxScrollTo(y); return; }
@@ -9134,7 +9153,7 @@ function (progress) {
                             d.lastX = x;
                             return;
                         }
-                        if (d.moved && Number.isFinite(d.ox) && Number.isFinite(d.oy)) {
+                        if (d.moved && Number.isFinite(d.ox) && Number.isFinite(d.oy) && !this.__readOnly) {
                             o.x = d.ox + (x - d.sx) * (g.xmax - g.xmin) / Math.max(1, g.width);
                             o.y = d.oy - (y - d.sy) * (g.ymax - g.ymin) / Math.max(1, g.height);
                             try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
@@ -9395,6 +9414,7 @@ function (progress) {
             __maxOpenMenu() {
                 const obj = this.__maximized;
                 if (!obj) return;
+                if (this.__readOnly) { try { this.setMessage('View only: this was shared for viewing; you can pan and scroll, not edit.', 2); } catch (e) { } return; }
                 try {
                     if (typeof obj.drawPlot === 'function') {
                         if (typeof obj.displayContextSpecificMenuItems === 'function') obj.displayContextSpecificMenuItems(this);
@@ -9446,6 +9466,7 @@ function (progress) {
                 // and scrolls sideways (see __maxScrollX and the x clamp in __maxEnforceView).
                 const MIN_CELL_W_PX = 40, MIN_CELL_H_PX = 10;
                 let hscroll = false;
+                let tlFill = false;   // a timeline fills both axes: x and y ranges are set independently
                 if (!(typeof obj.drawPlot === 'function') && obj.grid && obj.wells) {
                     const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
                     const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length || 1);
@@ -9466,11 +9487,36 @@ function (progress) {
                         hscroll = true;
                     }
                 }
+                // A TIMELINE FITS THE WINDOW'S HEIGHT. It grows sideways, not down, so it is
+                // shown whole between the title bar and the bottom chrome (the free-plan
+                // banner included), with a buffer, rather than fitted to the width and
+                // scrolled. A table keeps the width fit and scrolls: it can be any height.
+                if (this.__tlIs(obj)) {
+                    // A maximized timeline fills the window in BOTH directions rather than
+                    // being fitted to one and letting the other run short. MGrid scales x and
+                    // y independently, and the timeline sizes its markers from grid.xscale
+                    // alone, so stretching y costs no distortion: x is fitted to the
+                    // timeline's own width, y to whatever height is left between the title bar
+                    // and the bottom chrome.
+                    //
+                    // The allowances here are the same ones __maxEnforceView() clamps
+                    // against. That matters: with any other pair the two disagree, the object
+                    // ends up marginally taller than its own clamp window, and the view is
+                    // left with a sliver of scroll the user cannot reach by dragging (pan is
+                    // suppressed while maximized). Matching them makes the fit exact, so the
+                    // scroll indicator correctly does not appear and there is nothing to drag.
+                    const avail = Math.max(120, ch - HEADER - this.__maxBottomPx(obj));
+                    const objH = Math.max(1e-6, b.yTop - b.yBot);
+                    xRange = width * (1 + 2 * sideFrac);
+                    yRange = objH * ch / avail;
+                    hscroll = false;
+                    tlFill = true;
+                }
                 const centerX = (b.x0 + b.x1) / 2;
                 const xmin = hscroll ? (b.x0 - width * sideFrac) : ((xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac));
                 const xmax = xmin + xRange;
                 const ymax = b.yTop + yRange * (HEADER / ch), ymin = ymax - yRange;
-                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b, hscroll, sideFrac };
+                this.__maxBounds = { xmin, xmax, yRange, headerWorld: yRange * (HEADER / ch), b, hscroll, sideFrac, tlFill };
                 AnimateGrid.INTERUPT = true;
                 try { new AnimateGrid(this.grid).animateTo(xmin, xmax, ymin, ymax, 18); } catch (e) {
                     this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
@@ -9670,6 +9716,155 @@ function (progress) {
                 // a stem down to the milestone
                 ctx.strokeStyle = '#1aa3bd'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
                 ctx.beginPath(); ctx.moveTo(d.px, d.py); ctx.lineTo(x < d.px ? x + w : x, Math.min(y + h, Math.max(y, d.py))); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ---- Hover feedback on a milestone ---------------------------------------
+            // Milestones are draggable but nothing said so: the pointer had to be pressed to
+            // find out whether it was over one. The milestone under the pointer now glows, so
+            // it is clear which one a press would pick up, and which one it would not.
+            // The pill label is a menu. A press opens it rather than grabbing the
+            // milestone: "Move" arms exactly one drag, "Data" opens the table row the
+            // milestone is wired to.
+            __msOpenMenu(o, p, x, y) {
+                const ml = [];
+                ml.push({
+                    label: 'Move',
+                    click: () => {
+                        this.menu = null; this.menu_vis = false;
+                        this.__msArmed = p;
+                        try { this.setMessage('Drag ' + (p.name || 'the milestone') + ' to another date.', 4); } catch (e) { }
+                    },
+                    bg: 'rgba(26,163,189,0.18)', fg: '#0a2540'
+                });
+                ml.push({
+                    label: 'Data',
+                    click: () => {
+                        this.menu = null; this.menu_vis = false;
+                        this.__msShowData(p);
+                    },
+                    bg: 'rgba(26,163,189,0.10)', fg: '#0a2540'
+                });
+                ml.push({
+                    label: 'Delete point',
+                    click: () => {
+                        this.menu = null; this.menu_vis = false;
+                        this.__msDeletePoint(o, p);
+                    },
+                    bg: 'lightRed', fg: '#0a2540'
+                });
+                this.__msArmed = null;   // opening the menu cancels any earlier arming
+                let title = p.name || 'Milestone';
+                try { if (p.date) title += '  ' + this.__tlFmt(new Date(p.date).getTime()); } catch (e) { }
+                this.menu = new Menu(ml, this.grid.Xwc(x), this.grid.Ywc(y),
+                    'rgba(255,255,255,0.98)', '#0a2540', 1);
+                this.menu.title = title;
+                this.menu_vis = true;
+            }
+            // Remove the point from the timeline. One undo step, pushed before the
+            // change, so this is recoverable rather than confirmed: the table row it was
+            // linked to is left alone, since the row is the data and the point is only a
+            // marker on it.
+            __msDeletePoint(o, p) {
+                if (!o || !p || !o.scatterData || !Array.isArray(o.scatterData.points)) return;
+                const pts = o.scatterData.points;
+                const i = pts.indexOf(p);
+                if (i < 0) return;
+                try { pushHistory(HM(o)); } catch (e) { }
+                try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
+                pts.splice(i, 1);
+                // Nothing may keep pointing at a point that is gone.
+                if (this.__msArmed === p) this.__msArmed = null;
+                if (this.__msHover && this.__msHover.p === p) this.__msHover = null;
+                if (this.__msDrag && this.__msDrag.p === p) this.__msDrag = null;
+                const what = (p.type === 'interval' ? 'Range' : 'Milestone');
+                try { this.setMessage(what + ' "' + (p.name || '') + '" deleted. Undo to put it back.', 4); } catch (e) { }
+            }
+            // Zoom into the milestones table this point is wired to, with its own row
+            // selected so the maximized table scrolls straight to it (__maxEnforceView
+            // follows the selected cell).
+            __msShowData(p) {
+                if (!p || !p.table) { try { this.setMessage('This milestone is not linked to a table.', 3); } catch (e) { } return; }
+                const plate = this.getTableByName(p.table);
+                if (!plate || !plate.wells) { try { this.setMessage('Table "' + p.table + '" is not in this workbook.', 3); } catch (e) { } return; }
+                let cell = null;
+                try {
+                    const col0 = plate.wells[0] || [];
+                    for (let i = 1; i < col0.length; i++) {
+                        if (col0[i] && ('' + col0[i].value).trim() === p.row) { cell = col0[i]; break; }
+                    }
+                } catch (e) { }
+                try {
+                    if (cell) {
+                        try { plate.deselectAll && plate.deselectAll(); } catch (e) { }
+                        try { cell.selectIt && cell.selectIt(); } catch (e) { }
+                        this.selected_well = cell;
+                        this.__maxLastWell = null;   // let the follow-the-cell scroll run once
+                    }
+                } catch (e) { }
+                try { this.maximizeObject(plate); } catch (e) { }
+                try {
+                    this.setMessage(cell
+                        ? (p.table + ': ' + p.row)
+                        : (p.table + ' (row "' + p.row + '" not found)'), 3);
+                } catch (e) { }
+            }
+            __msHoverUpdate(x, y) {
+                // Not while another gesture owns the pointer: panning a timeline through time
+                // or dragging a selection would otherwise light up whatever it passed over.
+                if (this.__msDrag || this.__selectGesture || this.__maxScrollDrag
+                    || (this.__maxDrag && this.__maxDrag.moved)) { this.__msHover = null; return; }
+                let p = null, owner = null;
+                try {
+                    // Maximized, only that timeline is reachable; otherwise any on the canvas.
+                    const cands = this.__maximized
+                        ? (this.__tlIs(this.__maximized) ? [this.__maximized] : [])
+                        : (this.m_plots || []);
+                    for (const o of cands) {
+                        if (!this.__tlIs(o)) continue;
+                        const hit = this.__msHit(o, x, y);
+                        if (hit) { p = hit; owner = o; break; }
+                    }
+                } catch (e) { }
+                this.__msHover = p ? { o: owner, p } : null;
+            }
+            __msDrawHover(ctx) {
+                // While a drag is in flight the date card is the feedback; two at once is noise.
+                if (this.__msDrag) return;
+                // Armed by "Move" but the pointer has wandered off: keep it lit, so it is
+                // obvious which milestone the next drag will take.
+                const h = this.__msHover || (this.__msArmed ? { p: this.__msArmed } : null);
+                const box = h && h.p && h.p.__tlBox;
+                if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)) return;
+                ctx.save();
+                // The same teal the rest of the maximized chrome uses, so it reads as "live",
+                // not as a warning. Stroked twice at falling blur so the halo builds up
+                // instead of sitting at one flat pass.
+                const x = box.x - 2, y = box.y - 2, w = box.w + 4, hh = box.h + 4, r = 8;
+                const outline = () => {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + hh - r);
+                    ctx.quadraticCurveTo(x + w, y + hh, x + w - r, y + hh);
+                    ctx.lineTo(x + r, y + hh);
+                    ctx.quadraticCurveTo(x, y + hh, x, y + hh - r);
+                    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+                    ctx.closePath(); ctx.stroke();
+                };
+                ctx.strokeStyle = 'rgba(26,163,189,0.95)';
+                ctx.lineJoin = 'round';
+                ctx.shadowColor = 'rgba(26,163,189,0.85)';
+                ctx.lineWidth = 2; ctx.shadowBlur = 18; outline();
+                ctx.lineWidth = 1.5; ctx.shadowBlur = 7; outline();
+                // The stem down to the axis is part of the grab target, so it glows too.
+                if (Number.isFinite(box.stemX) && Number.isFinite(box.axis)) {
+                    ctx.lineWidth = 2.5; ctx.shadowBlur = 12;
+                    ctx.beginPath();
+                    ctx.moveTo(box.stemX, Math.min(box.y + box.h, box.axis));
+                    ctx.lineTo(box.stemX, Math.max(box.y + box.h, box.axis));
+                    ctx.stroke();
+                }
                 ctx.restore();
             }
 
@@ -9920,7 +10115,17 @@ function (progress) {
                         // The row's computed Required_To_Date, shown under the milestone's name
                         // on the timeline (the panel's second line), kept current every pass.
                         try {
-                            if (colReq >= 0 && (p.__autoSubtitle || !p.filename)) {
+                            // __autoSubtitle does NOT survive a save: the document's JSON
+                            // replacer drops every key beginning with "_". After a reload the
+                            // flag is null while filename still holds the saved text, so this
+                            // used to go false and the subtitle froze at the value it had when
+                            // the file was written -- moving the milestone updated the table
+                            // but never the line under its name. Recognise our own wording as
+                            // well, which needs nothing persisted.
+                            const ownSubtitle = p.__autoSubtitle
+                                || !p.filename
+                                || /^\s*Required to date\s*:/i.test('' + p.filename);
+                            if (colReq >= 0 && ownSubtitle) {
                                 const rw = plate.wells[colReq] && plate.wells[colReq][r];
                                 const n = rw ? parseFloat(('' + rw.value).replace(/[$,\s]/g, '')) : NaN;
                                 if (Number.isFinite(n)) {
@@ -10025,6 +10230,7 @@ function (progress) {
 
             __msDragEnd() {
                 const d = this.__msDrag; this.__msDrag = null;
+                this.__msArmed = null;   // one move per "Move": the next press reopens the menu
                 try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
                 if (!d || !d.moved) return;
                 // Sync NOW (not at the next throttled pass) and say what it did: the row and
@@ -10153,7 +10359,12 @@ function (progress) {
                 } else if (Math.abs(g.xmin - this.__maxBounds.xmin) > 1e-9 || Math.abs(g.xmax - this.__maxBounds.xmax) > 1e-9) {
                     g.xmin = this.__maxBounds.xmin; g.xmax = this.__maxBounds.xmax;
                 }
-                const yRange = xRange * (ch / cw);
+                // A timeline is fitted to both axes, so its y range is its own and must not
+                // be re-derived from x here -- doing that would square the view back up every
+                // frame and undo the fill.
+                const yRange = this.__maxBounds.tlFill
+                    ? this.__maxBounds.yRange
+                    : xRange * (ch / cw);
                 const b = this.__maxWorldBounds(this.__maximized) || this.__maxBounds.b;
                 const header = yRange * (this.__maxTopPx() / ch);
                 const topLimit = b.yTop + header, bottomLimit = b.yBot - yRange * (this.__maxBottomPx() / ch);
@@ -10300,7 +10511,15 @@ function (progress) {
                 ctx.fillStyle = this.__objectOnly ? 'rgba(255,255,255,0.14)' : '#1aa3bd'; rr(bx, by, bw, bh, 8); ctx.fill();
                 ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 0.5);
                 this.__maxExitRect = this.__objectOnly ? null : { x: bx, y: by, w: bw, h: bh };
-                {
+                if (this.__readOnly) {
+                    const vl = 'View only';
+                    const vw = Math.ceil(ctx.measureText(vl).width) + 28, vh = 28;
+                    const vx = bx - vw - 10, vy = 8;
+                    ctx.fillStyle = 'rgba(255,255,255,0.14)'; rr(vx, vy, vw, vh, 8); ctx.fill();
+                    ctx.fillStyle = '#eaf6f9'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(vl, vx + vw / 2, vy + vh / 2 + 0.5);
+                    this.__maxMenuRect = null;
+                } else {
                     const ml = 'Menu \u25BE';
                     const mw = Math.ceil(ctx.measureText(ml).width) + 28, mh = 28;
                     const mx = bx - mw - 10, my = 8;
@@ -22894,7 +23113,9 @@ function (progress) {
                     // Whenever the workbook HAS bookmarks: the display preference that gates the
                     // strip on the normal canvas is left aside here, since the strip is the way
                     // out of a maximized object.
-                    if (this.__maximized && Object.keys(this.bookmarks || {}).length > 0) {
+                    // Not on a single-object share or a view-only share: the strip is a way
+                    // out to (and into) the rest of the workbook.
+                    if (this.__maximized && !this.__objectOnly && !this.__readOnly && Object.keys(this.bookmarks || {}).length > 0) {
                         try {
                             this.buildBookmarkMenu();
                             this.__bookmark_menu.menu_width = 120;
@@ -23210,6 +23431,7 @@ function (progress) {
                     // redrawn on top as the active plot, and the maximize chrome, menus and
                     // message line come after the objects): the date a dragged milestone will
                     // land on must stay readable while it is dragged.
+                    try { this.__msDrawHover(ctx); } catch (e) { }
                     try { this.__msDrawDate(ctx); } catch (e) { }
 
                 }

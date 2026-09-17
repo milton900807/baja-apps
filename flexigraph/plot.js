@@ -14693,7 +14693,12 @@ function (MGrid) {
                                             let subWidth = 0;
                                             if (point.filename) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + point.filename).width; ctx.restore(); }
                                             const subHeight = point.filename ? subFs + 3 : 0;
-                                            const boxWidth = Math.min(Math.max(nameWidth, subWidth), maxWidth) + paddingX * 2;
+                                            // The label is a pill badge that reads as a menu, so it carries a
+                                            // caret on the right and needs the room for it. The text stays
+                                            // centred on the milestone by shifting left half that room.
+                                            const CARET_W = 14;
+                                            const pillPadX = Math.max(paddingX, 12);
+                                            const boxWidth = Math.min(Math.max(nameWidth, subWidth), maxWidth) + pillPadX * 2 + CARET_W;
 
                                             const DAY_MS = 24 * 60 * 60 * 1000;
                                             const ONE_MONTH_MS = 12 * (30 * DAY_MS);
@@ -14763,6 +14768,15 @@ function (MGrid) {
                                                 || (Math.abs(mx - x) <= 8 &&
                                                     my >= Math.min(adjustedBoxY + boxHeight, axis) - 2 &&
                                                     my <= Math.max(adjustedBoxY + boxHeight, axis) + 6);
+                                            // The same geometry, left on the point so the workbench can
+                                            // outline it on hover without re-deriving this layout
+                                            // (__msDrawHover in plate-track.js). Recomputed every frame,
+                                            // so it follows pans, zooms and label re-stacking.
+                                            point.__tlBox = {
+                                                x: nameBox.x, y: adjustedBoxY,
+                                                w: nameBox.w, h: boxHeight,
+                                                stemX: x, axis
+                                            };
 
                                             behindLabels.push(() => {
                                                 ctx.save();
@@ -14782,13 +14796,33 @@ function (MGrid) {
 
                                                 ctx.save();
                                                 applyShadow("panel");
-                                                ctx.fillStyle = (panelOpacity < 1) ? withAlpha(cPanelBg, panelOpacity) : cPanelBg;
-                                                ctx.strokeStyle = cPanelBorder;
+                                                // A pill badge in the app's menu surface (the same white-on-navy a
+                                                // Menu is built with) rather than the old 6px panel, which read as a
+                                                // sticky note stuck to the axis. Fully rounded: radius is half the
+                                                // height, capped so the tall variant that carries abstracts does not
+                                                // turn into a lozenge.
+                                                const pillR = Math.min(boxHeight / 2, nameBox.w / 2, 22);
+                                                ctx.fillStyle = 'rgba(255,255,255,0.98)';
+                                                ctx.strokeStyle = '#0a2540';
                                                 ctx.lineWidth = Math.max(1, lineWidth);
 
                                                 ctx.beginPath();
-                                                ctx.roundRect(nameBox.x, adjustedBoxY, nameBox.w, boxHeight, panelRadius);
+                                                ctx.roundRect(nameBox.x, adjustedBoxY, nameBox.w, boxHeight, pillR);
                                                 ctx.fill();
+                                                ctx.stroke();
+
+                                                // The caret says "this opens a menu". Navy, same as the border.
+                                                const cx = nameBox.x + nameBox.w - pillPadX - CARET_W / 2;
+                                                const cy = adjustedBoxY + boxHeight / 2;
+                                                ctx.shadowColor = 'transparent';
+                                                ctx.strokeStyle = '#0a2540';
+                                                ctx.lineWidth = 1.6;
+                                                ctx.lineCap = 'round';
+                                                ctx.lineJoin = 'round';
+                                                ctx.beginPath();
+                                                ctx.moveTo(cx - 4, cy - 2);
+                                                ctx.lineTo(cx, cy + 2.5);
+                                                ctx.lineTo(cx + 4, cy - 2);
                                                 ctx.stroke();
                                                 ctx.restore();
 
@@ -14797,7 +14831,12 @@ function (MGrid) {
                                                 ctx.textBaseline = "top";
                                                 ctx.font = font;
                                                 applyShadow("text");
-                                                ctx.fillStyle = cText;
+                                                // The pill forces a white surface, so the text colour has to be
+                                                // forced too: the themed cText is light on the dark themes and
+                                                // would vanish against it.
+                                                ctx.fillStyle = '#0a2540';
+                                                // Centred in the text area, which is the pill minus the caret.
+                                                const textCx = x - CARET_W / 2;
 
                                                 let nameText = point.name;
                                                 if (ctx.measureText(nameText).width > maxWidth) {
@@ -14807,17 +14846,17 @@ function (MGrid) {
                                                     nameText += "...";
                                                 }
 
-                                                ctx.fillText(nameText, x, adjustedBoxY + paddingY);
+                                                ctx.fillText(nameText, textCx, adjustedBoxY + paddingY);
 
                                                 if (point.filename) {
                                                     ctx.font = subFont;
-                                                    ctx.fillStyle = TLC.muted ?? cLine;
+                                                    ctx.fillStyle = '#4a5b6b';   // muted navy, readable on the pill
                                                     let subText = '' + point.filename;
                                                     if (ctx.measureText(subText).width > maxWidth) {
                                                         while (ctx.measureText(subText + "...").width > maxWidth && subText.length > 0) subText = subText.slice(0, -1);
                                                         subText += "...";
                                                     }
-                                                    ctx.fillText(subText, x, adjustedFilenameY + 2);
+                                                    ctx.fillText(subText, textCx, adjustedFilenameY + 2);
                                                 }
                                                 ctx.restore();
 

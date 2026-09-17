@@ -71,6 +71,7 @@ function (pt, opts) {
             socket.emit('joinDoc', { path: docPath, user: me }, (r) => {
                 if (r && r.ok) {
                     session.docId = r.docId;
+                    session.viewOnly = !!r.viewOnly;
                     session.locks = r.locks || {};
                     session.users = r.users || [];
                     session.connected = true;
@@ -120,6 +121,7 @@ function (pt, opts) {
             return !!(l && l.user && l.user.toLowerCase() !== me);
         };
         session.acquire = (obj, label) => new Promise((resolve) => {
+            if (session.viewOnly) { resolve({ ok: false, viewOnly: true }); return; }
             const uid = uidOf(obj);
             if (!uid) return resolve({ ok: true });
             if (!session.connected || !session.docId) return resolve({ ok: true, offline: true });
@@ -145,6 +147,7 @@ function (pt, opts) {
 
         // ---- sync -----------------------------------------------------------------------
         session.broadcastObject = (obj, kind) => {
+            if (session.viewOnly) return;
             session.dirty = true;   // this client changed something: the autosave will write it
             const uid = uidOf(obj);
             if (!uid || !session.connected || !session.docId) return;
@@ -154,6 +157,7 @@ function (pt, opts) {
             if (session.held[uid]) session.held[uid].lastJson = snapshot(obj);
         };
         session.broadcastRemove = (uid, kind) => {
+            if (session.viewOnly) return;
             session.dirty = true;
             if (!uid || !session.connected || !session.docId) return;
             delete session.held[uid];
@@ -207,7 +211,7 @@ function (pt, opts) {
             session.remoteTouched.clear();
         };
         const ticker = setInterval(() => {
-            if (session.destroyed || !session.connected) return;
+            if (session.destroyed || !session.connected || session.viewOnly) return;
             try { diffObjects(); } catch (e) { }
             try { reconcile(); } catch (e) { }
             for (const id of Object.keys(session.held)) {
@@ -219,6 +223,7 @@ function (pt, opts) {
 
         // ---- save -----------------------------------------------------------------------
         session.save = async (g, opts) => {
+            if (session.viewOnly) return { status: 'view-only' };
             const quiet = !!(opts && opts.quiet);
             const target = g || graph;
             if (!target) throw new Error('nothing to save');
@@ -281,7 +286,7 @@ function (pt, opts) {
                     if (typeof v === 'object' && v !== null) { if (seen.has(v)) return '[a_c]'; seen.add(v); }
                     return v;
                 });
-                navigator.sendBeacon(host + '/collab/save', new Blob([JSON.stringify({ user: me, path: docPath, value })], { type: 'application/json' }));
+                if (!session.viewOnly) navigator.sendBeacon(host + '/collab/save', new Blob([JSON.stringify({ user: me, path: docPath, value })], { type: 'application/json' }));
             } catch (e) { }
         };
         try { window.addEventListener('pagehide', session.__onLeave); } catch (e) { }

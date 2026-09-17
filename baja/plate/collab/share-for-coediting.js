@@ -53,6 +53,11 @@ function (pt, graph, pm, objectRef) {
                     + 'a table, timeline or note can be edited by one person at a time, and a lock badge shows who has it.')) + '</div>'
             + '<label style="font-size:12px;color:#6b7a90;">Email address (one or more, separated by commas)</label>'
             + '<input id="ce-to" type="text" autocomplete="off" placeholder="name@example.org" style="' + fieldCss + 'margin:4px 0 10px;">'
+            + '<label style="font-size:12px;color:#6b7a90;">Access</label>'
+            + '<div style="display:flex;gap:16px;margin:4px 0 10px;font-size:13px;">'
+            + '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="ce-access" value="edit" checked> Can edit</label>'
+            + '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="ce-access" value="view"> View only <span style="color:#6b7a90;">(look and pan; nothing they do is saved)</span></label>'
+            + '</div>'
             + '<label style="font-size:12px;color:#6b7a90;">Message (optional)</label>'
             + '<textarea id="ce-msg" rows="2" placeholder="A note to go with the document" style="' + fieldCss + 'margin:4px 0 10px;resize:vertical;"></textarea>'
             + '<div id="ce-status" style="font-size:12px;color:#4a5a70;min-height:16px;margin-bottom:6px;"></div>'
@@ -130,6 +135,8 @@ function (pt, graph, pm, objectRef) {
             const raw = ('' + ($('ce-to').value || '')).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
             if (!raw.length) { $('ce-status').textContent = 'Enter at least one email address.'; return; }
             const message = ('' + ($('ce-msg').value || '')).trim();
+            const accessEl = panel.querySelector('input[name="ce-access"]:checked');
+            const access = (accessEl && accessEl.value === 'view') ? 'view' : 'edit';
             const btn = $('ce-send'); btn.disabled = true; btn.textContent = 'Sharing…';
             let value = '';
             try { value = serialize(); } catch (e) { $('ce-status').textContent = 'Could not serialize the document: ' + e; btn.disabled = false; btn.textContent = 'Share'; return; }
@@ -137,7 +144,7 @@ function (pt, graph, pm, objectRef) {
             let last = null;
             for (const to of raw) {
                 try {
-                    const r = body(await POSTJSON({ user, to, name: docName, value, message, object: objectOnly }, host_ + '/share-with'));
+                    const r = body(await POSTJSON({ user, to, name: docName, value, message, object: objectOnly, access }, host_ + '/share-with'));
                     if (r && r.error) out.push('<div style="color:#b42318;font-size:12px;margin:4px 0;">' + esc(to) + ': ' + esc(r.error) + '</div>');
                     else { out.push(row(r, true)); last = r; }
                 } catch (e) { out.push('<div style="color:#b42318;font-size:12px;margin:4px 0;">' + esc(to) + ': ' + esc(e && e.message ? e.message : e) + '</div>'); }

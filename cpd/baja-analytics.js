@@ -427,6 +427,8 @@ function (path, config) {
                 try {
                     const __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser()));
                     if (__r && __r.path) { path = __r.path; config = config || {}; config.user = getUser(); }
+                    // View only: the recipient may look and pan; nothing they do is saved.
+                    if (__r && __r.access === 'view' && !__r.mine) { try { pm.plateTrack.__readOnly = true; } catch (e) { } }
                     if (__r && __r.object && __r.object.id && !__r.mine) {
                         __shareObject = { kind: __r.object.kind, id: '' + __r.object.id, label: __r.object.label || '', owner: __r.owner || '' };
                         // From the very first frame only the shared object is painted: the rest
@@ -544,12 +546,12 @@ function (path, config) {
                 const __code = __collabShareCode || (__sharedM ? __sharedM[1] : '');
                 if (__code) {
                     if (__u.searchParams.get('share') !== __code || __u.pathname !== '/app/cpd/baja-analytics') {
-                        window.history.replaceState({ collab: __loadedSharedFrom || path }, 'Baja - Pedregal', '/app/cpd/baja-analytics?share=' + encodeURIComponent(__code));
+                        window.history.replaceState({ collab: __loadedSharedFrom || path }, 'Baja - Project', '/app/cpd/baja-analytics?share=' + encodeURIComponent(__code));
                     }
                     try { if (!pm.plateTrack.__collabShareUrl) pm.plateTrack.__collabShareUrl = window.location.origin + '/s/' + __code; } catch (e) { }
                 } else if (path && /\.(bjb|bajabio)$/i.test(path)) {
                     if (__u.pathname !== '/app/cpd/baja-analytics' || __u.searchParams.get('path') !== path) {
-                        window.history.replaceState({ bjb: path }, 'Baja - Pedregal', '/app/cpd/baja-analytics?path=' + encodeURIComponent(path));
+                        window.history.replaceState({ bjb: path }, 'Baja - Project', '/app/cpd/baja-analytics?path=' + encodeURIComponent(path));
                     }
                 }
             } catch (e) { }
@@ -567,7 +569,11 @@ function (path, config) {
             } catch (e) { console.warn('live session not started', e); }
             // Navigation bar: camera history (a view held 20 s becomes a place; Back /
             // Forward walk them) and bookmarks that open any object maximized.
-            try { pm.plateTrack.__nav = await exec('baja/plate/views/navigation-history.js', pm.plateTrack, graph); } catch (e) { console.warn('navigation bar', e); }
+            // A single-object share gets no navigation bar: its Places, Bookmarks, Go to and
+            // Show all are ways out to the rest of the workbook, which is not the recipient's.
+            if (!pm.plateTrack.__objectOnlyId) {
+                try { pm.plateTrack.__nav = await exec('baja/plate/views/navigation-history.js', pm.plateTrack, graph); } catch (e) { console.warn('navigation bar', e); }
+            }
             // Single-object share: find the object once the document is on the canvas and
             // pin the view to it. A few tries, because the plots are rebuilt on the first
             // frames after a load.
