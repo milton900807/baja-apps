@@ -8316,7 +8316,8 @@ function (progress) {
                             const box = this.__maxScreenBox();
                             const tol = (typeof isMobile === 'function' && isMobile()) ? 24 : 0;
                             if (box && x >= box.x - tol && x <= box.x + box.w + tol && y >= box.y - tol && y <= box.y + box.h + tol) {
-                                const mp = this.__msHit(o, x, y);
+                                // A finger pans; it does not pick milestones up (mobile).
+                                const mp = this.__mobile() ? null : this.__msHit(o, x, y);
                                 if (mp) { this.__msDragStart(o, mp, x, y); return; }
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
@@ -8350,7 +8351,8 @@ function (progress) {
 
 
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
-                if (!this.menu && !this.__maximized) {
+                // Not on a phone: there a finger pans the canvas, whatever it lands on.
+                if (!this.menu && !this.__maximized && !this.__mobile()) {
                     try {
                         const at = this.objectAt(x, y);
                         if (at && at.kind === 'plot' && this.__tlIs(at.obj)) {
@@ -9596,6 +9598,7 @@ function (progress) {
             // milestone can be dropped on another date. Its DATE is what moves: the timeline
             // re-derives every dated point's x from its date each frame, so moving x alone
             // snapped it straight back. One undo step per drop.
+            __mobile() { try { return (typeof isMobile === 'function') && isMobile(); } catch (e) { return false; } }
             __msHit(o, x, y) {
                 if (!this.__tlIs(o) || !o.scatterData || !Array.isArray(o.scatterData.points)) return null;
                 const pts = o.scatterData.points;

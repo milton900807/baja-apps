@@ -12,6 +12,7 @@ function (pt, graph, pm) {
         const when = (t) => { const d = new Date(t); if (isNaN(d)) return ''; return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); };
         const short = (email) => ('' + (email || '')).split('@')[0] || email;
         const nodes = async (p) => { try { const r = await GETJSON(host_ + '/get-nodes?key=user&path=' + encodeURIComponent(p)); return (r && r.values) || []; } catch (e) { return []; } };
+        const isDir = (n) => !!n && (n.isFolder === true || n.isFolder === 1 || /^true$/i.test('' + n.isFolder));
 
         // ---- gather --------------------------------------------------------------------
         // Mine: the share records (name, recipient, when, code).
@@ -21,13 +22,13 @@ function (pt, graph, pm) {
         let withMe = [];
         try {
             const root = await nodes('/');
-            const swm = root.find(n => n && n.isFolder && n.name === 'shared_with_me');
+            const swm = root.find(n => isDir(n) && n.name === 'shared_with_me');
             if (swm) {
-                const owners = (await nodes(swm.path)).filter(n => n && n.isFolder);
+                const owners = (await nodes(swm.path)).filter(n => isDir(n));
                 for (const o of owners) {
-                    const codes = (await nodes(o.path)).filter(n => n && n.isFolder);
+                    const codes = (await nodes(o.path)).filter(n => isDir(n));
                     for (const c of codes) {
-                        const files = (await nodes(c.path)).filter(n => n && !n.isFolder && !/^\./.test(n.name));
+                        const files = (await nodes(c.path)).filter(n => n && !isDir(n) && !/^\./.test(n.name));
                         for (const f of files) withMe.push({ code: c.name, name: f.name, owner: o.name.replace(/_/g, '.').replace(/\.gmail\.com$/i, '@gmail.com'), ownerLabel: o.name, at: f.lastEdited || null, path: f.path });
                     }
                 }

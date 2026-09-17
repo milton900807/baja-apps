@@ -18,7 +18,12 @@ function (pt, graph, pm, startPath, opts) {
         const when = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
         const size = (n) => (n == null) ? '' : (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
         const kindOf = (name) => /\.bjb$/i.test(name) ? 'workbook' : /\.baja$/i.test(name) ? 'design' : /\.karyotype(\.json)?$/i.test(name) ? 'genome' : /\.(vcf|vcf\.gz)$/i.test(name) ? 'vcf' : '';
-        const nodes = async (p) => { const r = await GETJSON(host_ + '/get-nodes?key=user&path=' + encodeURIComponent(p)); return (r && r.values) || []; };
+        // The listing, plus the server's message when it sends none: "Missing user id"
+        // means the request went out before sign-in had settled, which is retried below.
+        let lastListMsg = '';
+        const nodes = async (p) => { const r = await GETJSON(host_ + '/get-nodes?key=user&path=' + encodeURIComponent(p)); lastListMsg = (r && r.msg) ? ('' + r.msg) : ''; return (r && r.values) || []; };
+        // The folder flag arrives as true/false or as the strings "True"/"False".
+        const isDir = (n) => !!n && (n.isFolder === true || n.isFolder === 1 || /^true$/i.test('' + n.isFolder));
         const mobile = (typeof isMobile === 'function') && isMobile();
         const embed = !!(opts && opts.container);
         const hideExt = (opts && Array.isArray(opts.hideExtensions)) ? opts.hideExtensions.map(x => ('' + x).toLowerCase()) : [];
@@ -86,6 +91,7 @@ function (pt, graph, pm, startPath, opts) {
         // The drive root is the user's own folder; the server hands back a scrubbed path
         // for every node, which is what the next listing and /load-file take.
         let stack = [{ label: 'My files', path: startPath || '/' }];
+        let renderTries = 0, renderRetry = null;
         const currentPath = () => stack[stack.length - 1].path;
         // A workbook (.bjb) is an analysis file: a bar chart. Designs get a strand, genomes
         // a chromosome-ish mark, everything else a plain document.
@@ -111,12 +117,27 @@ function (pt, graph, pm, startPath, opts) {
             const list = $('ob-list');
             list.innerHTML = '<div style="padding:12px 10px;color:#6b7a90;font-size:12.5px;">Loading…</div>';
             let items = [];
+            lastListMsg = '';
             try { items = await nodes(cur.path); } catch (e) { items = []; }
-            items = items.filter(n => n && n.name && !/^\./.test(n.name) && (n.isFolder || !hidden(n.name)));
+            // Not signed in yet (the browser can mount before the sign-in settles): say so
+            // and try again shortly, rather than presenting the folder as empty. A refresh
+            // used to be the only way to see the files.
+            const notSignedIn = /missing user id/i.test(lastListMsg) || (!items.length && !('' + (getUser() || '')).trim());
+            if (notSignedIn) {
+                renderTries = (renderTries || 0) + 1;
+                if (renderTries <= 12) {
+                    list.innerHTML = '<div style="padding:14px 10px;color:#6b7a90;font-size:12.5px;">Signing in…</div>';
+                    clearTimeout(renderRetry);
+                    renderRetry = setTimeout(() => { if (panel.isConnected) render(); }, 1500);
+                    return;
+                }
+            }
+            renderTries = 0;
+            items = items.filter(n => n && n.name && !/^\./.test(n.name) && (isDir(n) || !hidden(n.name)));
             try { if (opts && typeof opts.onPath === 'function') opts.onPath(currentPath()); } catch (e) { }
-            const folders = items.filter(n => n.isFolder).sort((a, b) => a.name.localeCompare(b.name));
-            const files = items.filter(n => !n.isFolder).sort((a, b) => new Date(b.lastEdited || 0) - new Date(a.lastEdited || 0));
-            if (!folders.length && !files.length) { list.innerHTML = '<div style="padding:14px 10px;color:#6b7a90;font-size:12.5px;">This folder is empty.</div>'; return; }
+            const folders = items.filter(n => isDir(n)).sort((a, b) => a.name.localeCompare(b.name));
+            const files = items.filter(n => !isDir(n)).sort((a, b) => new Date(b.lastEdited || 0) - new Date(a.lastEdited || 0));
+            if (!folders.length && !files.length) { list.innerHTML = '<div style="padding:14px 10px;color:#6b7a90;font-size:12.5px;">' + (lastListMsg ? esc(lastListMsg) : 'This folder is empty.') + '</div>'; return; }
             let html = '';
             if (stack.length > 1) html += '<div class="ob-up" style="' + rowCss + 'color:#0f6e7a;font-size:12.5px;">← Back</div>';
             for (const f of folders) {
@@ -168,7 +189,7 @@ function (pt, graph, pm, startPath, opts) {
             navigateUp: async () => { if (stack.length > 1) { stack.pop(); await render(); } },
             navigateToFolderNamed: async (name) => {
                 const items = await nodes(currentPath()).catch(() => []);
-                const f = (items || []).find(n => n && n.isFolder && n.name === name);
+                const f = (items || []).find(n => isDir(n) && n.name === name);
                 if (f) { stack.push({ label: f.name, path: f.path }); await render(); }
             },
             reposition,

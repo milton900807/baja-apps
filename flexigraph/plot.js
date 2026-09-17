@@ -14684,7 +14684,16 @@ function (MGrid) {
                                             const paddingX = 2;
                                             const paddingY = 6;
                                             const maxWidth = 500;
-                                            const boxWidth = Math.min(nameWidth, maxWidth) + paddingX * 2;
+                                            // A second line (the required-to-date figure, or a file name) lives
+                                            // INSIDE the panel: sized for it, and as wide as the wider of the two.
+                                            // It used to be painted below the panel, across the stem and the
+                                            // axis, where the digits were hard to read.
+                                            const subFs = Math.max(10, Math.round(fs * 0.85));
+                                            const subFont = `${fontWeight} ${subFs}px ${fontFamily}`;
+                                            let subWidth = 0;
+                                            if (point.filename) { ctx.save(); ctx.font = subFont; subWidth = ctx.measureText('' + point.filename).width; ctx.restore(); }
+                                            const subHeight = point.filename ? subFs + 3 : 0;
+                                            const boxWidth = Math.min(Math.max(nameWidth, subWidth), maxWidth) + paddingX * 2;
 
                                             const DAY_MS = 24 * 60 * 60 * 1000;
                                             const ONE_MONTH_MS = 12 * (30 * DAY_MS);
@@ -14729,7 +14738,7 @@ function (MGrid) {
                                                 ctx.restore();
                                             }
 
-                                            const baseTitleBlock = nameHeight + paddingY * 2;
+                                            const baseTitleBlock = nameHeight + subHeight + paddingY * 2;
                                             const boxHeight = baseTitleBlock + (showAbstracts ? abstractsHeight : 0);
 
                                             const nameBox = { x: x - boxWidth / 2, y, w: boxWidth, h: boxHeight };
@@ -14801,8 +14810,14 @@ function (MGrid) {
                                                 ctx.fillText(nameText, x, adjustedBoxY + paddingY);
 
                                                 if (point.filename) {
+                                                    ctx.font = subFont;
                                                     ctx.fillStyle = TLC.muted ?? cLine;
-                                                    ctx.fillText(point.filename, x, adjustedFilenameY);
+                                                    let subText = '' + point.filename;
+                                                    if (ctx.measureText(subText).width > maxWidth) {
+                                                        while (ctx.measureText(subText + "...").width > maxWidth && subText.length > 0) subText = subText.slice(0, -1);
+                                                        subText += "...";
+                                                    }
+                                                    ctx.fillText(subText, x, adjustedFilenameY + 2);
                                                 }
                                                 ctx.restore();
 
