@@ -8287,6 +8287,7 @@ function (progress) {
 
             mouseDown(x, y) {
                 if (this.__selectGesture) return;
+                try { this.__sanitizeRefs(); } catch (e) { }
                 if (this.__maximized) {
                     const hit = this.__maxHit(x, y);
                     if (hit === 'exit' || hit === 'menu') return;
@@ -8324,7 +8325,9 @@ function (progress) {
                                 // menu and only "Move" arms the drag, for one move.
                                 if (mp) {
                                     if (this.__msArmed === mp) { this.__msDragStart(o, mp, x, y); return; }
-                                    this.__msOpenMenu(o, mp, x, y); return;
+                                    // The menu opens on the RELEASE (see mouseUp): opened here, on the
+                                    // press, the same click's release closed it again at once.
+                                    this.__msMenuPress = { o, p: mp, x, y }; return;
                                 }
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
@@ -8368,7 +8371,7 @@ function (progress) {
                             const mp = this.__msHit(at.obj, x, y);
                             if (mp) {
                                 if (this.__msArmed === mp) { this.__msDragStart(at.obj, mp, x, y); return; }
-                                this.__msOpenMenu(at.obj, mp, x, y); return;
+                                this.__msMenuPress = { o: at.obj, p: mp, x, y }; return;
                             }
                         }
                     } catch (e) { }
@@ -8502,8 +8505,15 @@ function (progress) {
             isInAnyMenu(x, y) {
                 // A held milestone owns the pointer: the plot's own listeners must not also run.
                 if (this.__msDrag) return true;
+                // View only: nothing beneath the pointer takes a press, a move or a release.
+                if (this.__readOnly) return true;
                 const gridX = this.grid.Xwc(x);
                 const gridY = this.grid.Ywc(y);
+                // The track's own menu (a milestone's, a table's): over it, the objects
+                // underneath get no hover or click from the plot's listeners either.
+                try {
+                    if (this.menu && typeof this.menu.isIn === 'function' && this.menu.isIn(this.grid, gridX, gridY)) return 'menu';
+                } catch (e) { }
                 if (this.attr__displayBookMarks) {
                     if (
                         this.__bookmark_menu &&
@@ -8530,6 +8540,13 @@ function (progress) {
             mouseUp(x, y) {
                 if (this.__msDrag) { this.__msDragEnd(); return; }
                 if (this.__selectGesture) return;
+                // A press on a milestone pill: its menu opens now, on the release, and stays
+                // until an item is chosen or the next click lands outside it.
+                if (this.__msMenuPress) {
+                    const mp = this.__msMenuPress; this.__msMenuPress = null;
+                    if (Math.abs(x - mp.x) + Math.abs(y - mp.y) < 8) { try { this.__msOpenMenu(mp.o, mp.p, x, y); } catch (e) { console.warn('milestone menu', e); } }
+                    return;
+                }
                 if (this.__readOnly) {
                     // Only the maximized scroll and pan gestures end here; taps edit nothing.
                     if (this.__maxScrollDrag) this.__maxScrollDrag = false;
@@ -8884,8 +8901,8 @@ function (progress) {
                                         showModal(confirm)
 
                                     },
-                                    bg: 'lightRed',
-                                    fg: '#0a2540'
+                                    bg: '#FD5E53',
+                                    fg: '#ffffff'
                                 })
                             }
                             ml.push({
@@ -8987,8 +9004,8 @@ function (progress) {
                                             showModal(confirm)
 
                                         },
-                                        bg: 'lightRed',
-                                        fg: '#0a2540'
+                                        bg: '#FD5E53',
+                                        fg: '#ffffff'
                                     })
                                 }
                                 ml.push({
@@ -9078,8 +9095,8 @@ function (progress) {
                                             }, 500)
 
                                         },
-                                        bg: 'lightRed',
-                                        fg: '#0a2540'
+                                        bg: '#FD5E53',
+                                        fg: '#ffffff'
                                     })
                                 }
                                 let cols = Math.ceil(ml.length / 10);
@@ -9135,6 +9152,7 @@ function (progress) {
 
             mouseMove(x, y) {
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
+                if (this.__msMenuPress && Math.abs(x - this.__msMenuPress.x) + Math.abs(y - this.__msMenuPress.y) >= 8) this.__msMenuPress = null;   // a drag, not a click
                 this.__msHoverUpdate(x, y);
                 if (this.__selectGesture) return;
                 if (this.__maximized) {
@@ -9175,8 +9193,13 @@ function (progress) {
                     }
                 }
                 if (this.menu && this.menu.mouseMove) {
-                    this.menu.mouseMove(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))
-                    return;
+                    const wx = this.grid.Xwc(x), wy = this.grid.Ywc(y);
+                    this.menu.mouseMove(this.grid, wx, wy);
+                    // Over the menu the move is the menu's; elsewhere the timeline or table
+                    // underneath still gets hover while the menu waits (a click outside closes it).
+                    let inMenu = true;
+                    try { inMenu = (typeof this.menu.isIn === 'function') ? !!this.menu.isIn(this.grid, wx, wy) : true; } catch (e) { inMenu = true; }
+                    if (inMenu) return;
                 }
                 if (this.options_menu && this.options_menu.mouseMove) {
                     this.options_menu.mouseMove(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))
@@ -9650,7 +9673,12 @@ function (progress) {
                 const pts = o.scatterData.points;
                 for (let i = pts.length - 1; i >= 0; i--) {
                     const p = pts[i];
-                    if (!p || p.type !== 'milestone' || typeof p.isInside !== 'function') continue;
+                    if (!p || p.type !== 'milestone') continue;
+                    // The pill's own box from the last frame, when the plot left it; else the
+                    // point's hit test. Either way the pill, never the stem or the axis.
+                    const b = p.__tlBox;
+                    if (b && Number.isFinite(b.x)) { if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return p; continue; }
+                    if (typeof p.isInside !== 'function') continue;
                     try { if (p.isInside(x, y)) return p; } catch (e) { }
                 }
                 return null;
@@ -9726,7 +9754,7 @@ function (progress) {
             // The pill label is a menu. A press opens it rather than grabbing the
             // milestone: "Move" arms exactly one drag, "Data" opens the table row the
             // milestone is wired to.
-            __msOpenMenu(o, p, x, y) {
+            async __msOpenMenu(o, p, x, y) {
                 const ml = [];
                 ml.push({
                     label: 'Move',
@@ -9751,13 +9779,27 @@ function (progress) {
                         this.menu = null; this.menu_vis = false;
                         this.__msDeletePoint(o, p);
                     },
-                    bg: 'lightRed', fg: '#0a2540'
+                    // 'lightRed' is not a CSS colour: the canvas ignored it and the row kept the
+                    // last fill (the navy title band), navy text on navy. Sunset orange, white text.
+                    bg: '#FD5E53', fg: '#ffffff'
                 });
                 this.__msArmed = null;   // opening the menu cancels any earlier arming
+                // The point's own options (Zoom to point, Expand into new timeline, Bookmark
+                // point, Color, Edit text, Edit date/time, …), the ones the point menu on the
+                // menubar offers, follow the three above so one click on the pill reaches all.
+                try {
+                    if (typeof o.getSelectionElementsMenu === 'function') {
+                        const more = await o.getSelectionElementsMenu(p, this);
+                        if (Array.isArray(more) && more.length) {
+                            ml.push({ type: 'separator' });
+                            for (const it of more) if (it && it.label) ml.push(it);
+                        }
+                    }
+                } catch (e) { console.warn('point menu', e); }
                 let title = p.name || 'Milestone';
                 try { if (p.date) title += '  ' + this.__tlFmt(new Date(p.date).getTime()); } catch (e) { }
                 this.menu = new Menu(ml, this.grid.Xwc(x), this.grid.Ywc(y),
-                    'rgba(255,255,255,0.98)', '#0a2540', 1);
+                    'rgba(255,255,255,0.98)', '#0a2540', ml.length > 10 ? 2 : 1);
                 this.menu.title = title;
                 this.menu_vis = true;
             }
@@ -9814,6 +9856,10 @@ function (progress) {
                 // or dragging a selection would otherwise light up whatever it passed over.
                 if (this.__msDrag || this.__selectGesture || this.__maxScrollDrag
                     || (this.__maxDrag && this.__maxDrag.moved)) { this.__msHover = null; return; }
+                // Over an open menu the pointer is the menu's: the pills beneath stay quiet.
+                try {
+                    if (this.menu && typeof this.menu.isIn === 'function' && this.menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) { this.__msHover = null; return; }
+                } catch (e) { }
                 let p = null, owner = null;
                 try {
                     // Maximized, only that timeline is reachable; otherwise any on the canvas.
@@ -9829,14 +9875,62 @@ function (progress) {
                 this.__msHover = p ? { o: owner, p } : null;
             }
             __msDrawHover(ctx) {
-                // While a drag is in flight the date card is the feedback; two at once is noise.
-                if (this.__msDrag) return;
-                // Armed by "Move" but the pointer has wandered off: keep it lit, so it is
-                // obvious which milestone the next drag will take.
-                const h = this.__msHover || (this.__msArmed ? { p: this.__msArmed } : null);
+                // A milestone armed by "Move", or being dragged, GLOWS: a pulsing sunset halo
+                // with a tint over the pill, unmistakably the one that will move (or is
+                // moving). A plain hover keeps the quieter teal outline. During a drag the
+                // date card is drawn as well; the glow tells which pill it belongs to.
+                const armedP = this.__msDrag ? this.__msDrag.p : this.__msArmed;
+                const h = armedP ? { p: armedP, armed: true } : this.__msHover;
                 const box = h && h.p && h.p.__tlBox;
                 if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)) return;
                 ctx.save();
+                if (h.armed) {
+                    const t = (Date.now() % 1400) / 1400;                 // one pulse every 1.4 s
+                    const pulse = 0.55 + 0.45 * Math.sin(t * Math.PI * 2);  // 0.1 … 1
+                    const x = box.x - 3, y = box.y - 3, w = box.w + 6, hh = box.h + 6, r = 9;
+                    const path = () => {
+                        ctx.beginPath();
+                        ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+                        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                        ctx.lineTo(x + w, y + hh - r);
+                        ctx.quadraticCurveTo(x + w, y + hh, x + w - r, y + hh);
+                        ctx.lineTo(x + r, y + hh);
+                        ctx.quadraticCurveTo(x, y + hh, x, y + hh - r);
+                        ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+                        ctx.closePath();
+                    };
+                    ctx.lineJoin = 'round';
+                    // halo: three passes of falling blur, brightness riding the pulse
+                    ctx.strokeStyle = 'rgba(253,94,83,' + (0.35 + 0.6 * pulse).toFixed(3) + ')';
+                    ctx.shadowColor = 'rgba(253,94,83,' + (0.5 + 0.5 * pulse).toFixed(3) + ')';
+                    ctx.lineWidth = 3; ctx.shadowBlur = 26 + 14 * pulse; path(); ctx.stroke();
+                    ctx.lineWidth = 2.5; ctx.shadowBlur = 12; path(); ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = 'rgba(253,94,83,' + (0.10 + 0.12 * pulse).toFixed(3) + ')'; path(); ctx.fill();
+                    ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(253,94,83,0.95)'; path(); ctx.stroke();
+                    // the stem too
+                    if (Number.isFinite(box.stemX) && Number.isFinite(box.axis)) {
+                        ctx.shadowColor = 'rgba(253,94,83,0.8)'; ctx.shadowBlur = 10; ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(box.stemX, Math.min(box.y + box.h, box.axis));
+                        ctx.lineTo(box.stemX, Math.max(box.y + box.h, box.axis));
+                        ctx.stroke();
+                    }
+                    // a hint above the pill while it waits for the drag
+                    if (!this.__msDrag) {
+                        ctx.shadowBlur = 0;
+                        ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                        const hint = 'Drag to move';
+                        const tw = ctx.measureText(hint).width + 14;
+                        const hx = box.x + box.w / 2, hy = y - 6;
+                        ctx.fillStyle = '#FD5E53';
+                        ctx.beginPath(); ctx.roundRect ? ctx.roundRect(hx - tw / 2, hy - 18, tw, 18, 6) : ctx.rect(hx - tw / 2, hy - 18, tw, 18); ctx.fill();
+                        ctx.fillStyle = '#ffffff'; ctx.fillText(hint, hx, hy - 3);
+                    }
+                    ctx.restore();
+                    return;
+                }
                 // The same teal the rest of the maximized chrome uses, so it reads as "live",
                 // not as a warning. Stroked twice at falling blur so the halo builds up
                 // instead of sitting at one flat pass.
@@ -10081,6 +10175,20 @@ function (progress) {
                     }
                 }
                 console.log('[milestone sync] timeline "' + (o.name || '') + '": ' + linked + ' of ' + pts.length + ' points linked to a milestones table');
+            }
+            // A restored or undone track carries selectedPlate / fromPlate / toPlate as the
+            // uid STRINGS its JSON stores; touched as objects they threw ("Cannot create
+            // property 'last_touched' on string …") and every press failed from then on.
+            __sanitizeRefs() {
+                for (const k of ['selectedPlate', 'fromPlate', 'toPlate']) {
+                    const v = this[k];
+                    if (typeof v === 'string') {
+                        let o = null;
+                        try { o = this.getPlateWithUID(v) || null; } catch (e) { o = null; }
+                        if (!o) { try { o = (this.m_plots || []).find(p => p && (p.uid === v || p.id === v)) || null; } catch (e) { o = null; } }
+                        this[k] = o;
+                    } else if (v && typeof v !== 'object') this[k] = null;
+                }
             }
             __syncMilestoneLinks() {
                 const now = Date.now();
@@ -22680,6 +22788,7 @@ function (progress) {
                 if (!ctx && !ctx.canvas) {
                     return;
                 }
+                try { this.__sanitizeRefs(); } catch (e) { }
                 try { this.__syncMilestoneLinks(); } catch (e) { }
 
 
@@ -23711,6 +23820,31 @@ function (progress) {
                 }
             }
 
+            // After a live update swapped an object for a fresh copy: every reference the
+            // track kept to the old one moves to the new one. The maximized view in
+            // particular: left on the old object, a single-object share's screen went blank
+            // whenever the author changed the timeline, since the fresh copy was not the
+            // object the maximized view was drawing.
+            __collabRetarget(old, fresh) {
+                if (!old || !fresh || old === fresh) return;
+                try {
+                    if (this.__maximized === old) {
+                        this.__maximized = fresh;
+                        try { fresh.__maximizedView = true; } catch (e) { }
+                        try { if (typeof this.__maxHideButtons === 'function') this.__maxHideButtons(fresh); } catch (e) { }
+                    }
+                    if (this.activePlot === old) this.activePlot = fresh;
+                    if (this.selectedPlate === old) this.selectedPlate = fresh;
+                    if (this.__msHover && this.__msHover.o === old) this.__msHover = null;
+                    if (this.__msDrag && this.__msDrag.o === old) this.__msDrag = null;
+                    if (this.__msMenuPress && this.__msMenuPress.o === old) this.__msMenuPress = null;
+                    if (this.__msArmed) {
+                        const pts = (old.scatterData && old.scatterData.points) || [];
+                        if (pts.indexOf(this.__msArmed) >= 0) this.__msArmed = null;
+                    }
+                    if (this.__objectOnly && this.__objectOnly.obj === old) this.__objectOnly.obj = fresh;
+                } catch (e) { }
+            }
             // A change from the other person in the live session: replace (or add) the object
             // by uid, or remove it. Objects we currently hold are never overwritten (the
             // session filters those before calling).
@@ -23727,7 +23861,25 @@ function (progress) {
                 }
                 if (!state || typeof state !== 'object') return;
                 if (kind === 'plot' || kind === 'timeline') {
-                    // Timelines and charts: the same rebuild the file loader uses.
+                    // A TIMELINE already on this canvas takes only the other person's points
+                    // (milestones, intervals, documents): its time window, place and size are
+                    // this viewer's own and stay put. Replacing the whole object reset the view
+                    // the viewer had zoomed to on every remote change.
+                    try {
+                        const cur = (this.m_plots || []).find(x => x && ('' + x.uid) === uid);
+                        if (cur && this.__tlIs(cur) && state.scatterData && Array.isArray(state.scatterData.points)) {
+                            const pts = state.scatterData.points.map(pt_ => (pt_ && typeof pt_ === 'object') ? Object.assign({}, pt_) : pt_).filter(Boolean);
+                            if (!cur.scatterData) cur.scatterData = { points: [] };
+                            cur.scatterData.points = pts;
+                            if (typeof state.name === 'string' && state.name) cur.name = state.name;
+                            if (this.__msHover && this.__msHover.o === cur) this.__msHover = null;
+                            if (this.__msDrag && this.__msDrag.o === cur) this.__msDrag = null;
+                            if (this.__msMenuPress && this.__msMenuPress.o === cur) this.__msMenuPress = null;
+                            this.__msArmed = null;
+                            return;
+                        }
+                    } catch (e) { console.warn('timeline points sync', e); }
+                    // Charts, and a timeline not yet on the canvas: the same rebuild the file loader uses.
                     let fresh = null;
                     try { fresh = MPlot.fromJSON(state); } catch (e) { fresh = null; }
                     if (!fresh) return;
@@ -23735,8 +23887,7 @@ function (progress) {
                     const i = (this.m_plots || []).findIndex(x => x && ('' + x.uid) === uid);
                     const old = i >= 0 ? this.m_plots[i] : null;
                     if (i >= 0) this.m_plots[i] = fresh; else this.m_plots.push(fresh);
-                    if (old && this.activePlot === old) this.activePlot = fresh;
-                    if (old && this.selectedPlate === old) this.selectedPlate = fresh;
+                    this.__collabRetarget(old, fresh);
                     return;
                 }
                 if (kind === 'glyph') {
@@ -23745,7 +23896,9 @@ function (progress) {
                     if (!fresh) return;
                     fresh.uid = uid;
                     const i = (this.glyphs || []).findIndex(x => x && ('' + x.uid) === uid);
+                    const oldG = i >= 0 ? this.glyphs[i] : null;
                     if (i >= 0) this.glyphs[i] = fresh; else this.glyphs.push(fresh);
+                    this.__collabRetarget(oldG, fresh);
                     return;
                 }
                 const fresh = Plate.buildPlateFromJSON(state);
@@ -23755,6 +23908,7 @@ function (progress) {
                 if (existing) {
                     if (this.selectedPlate === existing) this.selectedPlate = fresh;
                     this.replacePlate(existing, fresh);
+                    this.__collabRetarget(existing, fresh);
                 } else {
                     this.root.push(fresh);
                 }

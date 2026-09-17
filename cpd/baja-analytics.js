@@ -609,6 +609,7 @@ function (path, config) {
             }
             attachShiftClickListener();
             __track(window, 'keydown', async function (event) {
+                if (pm.plateTrack && pm.plateTrack.__readOnly) return;   // view only
                 if (event.ctrlKey && event.key === 'z') {
                 }
             });
@@ -638,6 +639,7 @@ function (path, config) {
             }
 
             __track(document, 'keydown', async (event) => {
+                if (pm.plateTrack && pm.plateTrack.__readOnly) return;   // view only
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;
 
                 if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
@@ -1446,6 +1448,12 @@ function (path, config) {
             }
 
             let default_keydownListener = async (event) => {
+                // View only: keys navigate at most; nothing types, deletes or pastes.
+                if (pm.plateTrack && pm.plateTrack.__readOnly) {
+                    const k = event && event.key;
+                    if (!(k === 'Escape' || (k && k.startsWith('Arrow')) || k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown')) { try { event.preventDefault(); } catch (e) { } }
+                    return;
+                }
                 if (pm.plateTrack.isGlyphSelected()) {
                     return;
                 }
@@ -1715,6 +1723,7 @@ function (path, config) {
 
 
             __track(window, 'keydown', async (event) => {
+                if (pm.plateTrack && pm.plateTrack.__readOnly) return;   // view only
                 // Keys typed into the mobile cell field belong to it alone.
                 if (event && event.target && event.target.id === 'baja-mobile-cell-input') return;
                 if (pm.plateTrack.isTextActive()) {
@@ -1820,6 +1829,7 @@ function (path, config) {
             }
 
             __track(window, 'paste', async (e) => {
+                if (pm.plateTrack && pm.plateTrack.__readOnly) return;   // view only
                 if (e.localName && e.localName.indexOf('text') >= 0) {
                     return;
                 }

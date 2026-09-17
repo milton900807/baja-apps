@@ -108,6 +108,7 @@ function (plate_graph, selectedPlate, selectedPoint) {
         const pm = {
             plateTrack: plate_graph.plateTrack
         }
+        let __lastNavTxt = '';   // the formula text the go-to menu was last shown for
 
 
         const MSGraph = await exec('lib/msgraph.js')
@@ -720,6 +721,58 @@ function (plate_graph, selectedPlate, selectedPoint) {
                         data: {
                             text: tmc,
                             txtListener: createIonFunction((txt) => {
+                                // A formula in the field (=Table[Label]…): a menu that navigates to
+                                // each table and row it references, one item per reference, shown
+                                // when the field is clicked into or a reference is just completed
+                                // (the text ends with "]"); typing on past it brings the completion
+                                // menus below back.
+                                try {
+                                    const t = ('' + (txt || '')).trim();
+                                    if (t.endsWith(']') && t !== __lastNavTxt) {
+                                        const refs = [];
+                                        const re = /([A-Za-z_][\w.-]*)\s*\[\s*([A-Za-z_]\w*)\s*\]/g;
+                                        let mm;
+                                        while ((mm = re.exec(t))) {
+                                            const tb = pt.getTableByName(mm[1]);
+                                            if (tb && !refs.some(r => r.table === mm[1] && r.label === mm[2])) refs.push({ table: mm[1], label: mm[2], tb });
+                                        }
+                                        if (refs.length) {
+                                            __lastNavTxt = t;
+                                            const goTo = async (r) => {
+                                                try {
+                                                    if (pt.__maximized && pt.exitMaximize) pt.exitMaximize();
+                                                    try { pt.wb(null); } catch (e) { }
+                                                    for (const pl of (pt.root || [])) { try { if (pl.deselectAll) pl.deselectAll(); } catch (e) { } }
+                                                    pt.setSelected(r.tb);
+                                                    // the row: every cell of it lit, the value cell current
+                                                    const col0 = r.tb.wells[0] || [];
+                                                    let row = -1;
+                                                    for (let i = 1; i < col0.length; i++) if (col0[i] && ('' + col0[i].value).trim() === r.label) { row = i; break; }
+                                                    if (row >= 0) {
+                                                        for (let c = 0; c < r.tb.wells.length; c++) { const w = r.tb.wells[c] && r.tb.wells[c][row]; if (w) { try { w.selectIt(); } catch (e) { w.select = true; } } }
+                                                        const v = r.tb.wells[1] && r.tb.wells[1][row];
+                                                        if (v) pt.selected_well = v;
+                                                    }
+                                                    if (pt.zoomToFitTable) await pt.zoomToFitTable(r.tb); else await pt.zoomintoplate(r.tb);
+                                                    pt.setMessage(row >= 0 ? (r.table + ' row ' + r.label) : (r.table + ': no row named ' + r.label), 2);
+                                                } catch (e) { console.warn('go to reference', e); }
+                                            };
+                                            // The application's menu look: a navy title band, white body,
+                                            // one column, navy text; placed under the toolbar, not centred
+                                            // over the canvas in three columns as the generic showMenu does.
+                                            const nav = refs.map(r => ({ label: r.table + '  \u203A  ' + r.label, click: () => { goTo(r); }, fg: '#0a2540' }));
+                                            try {
+                                                pt.grid.rescale();
+                                                const m = new Menu(nav, pt.grid.Xwc(Math.max(12, pt.grid.width / 2 - 150)), pt.grid.Ywc(64), 'rgba(255,255,255,0.98)', '#0a2540', 1);
+                                                m.title = refs.length === 1 ? 'Go to the referenced row' : 'Go to a referenced row';
+                                                m.menu_width = 300;
+                                                pt.menu = m; pt.menu_vis = true;
+                                                try { pt.wb(null); } catch (e) { }
+                                            } catch (e) { pt.showMenu(nav); }
+                                            return;
+                                        }
+                                    }
+                                } catch (e) { }
                                 const triggers = ['>=', '<=', '!=', '&&', '||', '=', '>', '<', '[', ']', '(', ')'];
                                 let currentword = txt;
                                 let lastTriggerIndex = -1;

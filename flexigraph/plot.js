@@ -14758,16 +14758,13 @@ function (MGrid) {
 
                                             previousLabels.push({ x: nameBox.x, y: adjustedBoxY, w: nameBox.w, h: boxHeight });
 
-                                            // The label panel, or the stem between the panel and the axis
-                                            // (a few pixels either side): both pick the milestone up.
+                                            // The label pill only: a press on the stem, or on the axis under
+                                            // it, is a press on the timeline (it pans), not on the milestone.
                                             point.isInside = (mx, my) =>
-                                                (mx >= nameBox.x &&
-                                                    mx <= nameBox.x + nameBox.w &&
-                                                    my >= adjustedBoxY &&
-                                                    my <= adjustedBoxY + boxHeight)
-                                                || (Math.abs(mx - x) <= 8 &&
-                                                    my >= Math.min(adjustedBoxY + boxHeight, axis) - 2 &&
-                                                    my <= Math.max(adjustedBoxY + boxHeight, axis) + 6);
+                                                mx >= nameBox.x &&
+                                                mx <= nameBox.x + nameBox.w &&
+                                                my >= adjustedBoxY &&
+                                                my <= adjustedBoxY + boxHeight;
                                             // The same geometry, left on the point so the workbench can
                                             // outline it on hover without re-deriving this layout
                                             // (__msDrawHover in plate-track.js). Recomputed every frame,
