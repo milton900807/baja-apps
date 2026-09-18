@@ -1822,6 +1822,25 @@ function (pt, sp) {
                     },
                     bg: 'yellow', fg: 'black'
                 },
+                // Rows tall enough for the table's wrapped text (all rows together: this engine
+                // gives a table one row height).
+                {
+                    label: 'Fit rows to text',
+                    click: async () => {
+                        smenu = null;
+                        try { pushHistory(HM(sp)); } catch (e) { }
+                        const n = pt.fitRowsToText ? pt.fitRowsToText([sp]) : 0;
+                        pt.setMessage(n ? ('Rows resized to ' + (sp.text_row_scale || 1) + ' times their height for the wrapped text.') : 'The rows already fit their text.', 2);
+                    },
+                    bg: 'yellow', fg: 'black'
+                },
+                // Trace NaN: from the selected cell (or this table's NaN cells) back through the
+                // formulas to the cell where it started, with a jump to each step.
+                ...((pt.nanCells && pt.nanCells([sp]).length) ? [{
+                    label: 'Trace NaN (' + pt.nanCells([sp]).length + ')',
+                    click: async () => { smenu = null; await pt.traceNaN(sp, null); },
+                    bg: '#FD5E53', fg: '#ffffff'
+                }] : []),
 
                 {
                     label: 'Data...',
@@ -1834,68 +1853,8 @@ function (pt, sp) {
                                 bg: 'yellow', fg: 'black'
                             },
 
-                            {
-                                label: 'Data Type',
-                                click: () => {
-                                    smenu = null;
-                                    const selection_list = Object.keys(WellDisplay);
-                                    selection_list.unshift('(AI) Suggest')
-                                    selection_list.push('Default');
-                                    let selectionpanel = null;
-                                    const selectPanel = createIon((pa) => { selectionpanel = pa; });
-                                    const t = {
-                                        wid: 'card',
-                                        data: {
-                                            cards: [[
-                                                {
-                                                    'title': 'Set well type',
-                                                    width: '100%',
-                                                    'body': `  `,
-                                                    'component': {
-                                                        wid: 'selection-list',
-                                                        width: '100%',
-                                                        refCallback: selectPanel,
-                                                        data: {
-                                                            listItems: selection_list,
-                                                            button_function: createIonFunction(async (items) => {
-                                                                let name = items[0];
-
-                                                                if (name.toLowerCase() === '(ai) suggest') {
-
-                                                                    pt.setMessage("Experimental Suggest", 5)
-
-                                                                    hideAllModal();
-
-                                                                    const se = sp.getSelectedWellsInOrder();
-                                                                    let items = []
-                                                                    for (let w of se) {
-                                                                        items.push({
-                                                                            id: w.uid,
-                                                                            value: w.value,
-                                                                            fields: Object.keys(w.group),
-                                                                            wtype: ''
-                                                                        })
-                                                                    }
-                                                                    let paint_wells = await exec('py/openai/paint-wells.py', items, Object.keys(WellDisplay).filter(k => !k.startsWith("Input_")))
-                                                                    pt.killSprite();
-                                                                    pt.applyAssignmentWellTypes(paint_wells)
-                                                                } else {
-                                                                    const se = sp.getSelectedWellsInOrder();
-                                                                    if (name === 'Default') name = null;
-                                                                    for (let w of se) w.setWellType(name);
-                                                                }
-                                                                hideAllModal();
-                                                            })
-                                                        }
-                                                    }
-                                                }
-                                            ]]
-                                        }
-                                    };
-                                    showModal(t, 500, 500);
-                                },
-                                bg: 'yellow', fg: 'black'
-                            },
+                            // (The raw "Data Type" list that stood here was a second copy of the
+                            // Data Type library above; its AI suggestion moved into the library.)
 
 
 

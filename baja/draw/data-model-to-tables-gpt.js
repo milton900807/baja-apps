@@ -1001,6 +1001,18 @@ function (platetrack, model, option) {
 
         }
 
+        // Display types for whatever the units above did not cover: counts, years, dates,
+        // links, ratios, badges... Only this model's tables, and never over a unit's type.
+        try {
+            const names = new Set(Object.keys(model.tables || {}).map(k => (/^(\w+)\[/.exec(k) || [])[1]).filter(Boolean));
+            const built = (platetrack.root || []).filter(pl => pl && names.has(pl.name));
+            if (built.length && platetrack.autoTypeTables) await platetrack.autoTypeTables(built);
+            // Long text wraps in its cell; give those rows the height to show it.
+            if (built.length && platetrack.fitRowsToText) platetrack.fitRowsToText(built);
+            // ...and then one cell size across the set, so they sit on the same plane.
+            if (built.length > 1 && platetrack.normalizeTableCellSizes) platetrack.normalizeTableCellSizes(built);
+        } catch (e) { }
+
         return resolve(report2)
     })
 }

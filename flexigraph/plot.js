@@ -3554,34 +3554,133 @@ function (MGrid) {
                 return this._highlight;
             }
 
+            // A PIE OF PARTS OF A WHOLE. Each point is a slice: { name, value (or y), color? }.
+            //
+            // The previous version could not run -- it reduced a variable that was never
+            // defined and called a `grid` that was not in scope -- and it chose a random
+            // colour per slice on every frame, so a chart that did draw flickered. This one
+            // takes its slice colours from a fixed palette in order, writes the share on any
+            // slice with room for it, and lists every slice with its value and share beside
+            // the pie, which is the only way a reader can tell two small slices apart.
             pieChart(graph, ctx) {
+                const pts = ((this.scatterData && this.scatterData.points) || [])
+                    .map((p) => ({
+                        name: ('' + (p.name == null ? '' : p.name)),
+                        value: Math.max(0, Number(p.value != null ? p.value : (p.percentage != null ? p.percentage : p.y)) || 0),
+                        color: p.color || null,
+                        note: p.note || ''
+                    }))
+                    .filter((p) => p.value > 0)
+                    .sort((a, b) => b.value - a.value);
+                const total = pts.reduce((s2, p) => s2 + p.value, 0);
+                if (!pts.length || total <= 0) return;
 
-                const worldCenterX = (this.grid.xmax + this.grid.xmin) / 2;
-                const worldCenterY = (this.grid.ymax + this.grid.ymin) / 2;
-                const radiusWorld = Math.min(this.grid.xmax - this.grid.xmin, this.grid.ymax - this.grid.ymin) / 4;
-                const centerX = grid.X(worldCenterX);
-                const centerY = grid.Y(worldCenterY);
-                const radius = radiusWorld * this.grid.xscale;
-                let startAngle = 0;
-                const total = data.reduce((sum, d) => sum + d.percentage, 0);
-                this.scatterData.points.forEach((item) => {
-                    const sliceAngle = (item.percentage / total) * 2 * Math.PI;
+                const PALETTE = ['#1aa3bd', '#0a2540', '#FD5E53', '#15803d', '#7c3aed', '#b45309',
+                    '#0f7f93', '#475569', '#db2777', '#0891b2', '#65a30d', '#9a3412'];
+                const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M'
+                    : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'K' : String(Math.round(n)));
+                const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+
+                // The plot's box on screen. A plot carries its position in canvas world
+                // coordinates (x, y, w, h) and places its own grid there every frame, exactly
+                // as the bar chart does. Reading the box off the grid's DATA domain instead
+                // put the pie in a sliver near the origin, which is why the object drew as an
+                // empty white rectangle.
+                try {
+                    this.grid.xi = graph.X(this.x);
+                    this.grid.yi = graph.Y(this.y);
+                    this.grid.width = graph.screenWidth(this.w);
+                    this.grid.height = graph.screenHeight(this.h);
+                    this.grid.rescale();
+                } catch (e) { }
+                const boxW = Math.abs(this.grid.width), boxH = Math.abs(this.grid.height);
+                const boxX = this.grid.width < 0 ? this.grid.xi - boxW : this.grid.xi;
+                const boxY = this.grid.height < 0 ? this.grid.yi - boxH : this.grid.yi;
+                if (!(boxW > 20 && boxH > 20)) return;
+
+                // Legend on the right when the box is wide enough for one, else beneath.
+                const side = boxW >= boxH * 1.25 && boxW > 240;
+                const legendW = side ? Math.min(boxW * 0.45, 230) : 0;
+                const legendH = side ? 0 : Math.min(boxH * 0.45, 14 + pts.length * 15);
+                const pieW = boxW - legendW, pieH = boxH - legendH;
+                const cx = boxX + pieW / 2, cy = boxY + pieH / 2;
+                const r = Math.max(8, Math.min(pieW, pieH) / 2 - 12);
+
+                ctx.save();
+                ctx.lineJoin = 'round';
+                let a0 = -Math.PI / 2;                       // start at twelve o'clock
+                pts.forEach((p, i) => {
+                    const frac = p.value / total;
+                    const a1 = a0 + frac * Math.PI * 2;
+                    p.__color = p.color || PALETTE[i % PALETTE.length];
                     ctx.beginPath();
-                    ctx.moveTo(centerX, centerY);
-                    ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+                    ctx.moveTo(cx, cy);
+                    ctx.arc(cx, cy, r, a0, a1);
                     ctx.closePath();
-                    ctx.fillStyle = `hsl(${Math.random() * 360}, 70%, 70%)`;
+                    ctx.fillStyle = p.__color;
                     ctx.fill();
-                    const midAngle = startAngle + sliceAngle / 2;
-                    const labelX = centerX + Math.cos(midAngle) * radius * 0.7;
-                    const labelY = centerY + Math.sin(midAngle) * radius * 0.7;
-                    ctx.fillStyle = "navy";
-                    ctx.font = "14px Arial";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText(item.name, labelX, labelY);
-                    startAngle += sliceAngle;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    // The share, written on the slice when the slice can hold it.
+                    if (frac > 0.06 && r > 26) {
+                        const mid = a0 + (a1 - a0) / 2;
+                        const lx = cx + Math.cos(mid) * r * 0.62, ly = cy + Math.sin(mid) * r * 0.62;
+                        ctx.font = '700 ' + Math.max(9, Math.min(13, r * 0.14)) + 'px ' + FONT;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(Math.round(frac * 100) + '%', lx, ly);
+                    }
+                    a0 = a1;
                 });
+
+                // The legend: swatch, name, value and share -- the reader's only way to tell
+                // two thin slices apart.
+                const rows = pts.slice(0, side ? Math.floor((boxH - 16) / 16) : Math.floor(legendH / 15));
+                const lx0 = side ? boxX + pieW + 6 : boxX + 10;
+                let ly0 = side ? boxY + Math.max(8, (boxH - rows.length * 16) / 2) : boxY + pieH + 6;
+                const lw = side ? legendW - 12 : boxW - 20;
+                ctx.textBaseline = 'middle';
+                rows.forEach((p) => {
+                    const sw = 9;
+                    ctx.fillStyle = p.__color;
+                    ctx.beginPath();
+                    if (typeof ctx.roundRect === 'function') ctx.roundRect(lx0, ly0 + 3, sw, sw, 2); else ctx.rect(lx0, ly0 + 3, sw, sw);
+                    ctx.fill();
+                    const share = Math.round((p.value / total) * 100) + '%';
+                    const tail = '  ' + fmt(p.value) + '  ' + share;
+                    ctx.font = '600 11px ' + FONT;
+                    const tailW = ctx.measureText(tail).width;
+                    ctx.font = '11px ' + FONT;
+                    let nm = p.name;
+                    const room = lw - sw - 8 - tailW;
+                    if (ctx.measureText(nm).width > room) {
+                        while (nm.length > 1 && ctx.measureText(nm + '\u2026').width > room) nm = nm.slice(0, -1);
+                        nm += '\u2026';
+                    }
+                    ctx.fillStyle = '#0a2540';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(nm, lx0 + sw + 6, ly0 + 7);
+                    ctx.font = '600 11px ' + FONT;
+                    ctx.fillStyle = '#5b6b80';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(tail.trim(), lx0 + lw, ly0 + 7);
+                    ly0 += 16;
+                });
+                if (pts.length > rows.length) {
+                    ctx.font = '11px ' + FONT;
+                    ctx.fillStyle = '#6b7a90';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('and ' + (pts.length - rows.length) + ' more', lx0 + 15, ly0 + 7);
+                }
+                // The total, under the pie, so the shares mean something.
+                if (r > 30) {
+                    ctx.font = '600 11px ' + FONT;
+                    ctx.fillStyle = '#6b7a90';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                    ctx.fillText('total ' + fmt(total), cx, cy + r + 6);
+                }
+                ctx.restore();
             }
 
             plotBarChart(graph, ctx) {

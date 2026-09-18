@@ -760,12 +760,34 @@ function (plate_graph, selectedPlate, selectedPoint) {
                                             // The application's menu look: a navy title band, white body,
                                             // one column, navy text; placed under the toolbar, not centred
                                             // over the canvas in three columns as the generic showMenu does.
-                                            const nav = refs.map(r => ({ label: r.table + '  \u203A  ' + r.label, click: () => { goTo(r); }, fg: '#0a2540' }));
+                                            // The row is what the reader is looking for, so it is never the
+                                            // part that gets cut: the menu is sized to its longest entry, and
+                                            // where that still does not fit, the TABLE name loses its middle
+                                            // and the row name is left whole. Names are long here by design
+                                            // (Project_Assumptions, Total_Expenses_Per_Month), and at a fixed
+                                            // 300px the row sat off the end of every line.
+                                            const CH = 7.1;                       // ~1 character at the menu's 12px
+                                            const room = Math.max(280, Math.min(880, (pt.grid.width || 900) - 48));
+                                            const fits = Math.max(18, Math.floor((room - 34) / CH));
+                                            const mid = (t, n) => {
+                                                t = '' + t;
+                                                if (n < 6 || t.length <= n) return t;
+                                                const head = Math.ceil((n - 1) / 2), tail = Math.floor((n - 1) / 2);
+                                                return t.slice(0, head) + '\u2026' + t.slice(t.length - tail);
+                                            };
+                                            const SEP = '  \u203A  ';
+                                            const nav = refs.map(r => {
+                                                const leaf = '' + r.label;
+                                                const spare = fits - SEP.length - Math.min(leaf.length, fits - 8);
+                                                const table = mid(r.table, Math.max(6, spare));
+                                                return { label: table + SEP + mid(leaf, fits - SEP.length - table.length), click: () => { goTo(r); }, fg: '#0a2540' };
+                                            });
+                                            const width = Math.min(room, Math.max(300, Math.round(Math.max(...nav.map(n => n.label.length)) * CH) + 34));
                                             try {
                                                 pt.grid.rescale();
-                                                const m = new Menu(nav, pt.grid.Xwc(Math.max(12, pt.grid.width / 2 - 150)), pt.grid.Ywc(64), 'rgba(255,255,255,0.98)', '#0a2540', 1);
+                                                const m = new Menu(nav, pt.grid.Xwc(Math.max(12, pt.grid.width / 2 - width / 2)), pt.grid.Ywc(64), 'rgba(255,255,255,0.98)', '#0a2540', 1);
                                                 m.title = refs.length === 1 ? 'Go to the referenced row' : 'Go to a referenced row';
-                                                m.menu_width = 300;
+                                                m.menu_width = width;
                                                 pt.menu = m; pt.menu_vis = true;
                                                 try { pt.wb(null); } catch (e) { }
                                             } catch (e) { pt.showMenu(nav); }

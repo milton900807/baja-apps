@@ -106,6 +106,14 @@ What to find, for every indication the user named:
 - Prevalence (people living with the condition) and annual incidence (new cases per year) in the primary region, and global prevalence where it is reported. The primary region is the one the user names; otherwise use the default given in the request.
 - The addressable population in the primary region: the patients a new therapy could realistically reach. Start from prevalence and narrow it by whatever applies and is documented, such as the diagnosed fraction, the genetic or biomarker subtype the approach needs, the age or severity range, or the line of therapy. State the narrowing in one sentence. If nothing supports narrowing, use prevalence and say so.
 - Current standard of care and the main unmet need, briefly.
+- The typical price per patient in the primary region for a therapy of this approach in this indication: the list price of an approved drug with the same or the closest mechanism, annualised, in US dollars. Name the comparator in price_basis. For a one-time therapy such as a gene therapy, give the one-time price and say so. Use null when there is no credible comparator.
+
+Then find the COMPETITION, which is what a market sizing is read against:
+- Assets aimed at the primary indications: approved drugs first, then those in late clinical development, then notable earlier ones when the field is thin. For each, give the drug, the company, the modality or mechanism, its stage or approval year, the indication it is aimed at, and whether it competes directly with this approach or serves the same patients by another route.
+- The companies active in this field: who they are, what they have in it, and what is distinctive about their position. Include the owners of the assets above and any company whose declared programmes target the same pathway or patient group.
+Spend at most three searches on this between them, and prefer regulator approvals, company pipelines and trial registries over news summaries. Use an empty list when a field genuinely has no competition on record.
+
+Also estimate what it costs to take one program of this approach to market, from published benchmarks for the modality and therapeutic area where they exist: the cost and duration of preclinical work, Phase I, Phase II, Phase III and regulatory review, the cost of launch, and the probability of moving from Phase I to Phase II, Phase II to Phase III, Phase III to filing, and filing to approval. Spend at most two searches on this, and put the figures in the development object with their sources. Use null for any figure you cannot support; the canvas fills gaps with clearly marked defaults.
 
 Then propose expansion indications: other conditions where the same therapeutic approach could plausibly work, which would enlarge the market. Good candidates share the target, pathway, causal genetics or affected tissue with a named indication, or follow a precedent where an approved drug with a similar mechanism expanded its label. If the user gave a target, mechanism or modality, anchor on it. If they did not, reason from shared pathophysiology and record that assumption in the approach field. Order them from most to least plausible, give the same population figures for each, and explain the link in one sentence. Leave out an indication when the only connection is that it is large; a short list the team can defend is worth more than a long one.
 
@@ -138,20 +146,98 @@ Finish your reply with exactly one fenced ```json block, and keep any text befor
       "standard_of_care": "brief",
       "unmet_need": "brief",
       "confidence": "high", "medium" or "low" - how well sourced the figures are,
+      "annual_price_usd": number or null,
+      "price_basis": "one sentence: the comparator drug and how the price was annualised",
       "sources": [ { "figure": "which figure this supports", "title": "source title", "url": "https://...", "year": "publication or data year" } ]
     }
   ],
+  "development": {
+    "preclinical_cost_usd": number or null, "preclinical_years": number or null,
+    "phase_i_cost_usd": number or null, "phase_i_years": number or null, "phase_i_success_rate": number or null,
+    "phase_ii_cost_usd": number or null, "phase_ii_years": number or null, "phase_ii_success_rate": number or null,
+    "phase_iii_cost_usd": number or null, "phase_iii_years": number or null, "phase_iii_success_rate": number or null,
+    "regulatory_cost_usd": number or null, "regulatory_years": number or null, "regulatory_success_rate": number or null,
+    "launch_cost_usd": number or null,
+    "basis": "one or two sentences on where these benchmarks come from",
+    "sources": [ { "figure": "...", "title": "...", "url": "https://...", "year": "..." } ]
+  },
+  "competitors": [
+    { "drug": "name or code", "company": "owner", "modality": "siRNA, antibody, small molecule...",
+      "stage": "approved 2019 | phase III | phase I | preclinical", "indication": "what it is aimed at",
+      "competes": "direct" or "adjacent", "note": "one sentence on how it bears on this approach",
+      "source": { "title": "...", "url": "https://...", "year": "..." } }
+  ],
+  "companies": [
+    { "company": "name", "focus": "what they do in this field", "assets": "their programmes here",
+      "position": "one sentence on where they stand",
+      "source": { "title": "...", "url": "https://...", "year": "..." } }
+  ],
   "notes": [ "caveats the team should see, such as patient overlap between rows" ]
 }
+
+Success rates are fractions between 0 and 1.
 """
 
+
+# The development benchmarks the research returns, in the order the cost table shows them.
+DEV_NUMBERS = [
+    "preclinical_cost_usd", "preclinical_years",
+    "phase_i_cost_usd", "phase_i_years", "phase_i_success_rate",
+    "phase_ii_cost_usd", "phase_ii_years", "phase_ii_success_rate",
+    "phase_iii_cost_usd", "phase_iii_years", "phase_iii_success_rate",
+    "regulatory_cost_usd", "regulatory_years", "regulatory_success_rate",
+    "launch_cost_usd",
+]
 
 # Used only when the research reply carries no parseable JSON block.
 SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["region", "approach", "summary", "indications", "notes"],
+    "required": ["region", "approach", "summary", "indications", "development", "competitors", "companies", "notes"],
     "properties": {
+        "development": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": DEV_NUMBERS + ["basis", "sources"],
+            "properties": dict(
+                {k: {"type": ["number", "null"]} for k in DEV_NUMBERS},
+                basis={"type": "string"},
+                sources={"type": "array", "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["figure", "title", "url", "year"],
+                    "properties": {"figure": {"type": "string"}, "title": {"type": "string"},
+                                   "url": {"type": "string"}, "year": {"type": "string"}}}},
+            ),
+        },
+        "competitors": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["drug", "company", "modality", "stage", "indication", "competes", "note", "source"],
+                "properties": {
+                    "drug": {"type": "string"}, "company": {"type": "string"}, "modality": {"type": "string"},
+                    "stage": {"type": "string"}, "indication": {"type": "string"},
+                    "competes": {"type": "string"}, "note": {"type": "string"},
+                    "source": {"type": "object", "additionalProperties": False,
+                               "required": ["title", "url", "year"],
+                               "properties": {"title": {"type": "string"}, "url": {"type": "string"}, "year": {"type": "string"}}},
+                },
+            },
+        },
+        "companies": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["company", "focus", "assets", "position", "source"],
+                "properties": {
+                    "company": {"type": "string"}, "focus": {"type": "string"}, "assets": {"type": "string"},
+                    "position": {"type": "string"},
+                    "source": {"type": "object", "additionalProperties": False,
+                               "required": ["title", "url", "year"],
+                               "properties": {"title": {"type": "string"}, "url": {"type": "string"}, "year": {"type": "string"}}},
+                },
+            },
+        },
         "region": {"type": "string"},
         "approach": {"type": "string"},
         "summary": {"type": "string"},
@@ -163,7 +249,8 @@ SCHEMA: Dict[str, Any] = {
                 "additionalProperties": False,
                 "required": ["name", "type", "link", "plausibility", "prevalence_region",
                              "incidence_region_per_year", "prevalence_global", "addressable_region",
-                             "addressable_basis", "standard_of_care", "unmet_need", "confidence", "sources"],
+                             "addressable_basis", "standard_of_care", "unmet_need", "confidence",
+                             "annual_price_usd", "price_basis", "sources"],
                 "properties": {
                     "name": {"type": "string"},
                     "type": {"type": "string", "enum": ["requested", "expansion"]},
@@ -177,6 +264,8 @@ SCHEMA: Dict[str, Any] = {
                     "standard_of_care": {"type": "string"},
                     "unmet_need": {"type": "string"},
                     "confidence": {"type": "string"},
+                    "annual_price_usd": {"type": ["number", "null"]},
+                    "price_basis": {"type": "string"},
                     "sources": {
                         "type": "array",
                         "items": {
@@ -517,13 +606,218 @@ def _txt(v: Any) -> str:
 
 
 def _slug(name: str) -> str:
-    words = re.findall(r"[A-Za-z0-9]+", re.sub(r"['’]", "", name or ""))
-    s = "_".join(words)[:24].strip("_")
-    if not s:
-        s = "Indication"
-    if s[0].isdigit():
-        s = "I_" + s
-    return s
+    # Letters only: the table builder reads a digit next to a name as multiplication, so a
+    # table called Type_2_Diabetes_Market could not be referenced from a formula.
+    words = re.findall(r"[A-Za-z]+", re.sub(r"['’]", "", name or ""))
+    s = "_".join(words)
+    if len(s) > 24:
+        cut = s[:24]
+        s = cut[:cut.rfind("_")] if "_" in cut else cut      # whole words only
+    return s.strip("_") or "Indication"
+
+
+def _label(s: str, maxlen: int = 26) -> str:
+    s = re.sub(r"['’]", "", str(s or ""))
+    s = re.sub(r"\d+", " ", s)
+    s = re.sub(r"[^A-Za-z_ ]+", " ", s)
+    s = re.sub(r"\s+", "_", s.strip())
+    s = re.sub(r"_+", "_", s).strip("_")
+    if len(s) > maxlen:
+        cut = s[:maxlen]
+        s = (cut[:cut.rfind("_")] if "_" in cut else cut).strip("_")
+    return s or "Indication"
+
+
+def _key(table: str, c: int, r: int) -> str:
+    return f"{table}[{c}:{c}][{r}:{r}]"
+
+
+# Industry-average phase transition rates, used only where the research found none:
+# BIO, Informa Pharma Intelligence and QLS, Clinical Development Success Rates 2011-2020.
+BENCHMARK_SUCCESS = {"phase_i": 0.520, "phase_ii": 0.289, "phase_iii": 0.578, "regulatory": 0.906}
+BENCHMARK_NOTE = "Industry average (BIO/Informa/QLS, Clinical Development Success Rates 2011-2020). Edit."
+
+
+def build_model(prefix: str, ordered: List[Dict[str, Any]], expansion: List[Dict[str, Any]],
+                findings: Dict[str, Any]) -> Dict[str, Any]:
+    """The market model as formulas over one table of editable inputs.
+
+    <P>_Market_Inputs   Label | Value | Unit | Basis    (researched figures and assumptions)
+    <P>_Market_Size     per indication and totals: patients, peak patients, price, revenue, TAM
+    <P>_Cost_To_Market  per stage: cost, years, success rate, expected (risk-weighted) cost
+    <P>_Market_Model    the headline numbers
+    Every number outside the inputs table is a formula, so editing an input moves them all.
+    """
+    I, S, C, M = f"{prefix}_Market_Inputs", f"{prefix}_Market_Size", f"{prefix}_Cost_To_Market", f"{prefix}_Market_Model"
+    tables: Dict[str, Any] = {}
+    formulas: Dict[str, str] = {}
+    ann: Dict[str, str] = {}
+    units: Dict[str, Dict[str, str]] = {I: {}, S: {}, C: {}, M: {}}
+    ref = lambda lab: f"{I}[{lab}]"
+
+    inputs: List[Tuple[str, Any, str, str]] = []
+    rows: List[Tuple[str, str]] = []           # (label, kind)
+    taken: set = set()
+    for r in ordered:
+        base = _label(_txt(r.get("name")))
+        lab, n = base, 0
+        while lab in taken:
+            n += 1
+            lab = f"{base}_{chr(ord('A') + n)}"
+        taken.add(lab)
+        kind = "Expansion" if r in expansion else "Primary"
+        pts, pb = _num(r.get("addressable_region")), _txt(r.get("addressable_basis"))
+        if pts is None and _num(r.get("prevalence_region")) is not None:
+            pts, pb = _num(r.get("prevalence_region")), "No addressable figure; regional prevalence used. " + pb
+        if pts is None:
+            pts, pb = 0, "No population figure was found. Enter one."
+        price, qb = _num(r.get("annual_price_usd")), _txt(r.get("price_basis"))
+        if price is None:
+            price, qb = 0, "No comparator price was found. Enter one. " + qb
+        inputs += [
+            (f"{lab}_Patients", pts, "patients", pb),
+            (f"{lab}_Treated_Share", 0.5, "fraction", "Assumption: share of addressable patients diagnosed and treated. Edit."),
+            (f"{lab}_Peak_Share", 0.2, "fraction", "Assumption: peak share of treated patients this therapy reaches. Edit."),
+            (f"{lab}_Price", price, "USD per patient per year", qb.strip()),
+        ]
+        rows.append((lab, kind))
+
+    dev = findings.get("development") if isinstance(findings.get("development"), dict) else {}
+    dbasis = _txt(dev.get("basis")) or "Research benchmark."
+    stages = [("Preclinical", "preclinical", False), ("Phase_I", "phase_i", True), ("Phase_II", "phase_ii", True),
+              ("Phase_III", "phase_iii", True), ("Regulatory", "regulatory", True), ("Launch", "launch", False)]
+    for lab, key, has_rate in stages:
+        cost = _num(dev.get(f"{key}_cost_usd"))
+        inputs.append((f"{lab}_Cost", cost if cost is not None else 0, "USD", dbasis if cost is not None else "Not found. Enter the cost."))
+        if key != "launch":
+            yrs = _num(dev.get(f"{key}_years"))
+            inputs.append((f"{lab}_Years", yrs if yrs is not None else 0, "years", dbasis if yrs is not None else "Not found. Enter the duration."))
+        if has_rate:
+            rate = _num(dev.get(f"{key}_success_rate"))
+            if rate is not None and rate > 1:
+                rate = rate / 100.0
+            if rate is None:
+                inputs.append((f"{lab}_Success_Rate", BENCHMARK_SUCCESS[key], "fraction", BENCHMARK_NOTE))
+            else:
+                inputs.append((f"{lab}_Success_Rate", rate, "fraction", dbasis))
+
+    for c, h in enumerate(["Label", "Value", "Unit", "Basis"]):
+        tables[_key(I, c, 0)] = h
+    for r, (lab, val, unit, basis) in enumerate(inputs, start=1):
+        tables[_key(I, 0, r)] = lab
+        tables[_key(I, 1, r)] = val
+        tables[_key(I, 2, r)] = unit
+        tables[_key(I, 3, r)] = basis
+        if unit.startswith("USD"):
+            units[I][lab] = "USD"
+    ann[I] = ("Inputs. Patients, prices and development figures come from the research (see Basis and the Sources table); "
+              "treated share and peak share are assumptions. Every number in the other model tables is a formula over this table.")
+
+    # ---- market size per indication, with totals ----
+    heads = ["Label", "Addressable_Patients", "Treated_Patients", "Peak_Patients", "Price",
+             "Peak_Annual_Revenue", "Total_Addressable_Market", "Type"]
+    for c, h in enumerate(heads):
+        tables[_key(S, c, 0)] = h
+    expr: Dict[str, Dict[str, str]] = {}
+    for r, (lab, kind) in enumerate(rows, start=1):
+        pa = ref(f"{lab}_Patients")
+        tr = f"{pa}*{ref(f'{lab}_Treated_Share')}"
+        pk = f"{tr}*{ref(f'{lab}_Peak_Share')}"
+        pr = ref(f"{lab}_Price")
+        e = {"pa": pa, "tr": tr, "pk": pk, "rev": f"{pk}*{pr}", "tam": f"{pa}*{pr}"}
+        expr[lab] = e
+        tables[_key(S, 0, r)] = lab
+        formulas[_key(S, 1, r)] = e["pa"]
+        formulas[_key(S, 2, r)] = e["tr"]
+        formulas[_key(S, 3, r)] = e["pk"]
+        formulas[_key(S, 4, r)] = pr
+        formulas[_key(S, 5, r)] = e["rev"]
+        formulas[_key(S, 6, r)] = e["tam"]
+        tables[_key(S, 7, r)] = kind
+    req = [lab for lab, k in rows if k == "Primary"]
+    exp = [lab for lab, k in rows if k == "Expansion"]
+    total = lambda labs, k: "+".join(expr[l][k] for l in labs) if labs else "0"
+    r = len(rows) + 1
+    groups = [("Total_Primary", req)] + ([("Total_Expansion", exp), ("Total_All", req + exp)] if exp else [])
+    for name, labs in groups:
+        tables[_key(S, 0, r)] = name
+        for c, k in ((1, "pa"), (2, "tr"), (3, "pk"), (5, "rev"), (6, "tam")):
+            formulas[_key(S, c, r)] = total(labs, k)
+        tables[_key(S, 7, r)] = "Total"
+        r += 1
+    for h in ("Price", "Peak_Annual_Revenue", "Total_Addressable_Market"):
+        units[S][h] = "USD"
+    ann[S] = ("Market size. Addressable x treated share x peak share = peak patients; x price = peak annual revenue. "
+              "Total addressable market is addressable patients x price. Indications can share patients, so totals are plain sums.")
+
+    # ---- cost to market, stage by stage ----
+    for c, h in enumerate(["Label", "Cost", "Years", "Success_Rate", "Expected_Cost"]):
+        tables[_key(C, c, 0)] = h
+    reach = "1"
+    expected: List[str] = []
+    costs: List[str] = []
+    years: List[str] = []
+    rates: List[str] = []
+    for r, (lab, key, has_rate) in enumerate(stages, start=1):
+        cost = ref(f"{lab}_Cost")
+        tables[_key(C, 0, r)] = lab
+        formulas[_key(C, 1, r)] = cost
+        if key != "launch":
+            formulas[_key(C, 2, r)] = ref(f"{lab}_Years")
+            years.append(ref(f"{lab}_Years"))
+        if has_rate:
+            formulas[_key(C, 3, r)] = ref(f"{lab}_Success_Rate")
+        # A stage's cost is spent only if the program gets that far.
+        e_cost = cost if reach == "1" else f"{cost}*{reach}"
+        formulas[_key(C, 4, r)] = e_cost
+        expected.append(e_cost)
+        costs.append(cost)
+        if has_rate:
+            rates.append(ref(f"{lab}_Success_Rate"))
+            reach = "*".join(rates)
+    r = len(stages) + 1
+    tables[_key(C, 0, r)] = "Total"
+    formulas[_key(C, 1, r)] = "+".join(costs)
+    formulas[_key(C, 2, r)] = "+".join(years)
+    formulas[_key(C, 3, r)] = "*".join(rates)
+    formulas[_key(C, 4, r)] = "+".join(expected)
+    units[C]["Cost"] = "USD"; units[C]["Expected_Cost"] = "USD"
+    ann[C] = ("Cost to market by stage. Expected cost weights each stage by the chance of reaching it; "
+              "the total success rate is the chance that a program entering Phase I is approved.")
+
+    # ---- the headline numbers ----
+    cost_sum, exp_sum, pos = "+".join(costs), "+".join(expected), "*".join(rates)
+    headline = [
+        ("Addressable_Patients_Primary", total(req, "pa"), "patients"),
+        ("Total_Addressable_Market_Primary", total(req, "tam"), "USD"),
+        ("Peak_Annual_Revenue_Primary", total(req, "rev"), "USD"),
+    ]
+    if exp:
+        headline += [
+            ("Addressable_Patients_With_Expansion", total(req + exp, "pa"), "patients"),
+            ("Total_Addressable_Market_With_Expansion", total(req + exp, "tam"), "USD"),
+            ("Peak_Annual_Revenue_With_Expansion", total(req + exp, "rev"), "USD"),
+        ]
+    headline += [
+        ("Cost_To_Market", cost_sum, "USD"),
+        ("Expected_Cost_To_Market", exp_sum, "USD"),
+        ("Probability_Of_Approval", pos, "fraction"),
+        ("Cost_Per_Approval", f"({exp_sum})/({pos})", "USD"),
+        ("Years_To_Market", "+".join(years), "years"),
+        ("Peak_Revenue_To_Cost_Per_Approval", f"({total(req, 'rev')})/(({exp_sum})/({pos}))", "ratio"),
+    ]
+    for c, h in enumerate(["Label", "Value", "Unit"]):
+        tables[_key(M, c, 0)] = h
+    for r, (lab, f, unit) in enumerate(headline, start=1):
+        tables[_key(M, 0, r)] = lab
+        formulas[_key(M, 1, r)] = f
+        tables[_key(M, 2, r)] = unit
+        if unit == "USD":
+            units[M][lab] = "USD"
+    ann[M] = "The headline numbers. All formulas over the inputs table: change an input and these follow."
+
+    return {"tables": tables, "formulas": formulas, "annotations": ann, "units": units,
+            "diagnostics": "NO_ISSUES_DETECTED", "names": [I, S, C, M]}
 
 
 def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Dict[str, Any],
@@ -546,7 +840,7 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
     source_rows: List[List[Any]] = []
     unverified = 0
     for r in ordered:
-        kind = "Expansion" if r in expansion else "Requested"
+        kind = "Expansion" if r in expansion else "Primary"
         name = _txt(r.get("name"))
         srcs = [s for s in (r.get("sources") or []) if isinstance(s, dict) and (_txt(s.get("url")) or _txt(s.get("title")))]
         first = srcs[0] if srcs else {}
@@ -576,7 +870,21 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
             else:
                 check = "no - verify"
                 unverified += 1
-            source_rows.append([name, _txt(s.get("figure")), _txt(s.get("title")), url, _txt(s.get("year")), check])
+            source_rows.append([name, _txt(s.get("figure")), _txt(s.get("title")), url, _txt(s.get("year"))])
+
+    dev = findings.get("development") if isinstance(findings.get("development"), dict) else {}
+    for s in (dev.get("sources") or []):
+        if not isinstance(s, dict) or not (_txt(s.get("url")) or _txt(s.get("title"))):
+            continue
+        url = _txt(s.get("url"))
+        if not searched:
+            check = "model knowledge"
+        elif url and _norm_url(url) in found_keys:
+            check = "yes"
+        else:
+            check = "no - verify"
+            unverified += 1
+        source_rows.append(["Cost to market", _txt(s.get("figure")), _txt(s.get("title")), url, _txt(s.get("year"))])
 
     def total(rows: List[Dict[str, Any]]) -> Any:
         vals = [_num(r.get("addressable_region")) for r in rows]
@@ -589,29 +897,58 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
         ["Prompt", _txt(prompt)],
         ["Region", region],
         ["Approach", _txt(findings.get("approach"))],
-        ["Requested indications", len(requested)],
+        ["Primary indications", len(requested)],
         ["Expansion indications", len(expansion)],
-        ["Addressable patients, requested", req_total],
+        ["Addressable patients, primary", req_total],
         ["Addressable patients, expansion", exp_total],
         ["Addressable patients, combined", sum(both) if both else ""],
         ["Summary", _txt(findings.get("summary"))],
-        ["Figures from", "live web search" if searched else "model knowledge only (web search unavailable) - verify before use"],
-        ["Searches run", info.get("searches") or len(info.get("queries") or [])],
-        ["Model", _txt(info.get("model"))],
-        ["Date", time.strftime("%Y-%m-%d")],
     ]
 
     notes = [_txt(n) for n in (findings.get("notes") or []) if _txt(n)]
+    def _esc(t: str) -> str:
+        return (_txt(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
     if len(ordered) > 1:
         notes.append("Combined addressable patients is a plain sum; indications can share patients.")
     if unverified:
-        notes.append(f"{unverified} source link(s) did not appear in the search results; they are marked 'no - verify' in {prefix}_Sources.")
+        notes.append(f"{unverified} source link(s) did not appear in the search results and are worth checking before the figures they support are relied on.")
     if not searched:
         notes.append("Web search was unavailable, so figures come from the model's own knowledge and are unverified.")
     if info.get("stop_reason") == "pause_turn":
         notes.append("The research ran out of time before it finished; the tables hold what was found.")
-    for i, n in enumerate(notes):
-        summary_rows.append([f"Note {i + 1}", n])
+    # (The notes used to be appended here as "Note 1", "Note 2"... rows. They are prose and
+    # now live in the document this build also places on the canvas.)
+
+    # ---- the competition: assets aimed at these patients, and who is behind them ----
+    comp_rows: List[List[Any]] = []
+    firm_rows: List[List[Any]] = []
+    def _count_unverified(src: Any) -> None:
+        # Not shown as a column any more; it still adds to the count the caveats report.
+        nonlocal unverified
+        url = _txt((src or {}).get("url"))
+        if searched and url and _norm_url(url) not in found_keys:
+            unverified += 1
+    for c in (findings.get("competitors") or []):
+        if not isinstance(c, dict) or not (_txt(c.get("drug")) or _txt(c.get("company"))):
+            continue
+        src = c.get("source") or {}
+        comp_rows.append([
+            _txt(c.get("drug")), _txt(c.get("company")), _txt(c.get("modality")), _txt(c.get("stage")),
+            _txt(c.get("indication")), _txt(c.get("competes")), _txt(c.get("note")),
+            _txt(src.get("url")) or _txt(src.get("title")),
+        ])
+        _count_unverified(src)
+    for f in (findings.get("companies") or []):
+        if not isinstance(f, dict) or not _txt(f.get("company")):
+            continue
+        src = f.get("source") or {}
+        firm_rows.append([
+            _txt(f.get("company")), _txt(f.get("focus")), _txt(f.get("assets")), _txt(f.get("position")),
+            _txt(src.get("url")) or _txt(src.get("title")),
+        ])
+        _count_unverified(src)
+    if comp_rows or firm_rows:
+        notes.append("Competition is what was found on the record at the date of the run; a field like this moves, so check before relying on it.")
 
     tables = [
         {"name": f"{prefix}_Market",
@@ -623,17 +960,59 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
          "headers": ["Indication", "Type", "Link to the approach", "Plausibility", "Standard of care", "Unmet need"],
          "rows": detail_rows},
         {"name": f"{prefix}_Sources",
-         "headers": ["Indication", "Figure", "Title", "URL", "Year", "In search results"],
+         "headers": ["Indication", "Figure", "Title", "URL", "Year"],
          "rows": source_rows},
         {"name": f"{prefix}_Market_Summary", "headers": ["Item", "Value"], "rows": summary_rows},
+        # The Competition group: drawn together and bookmarked under that name on the canvas.
+        {"name": f"{prefix}_Competition", "group": "Competition",
+         "headers": ["Drug", "Company", "Modality", "Stage", "Indication", "Competes", "Note", "Source"],
+         "rows": comp_rows},
+        {"name": f"{prefix}_Competition_Companies", "group": "Competition",
+         "headers": ["Company", "Focus in this field", "Programmes", "Position", "Source"],
+         "rows": firm_rows},
     ]
+    # ---- the written part, as a document rather than rows of a table ----------------
+    # The summary, what the approach is, what was searched and the caveats are prose. In a
+    # table each sentence was a cell clipped to its column; on the canvas they are one
+    # document object (baja/plate/model-document.js).
+    doc_html = ["<h2>", _esc(", ".join(_txt(r.get("name")) for r in requested) or "Market"), "</h2>"]
+    if _txt(findings.get("summary")):
+        doc_html.append("<p>" + _esc(findings.get("summary")) + "</p>")
+    doc_html.append("<h3>What was asked</h3><p>" + _esc(prompt) + "</p>")
+    doc_html.append("<h3>The approach</h3><p>" + (_esc(findings.get("approach")) or "Not stated.") + "</p>")
+    bits = [
+        f"{len(requested)} primary indication(s), {len(expansion)} expansion indication(s)",
+        f"region: {_esc(region)}",
+        ("figures from live web search" if searched else "figures from the model's own knowledge, unverified"),
+        f"{info.get('searches') or len(info.get('queries') or [])} search(es)",
+        time.strftime("%Y-%m-%d"),
+    ]
+    doc_html.append("<h3>How this was put together</h3><ul>" + "".join("<li>" + _esc(b) + "</li>" for b in bits) + "</ul>")
+    if comp_rows or firm_rows:
+        doc_html.append("<h3>Competition</h3><p>" + _esc(
+            f"{len(comp_rows)} asset(s) and {len(firm_rows)} company(ies) on the record in this field; "
+            "the tables under the Competition bookmark carry them with their sources.") + "</p>")
+    if notes:
+        doc_html.append("<h3>Caveats</h3><ul>" + "".join("<li>" + _esc(n) + "</li>" for n in notes) + "</ul>")
+    documents = [{"name": f"{prefix}_Notes", "html": "".join(doc_html)}]
+
     return {
         "status": "ok",
+        "documents": documents,
         "detection": {
             "region": region,
             "approach": _txt(findings.get("approach")),
             "requested": [_txt(r.get("name")) for r in requested],
             "expansion": [_txt(r.get("name")) for r in expansion],
+            # For the patient-population pie on the canvas: one slice per indication.
+            "populations": [
+                {"name": _txt(r.get("name")),
+                 "type": ("Expansion" if r in expansion else "Primary"),
+                 "addressable": (_num(r.get("addressable_region")) if _num(r.get("addressable_region")) is not None
+                                 else (_num(r.get("prevalence_region")) or 0))}
+                for r in ordered
+                if (_num(r.get("addressable_region")) or _num(r.get("prevalence_region")))
+            ],
             "addressable_requested": req_total,
             "addressable_expansion": exp_total,
             "searched": searched,
@@ -643,6 +1022,7 @@ def build_tables(findings: Dict[str, Any], found: List[Dict[str, str]], info: Di
             "seconds": info.get("seconds"),
         },
         "tables": [t for t in tables if t["rows"]],
+        "model": build_model(prefix, ordered, expansion, findings),
         "notes": notes,
     }
 

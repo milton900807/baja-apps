@@ -168,12 +168,48 @@ def has_simple_repeat(seq: str) -> bool:
     return False
 
 
-def build_backbone_pattern(length: int, default_backbone: str = "PS", po_positions: Iterable[int] = ()) -> List[str]:
-    pattern = [default_backbone] * (length - 1)
+def parse_backbone_pattern(spec: Any) -> List[str]:
+    """A written PS/PO pattern, 5' to 3', one character or token per LINKAGE.
+
+    Accepts "sssssooooooooosssss", "S S S O O O", "PS-PS-PO-...", "1110001110" (1 = PS).
+    Anything unrecognised is dropped, so a pattern typed with separators still reads.
+    """
+    if not spec:
+        return []
+    if isinstance(spec, (list, tuple)):
+        items = [str(x) for x in spec]
+    else:
+        text = str(spec).strip()
+        items = re.split(r"[\s,;|/_+-]+", text) if re.search(r"[\s,;|/_+-]", text) else list(text)
+    out: List[str] = []
+    for it in items:
+        t = it.strip().upper()
+        if not t:
+            continue
+        if t in ("PS", "S", "1", "*"):
+            out.append("PS")
+        elif t in ("PO", "O", "0", "P", "."):
+            out.append("PO")
+    return out
+
+
+def build_backbone_pattern(length: int, default_backbone: str = "PS", po_positions: Iterable[int] = (),
+                           pattern: Any = None) -> List[str]:
+    """The backbone of every linkage in one oligo, 5' to 3' (length - 1 of them).
+
+    A written `pattern` wins when given: it is read left to right and, when the oligo is
+    longer than the pattern, the last linkage in the pattern carries on to the 3' end, so
+    one pattern serves a range of lengths. Otherwise every linkage takes
+    `default_backbone` and `po_positions` (1-based) are switched to PO.
+    """
+    spec = parse_backbone_pattern(pattern)
+    if spec:
+        return [spec[i] if i < len(spec) else spec[-1] for i in range(max(0, length - 1))]
+    out = [default_backbone] * (length - 1)
     for p in po_positions:
         if 1 <= p <= length - 1:
-            pattern[p - 1] = "PO"
-    return pattern
+            out[p - 1] = "PO"
+    return out
 
 
 def build_chemistry_layout(
@@ -638,6 +674,7 @@ def generate_steric_blocking_aso_candidates(
     full_modification: str = "2'-MOE",
     default_backbone: str = "PS",
     po_link_positions: Iterable[int] = (),
+    backbone_pattern: Any = None,
     helm_symbols: Dict[str, Any] | None = None,
     annotations: Optional[List[Dict[str, Any]]] = None,
 ) -> List[StericBlockingASOCandidate]:
@@ -683,6 +720,7 @@ def generate_steric_blocking_aso_candidates(
                 length=length,
                 default_backbone=default_backbone,
                 po_positions=po_link_positions,
+                pattern=backbone_pattern,
             )
 
             chemistry_layout = build_chemistry_layout(
@@ -774,6 +812,7 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "full_modification": "2'-MOE",
             "default_backbone": "PS",
             "po_link_positions": [],
+            "backbone_pattern": "",
             "output_alphabet": "DNA",
             "helm_symbols": {},
             "annotations": [],
@@ -807,6 +846,7 @@ def parse_request(payload: Any) -> Dict[str, Any]:
             "full_modification": str(payload.get("full_modification", payload.get("wing_modification", "2'-MOE"))),
             "default_backbone": str(payload.get("default_backbone", "PS")),
             "po_link_positions": list(payload.get("po_link_positions", [])),
+            "backbone_pattern": payload.get("backbone_pattern", ""),
             "output_alphabet": str(payload.get("output_alphabet", "DNA")).upper(),
             "helm_symbols": helm_symbols,
             "annotations": annotations,
@@ -842,6 +882,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
     full_modification = request["full_modification"]
     default_backbone = request["default_backbone"]
     po_link_positions = request["po_link_positions"]
+    backbone_pattern = request.get("backbone_pattern", "")
     output_alphabet = request["output_alphabet"]
     helm_symbols = request["helm_symbols"]
     annotations = request["annotations"]
@@ -892,6 +933,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         full_modification=full_modification,
         default_backbone=default_backbone,
         po_link_positions=po_link_positions,
+        backbone_pattern=backbone_pattern,
         helm_symbols=helm_symbols,
         annotations=annotations,
     )
@@ -1057,6 +1099,7 @@ def design_steric_blocking_aso_sites(payload: Any) -> Dict[str, Any]:
         "full_modification": normalize_full_modification(full_modification),
         "default_backbone": normalize_backbone(default_backbone),
         "po_link_positions": list(po_link_positions),
+        "backbone_pattern": "".join("S" if b == "PS" else "O" for b in parse_backbone_pattern(backbone_pattern)),
         "output_alphabet": output_alphabet,
         "helm_symbols_used": symbol_map,
         "annotations_supplied": annotations,

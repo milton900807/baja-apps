@@ -6,6 +6,93 @@ function () {
         let difference = 0.05;
         let secondNumber = randomNumber + difference;
 
+        // ---- tag colours: small ovals in the top right, on a white cell -----------------
+        // They used to be full-height colour bands across the cell, one per tag, which is
+        // the whole background of every tagged cell and made the value hard to read. They
+        // are dots now, and where a cell is too small for them to be legible they are left
+        // out rather than drawn as smudges.
+        function drawTagDots(ctx, x, y, w, h, groups, preferences, bg) {
+            ctx.fillStyle = bg || '#ffffff';
+            ctx.fillRect(x, y, w, h);
+            const keys = (groups && typeof groups === 'object') ? Object.keys(groups) : [];
+            if (!keys.length || !preferences) return;
+            if (w < 26 || h < 12) return;                       // too small to read: none at all
+            const rx = Math.max(2.2, Math.min(4.5, h * 0.16)), ry = Math.max(1.6, rx * 0.72);
+            const gap = rx * 2.6;
+            const room = Math.max(1, Math.floor((w * 0.5) / gap));
+            const n = Math.min(keys.length, room);
+            let cx = x + w - (rx + 3);
+            const cy = y + ry + 3;
+            ctx.save();
+            for (let i = 0; i < n; i++) {
+                const k = keys[i];
+                if (!preferences[k]) preferences[k] = generateRandomRGBAColor();
+                ctx.beginPath();
+                if (typeof ctx.ellipse === 'function') ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+                else ctx.arc(cx, cy, ry, 0, Math.PI * 2);
+                ctx.fillStyle = preferences[k] || 'rgba(120,120,250,0.6)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(10,37,64,0.28)';
+                ctx.lineWidth = 0.75;
+                ctx.stroke();
+                cx -= gap;
+            }
+            ctx.restore();
+        }
+
+        // ---- wrapped text: long strings break into lines inside the cell ----------------
+        // Word by word; a single word wider than the cell (a URL, an identifier) is broken
+        // by characters. Returns the lines at the font currently set on ctx.
+        function wrapLines(ctx, text, maxW) {
+            const out = [];
+            let line = '';
+            const push = (w) => {
+                // a word too wide for a line on its own: break it by characters
+                let rest = w;
+                while (rest && ctx.measureText(rest).width > maxW) {
+                    let n = rest.length;
+                    while (n > 1 && ctx.measureText(rest.slice(0, n)).width > maxW) n--;
+                    out.push(rest.slice(0, n));
+                    rest = rest.slice(n);
+                }
+                return rest;
+            };
+            for (const word of ('' + text).split(/\s+/).filter(Boolean)) {
+                const test = line ? line + ' ' + word : word;
+                if (ctx.measureText(test).width <= maxW) { line = test; continue; }
+                if (line) out.push(line);
+                line = push(word);
+            }
+            if (line) out.push(line);
+            return out;
+        }
+        // The largest font (up to maxFont) at which the wrapped text fits the box; when not
+        // even the smallest does, as many lines as fit with the last one ended by an ellipsis.
+        function layoutWrapped(ctx, text, W, H, family, maxFont) {
+            const padX = 6, padY = 4;
+            const boxW = W - padX * 2, boxH = H - padY * 2;
+            if (boxW < 24 || boxH < 8) return null;
+            const LH = 1.2, MIN = 7;
+            let lo = MIN, hi = Math.max(MIN, Math.floor(Math.min(maxFont, boxH))), best = null;
+            while (lo <= hi) {
+                const f = (lo + hi) >> 1;
+                ctx.font = f + 'px ' + family;
+                const lines = wrapLines(ctx, text, boxW);
+                if (lines.length * f * LH <= boxH) { best = { f, lines }; lo = f + 1; } else hi = f - 1;
+            }
+            if (best) return { f: best.f, lines: best.lines, padX, lh: best.f * LH, clipped: false };
+            ctx.font = MIN + 'px ' + family;
+            let lines = wrapLines(ctx, text, boxW);
+            const fit = Math.max(1, Math.floor(boxH / (MIN * LH)));
+            if (lines.length > fit) {
+                lines = lines.slice(0, fit);
+                let last = lines[fit - 1];
+                while (last.length > 1 && ctx.measureText(last + '\u2026').width > boxW) last = last.slice(0, -1);
+                lines[fit - 1] = last + '\u2026';
+            }
+            return { f: MIN, lines, padX, lh: MIN * LH, clipped: true };
+        }
+
         function updateNumbers() {
 
             randomNumber = 0.95;
@@ -710,20 +797,7 @@ function () {
                     ctx.fillRect(this.__screen_x, this.__screen_y, this.__screen_width, this.__screen_height);
                 } else {
                     if (this.group && Object.keys(this.group).length > 0) {
-                        let groupKeys = Object.keys(this.group);
-                        let segmentWidth = screen_width / groupKeys.length;
-
-                        groupKeys.forEach((groupKey, index) => {
-                            if (!preferences[groupKey]) {
-                                preferences[groupKey] = generateRandomRGBAColor();
-                            }
-                            let fillColor = preferences[groupKey] || 'rgba(120,120,250,0.2)';
-                            let rect_x = screen_x + (index * segmentWidth);
-
-                            ctx.fillStyle = fillColor;
-
-                            ctx.fillRect(rect_x, screen_y, segmentWidth, screen_height);
-                        });
+                        drawTagDots(ctx, screen_x, screen_y, screen_width, screen_height, this.group, preferences, this.bgcolor || '#ffffff');
                     } else {
                         ctx.fillStyle = this.bgcolor || '#F5F5F5';
                         ctx.fillRect(screen_x, screen_y, screen_width, screen_height);
@@ -836,9 +910,19 @@ function () {
             }
             // The largest font size (px) at which this cell's text fits inside it, or null
             // when there is nothing to fit. Binary search on the measured width and height.
+            // Long prose wraps: 24 characters or more that do not read as a number.
+            __wrapsText() {
+                const t = this.__displayText ? this.__displayText() : this.value;
+                const s = ('' + (t == null ? '' : t)).trim();
+                if (s.length < 24) return false;
+                return !/^[-+]?[\d,.$%\s]+(e[-+]?\d+)?$/i.test(s);
+            }
             fitFontPx(ctx) {
                 const text = this.__displayText();
                 if (!text || !ctx) return null;
+                // A wrapping cell fits itself line by line; letting it set the column's shared
+                // size squeezed every other cell in the column down to a one-line fit of it.
+                if (this.__wrapsText()) return null;
                 const w = (this.__screen_width || 0) * 0.85, h = (this.__screen_height || 0) * 0.85;
                 if (!(w > 0 && h > 0)) return null;
                 const fam = this.font || 'Arial';
@@ -1028,20 +1112,7 @@ function () {
                 let baseFontSize = Math.max(8, 8 * scaleFactor);
 
                 if (this.group && Object.keys(this.group).length > 0) {
-                    let groupKeys = Object.keys(this.group);
-                    let segmentWidth = screen_width / groupKeys.length;
-
-                    groupKeys.forEach((groupKey, index) => {
-                        if (!preferences[groupKey]) {
-                            preferences[groupKey] = generateRandomRGBAColor();
-                        }
-                        let fillColor = preferences[groupKey] || 'rgba(120,120,250,0.2)';
-                        let rect_x = screen_x + (index * segmentWidth);
-
-                        ctx.fillStyle = fillColor;
-
-                        ctx.fillRect(rect_x, screen_y, segmentWidth, screen_height);
-                    });
+                    drawTagDots(ctx, screen_x, screen_y, screen_width, screen_height, this.group, preferences, this.color || this.bgcolor || '#ffffff');
                 }
 
 
@@ -1127,6 +1198,27 @@ function () {
                 ctx.shadowBlur = 0;
 
                 let displayValue = this.__displayText();
+
+                // Long text: wrapped over as many lines as the cell holds, left aligned, at
+                // the column's size when it has one (so it matches its neighbours) or smaller
+                // until it fits. Laid out once per text and cell size, then reused.
+                if (displayValue && this.__wrapsText()) {
+                    const fam = this.font || 'Arial';
+                    const cap = Math.max(7, Math.min(
+                        (Number.isFinite(this.__colFontPx) && this.__colFontPx > 0) ? this.__colFontPx : baseFontSize,
+                        screen_height * 0.6));
+                    const key = displayValue + '|' + Math.round(screen_width) + '|' + Math.round(screen_height) + '|' + Math.round(cap) + '|' + fam;
+                    if (this.__wrapKey !== key) { this.__wrapKey = key; this.__wrapLay = layoutWrapped(ctx, '' + displayValue, screen_width, screen_height, fam, cap); }
+                    const L = this.__wrapLay;
+                    if (L) {
+                        ctx.font = L.f + 'px ' + fam;
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'top';
+                        const top = screen_y + (screen_height - L.lines.length * L.lh) / 2;
+                        for (let i = 0; i < L.lines.length; i++) ctx.fillText(L.lines[i], screen_x + L.padX, top + i * L.lh + (L.lh - L.f) / 2);
+                        displayValue = '';          // drawn: the one-line path below has nothing to do
+                    }
+                }
 
                 if (displayValue) {
 
@@ -1321,19 +1413,7 @@ function () {
 
                 } else
                     if (this.group && Object.keys(this.group).length > 0) {
-                        let groupKeys = Object.keys(this.group);
-                        let segmentWidth = screen_width / groupKeys.length;
-
-                        groupKeys.forEach((groupKey, index) => {
-
-                            if (!preferences[groupKey]) {
-                                preferences[groupKey] = generateRandomRGBAColor();
-                            }
-                            let fillColor = preferences[groupKey] || 'rgba(20,220,50,0.6)';
-                            let rect_x = screen_x + (index * segmentWidth);
-                            ctx.fillStyle = fillColor;
-                            ctx.fillRect(rect_x, screen_y, segmentWidth, screen_height);
-                        });
+                        drawTagDots(ctx, screen_x, screen_y, screen_width, screen_height, this.group, preferences, this.bgcolor || '#ffffff');
                     } else {
 
                         ctx.fillStyle = this.bgcolor || 'lightGray';

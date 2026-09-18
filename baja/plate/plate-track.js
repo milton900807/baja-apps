@@ -5535,6 +5535,8 @@ function (progress) {
                 }
                 await this._updateAllCalculations__();
                 await this._updateAllCalculations__();
+                // Cells whose formula came out as NaN are marked, so they can be traced.
+                try { this.markNaNCells(); } catch (e) { }
             }
             async updateAllCalculations() {
                 this.root = this.root.filter((obj, index, self) =>
@@ -6216,7 +6218,8 @@ function (progress) {
                 }
                 for (let pl of this.root) {
                     try {
-                        if (pl.wells[0][0] && pl.wells[0][0].properties && pl.wells[0][0].properties['package']) {
+                        // root also holds documents, which have no cells at all.
+                        if (pl.wells && pl.wells[0] && pl.wells[0][0] && pl.wells[0][0].properties && pl.wells[0][0].properties['package']) {
                             const udata = __decompress(pl.wells[0][0].properties['package'])
                             if (udata) {
                                 let ffs = Object.assign(new PlateTrack(), udata)
@@ -7784,6 +7787,37 @@ function (progress) {
                 return items;
             }
 
+            // A bookmark that frames a set of objects, rather than the view as it happens to
+            // be: the canvas has no folders, so a named view over a group of tables is how a
+            // group is kept together and reached again (Bookmarks in the navigation bar).
+            bookmarkObjects(name, objects, opts) {
+                const o = opts || {};
+                const list = (objects || []).filter(Boolean);
+                if (!name || !list.length) return null;
+                let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+                for (const ob of list) {
+                    const b = this.__maxWorldBounds(ob);
+                    if (!b) continue;
+                    x0 = Math.min(x0, b.x0); x1 = Math.max(x1, b.x1);
+                    y0 = Math.min(y0, b.yBot); y1 = Math.max(y1, b.yTop);
+                }
+                if (!isFinite(x0) || !isFinite(y1) || !(x1 > x0) || !(y1 > y0)) return null;
+                const padX = (x1 - x0) * (o.pad == null ? 0.08 : o.pad);
+                const padY = (y1 - y0) * (o.pad == null ? 0.08 : o.pad);
+                this.grid.rescale();
+                const g = Object.assign(new MGrid(), this.grid);
+                // The view keeps the canvas's shape, so the bookmark opens without distortion.
+                const aspect = Math.max(1e-6, (this.grid.height || 1) / (this.grid.width || 1));
+                let w = (x1 - x0) + padX * 2, h = (y1 - y0) + padY * 2;
+                if (h / w < aspect) h = w * aspect; else w = h / aspect;
+                const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+                g.xmin = cx - w / 2; g.xmax = cx + w / 2;
+                g.ymin = cy - h / 2; g.ymax = cy + h / 2;
+                try { g.rescale(); } catch (e) { }
+                this.bookmarks[name] = g;
+                try { if (window.__bajaNavPanel && window.__bajaNavPanel.refresh) window.__bajaNavPanel.refresh(); } catch (e) { }
+                return g;
+            }
             setBookmark(name) {
                 if (!name || name.length === 0) {
                     this.bookmarks[`${generateNautName()}`] = Object.assign(new MGrid(), this.grid)
@@ -7832,8 +7866,8 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
-                allDrawables.sort((a, b) => a.getLastTouched() - b.getLastTouched());
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
+                allDrawables.sort((a, b) => (a.getLastTouched() || 0) - (b.getLastTouched() || 0));
                 for (let i = allDrawables.length - 1; i >= 0; i--) {
                     const obj = allDrawables[i];
                     if (obj.isModal && obj.isModal(this)) {
@@ -7848,8 +7882,8 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
-                allDrawables.sort((a, b) => a.getLastTouched() - b.getLastTouched());
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
+                allDrawables.sort((a, b) => (a.getLastTouched() || 0) - (b.getLastTouched() || 0));
                 for (let i = allDrawables.length - 1; i >= 0; i--) {
                     const obj = allDrawables[i];
                     obj.__resizing = false;
@@ -7868,9 +7902,9 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
-                allDrawables.sort((a, b) => a.getLastTouched() - b.getLastTouched());
+                allDrawables.sort((a, b) => (a.getLastTouched() || 0) - (b.getLastTouched() || 0));
 
                 allDrawables.sort((a, b) => {
                     const aBg = a.isBackground ? 1 : 0;
@@ -9573,6 +9607,21 @@ function (progress) {
                     yRange = objH * ch / avail;
                     hscroll = false;
                     tlFill = true;
+                } else if (typeof obj.drawPlot === 'function') {
+                    // A CHART FITS THE WINDOW, BOTH WAYS. Fitted to the width alone, a chart
+                    // taller than it is wide ran off the bottom and the view was left with a
+                    // scroll -- maximize is supposed to show the whole object, not part of it
+                    // very large. A chart's shape matters (a plot stretched on one axis is a
+                    // different plot), so the two directions are not set independently as a
+                    // timeline's are: one scale is chosen, the larger of what the width needs
+                    // and what the height needs, and the chart sits in the middle of the room
+                    // left between the title bar and the bottom chrome.
+                    const avail = Math.max(120, ch - HEADER - this.__maxBottomPx(obj));
+                    const objH = Math.max(1e-6, b.yTop - b.yBot);
+                    const wpp = Math.max((width * (1 + 2 * sideFrac)) / cw, objH / avail);
+                    xRange = wpp * cw;
+                    yRange = wpp * ch;
+                    hscroll = false;
                 }
                 const centerX = (b.x0 + b.x1) / 2;
                 const xmin = hscroll ? (b.x0 - width * sideFrac) : ((xRange > width * (1 + 2 * sideFrac)) ? (centerX - xRange / 2) : (b.x0 - width * sideFrac));
@@ -10716,6 +10765,219 @@ function (progress) {
                     }
                 } catch (e) { }
                 return false;
+            }
+            // ---- NaN: find it, mark it, trace it to the cell it started from -------------
+            // A formula reading one empty or text cell answers NaN, and so does everything
+            // downstream of it. The cells are marked after each recalculation, and
+            // traceNaN() follows the references back to the cause (baja/plate/views/
+            // nan-trace.js), with a jump to every cell on the way.
+            __isNaNValue(v) {
+                if (typeof v === 'number') return !isFinite(v);
+                return /^\s*(nan|-?infinity)\s*$/i.test('' + (v == null ? '' : v));
+            }
+            nanCells(plates) {
+                const out = [];
+                for (const pl of (plates && plates.length ? plates : (this.root || []))) {
+                    if (!pl || !Array.isArray(pl.wells)) continue;
+                    for (let c = 0; c < pl.wells.length; c++) {
+                        const col = pl.wells[c] || [];
+                        for (let r = 1; r < col.length; r++) {
+                            const w = col[r];
+                            if (!w || !this.__isNaNValue(w.value)) continue;
+                            let f = null;
+                            try { f = pl.formulaTextForWell ? pl.formulaTextForWell(w) : null; } catch (e) { f = null; }
+                            if (!f) continue;                    // only computed cells
+                            out.push({ plate: pl, well: w, col: c, row: r });
+                        }
+                    }
+                }
+                return out;
+            }
+            markNaNCells() {
+                const NOTE = 'Not a number. In the table menu, Trace NaN shows where it starts.';
+                for (const pl of (this.root || [])) for (const col of (pl && pl.wells) || []) for (const w of col || []) {
+                    if (w && w.__nanMarked) { w.__nanMarked = false; try { if (w.__errorMessage === NOTE) w.clearError(); } catch (e) { } }
+                }
+                const list = this.nanCells();
+                for (const x of list) { try { x.well.setError(NOTE); x.well.__nanMarked = true; } catch (e) { } }
+                if (list.length && list.length !== this.__nanLastCount) {
+                    const tables = [...new Set(list.map(x => x.plate.name))];
+                    try { this.setMessage(list.length + (list.length === 1 ? ' cell is' : ' cells are') + ' NaN in ' + tables.slice(0, 3).join(', ')
+                        + (tables.length > 3 ? ' and ' + (tables.length - 3) + ' more' : '') + '. Table menu › Trace NaN shows where it starts.', 3); } catch (e) { }
+                }
+                this.__nanLastCount = list.length;
+                return list;
+            }
+            // Select a cell (its whole row lit) and zoom onto its table. Used by the tracer.
+            async jumpToCell(plate, well, note) {
+                if (!plate) return;
+                try { if (this.__maximized && this.exitMaximize && this.__maximized !== plate) this.exitMaximize(); } catch (e) { }
+                try { this.wb(null); } catch (e) { }
+                for (const pl of (this.root || [])) { try { if (pl.deselectAll) pl.deselectAll(); } catch (e) { } }
+                try { this.setSelected(plate); } catch (e) { }
+                if (well) {
+                    let row = -1;
+                    for (let c = 0; c < plate.wells.length && row < 0; c++) { const i = (plate.wells[c] || []).indexOf(well); if (i >= 0) row = i; }
+                    if (row >= 0) for (let c = 0; c < plate.wells.length; c++) {
+                        const w = plate.wells[c] && plate.wells[c][row];
+                        if (w) { try { w.selectIt(); } catch (e) { w.select = true; } }
+                    }
+                    this.selected_well = well;
+                }
+                try { if (this.zoomToFitTable) await this.zoomToFitTable(plate); else await this.zoomintoplate(plate); } catch (e) { }
+                if (note) { try { this.setMessage(note, 2); } catch (e) { } }
+            }
+            // Trace one NaN cell; with none given, the selected cell, else a list to pick from.
+            async traceNaN(plate, well) {
+                let pl = plate || this.selectedPlate || null;
+                let w = well || null;
+                if (!w && this.selected_well && pl && this.__isNaNValue(this.selected_well.value)) w = this.selected_well;
+                if (!w) {
+                    const list = this.nanCells(pl ? [pl] : null);
+                    const all = list.length ? list : this.nanCells();
+                    if (!all.length) { try { this.setMessage('No cell is NaN.', 2); } catch (e) { } return null; }
+                    if (all.length === 1) { pl = all[0].plate; w = all[0].well; }
+                    else return this.nanReport(all);
+                }
+                return exec('baja/plate/views/nan-trace.js', this, pl, w);
+            }
+            // Every NaN cell, grouped by table; each opens its trace.
+            async nanReport(list) {
+                const items = list && list.length ? list : this.nanCells();
+                const label = (x) => {
+                    const h = x.plate.wells[x.col] && x.plate.wells[x.col][0] ? ('' + x.plate.wells[x.col][0].value) : ('column ' + x.col);
+                    const l = x.plate.wells[0] && x.plate.wells[0][x.row] ? ('' + x.plate.wells[0][x.row].value) : ('row ' + x.row);
+                    return h + ' · ' + l;
+                };
+                const books = items.slice(0, 200).map((x) => ({
+                    section: x.plate.name, title: label(x), badge: 'NaN', icon: 'search', ready: true,
+                    blurb: 'Trace this cell back to where the NaN starts.',
+                    open: () => this.traceNaN(x.plate, x.well)
+                }));
+                return exec('baja/lib/shelf.js', {
+                    id: 'baja-nan-list', title: 'Cells that are NaN',
+                    subtitle: items.length + (items.length === 1 ? ' cell' : ' cells') + '. Several usually share one cause: trace any of them.',
+                    books: books
+                });
+            }
+            // A document on the canvas: prose kept as prose, beside the tables.
+            //   pt.addDocument('Method', '<h2>…</h2><p>…</p>')
+            //   pt.addDocument(existingDocumentObject)
+            async addDocument(name, html, opts) {
+                const o = opts || {};
+                let doc = name;
+                if (!doc || typeof doc === 'string') {
+                    const ModelDocument = await exec('baja/plate/model-document.js');
+                    doc = new ModelDocument(('' + (name || 'Document')), html || '', {});
+                }
+                // Replace one of the same name rather than stacking a second copy.
+                const old = (this.root || []).find(p => p && p.name === doc.name && p.plateType === 'document');
+                if (old) { try { this.removePlate(old); } catch (e) { } }
+                // Its size: a readable column by default, in the canvas's units.
+                try {
+                    const w = this.grid.worldWidth(o.width || 460), h = this.grid.worldHeight(o.height || 340);
+                    doc.grid.width = w; doc.grid.height = h;
+                } catch (e) { }
+                // Placed where a new table would go, so it does not land on anything.
+                try {
+                    if (typeof this.addNextAvailableX === 'function') this.addNextAvailableX(doc);
+                    else this.root.push(doc);
+                } catch (e) { this.root.push(doc); }
+                if ((this.root || []).indexOf(doc) < 0) this.root.push(doc);
+                try { this.generateTables?.(); } catch (e) { }
+                return doc;
+            }
+            // Put a set of tables on one cell size, so tables built together read as one
+            // surface rather than a pile of grids at different scales. The size taken is the
+            // LARGEST cell in the set, in each direction, because shrinking to the smallest
+            // would clip the text the other tables were sized for. Each table keeps its top
+            // left corner; only its width and height change. Returns how many it moved.
+            normalizeTableCellSizes(plates, opts) {
+                const o = opts || {};
+                const list = (plates && plates.length ? plates : (this.root || []))
+                    .filter(pl => pl && pl.grid && Array.isArray(pl.wells) && pl.wells.length);
+                if (list.length < 2) return 0;
+                const dims = (pl) => {
+                    const cols = Math.max(1, pl.wells.length);
+                    const rows = Math.max(1, ...pl.wells.map(c => (c ? c.length : 0)));
+                    return { cols, rows, cw: (pl.grid.width || 0) / cols, ch: (pl.grid.height || 0) / rows };
+                };
+                const all = list.map(dims);
+                // STRICTLY UNIFORM: one cell width and one cell height for every table, taken
+                // from the largest in each direction so nothing that was sized for its text is
+                // clipped. A table fitted to wrapped paragraphs therefore sets the height for
+                // all of them, which is the point -- they are read as one surface.
+                const cw = Math.max(...all.map(d => d.cw));
+                const ch = Math.max(...all.map(d => d.ch));
+                if (!(cw > 0 && ch > 0)) return 0;
+                let moved = 0;
+                list.forEach((pl, i) => {
+                    const d = all[i];
+                    const w = cw * d.cols, h = ch * d.rows;
+                    if (Math.abs(w - pl.grid.width) < 0.5 && Math.abs(h - pl.grid.height) < 0.5) return;
+                    const top = pl.grid.yi + pl.grid.height;
+                    try { if (typeof pl.setWidth === 'function') pl.setWidth(w); else pl.grid.width = w; } catch (e) { pl.grid.width = w; }
+                    try { if (typeof pl.setHeight === 'function') pl.setHeight(h); else pl.grid.height = h; } catch (e) { pl.grid.height = h; }
+                    pl.grid.yi = top - pl.grid.height;               // the top edge stays where it was
+                    try { pl.grid.rescale && pl.grid.rescale(); } catch (e) { }
+                    try { pl.__colFontCache = null; } catch (e) { }
+                    moved++;
+                });
+                return moved;
+            }
+            // Make a table's rows tall enough for its wrapped text. Every row of a table shares
+            // one height in this engine, so the table's rows grow together, by the factor its
+            // longest text needs, capped at four times (about six lines). The factor applied is
+            // kept on the table (text_row_scale, saved with it), so running this again resizes
+            // from the original height rather than compounding. The top edge stays put.
+            fitRowsToText(plates, opts) {
+                const o = opts || {};
+                const MAX = o.max || 4;
+                const list = (plates && plates.length) ? plates : (this.root || []);
+                let changed = 0;
+                for (const pl of list) {
+                    if (!pl || !Array.isArray(pl.wells) || !pl.grid) continue;
+                    const cols = pl.wells.length, rows = Math.max(0, ...pl.wells.map(c => (c ? c.length : 0)));
+                    if (cols < 1 || rows < 1) continue;
+                    const h = pl.grid.height, w = pl.grid.width;
+                    if (!(h > 0 && w > 0)) continue;
+                    const cur = (Number.isFinite(pl.text_row_scale) && pl.text_row_scale > 0) ? pl.text_row_scale : 1;
+                    const baseRow = (h / rows) / cur, colW = w / cols;
+                    // A readable line is about 0.45 of an ordinary row high, a character about
+                    // 0.55 of that wide, so a column holds this many characters per line. A line
+                    // takes 1.2 of the font, and 85% of the row is usable.
+                    const perLine = Math.max(4, (colW * 0.9) / (0.55 * 0.45 * baseRow));
+                    let need = 1;
+                    for (let c = 0; c < cols; c++) for (let r = 1; r < rows; r++) {
+                        const cell = pl.wells[c] && pl.wells[c][r];
+                        if (!cell || !cell.__wrapsText || !cell.__wrapsText()) continue;
+                        const len = ('' + (cell.__displayText ? cell.__displayText() : cell.value)).length;
+                        const lines = Math.ceil(len * 1.15 / perLine);          // word breaks waste some of each line
+                        need = Math.max(need, (lines * 0.45 * 1.2) / 0.85);
+                    }
+                    const scale = Math.min(MAX, Math.max(1, Math.round(need * 4) / 4));
+                    if (Math.abs(scale - cur) < 0.05) continue;
+                    const top = pl.grid.yi + h;
+                    const nh = (h / cur) * scale;
+                    try { if (typeof pl.setHeight === 'function') pl.setHeight(nh); else pl.grid.height = nh; } catch (e) { pl.grid.height = nh; }
+                    pl.grid.yi = top - pl.grid.height;                           // grow downward, top fixed
+                    try { pl.grid.rescale && pl.grid.rescale(); } catch (e) { }
+                    pl.text_row_scale = scale;
+                    changed++;
+                }
+                return changed;
+            }
+            // Pick a display type for every untyped data cell of these tables (all tables when
+            // none are named): money, percentages, counts, years, dates, links, badges...
+            // See baja/plate/views/auto-cell-types.js. Types already set are kept unless
+            // opts.overwrite. Called after a Build puts its tables on the canvas.
+            async autoTypeTables(plates, opts) {
+                const list = (plates && plates.length) ? plates : (this.root || []);
+                try {
+                    const r = await exec('baja/plate/views/auto-cell-types.js', this, list, opts || {});
+                    if (r && r.cells) console.log('[auto cell types]', r.cells, 'cells in', r.tables, 'tables:', r.byType);
+                    return r;
+                } catch (e) { console.warn('[auto cell types]', e); return null; }
             }
             // A table whose cells have shrunk below MIN_W x MIN_H screen pixels is drawn as a
             // placeholder: a see-through rectangle on its footprint with its name. Returns
@@ -17978,7 +18240,7 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
                 return allDrawables;
             }
@@ -17986,7 +18248,7 @@ function (progress) {
             getAllPlates() {
                 let allDrawables = [
                     ...(this.root || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
                 return allDrawables;
             }
@@ -17994,7 +18256,7 @@ function (progress) {
             getAllPlots() {
                 let allDrawables = [
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
                 return allDrawables;
             }
@@ -18002,7 +18264,7 @@ function (progress) {
             getAllGlyphs() {
                 let allDrawables = [
                     ...this.glyphs,
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
                 return allDrawables;
             }
@@ -18012,7 +18274,7 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
                     ...(this.m_plots || []),
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
 
                 for (let i = allDrawables.length - 1; i >= 0; i--) {
                     const obj = allDrawables[i];
@@ -18363,6 +18625,12 @@ function (progress) {
             }
 
             layoutCompactTetris(opts = {}) {
+                // One cell size across EVERY table first. The layout packs the tables against
+                // each other, so any difference in cell size shows as soon as they are side by
+                // side -- and a build only normalised the tables it had just made, leaving
+                // whatever was already on the canvas at its own scale. Pass normalize: false
+                // to lay out without touching sizes.
+                if (opts.normalize !== false) { try { this.normalizeTableCellSizes(this.root); } catch (e) { } }
                 const platesRaw = this.root;
                 const plotsRaw = this.m_plots;
                 const glyphsRaw = this.glyphs || [];
@@ -21267,8 +21535,8 @@ function (progress) {
                     ...this.glyphs,
                     ...(this.root || []),
 
-                ].filter(obj => obj && obj.getLastTouched() !== undefined);
-                allDrawables = allDrawables.sort((a, b) => a.getLastTouched() - b.getLastTouched());
+                ].filter(obj => obj && typeof obj.getLastTouched === 'function' && obj.getLastTouched() !== undefined);
+                allDrawables = allDrawables.sort((a, b) => (a.getLastTouched() || 0) - (b.getLastTouched() || 0));
 
                 return allDrawables[0]
             }

@@ -34,7 +34,10 @@ function (pt, plate) {
             T('ICON', 'Text', 'Icon', 'An icon chosen by name, for pictorial cells.', 'Display'),
 
             // Numbers
+            T('NUMBER', 'Numbers', 'Number', 'A number with decimals that suit its size: 12,345 · 123.4 · 12.35 · 0.0123.', 'Display'),
             T('INTEGER', 'Numbers', 'Integer', 'A whole number with thousands separators.', 'Display'),
+            T('YEAR', 'Numbers', 'Year', 'A year, shown without a thousands separator: 2027, not 2,027.', 'Display'),
+            T('SCIENTIFIC', 'Numbers', 'Scientific', 'A very small or very large value in scientific notation: 3.20 × 10⁻⁹.', 'Display'),
             T('Input_Number', 'Numbers', 'Number', 'An editable number; the model reads it as an input.', 'Input'),
             T('DELTA', 'Numbers', 'Change', 'A signed change with an up or down arrow, green when positive and red when negative.', 'Display'),
             T('MULTIPLE', 'Numbers', 'Multiple', 'A ratio shown as a multiple, such as 2.5×.', 'Display'),
@@ -68,7 +71,6 @@ function (pt, plate) {
             T('STATUS', 'Status and dates', 'Status', 'A state word with a coloured dot: done, pending, blocked.', 'Display'),
             T('DATE', 'Status and dates', 'Date', 'A date picked from a calendar (double-click the cell to choose), shown as year, month and day.', 'Input'),
             T('BUTTON', 'Status and dates', 'Button', 'A clickable button that runs the cell\'s action.', 'Action'),
-            T('CONTROL', 'Status and dates', 'Control', 'Marks the cell as a control input for the model.', 'Input'),
 
             // Structure
             T('ColumnHeader', 'Structure', 'Column header', 'Names the column beneath it.', 'Display'),
@@ -95,6 +97,41 @@ function (pt, plate) {
                 blurb: 'Display type "' + k + '".', selected: current === k, open: () => apply(k)
             });
         }
+        // Automatic: the rule-based detection a Build runs, and the older AI suggestion,
+        // which used to live in a second, raw "Data Type" list under Data...
+        const table = plate && Array.isArray(plate.wells) ? plate : null;
+        books.unshift({
+            section: 'Automatic', title: 'Suggest with AI', badge: 'Auto',
+            blurb: 'Ask the model to choose a type for each selected cell from its value and tags. Experimental, and slower.',
+            selected: false,
+            open: async () => {
+                if (!wells.length) { try { pt.setMessage('Select the cells first.', 2); } catch (e) { } return; }
+                try { hideAllModal(); } catch (e) { }
+                try { if (HM && typeof pushHistory === 'function') pushHistory(HM(plate)); } catch (e) { }
+                try { pt.setMessage('Suggesting cell types…', 5); } catch (e) { }
+                try {
+                    const items = wells.map((w) => ({ id: w.uid, value: w.value, fields: Object.keys(w.group || {}), wtype: '' }));
+                    const paint = await exec('py/openai/paint-wells.py', items, canonical.filter(k => !k.startsWith('Input_')));
+                    try { pt.killSprite(); } catch (e) { }
+                    pt.applyAssignmentWellTypes(paint);
+                } catch (e) { try { pt.killSprite(); } catch (e2) { } try { pt.setMessage('The suggestion failed: ' + (e && e.message || e), 3); } catch (e2) { } }
+            }
+        });
+        books.unshift({
+            section: 'Automatic', title: 'Detect automatically', badge: 'Auto',
+            blurb: (wells.length
+                ? 'Choose a type for each selected cell from its column header, row label, unit and value: money, percentages, counts, years, dates, links, badges.'
+                : 'Choose a type for every untyped cell of this table from its column header, row label, unit and value. Types already set are kept.'),
+            selected: false,
+            open: async () => {
+                if (!table) return;
+                try { if (HM && typeof pushHistory === 'function') pushHistory(HM(plate)); } catch (e) { }
+                const r = await pt.autoTypeTables([table], wells.length ? { cells: wells, overwrite: true } : {});
+                try { hideAllModal(); } catch (e) { }
+                const n = (r && r.cells) || 0;
+                try { pt.setMessage(n ? n + (n === 1 ? ' cell' : ' cells') + ' typed: ' + Object.keys(r.byType).map(k => k.toLowerCase().replace(/_/g, ' ')).join(', ') : 'Nothing to change: every cell already has a type, or none could be told.', 2); } catch (e) { }
+            }
+        });
         books.push({
             section: 'Reset', title: 'Default', badge: 'Reset',
             blurb: 'Clear the type and show the raw value.',

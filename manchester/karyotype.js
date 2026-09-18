@@ -8718,6 +8718,123 @@ function (path, config) {
                 return row;
             }));
         };
+        // A PDF write-up of the allele-selective result: what was looked for, what the file
+        // supports, every site with the allele to aim at and the one that must survive, the
+        // genes they fall in, what was passed over and why, and where this stops. Built from
+        // the same result the shelf shows and rendered by /export-table, like the other
+        // reports on this screen. Plain ASCII: the PDF font can draw nothing else.
+        const alleleSelectiveReportPDF = async () => {
+            const R = lohAlleleResult;
+            if (!R || !R.sites) { dlErr('Run the allele-selective scan first.'); return; }
+            const A = pdfAscii;
+            const W = asW(R.mode);
+            const somatic = !R.mode || R.mode === 'somatic';
+            const sites = R.sites || [];
+            const mrna = sites.filter((x) => x.in_mature_transcript);
+            const coding = sites.filter((x) => x.coding);
+            const yn = (v) => (v ? 'yes' : 'no');
+            const sheets = [];
+
+            // 1. What this is, and what it rests on.
+            sheets.push({ name: 'Summary', rows: [{
+                'Mechanism': A(W.name || 'Allele-selective targeting'),
+                'What it looks for': A('A single base where the two copies of a gene read differently, so an agent built on '
+                    + 'it acts on one copy and leaves the other intact. The margin is sequence, not dose.'),
+                'Reasoning': A(W.rationale || ''),
+                'Came from': A(R.source === 'baja3' ? (BAJA3 + ' targets that are also down to one allele here')
+                    : (R.source === 'level' ? 'The allele-selective mechanisms screen' : 'The loss-of-heterozygosity scan')),
+                'Read over': A(R.scopeLabel || 'the loaded variants'),
+                'Sites': sites.length,
+                'Genes': R.genes,
+                'In the mature transcript': mrna.length + ' of ' + sites.length,
+                'In coding sequence': coding.length + ' of ' + sites.length,
+                'Retention inferred, not measured': somatic ? (R.inferred || 0) : 'n/a',
+                'Sample': A(dlSpecies() + (R.sample ? ' - ' + R.sample : '')),
+                'Run': R.at ? new Date(R.at).toLocaleString() : new Date().toLocaleString(),
+            }] });
+
+            // 2. The genes, each with how many of its sites are usable.
+            const byGeneR = {};
+            sites.forEach((x) => { (byGeneR[x.gene] = byGeneR[x.gene] || []).push(x); });
+            const geneRows = Object.keys(byGeneR).map((gn) => {
+                const list = byGeneR[gn];
+                const usable = list.filter((x) => x.in_mature_transcript).length;
+                return {
+                    'Gene': A(gn),
+                    'Discriminating sites': list.length,
+                    'In the mature transcript': usable,
+                    'Regions': A([...new Set(list.map((x) => x.region).filter(Boolean))].join(', ')),
+                    'Transcript': A([...new Set(list.map((x) => x.transcript).filter(Boolean))].join(', ')),
+                    'Basis': A([...new Set(list.map((x) => (x.as && x.as.why) || x.evidence || 'measured'))].join('; ')),
+                };
+            });
+            if (geneRows.length) sheets.push({ name: 'Genes', rows: geneRows });
+
+            // 3. Every site: the allele to aim at, the allele that must survive, the context.
+            const cap = 400;
+            const siteRows = sites.slice(0, cap).map((x) => {
+                const row = {
+                    'Gene': A(x.gene),
+                    'Position': A(x.chr + ':' + x.pos),
+                    'Reference / alternate': A(x.ref + ' / ' + x.alt),
+                };
+                row[A(W.csvKept || 'allele to target')] = A(x.retained_allele);
+                row[A(W.csvLost || 'allele that must survive')] = A(x.lost_allele);
+                row['Basis'] = A((x.as && x.as.why) || x.evidence || 'measured');
+                row['Region'] = A(x.region);
+                row['In the mature transcript'] = yn(x.in_mature_transcript);
+                row['Coding'] = yn(x.coding);
+                row['Transcript'] = A(x.transcript);
+                row['Strand'] = A(x.strand);
+                if (somatic) {
+                    row['Allele fraction, tumor'] = x.tumor_baf;
+                    row['Allele fraction, germline'] = x.germline_baf;
+                }
+                row['Sequence to target'] = A(x.context_retained);
+                row[A(W.csvOther || 'the other copy')] = A(x.context_lost);
+                row['Context span'] = A(x.context_start + '-' + x.context_end);
+                return row;
+            });
+            if (siteRows.length) sheets.push({
+                name: 'Sites' + (sites.length > cap ? ' (first ' + cap + ' of ' + sites.length + ')' : ''), rows: siteRows });
+
+            // 4. What was checked and set aside.
+            const passRows = [];
+            if (R.source === 'baja3' && R.rejected) passRows.push({
+                'Checked and not down to one allele here': R.rejected,
+                'Why': A((R.rejectedWhy || []).join('; ')) });
+            (R.skipped || []).slice(0, 60).forEach((sk) => passRows.push({ 'Gene': A(sk.gene), 'Passed over because': A(sk.why) }));
+            if (passRows.length) sheets.push({ name: 'Passed over', rows: passRows });
+
+            // 5. Where this stops.
+            sheets.push({ name: 'How to read this', rows: [{
+                'A site is not an oligo': A('Each row is a base where the two copies differ. Turning one into an agent is a '
+                    + 'design step of its own: the discriminating base has to sit where the chemistry can read it, and the '
+                    + 'sequence around it decides whether anything selective can be built at all.'),
+                'The mature transcript matters': A('A site in an intron or outside the transcript is not reachable by an '
+                    + 'agent that acts on mRNA. Those rows are kept because they document the gene, not because they are targets.'),
+                'Measured against inferred': somatic ? A('Where the basis says inferred, the tumor file carries no record at that '
+                    + 'position and a single retained allele was concluded from its absence, not read off the reads. Confirm those '
+                    + 'before relying on them.') : A('Every row here comes from the phased file as it was loaded.'),
+                'Allele fractions': somatic ? A('Fractions are as reported in the files. A fraction near one half in the tumor is '
+                    + 'not a single allele; the scan applies its thresholds, and the documentation on the previous screen gives them.')
+                    : 'n/a',
+                'Source': A('oligodesigner.com Genome Viewer, ' + new Date().toLocaleString()),
+            }] });
+
+            for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = A(v); }
+            const base = dlSafe(dlSpecies() + '_allele_selective_report');
+            const title = A('Allele-selective targets - ' + (W.name || '') + ' - ' + sites.length + ' site'
+                + (sites.length === 1 ? '' : 's') + ' in ' + R.genes + ' gene' + (R.genes === 1 ? '' : 's'));
+            dlMsg('Building the PDF...');
+            try {
+                const rs = await POSTJSON({ format: 'pdf', filename: base, title: title, sheets: sheets }, dlHost + '/export-table');
+                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+                if (body && body.b64) { dlSaveB64(body.b64, body.filename || (base + '.pdf'), body.mime || 'application/pdf'); dlMsg((body.filename || base) + ' downloaded.'); }
+                else dlErr('Could not build the PDF: ' + ((body && (body.error || body.message)) || 'server error'));
+            } catch (e) { dlErr('Could not build the PDF: ' + (e && e.message ? e.message : e)); }
+        };
+
         const lohAlleleMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             if (!lohAlleleResult) { lohSlMenu(); return; }
@@ -8746,6 +8863,10 @@ function (path, config) {
             if (R.skipped && R.skipped.length) books.push({ section: 'Allele-selective targets', note: true,
                 title: 'Passed over: ' + R.skipped.slice(0, 8).map((s) => s.gene + ' (' + s.why + ')').join('; ')
                     + (R.skipped.length > 8 ? ', and ' + (R.skipped.length - 8) + ' more.' : '.') });
+            books.push({ section: 'Allele-selective targets', title: 'Report as PDF', badge: 'pdf', icon: 'picture_as_pdf', ready: true,
+                blurb: 'The written result: what was looked for, what the file supports, every site with the allele to aim at '
+                    + 'and the one that must survive, the genes, what was passed over, and where this stops.',
+                open: () => { alleleSelectiveReportPDF(); } });
             books.push({ section: 'Allele-selective targets', title: 'Download the sites as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'Each site with the allele to aim at, the allele that must survive, the region, and 61 bases of context on both.',
                 open: () => { try { dlSaveText(lohAlleleCSV(), dlSafe(dlSpecies() + '_allele_selective_sites') + '.csv', 'text/csv'); dlMsg('Sites downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });

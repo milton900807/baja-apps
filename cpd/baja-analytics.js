@@ -2908,11 +2908,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -2967,7 +2967,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -3128,11 +3128,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -3187,7 +3187,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -3354,11 +3354,11 @@ function (path, config) {
 
                             currentText += txt[i];
                             if (!initalText) {
-                                sequenceTextEditor.setContent('');
+                                sequenceTextEditor?.setContent('');
                                 clearInterval(interval)
                                 return;
                             }
-                            sequenceTextEditor.setContent(currentText);
+                            sequenceTextEditor?.setContent(currentText);
                             i++;
 
                             if (i >= txt.length) {
@@ -3411,7 +3411,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
 
@@ -3527,11 +3527,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -3585,7 +3585,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
 
@@ -4004,11 +4004,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4061,7 +4061,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
 
@@ -4160,6 +4160,10 @@ function (path, config) {
                     }
                     plate.applycolumnheaders?.();
                     pt.addPlateWithConsistentWellSize(plate);
+                    // Money, percentages, counts, dates, links and badges shown as such.
+                    try { await pt.autoTypeTables([plate]); } catch (e) { }
+                    // Long text wraps in its cell; give those rows the height to show it.
+                    try { pt.fitRowsToText([plate]); } catch (e) { }
                     return plate;
                 };
 
@@ -4224,6 +4228,8 @@ function (path, config) {
 
                             const drawn = [];
                             for (const spec of (result.tables || [])) drawn.push(await drawTable(spec));
+                            // One cell size across the tables this analysis produced.
+                            try { if (drawn.length > 1) pt.normalizeTableCellSizes(drawn.filter(Boolean)); } catch (e) { }
                             const d = result.detection || {};
                             const summary = `ΔΔCt: ${(d.targets || []).join(', ')} normalised to ${(d.reference_targets || []).join(' + ')}, calibrator ${(d.calibrator || []).join(', ')}`;
                             pt.setMessage(summary, 1.1);
@@ -4252,7 +4258,18 @@ function (path, config) {
                         let descHook = createIonFunction((p) => {
                             sequenceTextEditor = p;
                         });
-                        const txt = 'Transthyretin amyloidosis (hATTR polyneuropathy and ATTR cardiomyopathy), siRNA silencing TTR in the liver, United States';
+                        // A different worked prompt each time the panel opens (baja/analytics/
+                        // indication-examples.js), never the same one twice in a row.
+                        let txt = 'Transthyretin amyloidosis (polyneuropathy and cardiomyopathy), siRNA against TTR, United States';
+                        try {
+                            const pool = await exec('baja/analytics/indication-examples.js');
+                            if (Array.isArray(pool) && pool.length) {
+                                let k = Math.floor(Math.random() * pool.length);
+                                if (pool.length > 1 && k === window.__bajaIndicationExampleLast) k = (k + 1) % pool.length;
+                                window.__bajaIndicationExampleLast = k;
+                                txt = pool[k];
+                            }
+                        } catch (e) { }
                         let initalText = true;
                         setTimeout(() => {
                             let i = 0;
@@ -4262,11 +4279,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4297,6 +4314,110 @@ function (path, config) {
 
                             const drawn = [];
                             for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
+                            // The market model: formula tables over one table of editable inputs
+                            // (market size per indication and in total, cost to market, headline
+                            // numbers), built the way the Project model is. A re-run replaces them.
+                            let modelNote = '';
+                            if (result.model && result.model.tables) {
+                                try {
+                                    for (const nm of (result.model.names || [])) {
+                                        const old = (pt.root || []).find(p => p && p.name === nm);
+                                        if (old) pt.removePlate(old);
+                                    }
+                                    const built = await exec('baja/draw/data-model-to-tables-gpt', pt, result.model);
+                                    const rep = built && built.report ? built.report : null;
+                                    const errs = rep ? [].concat(rep.errors || [], rep.missingValues || []) : [];
+                                    if (errs.length) { modelNote = errs.length + ' model formula cell(s) did not resolve; see the console.'; console.log('[indication market] model report:', rep); }
+                                } catch (e) { modelNote = 'The formula model could not be built: ' + (e && e.message || e); }
+                                try { pt.updateCalculations(); } catch (e) { }
+                            }
+                            // The written part as a document object, not rows of a table.
+                            try {
+                                for (const d of (result.documents || [])) {
+                                    if (d && d.html) await pt.addDocument(d.name || 'Notes', d.html, { width: 480, height: 360 });
+                                }
+                            } catch (e) { console.warn('[indication market] document', e); }
+                            // The Competition tables go into a PUBLISHED OBJECT named Competition:
+                            // the app's own folder for a set of tables. The object sits on the
+                            // canvas as one card; opening it (its menu) loads the tables it holds.
+                            // The loose tables are taken off the canvas once they are inside it.
+                            try {
+                                const compNames = new Set((result.tables || []).filter(t => t && t.group === 'Competition').map(t => t.name));
+                                const comp = (pt.root || []).filter(p => p && compNames.has(p.name));
+                                if (comp.length) {
+                                    const HM = await exec('baja/history/HM');
+                                    const Plate = await exec('baja/plate/plate.js');
+                                    // The payload is a canvas holding just these tables: the track is
+                                    // serialised with its root swapped for them, then put back.
+                                    const keep = { root: pt.root, plots: pt.m_plots, glyphs: pt.glyphs };
+                                    let payload = null;
+                                    try {
+                                        pt.root = comp; pt.m_plots = []; pt.glyphs = [];
+                                        payload = compressbinaryData(compressString(HM(pt)));
+                                    } finally { pt.root = keep.root; pt.m_plots = keep.plots; pt.glyphs = keep.glyphs; }
+                                    if (payload) {
+                                        for (const c of comp) { try { pt.removePlate(c); } catch (e) { } }
+                                        const name = 'Competition';
+                                        const prev = (pt.root || []).find(p => p && p.name === name && p.plateType === 'package');
+                                        if (prev) { try { pt.removePlate(prev); } catch (e) { } }
+                                        const pack = new Plate(name, 1, 1);
+                                        pack.plateType = 'package';
+                                        pack.completeNullValues();
+                                        pack.setWellValue(0, 0, name);
+                                        pack.wells[0][0].properties['package'] = payload;
+                                        pack.setWellType(0, 0, 'PACKAGE');
+                                        pack.grid.width = pt.grid.worldWidth(200);
+                                        pack.grid.height = pt.grid.worldHeight(100);
+                                        try { pt.addNextAvailableX(pack); } catch (e) { pt.root.push(pack); }
+                                        if ((pt.root || []).indexOf(pack) < 0) pt.root.push(pack);
+                                        pt.setMessage('Competition published as an object: ' + comp.length
+                                            + (comp.length === 1 ? ' table' : ' tables') + ' inside it. Open it from its menu.', 3);
+                                    }
+                                }
+                            } catch (e) { console.warn('[indication market] competition package', e); }
+                            // Every table this build put on the canvas, the researched ones and the
+                            // model's, on one cell size: they are read together, so they should
+                            // sit on the same plane.
+                            try {
+                                const names = new Set([].concat(
+                                    (result.tables || []).map(t => t.name),
+                                    (result.model && result.model.names) || []));
+                                const batch = (pt.root || []).filter(p => p && names.has(p.name));
+                                if (batch.length > 1) pt.normalizeTableCellSizes(batch);
+                            } catch (e) { }
+                            // A pie of the patient populations: one slice per indication, primary
+                            // and expansion together, sized by the addressable population. The
+                            // tables carry the figures; this says at a glance where the patients
+                            // are, which is the first question asked of a market sizing.
+                            try {
+                                const pops = (result.detection && result.detection.populations) || [];
+                                if (pops.length > 1) {
+                                    const MPlot = await exec('flexigraph/plot.js');
+                                    const name = ((result.tables && result.tables[0] && result.tables[0].name) || 'Indication')
+                                        .replace(/_Market.*$/, '').replace(/_/g, ' ') + ' — addressable patients';
+                                    const old = (pt.m_plots || []).find(o => o && o.name === name);
+                                    if (old && pt.removePlot) { try { pt.removePlot(old); } catch (e) { } }
+                                    const points = pops.map((p) => ({
+                                        name: (p.type === 'Expansion' ? p.name + ' (expansion)' : p.name),
+                                        value: Math.max(0, Number(p.addressable) || 0), y: Math.max(0, Number(p.addressable) || 0)
+                                    })).filter(p => p.value > 0);
+                                    if (points.length > 1) {
+                                        const plot = new MPlot({ points });
+                                        plot.type = 'pie';
+                                        plot.name = name;
+                                        plot.fitScaleToData = false;
+                                        plot.grid.setxmin(0); plot.grid.setxmax(1); plot.grid.setymin(0); plot.grid.setymax(1);
+                                        plot.setWidth(pt.grid.worldWidth(420));
+                                        plot.setHeight(pt.grid.worldHeight(300));
+                                        pt.addPlot ? pt.addPlot(plot) : (pt.m_plots = (pt.m_plots || []).concat(plot));
+                                    }
+                                }
+                            } catch (e) { console.warn('[indication market] population pie', e); }
+                            // Spread every table so none sits on another, let the 800 ms layout
+                            // settle, then zoom out, animated, until all of them are in view.
+                            try { pt.layoutCompactTetris(); } catch (e) { }
+                            await new Promise(r => setTimeout(r, 900));
+                            try { await pt.zoomtfit(); } catch (e) { }
                             const d = result.detection || {};
                             const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');
                             const expansion = (d.expansion || []).length;
@@ -4305,9 +4426,9 @@ function (path, config) {
                             if (!d.searched) {
                                 pt.setMessage('Web search was unavailable: figures are from model knowledge and unverified.', 2);
                             }
+                            if (modelNote) pt.setMessage(modelNote, 3);
                             const g = CurrentLayout.getStashed('graph');
                             if (g) g.touchMe();
-                            if (drawn[0]) pt.zoomintoplate(drawn[0]);
                         };
 
                         let sequence_input = {
@@ -4352,7 +4473,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -4380,7 +4501,7 @@ function (path, config) {
                                                             })
                                                         },
                                                         {
-                                                            label: 'Find patients', ionFunction: createIonFunction(async () => {
+                                                            label: 'Run', ionFunction: createIonFunction(async () => {
                                                                 // Read before the card is torn down; if the example is still
                                                                 // typing, use the whole example rather than half of it.
                                                                 const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
@@ -4424,11 +4545,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4483,7 +4604,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -4603,11 +4724,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4662,7 +4783,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -4756,11 +4877,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4815,7 +4936,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -4912,11 +5033,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -4971,7 +5092,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -5105,11 +5226,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -5164,7 +5285,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -5304,11 +5425,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -5360,7 +5481,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -5497,11 +5618,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -5556,7 +5677,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -5694,11 +5815,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -5753,7 +5874,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -5863,11 +5984,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -5922,7 +6043,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -6030,11 +6151,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -6089,7 +6210,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -6199,11 +6320,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -6258,7 +6379,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -6358,11 +6479,11 @@ function (path, config) {
 
                                 currentText += txt[i];
                                 if (!initalText) {
-                                    sequenceTextEditor.setContent('');
+                                    sequenceTextEditor?.setContent('');
                                     clearInterval(interval)
                                     return;
                                 }
-                                sequenceTextEditor.setContent(currentText);
+                                sequenceTextEditor?.setContent(currentText);
                                 i++;
 
                                 if (i >= txt.length) {
@@ -6417,7 +6538,7 @@ function (path, config) {
                                                     },
                                                     onDidFocusEditorWidget: createIon(() => {
                                                         if (initalText)
-                                                            sequenceTextEditor.setContent("")
+                                                            sequenceTextEditor?.setContent("")
                                                         initalText = false;
                                                     }),
                                                     keybinding: {
@@ -7545,73 +7666,11 @@ function (path, config) {
             );
             CurrentLayout.stash('mainPanel', genegraph_panel_layout)
 
-            // ---- close ------------------------------------------------------------
-            //
-            // The same fixed ✕ the design editors use: top-right at the 44px offset that
-            // clears the application's navigation bar, off the toolbar which runs from the
-            // left. Confirms first, defaults to staying, and takes the tracked global
-            // listeners with it. The viewer has none: the browser's Back is its way out.
-            if (!__viewer) try {
-                const __CLOSE_ID = 'baja-analytics-close';
-                const __prevX = document.getElementById(__CLOSE_ID);
-                if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);
-                const __xb = document.createElement('div');
-                __xb.id = __CLOSE_ID;
-                __xb.title = 'Close this workspace';
-                __xb.setAttribute('role', 'button');
-                __xb.setAttribute('tabindex', '0');
-                __xb.setAttribute('aria-label', 'Close this workspace');
-                // Not in the top-right corner: that is where the object buttons and the
-                // maximized title bar live, and the ✕ sat on top of them. It joins the
-                // navigation bar at the bottom right when that exists, else stands bottom-left.
-                const __navBar = document.getElementById('baja-nav-panel');
-                if (__navBar) {
-                    // A small round ✕ icon at the end of the bar, not a labelled button.
-                    const __d = (typeof isMobile === 'function' && isMobile()) ? 26 : 22;
-                    __xb.textContent = '\u2715';
-                    __xb.style.cssText = 'width:' + __d + 'px;height:' + __d + 'px;margin-left:4px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
-                        + 'background:rgba(255,255,255,0.10);color:#eaf6f9;font:700 11px Arial,sans-serif;line-height:1;cursor:pointer;user-select:none;'
-                        + 'border:1px solid rgba(255,255,255,0.22);flex:0 0 auto;';
-                    __xb.onmouseenter = () => { try { __xb.style.background = '#FD5E53'; __xb.style.borderColor = '#FD5E53'; } catch (e) { } };
-                    __xb.onmouseleave = () => { try { __xb.style.background = 'rgba(255,255,255,0.10)'; __xb.style.borderColor = 'rgba(255,255,255,0.22)'; } catch (e) { } };
-                } else {
-                    __xb.textContent = '\u2715';
-                    __xb.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:2147483000;'
-                        + 'width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
-                        + 'background:#0b2545;color:#fff;font:700 15px Arial;cursor:pointer;user-select:none;'
-                        + 'box-shadow:0 4px 12px rgba(0,0,0,0.32);border:1px solid rgba(255,255,255,0.18);';
-                }
-                if (!__navBar) {
-                    __xb.onmouseenter = () => { try { __xb.style.filter = 'brightness(1.25)'; } catch (e) { } };
-                    __xb.onmouseleave = () => { try { __xb.style.filter = ''; } catch (e) { } };
-                }
-                const __goHome = async () => {
-                    let __leave = true;
-                    try {
-                        __leave = await exec('baja/lib/confirm-leave.js', {
-                            title: 'Close the analytics workspace?',
-                            message: 'Anything you have not saved will be lost.',
-                            confirmLabel: 'Close without saving'
-                        });
-                    } catch (e) { __leave = false; }
-                    if (!__leave) return;
-                    try { if (__xb.parentNode) __xb.parentNode.removeChild(__xb); } catch (e) { }
-                    try { if (window.__bajaNavPanel && window.__bajaNavPanel.destroy) window.__bajaNavPanel.destroy(); } catch (e) { }
-                    try {
-                        for (const rec of (window.__bajaCpdListeners || [])) {
-                            try { rec[0].removeEventListener(rec[1], rec[2], rec[3]); } catch (e) { }
-                        }
-                        window.__bajaCpdListeners = [];
-                    } catch (e) { }
-                    try { await exec('baja/init'); }
-                    catch (e) { console.log('[analytics] returning home failed: ' + e); }
-                };
-                __xb.onclick = __goHome;
-                __xb.onkeydown = (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); __goHome(); }
-                };
-                (__navBar || document.body).appendChild(__xb);
-            } catch (e) { console.log('[analytics] close button failed: ' + e); }
+            // (The fixed ✕ that closed this workspace is gone: the application's own
+            // navigation is the way out, and a button that discarded a session sat one
+            // stray click away from the canvas.) Any left over from a previous session
+            // on this page is removed.
+            try { const __x = document.getElementById('baja-analytics-close'); if (__x && __x.parentNode) __x.parentNode.removeChild(__x); } catch (e) { }
 
             working.status = 'complete'
             let m = window['env']['theme']

@@ -2454,6 +2454,62 @@ function () {
 
         }
 
+        // ---- ONE HOUSE STYLE -------------------------------------------------------------
+        // Every type above is superseded here by its counterpart in well-display-styles.js:
+        // one palette, one type family, one cell frame, one selection, and a contrast check
+        // so no value is drawn in a colour the eye cannot separate from its background. The
+        // definitions above are kept for reference until the new ones have been through a
+        // few real workbooks; nothing reads them once this assignment has run.
+        try {
+            const styled = await exec('baja/plate/views/well-display-styles.js', { Icon });
+            if (styled && typeof styled === 'object') Object.assign(t, styled);
+        } catch (e) { console.warn('[well display] house style not applied:', e); }
+
+        // ---- formatted numbers: NUMBER, YEAR, SCIENTIFIC -------------------------------
+        // Drawn exactly like INTEGER (rounded cell, bold centred text, red when negative);
+        // only the text differs. A value that is not a number is shown as it is, and an
+        // empty cell (a formula not yet computed) stays empty rather than showing 0.
+        const createFormattedNumber = (format) => (graph, grid, ctx, min, max, x, y, well) => {
+            if (!graph || !grid || !ctx || !well) return;
+            const fin = (v, fb) => (typeof v === 'number' && isFinite(v)) ? v : fb;
+            const sx = fin(graph.X(grid.X(well.x)), 0), sy = fin(graph.Y(grid.Y(well.y)), 0);
+            const sw = fin(well.__screen_width, 30), sh = fin(well.__screen_height, 30);
+            const scale = Math.min(sw, sh) / 60;
+            ctx.fillStyle = well.select ? 'magenta' : (well.color || 'white');
+            ctx.strokeStyle = 'rgba(120, 120, 100, 1)';
+            ctx.lineWidth = 1 * scale;
+            drawRoundedRect(ctx, sx, sy, sw, sh, 10);
+            ctx.fill(); ctx.stroke();
+            const raw = well.value;
+            const str = (raw == null) ? '' : ('' + raw).trim();
+            const num = (typeof raw === 'number') ? raw : (str !== '' && isFinite(+str.replace(/,/g, '')) ? +str.replace(/,/g, '') : NaN);
+            const text = isNaN(num) ? str : format(num);
+            if (!text) return;
+            ctx.font = `bold ${Math.max(10, 14 * scale)}pt Arial`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = (!isNaN(num) && num < 0) ? (well.negColor || 'crimson') : (well.fgcolor || 'black');
+            ctx.fillText(truncateTextCached(text, sw - 10, ctx), sx + sw / 2, sy + sh / 2);
+        };
+        // Decimals that suit the size: 12,345 · 123.4 · 12.35 · 0.0123.
+        t.NUMBER = createFormattedNumber((n) => {
+            const a = Math.abs(n);
+            if (a === 0) return '0';
+            if (a >= 1000) return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
+            if (a >= 100) return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(n);
+            if (a >= 1) return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(n);
+            return new Intl.NumberFormat('en-US', { maximumSignificantDigits: 3 }).format(n);
+        });
+        // A year is a label, not a quantity: 2027, never 2,027.
+        t.YEAR = createFormattedNumber((n) => String(Math.trunc(n)));
+        // Very small or very large values: 3.20 × 10⁻⁹.
+        const SUP = { '-': '\u207B', '0': '\u2070', '1': '\u00B9', '2': '\u00B2', '3': '\u00B3', '4': '\u2074', '5': '\u2075', '6': '\u2076', '7': '\u2077', '8': '\u2078', '9': '\u2079' };
+        t.SCIENTIFIC = createFormattedNumber((n) => {
+            if (n === 0) return '0';
+            const [m, e] = n.toExponential(2).split('e');
+            const exp = String(parseInt(e, 10)).split('').map(ch => SUP[ch] || ch).join('');
+            return m + ' \u00D7 10' + exp;
+        });
+
         // The canonical type names, captured BEFORE the aliases below are merged in, so a
         // picker can list each type once. Non-enumerable: Object.keys(t) is unchanged.
         try { Object.defineProperty(t, '__canonical', { value: Object.keys(t), enumerable: false }); } catch (e) { }
@@ -2466,6 +2522,8 @@ function () {
             DOLLAR: ['USD', 'US$', 'USD$', 'Dollar', '$'],
             PERCENT: ['PCT', '%', 'Percent', 'Percentage', 'fraction'],
             INTEGER: ['INT'],
+            NUMBER: ['DECIMAL', 'NUM'],
+            SCIENTIFIC: ['SCI', 'EXP'],
             BOOL: ['BOOLEAN', 'CHECKBOX'],
             STATUS: ['STATE'],
             BADGE: ['TAG', 'LABEL'],

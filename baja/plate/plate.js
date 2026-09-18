@@ -10,6 +10,9 @@ function () {
         const Menu = await exec('flexigraph/menu')
         let Icon = await exec('flexigraph/shapes/icon.js')
         const TransparentPlate = await exec('baja/plate/plate-transparent')
+        // Documents live in root beside the tables and load through buildPlateFromJSON below.
+        let ModelDocument = null;
+        try { ModelDocument = await exec('baja/plate/model-document.js'); } catch (e) { console.warn('[document] class unavailable', e); }
         let WellDisplay = await exec('baja/plate/views/well-display-factory')
         let HM = await exec('baja/history/HM')
         const bsize = 20;
@@ -1087,16 +1090,23 @@ function () {
                     } catch (e) { return this.name || 'Cell'; }
                 })();
                 const hasFormula = /^\s*=/.test('' + (__value == null ? '' : __value));
+                // A formula that came out NaN: the panel says so and offers the trace, which
+                // follows the references back to the cell where it started.
+                const isNaNResult = !!(hasFormula && first && pt.__isNaNValue && pt.__isNaNValue(first.value));
                 let r = null;
                 try {
                     r = await exec('baja/lib/prompt-text.js', {
                         title: cellName + (w.length > 1 ? ' (+' + (w.length - 1) + ' more)' : ''),
-                        message: hasFormula
+                        message: isNaNResult
+                            ? 'This formula comes out as NaN. Trace NaN follows its references back to the cell where it starts, and jumps there.'
+                            : hasFormula
                             ? 'A formula. Save formula applies it to every selected cell; Save text stores the text as typed. Ctrl+Enter saves.'
                             : 'Save text stores what you type in the selected cells; start with = to make it a formula. Ctrl+Enter saves.',
                         value: '' + (__value == null ? '' : __value),
                         mono: true,
-                        actions: hasFormula
+                        actions: isNaNResult
+                            ? [{ key: 'trace', label: 'Trace NaN' }, { key: 'formula', label: 'Save formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            : hasFormula
                             ? [{ key: 'formula', label: 'Save formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
                             : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'tag', label: 'Tag…' }],
                         completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
@@ -1105,6 +1115,7 @@ function () {
                 if (!r) return;
                 const code = '' + (r.text == null ? '' : r.text);
                 if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
+                if (r.action === 'trace') { try { await pt.traceNaN(this, first); } catch (e) { console.warn('trace NaN', e); } return; }
                 try { pushHistory(HM(this)); } catch (e) { }
                 try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
                 if (r.action === 'formula') {
@@ -13296,7 +13307,6 @@ function () {
             }
             deselectPlate() {
 
-                console.log(" deselect ")
                 this.textBoxX = null;
                 textStyle = null;
                 this.___drawfish = false;
@@ -15451,21 +15461,9 @@ function () {
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 0;
 
-                        if (this.selected) {
-                            ctx.save();
-                            ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'; // soft blue glow (tweak if you want)
-                            ctx.shadowBlur = 3; // controls spread (~10px visual)
-                            ctx.lineWidth = 2;
-                            ctx.strokeStyle = 'rgba(85, 85, 85, 0.4)';
-                            const glowOffset = 7;
-                            ctx.strokeRect(
-                                xsc - glowOffset,
-                                ysc,
-                                screen_width + glowOffset * 2,
-                                yscreen_height + glowOffset * 2
-                            );
-                            ctx.restore();
-                        }
+                        // (The grey shadowed rectangle that used to ring a selected table is gone: the
+                        // selection already shows in the table's buttons and its selected cells, and the
+                        // ring sat outside the table's own edge, over whatever was beside it.)
 
                         if (cell_width > 50 || cell_height > 20) {
                             for (let x = min_x; x < max_x; x++) {
