@@ -10868,18 +10868,33 @@ function (progress) {
                 let doc = name;
                 if (!doc || typeof doc === 'string') {
                     const ModelDocument = await exec('baja/plate/model-document.js');
-                    doc = new ModelDocument(('' + (name || 'Document')), html || '', {});
+                    doc = new ModelDocument(('' + (name || 'Document')), html || '', { source: o.source || '' });
                 }
-                // Replace one of the same name rather than stacking a second copy.
-                const old = (this.root || []).find(p => p && p.name === doc.name && p.plateType === 'document');
-                if (old) { try { this.removePlate(old); } catch (e) { } }
+                // A builder re-run replaces its own document rather than stacking a second
+                // copy. A hand-placed one (o.at) never replaces anything: two notes that
+                // happen to open with the same heading are two notes, so the name is made
+                // unique instead of the first one quietly disappearing.
+                const clash = (this.root || []).find(p => p && p.name === doc.name && p.plateType === 'document' && p !== doc);
+                if (clash && !o.at) { try { this.removePlate(clash); } catch (e) { } }
+                else if (clash) {
+                    const taken = new Set((this.root || []).map(p => p && p.name));
+                    let n = 2, base = doc.name;
+                    while (taken.has(base + ' (' + n + ')')) n++;
+                    doc.name = base + ' (' + n + ')';
+                }
                 // Its size: a readable column by default, in the canvas's units.
                 try {
                     const w = this.grid.worldWidth(o.width || 460), h = this.grid.worldHeight(o.height || 340);
                     doc.grid.width = w; doc.grid.height = h;
                 } catch (e) { }
-                // Placed where a new table would go, so it does not land on anything.
-                try {
+                // Placed where the caller dragged it (world units, bottom left), else where a
+                // new table would go, so it does not land on anything.
+                if (o.at && o.at.x != null && o.at.y != null) {
+                    doc.grid.xi = o.at.x; doc.grid.yi = o.at.y;
+                    if (o.at.w > 0) doc.grid.width = o.at.w;
+                    if (o.at.h > 0) doc.grid.height = o.at.h;
+                    this.root.push(doc);
+                } else try {
                     if (typeof this.addNextAvailableX === 'function') this.addNextAvailableX(doc);
                     else this.root.push(doc);
                 } catch (e) { this.root.push(doc); }

@@ -4499,6 +4499,13 @@ function (path, config) {
                                     },
 
                                     {
+                                        label: 'Document', ionfunction: createIonFunction(async () => {
+                                            // Prose on the canvas: a method, a caveat, the reasoning
+                                            // behind a number. A selected document is edited instead.
+                                            await exec('baja/draw/draw-document.js', pm.plateTrack)
+                                        })
+                                    },
+                                    {
                                         label: 'Postit Note', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-postit.js', pm.plateTrack)
 

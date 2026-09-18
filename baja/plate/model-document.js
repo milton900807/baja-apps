@@ -152,6 +152,10 @@ function () {
                 this.name = name || 'Document';
                 this.plateType = 'document';
                 this.html = html || '';
+                // What the author actually typed, when they typed shorthand rather than HTML.
+                // Kept so that editing hands back their own text instead of the markup this
+                // made of it; saved with the document, so it survives a reload.
+                this.source = o.source || '';
                 this.wells = [];                       // not a table: the table routines skip it
                 this.formula = {};
                 this.selected = false;
@@ -348,13 +352,14 @@ function () {
             toJSON() {
                 return {
                     uid: this.uid, name: this.name, plateType: 'document', html: this.html,
+                    source: this.source || '',
                     hidden: !!this.hidden, visible: this.visible !== false,
                     grid: { xi: this.grid.xi, yi: this.grid.yi, width: this.grid.width, height: this.grid.height, xmax: 1, ymax: 1, xmin: 0, ymin: 0 },
                     wells: [],
                 };
             }
             static buildFromJSON(j) {
-                const d = new ModelDocument(j.name, j.html, {});
+                const d = new ModelDocument(j.name, j.html, { source: j.source || '' });
                 d.uid = j.uid || d.uid;
                 d.hidden = !!j.hidden;
                 d.visible = j.visible !== false;
