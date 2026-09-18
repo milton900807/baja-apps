@@ -4137,6 +4137,32 @@ function (path, config) {
                     })
                 })
 
+                // Draws a finished {name, headers, rows} table from a python tool as plain values
+                // (no formulas), replacing any table of the same name. Shared by the ΔΔCt and
+                // indication-market items.
+                const drawValueTable = async (pt, spec) => {
+                    const Plate = await exec('baja/plate/plate');
+                    const GenericWell = await exec('baja/plate/well');
+                    const headers = spec.headers || [];
+                    const rows = spec.rows || [];
+                    const existing = (pt.root || []).find(p => p && p.name === spec.name);
+                    if (existing) pt.removePlate(existing);
+                    const plate = new Plate(spec.name, Math.max(1, headers.length), rows.length + 1);
+                    plate.last_touched = new Date();
+                    for (let c = 0; c < headers.length; c++) {
+                        const col = plate.wells[c] || (plate.wells[c] = []);
+                        for (let r = 0; r <= rows.length; r++) {
+                            const w = new GenericWell(`${String.fromCharCode(65 + (c % 26))}${r + 1}`);
+                            const v = r === 0 ? headers[c] : (rows[r - 1] || [])[c];
+                            w.setValue(v === undefined || v === null ? '' : v, true);
+                            col[r] = w;
+                        }
+                    }
+                    plate.applycolumnheaders?.();
+                    pt.addPlateWithConsistentWellSize(plate);
+                    return plate;
+                };
+
                 ai_create_file_items.push({
                     'label': 'ΔΔCt analysis', 'ionfunction': createIonFunction(async () => {
                         // ΔΔCt relative quantification on the Ct table already on the canvas.
@@ -4146,8 +4172,6 @@ function (path, config) {
                         // decide (no housekeeping name, no control label, several Ct tables) it
                         // answers needs_input and we ask with a canvas menu, then run again.
                         const pt = pm.plateTrack;
-                        const Plate = await exec('baja/plate/plate');
-                        const GenericWell = await exec('baja/plate/well');
 
                         const canvasTables = () => (pt.root || [])
                             .filter(p => p && Array.isArray(p.wells) && p.wells.length
@@ -4156,26 +4180,7 @@ function (path, config) {
 
                         // Result tables are plain values (no formulas): the analysis is a
                         // snapshot of the source table, documented by the *_ddCt_settings table.
-                        const drawTable = (spec) => {
-                            const headers = spec.headers || [];
-                            const rows = spec.rows || [];
-                            const existing = (pt.root || []).find(p => p && p.name === spec.name);
-                            if (existing) pt.removePlate(existing);
-                            const plate = new Plate(spec.name, Math.max(1, headers.length), rows.length + 1);
-                            plate.last_touched = new Date();
-                            for (let c = 0; c < headers.length; c++) {
-                                const col = plate.wells[c] || (plate.wells[c] = []);
-                                for (let r = 0; r <= rows.length; r++) {
-                                    const w = new GenericWell(`${String.fromCharCode(65 + (c % 26))}${r + 1}`);
-                                    const v = r === 0 ? headers[c] : (rows[r - 1] || [])[c];
-                                    w.setValue(v === undefined || v === null ? '' : v, true);
-                                    col[r] = w;
-                                }
-                            }
-                            plate.applycolumnheaders?.();
-                            pt.addPlateWithConsistentWellSize(plate);
-                            return plate;
-                        };
+                        const drawTable = (spec) => drawValueTable(pt, spec);
 
                         const closeMenu = () => { pt.menu = null; pt.menu_vis = false; };
 
@@ -4217,7 +4222,8 @@ function (path, config) {
                                 return;
                             }
 
-                            const drawn = (result.tables || []).map(drawTable);
+                            const drawn = [];
+                            for (const spec of (result.tables || [])) drawn.push(await drawTable(spec));
                             const d = result.detection || {};
                             const summary = `ΔΔCt: ${(d.targets || []).join(', ')} normalised to ${(d.reference_targets || []).join(' + ')}, calibrator ${(d.calibrator || []).join(', ')}`;
                             pt.setMessage(summary, 1.1);
@@ -4230,6 +4236,171 @@ function (path, config) {
                         };
 
                         await run({});
+                    })
+                })
+
+                ai_create_file_items.push({
+                    'label': 'Indication market', 'ionfunction': createIonFunction(async () => {
+                        // Patient-population sizing for one or more indications, plus expansion
+                        // indications the same approach could reach. py/analytics/indication-market.py
+                        // researches with Claude + live web search (a few minutes) and returns finished
+                        // value tables: <X>_Market, <X>_Expansion, <X>_Sources, <X>_Market_Summary.
+                        // Every figure keeps its source, and sources the search never returned are
+                        // marked "no - verify" so they are checked before going into a forecast.
+                        const pt = pm.plateTrack;
+                        let sequenceTextEditor;
+                        let descHook = createIonFunction((p) => {
+                            sequenceTextEditor = p;
+                        });
+                        const txt = 'Transthyretin amyloidosis (hATTR polyneuropathy and ATTR cardiomyopathy), siRNA silencing TTR in the liver, United States';
+                        let initalText = true;
+                        setTimeout(() => {
+                            let i = 0;
+                            let currentText = '';
+
+                            const interval = setInterval(() => {
+
+                                currentText += txt[i];
+                                if (!initalText) {
+                                    sequenceTextEditor.setContent('');
+                                    clearInterval(interval)
+                                    return;
+                                }
+                                sequenceTextEditor.setContent(currentText);
+                                i++;
+
+                                if (i >= txt.length) {
+                                    clearInterval(interval);
+                                }
+                            }, 10);
+                        }, 150);
+
+                        const run = async (prompt) => {
+                            pt.setMessage('Researching patient populations… this takes a few minutes', 5);
+                            const em = new EngineMonitor((msg) => {
+                                pt.updateSprite(msg)
+                            });
+                            let result;
+                            try {
+                                result = await exec('py/analytics/indication-market.py', em, prompt, {});
+                            } catch (e) {
+                                pt.killSprite();
+                                pt.setMessage('Indication market failed: ' + (e && e.message ? e.message : e), 1.1);
+                                return;
+                            }
+                            pt.killSprite();
+
+                            if (!result || result.status !== 'ok') {
+                                pt.setMessage((result && result.error) || 'Indication market failed', 1.1);
+                                return;
+                            }
+
+                            const drawn = [];
+                            for (const spec of (result.tables || [])) drawn.push(await drawValueTable(pt, spec));
+                            const d = result.detection || {};
+                            const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : '—');
+                            const expansion = (d.expansion || []).length;
+                            pt.setMessage(`${(d.requested || []).join(', ')}: ${fmt(d.addressable_requested)} addressable patients (${d.region || ''})`
+                                + (expansion ? ` · ${expansion} expansion indication${expansion === 1 ? '' : 's'}, ${fmt(d.addressable_expansion)} more` : ''), 1.1);
+                            if (!d.searched) {
+                                pt.setMessage('Web search was unavailable: figures are from model knowledge and unverified.', 2);
+                            }
+                            const g = CurrentLayout.getStashed('graph');
+                            if (g) g.touchMe();
+                            if (drawn[0]) pt.zoomintoplate(drawn[0]);
+                        };
+
+                        let sequence_input = {
+                            wid: 'card',
+                            "height": "300px",
+                            data: {
+                                "style.padding-top": '1px',
+                                "style.border": '1px',
+                                "style.height": "200px",
+                                cards: [
+                                    [
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: `
+                                                <H4>
+                                                      <font color="navy">
+                                                Name a disease or a list of indications. Add the target, mechanism or modality and a region if you have them:
+                                                </font> </h4>
+                                                `
+                                            }
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'text-editor',
+                                                refCallback: descHook,
+                                                data: {
+                                                    height: "300px",
+                                                    showButton: false,
+                                                    editorOptions: {
+                                                        value: '',
+                                                        language: 'text', automaticLayout: true, fontSize: 24, lineNumbers: "off",
+                                                        suggestOnTriggerCharacters: false,
+                                                        quickSuggestions: false,
+                                                        parameterHints: { enabled: false },
+                                                        minimap: { enabled: false },
+                                                        fontFamily: "Courier New, monospace",
+                                                        placeholder: "",
+                                                        cursorStyle: "block"
+                                                    },
+                                                    onDidFocusEditorWidget: createIon(() => {
+                                                        if (initalText)
+                                                            sequenceTextEditor.setContent("")
+                                                        initalText = false;
+                                                    }),
+                                                    keybinding: {
+                                                        'Ctrl+Enter': createIonFunction((content, lineNumber, col) => {
+                                                        })
+                                                    },
+                                                }
+                                            }
+                                        },
+                                        {
+                                            'width': '100%',
+                                            'component': {
+                                                wid: 'html',
+                                                data: '<hr>'
+                                            }
+                                        },
+                                        {
+                                            'component': {
+                                                wid: 'mt-button', data: {
+                                                    buttons: [
+                                                        {
+                                                            label: 'Cancel', ionFunction: createIonFunction(async () => {
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+                                                            })
+                                                        },
+                                                        {
+                                                            label: 'Find patients', ionFunction: createIonFunction(async () => {
+                                                                // Read before the card is torn down; if the example is still
+                                                                // typing, use the whole example rather than half of it.
+                                                                const prompt = (initalText ? txt : sequenceTextEditor.getContent() || '').trim();
+                                                                hideAllModal();
+                                                                CurrentLayout.reset('mainPanel')
+                                                                if (prompt.length < 2) {
+                                                                    pt.setMessage('Enter a disease or a list of indications.', 1.1);
+                                                                    return;
+                                                                }
+                                                                await run(prompt);
+                                                            })
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    ]]
+                            }
+                        }
+                        CurrentLayout.setComponent('mainPanel', sequence_input)
                     })
                 })
 

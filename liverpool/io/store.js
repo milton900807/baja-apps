@@ -79,9 +79,9 @@ function () {
         if (!text) return { ok: false, message: 'the file came back empty' };
         let doc;
         try { doc = (typeof text === 'string') ? JSON.parse(text) : text; }
-        catch (e) { return { ok: false, message: 'this file is not a Liverpool design (it is not JSON)' }; }
+        catch (e) { return { ok: false, message: 'this file is not a neoantigen design (it is not JSON)' }; }
         if (!doc || doc.type !== TYPE) {
-            return { ok: false, message: 'this is not a Liverpool design file' + (doc && doc.type ? ' (it says it is a ' + doc.type + ')' : '') };
+            return { ok: false, message: 'this is not a neoantigen design file' + (doc && doc.type ? ' (it says it is a ' + doc.type + ')' : '') };
         }
         if (doc.version > VERSION) {
             return { ok: false, message: 'this design was written by a newer version of the editor (version ' + doc.version + '); this one reads up to ' + VERSION };

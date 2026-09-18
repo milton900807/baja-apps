@@ -134,10 +134,11 @@ function (path, config) {
         panel.innerHTML = ''
             + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:14px 22px 12px;background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);">'
             + '  <div style="min-width:0;">'
-            + '    <div style="font:700 19px Arial;">Liverpool <span style="color:#9fb3c8;font-weight:400;">· neoantigen designer</span></div>'
+            + '    <div style="font:700 19px Arial;">BajaBio <span style="color:#9fb3c8;font-weight:400;">- Neoantigen Designer</span></div>'
             + '    <div id="lv-sub" style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">Design the peptides, then the mRNA that carries them.</div>'
             + '  </div>'
             + '  <div style="margin-left:auto;display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end;">'
+            + '    <button class="lv-btn" data-act="workflows">Workflows</button>'
             + '    <button class="lv-btn" data-act="open">Open</button>'
             + '    <button class="lv-btn" data-act="save">Save</button>'
             + '    <button class="lv-btn" data-act="close">Close</button>'
@@ -1045,6 +1046,14 @@ function (path, config) {
                 return;
             }
             if (act === 'goto') { tab = el.getAttribute('data-tab'); drawTabs(); render(); return; }
+            // Example workflows: routes through the five tabs. "Start here" resolves the tab
+            // its first step lives on, so the panel doubles as a way in.
+            if (act === 'workflows') {
+                let go = null;
+                try { go = await exec('liverpool/views/workflows.js'); } catch (e2) { say('The workflow list could not be opened: ' + (e2 && e2.message || e2), 'warn'); return; }
+                if (go && TABS.some((t) => t.id === go)) { tab = go; drawTabs(); render(); }
+                return;
+            }
             if (act === 'save') { await saveDesign(); return; }
             if (act === 'open') { await openDesign(); return; }
             if (act === 'add-allele') {
