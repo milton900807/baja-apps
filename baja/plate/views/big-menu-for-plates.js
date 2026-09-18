@@ -1921,6 +1921,91 @@ function (pt, sp) {
                                 },
                             },
                             {
+                                // Every Table[Label] the selected cells' formulas refer to, with
+                                // the value each resolves to, as a spreadsheet: one row per
+                                // reference (constants too), then a sheet with the formulas and
+                                // their results.
+                                label: 'Download references (Excel)',
+                                click: async () => {
+                                    smenu = null;
+                                    try {
+                                        const wells = sp.getSelectedWellsInOrder() || [];
+                                        const tables = Array.isArray(pt.root) ? pt.root : [];
+                                        const tableOf = (name) => { const k = ('' + name).toLowerCase(); return tables.find(t => t && ('' + t.name).toLowerCase() === k) || null; };
+                                        const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : (v == null ? '' : '' + v); };
+                                        const header = (t, c) => { const w = t && t.wells && t.wells[c] && t.wells[c][0]; return w && w.value != null ? '' + w.value : 'col ' + c; };
+                                        const rowLabel = (t, r) => { const w = t && t.wells && t.wells[0] && t.wells[0][r]; return w && w.value != null ? '' + w.value : 'row ' + r; };
+                                        // Where a well sits in its table: [c][r].
+                                        const posOf = (t, w) => { for (let c = 0; c < (t.wells || []).length; c++) for (let r = 0; r < (t.wells[c] || []).length; r++) if (t.wells[c][r] === w) return { c, r }; return null; };
+                                        // Table[Label] -> the wells carrying that label (the row group), else
+                                        // the column-1 value of the row whose first cell reads Label.
+                                        const resolve = (tname, label) => {
+                                            const t = tableOf(tname);
+                                            if (!t) return { error: 'table not found' };
+                                            const hits = [];
+                                            for (let c = 1; c < (t.wells || []).length; c++) for (let r = 0; r < (t.wells[c] || []).length; r++) {
+                                                const w = t.wells[c][r];
+                                                if (w && w.group && Object.prototype.hasOwnProperty.call(w.group, label) && w.value != null && w.value !== '') hits.push({ t, c, r, w });
+                                            }
+                                            if (!hits.length) {
+                                                for (let r = 1; r < ((t.wells[0]) || []).length; r++) {
+                                                    const w0 = t.wells[0][r];
+                                                    if (w0 && ('' + w0.value).trim() === label) { const w = t.wells[1] && t.wells[1][r]; if (w) hits.push({ t, c: 1, r, w }); }
+                                                }
+                                            }
+                                            if (!hits.length) return { error: 'label not found' };
+                                            return { hits };
+                                        };
+                                        const refRows = [], formulaRows = [];
+                                        const refG = /([A-Za-z_]\w*)\[((?:"[^"\n\r]*")|(?:[^\[\]]+))\]/g;
+                                        const constG = /(?<![\w\]\.])\d+(?:\.\d+)?(?![\w\[])/g;
+                                        for (const w of wells) {
+                                            const f = sp.formulaTextForWell(w);
+                                            if (!f) continue;
+                                            const pos = posOf(sp, w) || { c: -1, r: -1 };
+                                            const cell = sp.name + '[' + header(sp, pos.c) + '][' + rowLabel(sp, pos.r) + ']';
+                                            const expr = f.replace(/^=/, '');
+                                            let order = 0;
+                                            const seen = new Set();
+                                            expr.replace(refG, (full, tname, rawLabel) => {
+                                                if (seen.has(full)) return full;
+                                                seen.add(full);
+                                                const label = (rawLabel.startsWith('"') && rawLabel.endsWith('"')) ? rawLabel.slice(1, -1) : rawLabel;
+                                                const res = resolve(tname, label);
+                                                order++;
+                                                if (res.error) refRows.push({ Cell: cell, Order: order, Reference: full, Table: tname, Label: label, Column: '', Value: '', Note: res.error });
+                                                else for (const h of res.hits) refRows.push({ Cell: cell, Order: order, Reference: full, Table: h.t.name, Label: label, Column: header(h.t, h.c), Value: num(h.w.value), Note: res.hits.length > 1 ? 'one of ' + res.hits.length + ' cells' : '' });
+                                                return full;
+                                            });
+                                            // Literal numbers in the formula, so the sheet adds up to the result.
+                                            const stripped = expr.replace(refG, ' ');
+                                            const consts = stripped.match(constG) || [];
+                                            for (const k of consts) { order++; refRows.push({ Cell: cell, Order: order, Reference: k, Table: '', Label: '(constant)', Column: '', Value: num(k), Note: '' }); }
+                                            formulaRows.push({ Cell: cell, Formula: f, Result: num(w.value), References: seen.size, Constants: consts.length });
+                                        }
+                                        if (!formulaRows.length) { pt.setMessage('No formula in the selected cells.', 4); return; }
+                                        pt.setMessage('Building the spreadsheet…', 3);
+                                        const base = (('' + sp.name).replace(/[^A-Za-z0-9_\-]+/g, '_') || 'table') + '_references';
+                                        const host = window['env']['apiUrl'];
+                                        const r = await POSTJSON({ format: 'xlsx', filename: base, title: base, sheets: [{ name: 'References', rows: refRows }, { name: 'Formulas', rows: formulaRows }] }, host + '/export-table');
+                                        const body = (r && r.error && typeof r.error === 'object') ? r.error : r;
+                                        if (!(body && body.b64)) { pt.setMessage('Could not build the spreadsheet: ' + ((body && (body.error || body.message)) || 'server error'), 6); return; }
+                                        const bin = atob(body.b64);
+                                        const bytes = new Uint8Array(bin.length);
+                                        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                                        const a = document.createElement('a');
+                                        a.href = URL.createObjectURL(new Blob([bytes], { type: body.mime || 'application/octet-stream' }));
+                                        a.download = body.filename || (base + '.xlsx');
+                                        a.style.display = 'none';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(a.href); } catch (e) { } }, 500);
+                                        pt.setMessage((body.filename || base) + ' downloaded: ' + refRows.length + ' reference rows from ' + formulaRows.length + ' formula' + (formulaRows.length === 1 ? '' : 's') + '.', 5);
+                                    } catch (e) { pt.setMessage('Download failed: ' + (e && e.message || e), 6); console.error('[download references]', e); }
+                                },
+                                bg: 'yellow', fg: 'black'
+                            },
+                            {
                                 label: 'Add URL link',
                                 click: async () => {
                                     const va = await prompt("Link: " + sp.name, ["URL"], { "URL": '' }, 500, 300);

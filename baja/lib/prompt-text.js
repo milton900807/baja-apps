@@ -8,6 +8,10 @@ function (opts) {
     //   (plateTrack.getFormulaCompletions()). After "[" the row labels of the table written
     //   before it; after an operator (or at the start) the tables. Tab or Enter completes
     //   the highlighted match, arrows move, Esc closes the list.
+    //   opts.actions: [{ key, label }] puts several action buttons on the panel (the first is
+    //   the primary one Ctrl+Enter fires); the promise then resolves { action: key, text }
+    //   instead of the bare text, and null on cancel.
+    //   opts.mono: monospace text (formulas, code).
     return new Promise((resolve) => {
         const o = opts || {};
         const HKEY = o.historyKey ? ('baja.prompt.' + o.historyKey) : null;
@@ -24,6 +28,8 @@ function (opts) {
         const hist = HKEY ? readHist() : [];
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const mobile = (typeof isMobile === 'function') && isMobile();
+        const acts = Array.isArray(o.actions) ? o.actions.filter(a => a && a.key && a.label) : [];
+        const result = (text) => acts.length ? { action: acts[0].key, text } : text;
         try { const old = document.getElementById('baja-prompt-text'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         try { const old = document.getElementById('baja-prompt-text-backdrop'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
         const panel = document.createElement('div');
@@ -44,10 +50,13 @@ function (opts) {
                 + '<button id="pt-hist-clear" type="button" title="Forget the recent prompts" style="cursor:pointer;border-radius:8px;padding:6px 10px;font:600 11px system-ui;border:1px solid #c7d2dd;background:transparent;color:#6b7a90;">Clear</button>'
                 + '</div>' : '')
             + '<textarea id="pt-text" rows="' + (mobile ? 10 : 7) + '" placeholder="' + esc(o.placeholder || '') + '" style="flex:1;width:100%;box-sizing:border-box;resize:vertical;min-height:140px;'
-            + 'background:#f4f7fa;color:#0a2540;border:1px solid #c7d2dd;border-radius:8px;padding:10px 12px;font:14px/1.45 system-ui,-apple-system,Roboto,sans-serif;outline:none;"></textarea>'
+            + 'background:#f4f7fa;color:#0a2540;border:1px solid #c7d2dd;border-radius:8px;padding:10px 12px;font:14px/1.45 ' + (o.mono ? 'ui-monospace,Menlo,Consolas,monospace' : 'system-ui,-apple-system,Roboto,sans-serif') + ';outline:none;"></textarea>'
             + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">'
             + '<button id="pt-cancel" type="button" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:600 13px system-ui;border:1px solid #c7d2dd;background:transparent;color:#0a2540;">Cancel</button>'
-            + '<button id="pt-ok" type="button" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:600 13px system-ui;border:1px solid #1aa3bd;background:#1aa3bd;color:#ffffff;">' + esc(o.action || 'Build') + '</button>'
+            + (acts.length
+                ? acts.map((a, i) => '<button type="button" class="pt-act" data-key="' + esc(a.key) + '" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:600 13px system-ui;'
+                    + (i === 0 ? 'border:1px solid #1aa3bd;background:#1aa3bd;color:#ffffff;' : 'border:1px solid #1aa3bd;background:transparent;color:#0a2540;') + '">' + esc(a.label) + '</button>').join('')
+                : '<button id="pt-ok" type="button" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:600 13px system-ui;border:1px solid #1aa3bd;background:#1aa3bd;color:#ffffff;">' + esc(o.action || 'Build') + '</button>')
             + '</div>';
         const backdrop = document.createElement('div');
         backdrop.id = 'baja-prompt-text-backdrop';
@@ -157,12 +166,14 @@ function (opts) {
             if (open && e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); hi = Math.max(0, hi - 1); renderList(); return; }
             if (open && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideList(); return; }
             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
-            else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); writeHist(ta.value); close(('' + ta.value).trim()); }
+            else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); writeHist(ta.value); close(result(('' + ta.value).trim())); }
             else e.stopPropagation();   // typing stays in the textarea, never in the canvas
         };
         document.addEventListener('keydown', onKey, true);
         panel.querySelector('#pt-cancel').onclick = () => close(null);
-        panel.querySelector('#pt-ok').onclick = () => { writeHist(ta.value); close(('' + ta.value).trim()); };
+        const ok = panel.querySelector('#pt-ok');
+        if (ok) ok.onclick = () => { writeHist(ta.value); close(('' + ta.value).trim()); };
+        panel.querySelectorAll('.pt-act').forEach((b) => { b.onclick = () => { writeHist(ta.value); close({ action: b.getAttribute('data-key'), text: ('' + ta.value).trim() }); }; });
         backdrop.onclick = () => close(null);
         setTimeout(() => { try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) { } }, 0);
     });

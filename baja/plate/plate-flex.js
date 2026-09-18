@@ -14283,9 +14283,12 @@ function () {
                     if (min_x < 0) {
                         min_x = 0
                     }
-                    let max_x = this.grid.xmax;
+                    // Never past the table itself: the visible range is worked out from the view, and a
+                    // table that is small or far away on screen gave bounds in the millions, which the
+                    // cell loops below then walked one empty index at a time, every frame.
+                    let max_x = Math.min(this.grid.xmax, (this.wells || []).length);
 
-                    let max_y = Math.floor(this.grid.Ywc(vy - this.grid.yi * 2))
+                    let max_y = Math.min(Math.floor(this.grid.Ywc(vy - this.grid.yi * 2)), (this.wells && this.wells[0]) ? this.wells[0].length : 0)
                     let min_y = (Math.floor(this.grid.Ywc(vy - this.grid.yi * 2 + graph.worldHeight(graph.height))))
                     if (min_y < 0) {
                         min_y = 0;

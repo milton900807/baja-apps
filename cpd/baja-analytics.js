@@ -39,6 +39,13 @@ function (path, config) {
     }
     config.mode = 'editor'
     config.app = 'Generate'
+    // The view-only VIEWER (cpd/baja-analytics-viewer.js): the same app with no menubar, no
+    // navigation bar and no close button, read-only from the first frame. See __viewer below.
+    // Known by its own address too: the route hands the app whatever it parsed from the
+    // URL, which need not be an object, so a flag on config alone could be lost.
+    const __viewer = !!((config && config.viewer) || (() => { try { return /\/baja-analytics-viewer(\/|$)/.test(window.location.pathname); } catch (e) { return false; } })());
+    if (__viewer) { try { console.log('[analytics] viewer mode'); } catch (e) { } }
+    const __setSelectedPanel = (c) => { if (__viewer) return; CurrentLayout.setComponent('selectedPanel', c); };
 
     const EditorState = class EditorState {
         paste_to_graph = true;
@@ -134,6 +141,7 @@ function (path, config) {
             app;
             constructor() {
                 this.plateTrack = new PlateTrack(path);
+                if (__viewer) { this.plateTrack.__viewer = true; this.plateTrack.__readOnly = true; }
 
                 this.plateTrack.init();
                 this.setPlateTrack(this.plateTrack)
@@ -148,6 +156,19 @@ function (path, config) {
                 }
             }
             setPlateTrack(plateTrack) {
+                // A load builds a NEW track from the document (gene2plates: Object.assign(new
+                // PlateTrack(), fs)) and hands it here, so everything stamped on the old one
+                // before the load -- view only, the viewer, the single shared object -- was
+                // lost with it. Carry those over; the viewer is always view only.
+                try {
+                    const prev = this.plateTrack;
+                    if (prev && plateTrack && prev !== plateTrack) {
+                        for (const k of ['__viewer', '__readOnly', '__objectOnlyId', '__collabShareUrl']) {
+                            if (prev[k] != null && plateTrack[k] == null) plateTrack[k] = prev[k];
+                        }
+                    }
+                    if (__viewer && plateTrack) { plateTrack.__viewer = true; plateTrack.__readOnly = true; }
+                } catch (e) { }
                 this.plateTrack = plateTrack;
 
                 this.plateTrack.addSelectionListener(async (sel) => {
@@ -156,7 +177,7 @@ function (path, config) {
                         this.selectedPanel = null;
                         setTimeout(async () => {
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
 
                         }, 200);
 
@@ -169,10 +190,10 @@ function (path, config) {
 
                                 if (config.mode === 'viewer') {
                                     let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, sel)
-                                    CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                                    __setSelectedPanel(button_canvas2)
                                 } else {
                                     let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
-                                    CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                                    __setSelectedPanel(button_canvas2)
                                 }
                             }
                         }
@@ -182,10 +203,10 @@ function (path, config) {
                         this.selectedPanel = sel;
                         if (config.mode === 'viewer') {
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, sel)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
                         } else {
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, sel)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
                         }
                         if (sel) {
                             if (sel.name) {
@@ -234,15 +255,15 @@ function (path, config) {
                                             // The editor's menubar (File, Build, Draw, Share, tools); the viewer
                                             // variant carries none of them and lost the Build menu here.
                                             let button_canvas2 = await exec(config.mode === 'viewer' ? 'manchester/controls/navigation-panel-plates2-viewer.js' : 'manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, null)
-                                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                                            __setSelectedPanel(button_canvas2)
                                             return;
                                         }
                                         if (config.mode === 'viewer') {
                                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, s)
-                                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                                            __setSelectedPanel(button_canvas2)
                                         } else {
                                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, s)
-                                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                                            __setSelectedPanel(button_canvas2)
                                         }
                                     }
                                 }
@@ -279,21 +300,21 @@ function (path, config) {
                                 }
                             }
                         }
-                        CurrentLayout.setComponent('selectedPanel', menuItm)
+                        __setSelectedPanel(menuItm)
                     } else {
                         this.selectedPoint = sel;
                         if (!this.selectedPoint) {
                             let button_canvas2 = await exec(config.mode === 'viewer' ? 'manchester/controls/navigation-panel-plates2-viewer.js' : 'manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, null)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
                             return;
                         }
 
                         if (config.mode === 'viewer') {
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2-viewer.js', pm, this.selectedPanel, sel)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
                         } else {
                             let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm, this.selectedPanel, sel)
-                            CurrentLayout.setComponent('selectedPanel', button_canvas2)
+                            __setSelectedPanel(button_canvas2)
                         }
                     }
                 })
@@ -423,20 +444,46 @@ function (path, config) {
             let __loadedSharedFrom = '';
             // A share narrowed to one object: the recipient gets only that object, maximized.
             let __shareObject = null;
-            if (__collabShareCode && getUser()) {
+            // A PUBLIC link: anyone, signed in or not, gets the snapshot through /public-share.
+            let __publicShare = null;
+            // The viewer opens without sign-in only for a PUBLIC link. A link shared with a
+            // person needs the person: a visitor with no session is sent to the free sign-in
+            // and brought back here afterwards (oidc.returnTo, as the route guard does).
+            const __toLogin = () => {
+                try { sessionStorage.setItem('oidc.returnTo', window.location.pathname + window.location.search); } catch (e) { }
+                window.location.href = window.location.origin + '/login?free=1';
+            };
+            if (__collabShareCode && (getUser() || __viewer)) {
                 try {
-                    const __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser()));
-                    if (__r && __r.path) { path = __r.path; config = config || {}; config.user = getUser(); }
+                    let __r = await GETJSON(window['env']['apiUrl'] + '/share-open?code=' + encodeURIComponent(__collabShareCode) + '&user=' + encodeURIComponent(getUser() || ''));
+                    // GETJSON hands back the HTTP error itself on a 4xx: its .error is the
+                    // server's JSON ({ error, message }) and its .message the transport's
+                    // "Http failure response for …: 403 OK", which is not for people to read.
+                    if (__r && __r.error && typeof __r.error === 'object') {
+                        const body = __r.error, st = __r.status;
+                        __r = { error: body.error || 'error', message: body.message || (st === 403 ? 'This link was shared with a different email address. Sign in with the address it was sent to.' : st === 404 ? 'This share link was not found. It may have been revoked.' : st === 401 ? 'Sign in to open this document.' : 'This link could not be opened right now.') };
+                    } else if (__r && __r.error && typeof __r.message === 'string' && /^Http failure/i.test(__r.message)) {
+                        __r = { error: 'error', message: 'This link could not be opened right now (the server did not answer).' };
+                    }
+                    if (__viewer && !getUser() && !(__r && __r.public)) { __toLogin(); return; }
+                    if (__r && __r.public) { __publicShare = { code: __collabShareCode, name: __r.name || 'shared.bjb' }; try { pm.plateTrack.__readOnly = true; } catch (e) { } }
+                    if (__r && __r.path) { path = __r.path; config = config || {}; if (getUser()) config.user = getUser(); }
                     // View only: the recipient may look and pan; nothing they do is saved.
-                    if (__r && __r.access === 'view' && !__r.mine) { try { pm.plateTrack.__readOnly = true; } catch (e) { } }
-                    if (__r && __r.object && __r.object.id && !__r.mine) {
+                    if (__r && __r.access === 'view' && (!__r.mine || __viewer)) { try { pm.plateTrack.__readOnly = true; } catch (e) { } }
+                    // The owner opening their own link in the editor gets the whole workbook;
+                    // in the viewer everyone, owner included, gets the shared object alone.
+                    if (__r && __r.object && __r.object.id && (!__r.mine || __viewer)) {
                         __shareObject = { kind: __r.object.kind, id: '' + __r.object.id, label: __r.object.label || '', owner: __r.owner || '' };
                         // From the very first frame only the shared object is painted: the rest
                         // of the workbook travels for the formulas, not for the recipient's eyes.
                         try { pm.plateTrack.__objectOnlyId = __shareObject.id; } catch (e) { }
                     }
                     else if (__r && __r.message) { try { infoPrompt(__r.message); } catch (e) { } path = ''; }
-                } catch (e) { console.warn('share-open failed', e); path = ''; }
+                } catch (e) {
+                    console.warn('share-open failed', e);
+                    if (__viewer && !getUser()) { __toLogin(); return; }
+                    path = '';
+                }
             }
 
             // What a load produced, on the canvas and in the console: a refusal or an empty
@@ -452,7 +499,23 @@ function (path, config) {
                 } catch (e) { }
             };
             // Files are saved as .bjb (save-as-obj-tp appends it); .bajabio is the older name.
-            if (path.endsWith('.bajabio') || path.endsWith('.bjb')) {
+            if (__publicShare) {
+                const host_ = window['env']['apiUrl'];
+                let rs = null;
+                try { rs = await GETJSON(host_ + '/public-share?code=' + encodeURIComponent(__publicShare.code)); } catch (e) { rs = { msg: 'This public link could not be opened.' }; }
+                progressBar(45);
+                const p = __publicShare.name;
+                if (rs && !rs.msg && !rs.error) __reportLoad(rs, p);
+                if (!rs || rs.msg || rs.error) {
+                    clear();
+                    showWidget({ wid: 'html', data: '<hr> ' + ((rs && (rs.msg || rs.error)) || 'This public link is not available.') });
+                    return;
+                }
+                if (rs.plateTrack) rs.plateTrack.file = path;
+                if (rs.ptracks && rs.formulas) { pm.plateTrack.copyFromJSON(rs); graph.file = p; }
+                await graph.update(rs);
+                graph.file = p;
+            } else if (path.endsWith('.bajabio') || path.endsWith('.bjb')) {
                 let host_ = window['env']['apiUrl']
                 let index = path.lastIndexOf('/')
                 if ((config != null && config.user != null) || path.startsWith('/myfiles/')) {
@@ -544,14 +607,17 @@ function (path, config) {
                 const __u = new URL(window.location.href);
                 const __sharedM = ('' + (__loadedSharedFrom || '')).match(/\/shared\/([^\/]+)\//);
                 const __code = __collabShareCode || (__sharedM ? __sharedM[1] : '');
+                // The viewer keeps its own address: rewriting it to the editor's sent the
+                // next reload (and the shell's route check) back to the full Analytics app.
+                const __appPath = __viewer ? '/app/cpd/baja-analytics-viewer' : '/app/cpd/baja-analytics';
                 if (__code) {
-                    if (__u.searchParams.get('share') !== __code || __u.pathname !== '/app/cpd/baja-analytics') {
-                        window.history.replaceState({ collab: __loadedSharedFrom || path }, 'Baja - Project', '/app/cpd/baja-analytics?share=' + encodeURIComponent(__code));
+                    if (__u.searchParams.get('share') !== __code || __u.pathname !== __appPath) {
+                        window.history.replaceState({ collab: __loadedSharedFrom || path }, 'Baja - Project', __appPath + '?share=' + encodeURIComponent(__code));
                     }
                     try { if (!pm.plateTrack.__collabShareUrl) pm.plateTrack.__collabShareUrl = window.location.origin + '/s/' + __code; } catch (e) { }
                 } else if (path && /\.(bjb|bajabio)$/i.test(path)) {
-                    if (__u.pathname !== '/app/cpd/baja-analytics' || __u.searchParams.get('path') !== path) {
-                        window.history.replaceState({ bjb: path }, 'Baja - Project', '/app/cpd/baja-analytics?path=' + encodeURIComponent(path));
+                    if (__u.pathname !== __appPath || __u.searchParams.get('path') !== path) {
+                        window.history.replaceState({ bjb: path }, 'Baja - Project', __appPath + '?path=' + encodeURIComponent(path));
                     }
                 }
             } catch (e) { }
@@ -562,7 +628,7 @@ function (path, config) {
             // else who has this file open (shared copies are reached through their pointer).
             try {
                 const __collabPath = (typeof __loadedSharedFrom === 'string' && __loadedSharedFrom) ? __loadedSharedFrom : ((path && /\.(bjb|bajabio)$/i.test(path)) ? path : '');
-                if (__collabPath && getUser()) {
+                if (__collabPath && getUser() && !__publicShare) {
                     pm.plateTrack.__collab = await exec('baja/plate/collab/collab-session.js', pm.plateTrack, { path: __collabPath, graph });
                     if (pm.plateTrack.__collab) pm.plateTrack.__collabDoc = __collabPath;
                 }
@@ -571,7 +637,7 @@ function (path, config) {
             // Forward walk them) and bookmarks that open any object maximized.
             // A single-object share gets no navigation bar: its Places, Bookmarks, Go to and
             // Show all are ways out to the rest of the workbook, which is not the recipient's.
-            if (!pm.plateTrack.__objectOnlyId) {
+            if (!pm.plateTrack.__objectOnlyId && !__viewer) {
                 try { pm.plateTrack.__nav = await exec('baja/plate/views/navigation-history.js', pm.plateTrack, graph); } catch (e) { console.warn('navigation bar', e); }
             }
             // Single-object share: find the object once the document is on the canvas and
@@ -589,7 +655,11 @@ function (path, config) {
                 let tries = 0;
                 const pin = () => {
                     const obj = findShared();
-                    if (obj) { try { pt.enterObjectOnly(obj, { owner: __shareObject.owner, label: __shareObject.label }); } catch (e) { console.warn('object share', e); } return; }
+                    if (obj) {
+                        try { pt.enterObjectOnly(obj, { owner: __shareObject.owner, label: __shareObject.label }); } catch (e) { console.warn('object share', e); }
+                        if (__viewer) { try { graph.setMouseMode('navigate'); } catch (e) { } }
+                        return;
+                    }
                     if (++tries < 20) setTimeout(pin, 400);
                     else { try { pt.setMessage('The shared ' + (__shareObject.label || 'object') + ' is no longer in this document.', 2); } catch (e) { } }
                 };
@@ -1304,6 +1374,26 @@ function (path, config) {
                 // the press belongs to the menu and must not reach the tables beneath it.
                 if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) return;
                 mouse_down = true;
+                // The viewer: a press starts a pan and nothing else. Maximized, the track's
+                // own handler runs the drag through time and the scroll strip; on the open
+                // canvas the graph pans by itself. No selection, no buttons, no menus.
+                if (__viewer) {
+                    try {
+                        const pt = pm.plateTrack;
+                        if (pt.__maximized) { await pt.mouseDown(scx, scy); return; }
+                        // The one gesture a reader has: a drag on the timeline moves through
+                        // TIME (the window slides under the pointer, either way), not the
+                        // canvas. Off the timeline the canvas pans as usual.
+                        pt.__viewerDrag = null;
+                        for (const o of (pt.m_plots || [])) {
+                            if (!(pt.__tlIs && pt.__tlIs(o))) continue;
+                            let hit = false;
+                            try { hit = !!(o.inside && o.inside(pt.grid, scx, scy)); } catch (e) { hit = false; }
+                            if (hit) { pt.__viewerDrag = (typeof pt.__tlDragStart === 'function') ? pt.__tlDragStart(o, scx, scy) : { o, lastX: scx, sx: scx, sy: scy, moved: false }; try { graph.__suppressPan = true; } catch (e) { } break; }
+                        }
+                    } catch (e) { }
+                    return;
+                }
                 let mmx = pm.plateTrack.grid.Xwc(scx);
                 let mmy = pm.plateTrack.grid.Ywc(scy);
                 if (smenu && !smenu.isIn(pm.plateTrack.grid, mmx, mmy)) {
@@ -1389,6 +1479,15 @@ function (path, config) {
                 px = 0;
                 py = 0;
                 mouse_down = false;
+                if (__viewer) {
+                    __touchPx = null; __touchPy = null; __touchSy = null;
+                    try {
+                        const pt = pm.plateTrack;
+                        if (pt.__viewerDrag) { pt.__viewerDrag = null; try { graph.__suppressPan = false; } catch (e) { } }
+                        if (pt.__maximized) pt.mouseUp(scx, scy);
+                    } catch (e) { }
+                    return;
+                }
                 // The release that picks a menu item stays with the menu (the graph resolves
                 // it); the tables underneath never see it.
                 if (graph && typeof graph.menuVisible === 'function' && graph.menuVisible()) { __touchPx = null; __touchPy = null; __touchSy = null; return; }
@@ -1448,6 +1547,7 @@ function (path, config) {
             }
 
             let default_keydownListener = async (event) => {
+                if (__viewer) return;
                 // View only: keys navigate at most; nothing types, deletes or pastes.
                 if (pm.plateTrack && pm.plateTrack.__readOnly) {
                     const k = event && event.key;
@@ -1466,6 +1566,19 @@ function (path, config) {
             }
 
             let default_mousemoveListener = async (scx, scy) => {
+                if (__viewer) {
+                    try {
+                        const pt = pm.plateTrack;
+                        const d = pt.__viewerDrag;
+                        if (d && mouse_down) {
+                            if (typeof pt.__tlDragMove === 'function') pt.__tlDragMove(d, scx, scy);
+                            else { const dx = scx - d.lastX; d.lastX = scx; if (dx) pt.__tlPanPx(d.o, dx); }
+                            return;
+                        }
+                        if (pt.__maximized) pt.mouseMove(scx, scy);
+                    } catch (e) { }
+                    return;
+                }
                 if (pm.plateTrack.isTextActive()) {
                     return null
                 }
@@ -1477,6 +1590,11 @@ function (path, config) {
                 if (isMobile() && pm.plateTrack && !pm.plateTrack.menu) {
                     const pt = pm.plateTrack;
                     if (mouse_down && !smenu) {
+                        // A milestone picked up by a held press: the finger moves IT, not the
+                        // view. A hold still pending: the track sees the move, and cancels the
+                        // hold if the finger has travelled; the pan then continues below.
+                        if (pt.__msDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } __touchSy = scy; __touchSx = scx; return null; }
+                        if (pt.__msHold) { try { pt.mouseMove(scx, scy); } catch (e) { } }
                         if (pt.__maximized) {
                             if (pt.__maxDrag) { try { pt.mouseMove(scx, scy); } catch (e) { } }   // the chart/timeline itself is being moved
                             else if (__touchSy != null) {
@@ -2494,7 +2612,8 @@ function (path, config) {
                 ...selectTools,
             ]
 
-            let button_canvas2 = await exec('manchester/controls/navigation-panel-plates2.js', pm)
+            // The viewer has no menubar at all: an empty menu strip stands where it would be.
+            let button_canvas2 = __viewer ? { wid: 'card', data: { cards: [[]] } } : await exec('manchester/controls/navigation-panel-plates2.js', pm)
 
             buttonMenuPanel = {
                 wid: 'card',
@@ -7260,8 +7379,8 @@ function (path, config) {
             // The same fixed ✕ the design editors use: top-right at the 44px offset that
             // clears the application's navigation bar, off the toolbar which runs from the
             // left. Confirms first, defaults to staying, and takes the tracked global
-            // listeners with it.
-            try {
+            // listeners with it. The viewer has none: the browser's Back is its way out.
+            if (!__viewer) try {
                 const __CLOSE_ID = 'baja-analytics-close';
                 const __prevX = document.getElementById(__CLOSE_ID);
                 if (__prevX && __prevX.parentNode) __prevX.parentNode.removeChild(__prevX);

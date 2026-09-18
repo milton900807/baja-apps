@@ -1073,118 +1073,64 @@ function () {
 
                     return resolve();
                 }
-                let canvas = CurrentLayout.getStashed('graph-canvas')
-                // The buttons close the window through whichever handle is live: the reference
-                // returned by setEditor, or the stashed canvas itself when that reference is gone.
-                const closeEditor = () => { const r = ref || canvas; if (r && r.hideEditor) r.hideEditor(); };
-                let t =
-                {
-                    height: '200px',
-                    editorOptions: {
-                        language: 'bajabio',
-                        theme: 'no-border-theme',
-                        minimap: { enabled: false },
-                        scrollbar: {
-                            vertical: 'hidden',
-                            horizontal: 'hidden',
-                        },
-                        lineNumbers: 'off',
-                        lineDecorationsWidth: 0,
-                        lineNumbersMinChars: 0,
-                        overviewRulerLanes: 0,
-                        hideCursorInOverviewRuler: true,
-                        folding: false,
-                        highlightActiveIndentGuide: false,
-                        renderLineHighlight: 'none',
-                        renderLineHighlightOnlyWhenFocus: false,
-                        renderWhitespace: 'none',
-                        fontSize: 15,
-                        automaticLayout: true,
-                        value: w[0].value,
-                        padding: {
-                            top: 20,
-                            bottom: 20,
-                            left: 30,
-                            right: 30
-                        }
-                    },
-                    objects: pt.root,
-                    code: "" + __value,
-                    buttons: [
-                        {
-                            'label': 'Save text', "color": 'blue', action: async () => {
-                                let code = canvas.textEditor.getContent();
-                                closeEditor();
-                                if (code.startsWith(':')) {
-                                    let interpreter = await exec('baja/engine/interpreter.js', pt)
-                                    interpreter.ref = this;
-                                    let fal = await interpreter.run(code);
-                                    w[0].setValue(fal);
-
-                                } else {
-                                    w[0].setValue(code);
-                                }
-                            }
-                        },
-                        {
-                            'label': 'Save function', "color": 'blue', action: async () => {
-                                function isValidFormat(input) {
-                                    const regex = /^\w+\s+\d+,\d+$/;
-                                    return regex.test(input);
-                                }
-                                let code = canvas.textEditor.getContent();
-                                let selection = this.getSelectedWellRange()
-                                if (code && code.startsWith(this.name)) {
-                                    if (isValidFormat(code)) {
-                                        const match = input.match(/^(\w+)\s+(\d+),(\d+)$/);
-                                        const tableName = match[1];
-                                        const col = match[2];
-                                        const row = match[3];
-                                        code = `${tableName}[${col}:${col}][${row}:${row}]`;
-                                    }
-                                }
-                                let wlst = this.getSelectedWellsInOrder()
-                                if (wlst && wlst.length < 100) {
-                                    for (let w of wlst) {
-                                        w.setFormula(code)
-                                    }
-                                }
-                                pt.updateCalculations();
-                                pt.addFormula(this.name + '' + selection, code)
-                            }
-                        },
-
-                        {
-                            'label': 'Tag', 'color': 'black', "action": () => {
-
-                                setTimeout(() => {
-                                    this.goTag(null, pt)
-                                }, 1000)
-                                closeEditor();
-                            }
-                        },
-                        {
-                            'label': 'Options', 'color': 'black', "action": async () => {
-                                closeEditor()
-                                ref = null;
-                                showOptions(0)
-
-                            }
-                        },
-
-                        {
-                            'label': 'Close', 'color': 'magenta', "action": () => {
-                                singleSelect = false;
-                                this.deselectAll();
-                                this.selectIt(pt);
-                                closeEditor();
-                            }
-                        }
-                    ]
+                // The cell's text window is the application's own prompt panel (the one the
+                // Build and Append prompts use), not the Monaco code editor: same look as the
+                // rest of the app, type-ahead for Table[Label], Ctrl+Enter saves.
+                const first = w && w.length ? w[0] : null;
+                const range = (() => { try { return this.getSelectedWellRange(); } catch (e) { return ''; } })();
+                const cellName = (() => {
+                    try {
+                        const r = this.getWellIndicies(first);
+                        const hdr = this.wells[r.colIdx] && this.wells[r.colIdx][0] ? ('' + this.wells[r.colIdx][0].value) : ('col ' + r.colIdx);
+                        const lab = this.wells[0] && this.wells[0][r.rowIdx] ? ('' + this.wells[0][r.rowIdx].value) : ('row ' + r.rowIdx);
+                        return this.name + ' › ' + hdr + ' › ' + lab;
+                    } catch (e) { return this.name || 'Cell'; }
+                })();
+                const hasFormula = /^\s*=/.test('' + (__value == null ? '' : __value));
+                let r = null;
+                try {
+                    r = await exec('baja/lib/prompt-text.js', {
+                        title: cellName + (w.length > 1 ? ' (+' + (w.length - 1) + ' more)' : ''),
+                        message: hasFormula
+                            ? 'A formula. Save formula applies it to every selected cell; Save text stores the text as typed. Ctrl+Enter saves.'
+                            : 'Save text stores what you type in the selected cells; start with = to make it a formula. Ctrl+Enter saves.',
+                        value: '' + (__value == null ? '' : __value),
+                        mono: true,
+                        actions: hasFormula
+                            ? [{ key: 'formula', label: 'Save formula' }, { key: 'text', label: 'Save text' }, { key: 'tag', label: 'Tag…' }]
+                            : [{ key: 'text', label: 'Save text' }, { key: 'formula', label: 'Save formula' }, { key: 'tag', label: 'Tag…' }],
+                        completions: (typeof pt.getFormulaCompletions === 'function') ? pt.getFormulaCompletions() : []
+                    });
+                } catch (e) { r = null; }
+                if (!r) return;
+                const code = '' + (r.text == null ? '' : r.text);
+                if (r.action === 'tag') { setTimeout(() => { try { this.goTag(null, pt); } catch (e) { } }, 100); return; }
+                try { pushHistory(HM(this)); } catch (e) { }
+                try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
+                if (r.action === 'formula') {
+                    const f = code.trim() ? ('=' + code.trim().replace(/^=/, '').trim()) : '';
+                    for (const x of w) {
+                        if (!f) { try { x.formula = null; x.__hasFormula = false; delete this.formula[this.getWellRange([x])]; } catch (e) { } continue; }
+                        try { this.formula[this.getWellRange([x])] = f; } catch (e) { }
+                        try { x.setValue(f); } catch (e) { }
+                    }
+                    if (f && range) { try { pt.addFormula(this.name + '' + range, f); } catch (e) { } }
+                    try { pt.updateCalculations(); } catch (e) { }
+                    try { pt.setMessage((f ? 'Formula saved to ' : 'Formula cleared from ') + w.length + ' cell' + (w.length === 1 ? '' : 's') + '.', 2); } catch (e) { }
+                    return;
                 }
-                t.objects = pt.root;
-                ref = canvas.setEditor(t);
-
+                // Save text
+                if (code.startsWith(':')) {
+                    try {
+                        const interpreter = await exec('baja/engine/interpreter.js', pt);
+                        interpreter.ref = this;
+                        const fal = await interpreter.run(code);
+                        if (first) first.setValue(fal);
+                    } catch (e) { try { pt.setMessage('Could not run that: ' + (e && e.message || e), 5); } catch (e2) { } }
+                    return;
+                }
+                for (const x of w) { try { x.setValue(code); } catch (e) { } }
+                try { pt.updateCalculations(); } catch (e) { }
                 return;
             }
 
@@ -15350,9 +15296,12 @@ function () {
                     if (min_x < 0) {
                         min_x = 0
                     }
-                    let max_x = this.grid.xmax;
+                    // Never past the table itself: the visible range is worked out from the view, and a
+                    // table that is small or far away on screen gave bounds in the millions, which the
+                    // cell loops below then walked one empty index at a time, every frame.
+                    let max_x = Math.min(this.grid.xmax, (this.wells || []).length);
 
-                    let max_y = Math.floor(this.grid.Ywc(vy - this.grid.yi * 2))
+                    let max_y = Math.min(Math.floor(this.grid.Ywc(vy - this.grid.yi * 2)), (this.wells && this.wells[0]) ? this.wells[0].length : 0)
                     let min_y = (Math.floor(this.grid.Ywc(vy - this.grid.yi * 2 + graph.worldHeight(graph.height))))
                     if (min_y < 0) {
                         min_y = 0;

@@ -3,6 +3,9 @@ function (__path, __header) {
     // the home screen uses it for the RNA Therapeutics design-module launcher. It is a
     // parameter rather than something this file builds because the browser is opened from
     // several places and only one of them wants a launcher above it.
+    // Whether a path was asked for: without one the browser opens the person's own drive,
+    // which is only known once the sign-in has settled (see the wait below).
+    const __pathGiven = !!__path;
     if (!__path) {
         __path = '/' + getUser()
     }
@@ -17,6 +20,16 @@ function (__path, __header) {
 
     clear();
     exec('lib/msgraph.js').then(async (MSGraph) => {
+        // Straight after signing in, the app can reach this screen before the session has
+        // been read back into the identity the file lists key on (getUser() is still
+        // empty for a moment). The browser then asked for the files of nobody, showed an
+        // empty drive, and only a page refresh brought the files up. Wait for the identity
+        // first -- a short poll, ten seconds at most -- and take the drive from it.
+        try {
+            const signedIn = () => !!('' + (getUser() || '')).trim();
+            for (let i = 0; i < 40 && !signedIn(); i++) await new Promise((r) => setTimeout(r, 250));
+            if (!__pathGiven && signedIn()) __path = '/' + getUser();
+        } catch (e) { }
         let t = null;
         let mode = 'load'
         let view = 'myfiles';

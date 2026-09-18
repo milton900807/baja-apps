@@ -8319,7 +8319,8 @@ function (progress) {
                             if (box && x >= box.x - tol && x <= box.x + box.w + tol && y >= box.y - tol && y <= box.y + box.h + tol) {
                                 // A finger pans; it does not pick milestones up (mobile). A view-only
                                 // viewer never does.
-                                const mp = (this.__mobile() || this.__readOnly) ? null : this.__msHit(o, x, y);
+                                const mpHit = this.__readOnly ? null : this.__msHit(o, x, y);
+                                const mp = this.__mobile() ? null : mpHit;
                                 // A press used to pick the milestone up straight away, so brushing
                                 // one while reading the timeline moved it. Now the pill opens its
                                 // menu and only "Move" arms the drag, for one move.
@@ -8332,9 +8333,12 @@ function (progress) {
                                 this.__maxDrag = { sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
                                 // Timeline gestures: a held press (550 ms, still) starts a time
                                 // range that the next tap closes; a double tap adds a milestone
-                                // (handled on release).
+                                // (handled on release). On a phone a held press ON A PILL picks
+                                // the milestone up instead (see __msHoldStart).
                                 this.__tlCancelPress();
-                                if (this.__tlIs(o) && !this.__tlRange) {
+                                if (mpHit && this.__mobile()) {
+                                    this.__msHoldStart(o, mpHit, x, y);
+                                } else if (this.__tlIs(o) && !this.__tlRange && !this.__readOnly) {
                                     this.__tlPointer = { x, y };
                                     this.__tlPressTimer = setTimeout(() => {
                                         this.__tlPressTimer = null;
@@ -8364,15 +8368,40 @@ function (progress) {
                 if (this.__readOnly) return;
                 // A press on a milestone of a timeline on the canvas picks it up (see __msDrag*).
                 // Not on a phone: there a finger pans the canvas, whatever it lands on.
-                if (!this.menu && !this.__maximized && !this.__mobile()) {
+                if (!this.menu && !this.__maximized) {
                     try {
                         const at = this.objectAt(x, y);
                         if (at && at.kind === 'plot' && this.__tlIs(at.obj)) {
                             const mp = this.__msHit(at.obj, x, y);
                             if (mp) {
-                                if (this.__msArmed === mp) { this.__msDragStart(at.obj, mp, x, y); return; }
-                                this.__msMenuPress = { o: at.obj, p: mp, x, y }; return;
+                                if (this.__mobile()) {
+                                    // a finger pans; held still on the pill it picks the milestone up
+                                    this.__msHoldStart(at.obj, mp, x, y);
+                                } else {
+                                    if (this.__msArmed === mp) { this.__msDragStart(at.obj, mp, x, y); return; }
+                                    this.__msMenuPress = { o: at.obj, p: mp, x, y }; return;
+                                }
                             }
+                        }
+                        // A press on the open body of a timeline (not a pill, a handle, an
+                        // interval, a button or the resize corner) drags THROUGH TIME: the
+                        // window slides under the pointer, the canvas stays put. Desktop only;
+                        // a finger pans the canvas.
+                        if (at && at.kind === 'plot' && this.__tlIs(at.obj) && !this.__mobile() && !this.__tlPressOnControl(at.obj, x, y)) {
+                            // The press still SELECTS the timeline (its buttons, resize corner
+                            // and outline come with the selection), as the code below would
+                            // have done had the press gone on to it.
+                            try {
+                                if (this.selectedPlate !== at.obj) {
+                                    if (this.selectedPlate && this.selectedPlate.deselectAll) { try { this.selectedPlate.deselectAll(); } catch (e) { } }
+                                    this.setSelected(at.obj);
+                                    at.obj.last_touched = new Date();
+                                }
+                                if (typeof at.obj.highlight === 'function') at.obj.highlight();
+                            } catch (e) { }
+                            this.__tlCanvasDrag = this.__tlDragStart(at.obj, x, y);
+                            try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = true; } catch (e) { }
+                            return;
                         }
                     } catch (e) { }
                 }
@@ -8505,6 +8534,7 @@ function (progress) {
             isInAnyMenu(x, y) {
                 // A held milestone owns the pointer: the plot's own listeners must not also run.
                 if (this.__msDrag) return true;
+                if (this.__tlCanvasDrag) return true;   // a drag through time, likewise
                 // View only: nothing beneath the pointer takes a press, a move or a release.
                 if (this.__readOnly) return true;
                 const gridX = this.grid.Xwc(x);
@@ -8538,7 +8568,14 @@ function (progress) {
             }
 
             mouseUp(x, y) {
+                this.__msHoldCancel();
                 if (this.__msDrag) { this.__msDragEnd(); return; }
+                if (this.__tlCanvasDrag) {
+                    const d = this.__tlCanvasDrag; this.__tlCanvasDrag = null;
+                    try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) gg.graph.__suppressPan = false; } catch (e) { }
+                    if (d.moved) { try { this.setMessage((d.o.name || 'Timeline') + ': ' + this.__tlFmt(new Date(d.o.startDate).getTime()) + ' to ' + this.__tlFmt(new Date(d.o.endDate).getTime()) + (d.zoom ? '' : '  (Ctrl+drag zooms the timescale)'), 2); } catch (e) { } }
+                    return;
+                }
                 if (this.__selectGesture) return;
                 // A press on a milestone pill: its menu opens now, on the release, and stays
                 // until an item is chosen or the next click lands outside it.
@@ -9151,7 +9188,9 @@ function (progress) {
             }
 
             mouseMove(x, y) {
+                if (this.__msHold && Math.abs(x - this.__msHold.x) + Math.abs(y - this.__msHold.y) > 10) this.__msHoldCancel();   // a pan, not a hold
                 if (this.__msDrag) { this.__msDragMove(x, y); return; }
+                if (this.__tlCanvasDrag) { this.__tlDragMove(this.__tlCanvasDrag, x, y); return; }
                 if (this.__msMenuPress && Math.abs(x - this.__msMenuPress.x) + Math.abs(y - this.__msMenuPress.y) >= 8) this.__msMenuPress = null;   // a drag, not a click
                 this.__msHoverUpdate(x, y);
                 if (this.__selectGesture) return;
@@ -9610,6 +9649,17 @@ function (progress) {
                 if (!(Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)) return;
                 this.__tlStampDates(o);
                 o.startDate = new Date(startMs); o.endDate = new Date(endMs);
+                // The timeline's x unit is an HOUR from startDate (the axis painter draws its
+                // months and days from that), so the grid's range has to follow the span:
+                // with the old range kept, a zoom moved the header and the points but the
+                // axis still counted the old number of hours from the new start.
+                try {
+                    if (o.grid) {
+                        const xmin = Number.isFinite(o.grid.xmin) ? o.grid.xmin : 0;
+                        o.grid.xmin = xmin; o.grid.xmax = xmin + (endMs - startMs) / 3600000;
+                        if (typeof o.grid.rescale === 'function') o.grid.rescale();
+                    }
+                } catch (e) { }
                 for (const p of ((o.scatterData && o.scatterData.points) || [])) {
                     if (!p) continue;
                     if (p.date != null) { const t = new Date(p.date).getTime(); if (Number.isFinite(t)) p.x = this.__tlMsToX(o, t); }
@@ -9643,6 +9693,141 @@ function (progress) {
                 o.scatterData.points.push({ x: xu, y: yu, type: 'milestone', name: '' + va['Text'], color: 'red', date: new Date(ms) });
                 try { if (this.__collab && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
                 try { this.setMessage('Milestone added on ' + this.__tlFmt(ms), 2); } catch (e) { }
+            }
+            // ---- A budgeted milestone: a point AND its row ---------------------------------
+            // From the timeline menu (Add > Milestone with a budget row). The milestone goes
+            // on the timeline, a row goes into the milestones table (Label, Date, Day,
+            // Comment, Budget, Required_To_Date), the amount goes into the budgets table the
+            // other rows draw on (Milestone_Budgets or Project_Assumptions) as <Label>_Budget,
+            // the Budget cell references it, and Required_To_Date is re-accumulated. The
+            // point is linked to the row (table, row, rowUid) like the builder's own.
+            __msShiftFormulaRows(plate, fromRow, by) {
+                // Row indices in the formula keys move with an inserted row; the table's own
+                // map and the track-level map both, highest row first so nothing collides.
+                const shiftMap = (map, prefix) => {
+                    if (!map) return;
+                    const re = new RegExp('^' + prefix + '\\[(\\d+):(\\d+)\\]\\[(\\d+):(\\d+)\\]$');
+                    const moves = [];
+                    for (const k of Object.keys(map)) {
+                        const m = re.exec(k); if (!m) continue;
+                        const r0 = +m[3], r1 = +m[4];
+                        if (r1 < fromRow) continue;
+                        moves.push({ k, c0: m[1], c1: m[2], r0: r0 >= fromRow ? r0 + by : r0, r1: r1 + by, v: map[k] });
+                    }
+                    moves.sort((a, b) => b.r1 - a.r1);
+                    for (const mv of moves) { delete map[mv.k]; map[prefix + '[' + mv.c0 + ':' + mv.c1 + '][' + mv.r0 + ':' + mv.r1 + ']'] = mv.v; }
+                };
+                try { shiftMap(plate.formula, ''); } catch (e) { }
+                try { shiftMap(this.formulas, plate.name); } catch (e) { }
+            }
+            __msColOf(plate, header) {
+                for (let c = 0; c < (plate.wells || []).length; c++) { const w = plate.wells[c] && plate.wells[c][0]; if (w && ('' + w.value).trim() === header) return c; }
+                return -1;
+            }
+            __msSetCell(plate, c, r, v) {
+                const w = plate.wells[c] && plate.wells[c][r]; if (!w) return null;
+                try { w.setValue(v, true); } catch (e) { w.value = v; }
+                return w;
+            }
+            // Replace one group key on every cell of a row (the copied row carried its source's label).
+            __msRelabelRowGroups(plate, r, oldLabel, newLabel) {
+                for (let c = 0; c < plate.wells.length; c++) {
+                    const w = plate.wells[c] && plate.wells[c][r]; if (!w || !w.group) continue;
+                    if (oldLabel && Object.prototype.hasOwnProperty.call(w.group, oldLabel)) { const v = w.group[oldLabel]; delete w.group[oldLabel]; w.group[newLabel] = v; }
+                    else if (c > 0 && !Object.prototype.hasOwnProperty.call(w.group, newLabel)) { w.group[newLabel] = [new Date().toISOString().slice(0, 19).replace('T', ' ')]; }
+                }
+            }
+            async __tlAddBudgetedMilestone(o) {
+                if (this.__readOnly) return;
+                // The milestones table: the one this timeline's points link to, else the first
+                // table with a Date and a Required_To_Date column.
+                let M = null;
+                for (const p of ((o && o.scatterData && o.scatterData.points) || [])) { if (p && p.table) { M = this.getTableByName(p.table); if (M) break; } }
+                if (!M) M = this.__msTables()[0] || null;
+                if (!M) { try { this.setMessage('No milestones table here (one with Date and Required_To_Date columns). Build a Project or Milestone Budget first.', 4); } catch (e) { } return; }
+                const cDate = this.__msColOf(M, 'Date'), cDay = this.__msColOf(M, 'Day'), cCom = this.__msColOf(M, 'Comment'), cBud = this.__msColOf(M, 'Budget'), cReq = this.__msColOf(M, 'Required_To_Date');
+                if (cDate < 0 || cReq < 0) { try { this.setMessage(M.name + ' has no Date or Required_To_Date column.', 4); } catch (e) { } return; }
+                // Where the budgets live: the table an existing Budget formula references.
+                let A = null;
+                if (cBud >= 0 && M.formula) {
+                    for (const k of Object.keys(M.formula)) {
+                        const m = /^\[(\d+):\d+\]\[(\d+):\d+\]$/.exec(k); if (!m || +m[1] !== cBud) continue;
+                        const f = /^=?\s*([A-Za-z_]\w*)\[/.exec('' + M.formula[k]);
+                        if (f) { A = this.getTableByName(f[1]); if (A) break; }
+                    }
+                }
+                if (!A) A = this.getTableByName('Milestone_Budgets') || this.getTableByName('Project_Assumptions');
+                // Ask.
+                let mid = Date.now();
+                try { const w = this.__tlWin(o); if (Number.isFinite(w.startMs) && Number.isFinite(w.endMs)) mid = (w.startMs + w.endMs) / 2; } catch (e) { }
+                let va = null;
+                // Not a field called "Name": the prompt squeezes that one into an identifier
+                // (no spaces); a milestone is titled in words.
+                try { va = await prompt('Add a budgeted milestone', ['Milestone', 'Date', 'Budget', 'Comment'], { 'Milestone': '', 'Date': this.__ymd(new Date(mid)), 'Budget': '0', 'Comment': '' }, 300, 420); } catch (e) { va = null; }
+                if (!va || va['Milestone'] == null || !('' + va['Milestone']).trim()) return;
+                const name = ('' + va['Milestone']).trim();
+                const dt = this.__parseYmd(('' + (va['Date'] || '')).trim());
+                if (!dt) { try { this.setMessage('The date must be YYYY-MM-DD.', 3); } catch (e) { } return; }
+                const amount = this.__msNum(('' + (va['Budget'] || '0')).replace(/[$,\s]/g, ''));
+                const budget = Number.isFinite(amount) ? amount : 0;
+                const comment = ('' + (va['Comment'] || '')).trim();
+                // A label of the builder's shape, unique in the table.
+                let lab = this.__msLabelOf(name) || 'Milestone';
+                const labels = new Set(); for (let i = 1; i < M.wells[0].length; i++) { const w = M.wells[0][i]; if (w) labels.add(('' + w.value).trim()); }
+                if (labels.has(lab)) { let n = 2; while (labels.has(lab + '_' + n)) n++; lab = lab + '_' + n; }
+                try { pushHistory(HM(this)); } catch (e) { }
+                try { if (this.__collab && this.__collab.holds) { for (const t of [M, A, o]) if (t && !this.__collab.holds(t)) this.__collab.acquire(t); } } catch (e) { }
+                // The row, before the Total row when there is one.
+                let totalRow = -1; for (let i = 1; i < M.wells[0].length; i++) { const w = M.wells[0][i]; if (w && ('' + w.value).trim() === 'Total') { totalRow = i; break; } }
+                const ty = totalRow >= 0 ? totalRow : M.wells[0].length;
+                const prevLabel = M.wells[0][ty - 1] ? ('' + M.wells[0][ty - 1].value).trim() : '';
+                this.__msShiftFormulaRows(M, ty, 1);
+                M.insertRowWithCopy(ty, this);
+                // insertRowWithCopy copied the formulas of the row above into the new row's
+                // keys through the track map; the new row gets its own below.
+                this.__msRelabelRowGroups(M, ty, prevLabel, lab);
+                const labelCell = this.__msSetCell(M, 0, ty, lab);
+                this.__msSetCell(M, cDate, ty, this.__ymd(dt));
+                if (cDay >= 0) this.__msSetCell(M, cDay, ty, dt.toLocaleDateString(undefined, { weekday: 'short' }));
+                if (cCom >= 0) this.__msSetCell(M, cCom, ty, comment);
+                if (!M.formula) M.formula = {};
+                // The amount in the budgets table, referenced from the Budget cell.
+                let budgetRef = '';
+                if (A && A.wells && A.wells[0] && A.wells.length > 1) {
+                    let tyA = A.wells[0].length;
+                    for (let i = A.wells[0].length - 1; i >= 1; i--) { const w = A.wells[0][i]; if (w && /_Budget$/.test('' + w.value)) { tyA = i + 1; break; } }
+                    const prevA = A.wells[0][tyA - 1] ? ('' + A.wells[0][tyA - 1].value).trim() : '';
+                    const labA = lab + '_Budget';
+                    this.__msShiftFormulaRows(A, tyA, 1);
+                    A.insertRowWithCopy(tyA, this);
+                    this.__msRelabelRowGroups(A, tyA, prevA, labA);
+                    this.__msSetCell(A, 0, tyA, labA);
+                    this.__msSetCell(A, 1, tyA, budget);
+                    if (A.wells.length > 2 && A.wells[2][tyA] && !('' + A.wells[2][tyA].value).trim()) this.__msSetCell(A, 2, tyA, 'USD');
+                    for (const k of Object.keys(A.formula || {})) { if (new RegExp('\\]\\[' + tyA + ':' + tyA + '\\]$').test(k)) delete A.formula[k]; }
+                    budgetRef = A.name + '[' + labA + ']';
+                }
+                if (cBud >= 0) {
+                    const kb = '[' + cBud + ':' + cBud + '][' + ty + ':' + ty + ']';
+                    if (budgetRef) M.formula[kb] = budgetRef; else delete M.formula[kb];
+                    this.__msSetCell(M, cBud, ty, budget);
+                }
+                for (const k of Object.keys(M.formula)) { if (new RegExp('\\]\\[' + ty + ':' + ty + '\\]$').test(k) && !(cBud >= 0 && k.startsWith('[' + cBud + ':'))) delete M.formula[k]; }
+                try { for (const k of Object.keys(this.formulas || {})) { if (k.startsWith(M.name + '[') && new RegExp('\\]\\[' + ty + ':' + ty + '\\]$').test(k)) delete this.formulas[k]; } } catch (e) { }
+                // The point, linked to the row.
+                if (!o.scatterData) o.scatterData = { points: [] };
+                if (!Array.isArray(o.scatterData.points)) o.scatterData.points = [];
+                let yu = 0.5;
+                try { const g = o.grid; yu = g.ymin + (g.ymax - g.ymin) * (0.35 + Math.random() * 0.3); } catch (e) { }
+                const point = { x: this.__tlMsToX(o, dt.getTime()), y: yu, type: 'milestone', name, color: '#0a2540', date: dt, table: M.name, row: lab };
+                try { if (labelCell && labelCell.uid) point.rowUid = labelCell.uid; } catch (e) { }
+                point.__syncedDate = this.__ymd(dt);
+                o.scatterData.points.push(point);
+                // Required_To_Date for every row, then the recalculation that shows it.
+                try { this.__msRefreshRow(M, ty, dt); } catch (e) { console.warn('accumulate', e); }
+                try { this.updateCalculations(); } catch (e) { }
+                this.__msSyncAt = 0;
+                try { this.setMessage('Added ' + name + ' on ' + this.__tlFmt(dt.getTime()) + ': row ' + lab + ' in ' + M.name + (budgetRef ? ', budget ' + budgetRef : '') + ' (Ctrl+Z undoes)', 4); } catch (e) { }
             }
             // A time range from a held press to a second tap, named by the user.
             async __tlAddRange(o, r, x, y) {
@@ -9683,6 +9868,28 @@ function (progress) {
                 }
                 return null;
             }
+            // Mobile: a finger held still on a pill for half a second picks the milestone
+            // up; the drag that follows moves it, and the release drops it. Moving the finger
+            // first is a pan, and cancels the hold.
+            __msHoldStart(o, p, x, y) {
+                this.__msHoldCancel();
+                this.__msHold = {
+                    o, p, x, y,
+                    timer: setTimeout(() => {
+                        const h = this.__msHold; this.__msHold = null;
+                        if (!h) return;
+                        if (this.__maxDrag && this.__maxDrag.moved) return;
+                        if (this.__maximized && this.__maximized !== h.o) return;
+                        this.__maxDrag = null; this.__tlCancelPress();
+                        this.__msDragStart(h.o, h.p, h.x, h.y);
+                        this.__msDrag.moved = true;    // picked up: the first move counts
+                        try { pushHistory(HM(h.o)); } catch (e) { }
+                        try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) { }
+                        try { this.setMessage('Picked up ' + (h.p.name || 'the milestone') + ': drag it to another date and lift.', 3); } catch (e) { }
+                    }, 500)
+                };
+            }
+            __msHoldCancel() { if (this.__msHold) { try { clearTimeout(this.__msHold.timer); } catch (e) { } this.__msHold = null; } }
             __msDragStart(o, p, x, y) {
                 this.__tlCancelPress();
                 this.__maxDrag = null; this.__maxTap = null;
@@ -9833,7 +10040,7 @@ function (progress) {
                 try {
                     const col0 = plate.wells[0] || [];
                     for (let i = 1; i < col0.length; i++) {
-                        if (col0[i] && ('' + col0[i].value).trim() === p.row) { cell = col0[i]; break; }
+                        if (col0[i] && (('' + col0[i].value).trim() === p.row || (p.rowUid && col0[i].uid === p.rowUid))) { cell = col0[i]; break; }
                     }
                 } catch (e) { }
                 try {
@@ -9856,6 +10063,8 @@ function (progress) {
                 // or dragging a selection would otherwise light up whatever it passed over.
                 if (this.__msDrag || this.__selectGesture || this.__maxScrollDrag
                     || (this.__maxDrag && this.__maxDrag.moved)) { this.__msHover = null; return; }
+                // View only: nothing lights up under the pointer; there is nothing to pick up.
+                if (this.__readOnly) { this.__msHover = null; return; }
                 // Over an open menu the pointer is the menu's: the pills beneath stay quiet.
                 try {
                     if (this.menu && typeof this.menu.isIn === 'function' && this.menu.isIn(this.grid, this.grid.Xwc(x), this.grid.Ywc(y))) { this.__msHover = null; return; }
@@ -10144,6 +10353,29 @@ function (progress) {
                 }
                 return out;
             }
+            // The row a point is linked to: by its label (point.row), else by the id of the
+            // label cell (point.rowUid, stamped whenever the row is found), so a renamed
+            // label does not cut the milestone off from its budget row. The label stamp is
+            // brought up to date when the id finds the row.
+            __msRowOf(plate, p) {
+                if (!plate || !plate.wells || !plate.wells[0] || !p) return -1;
+                const col0 = plate.wells[0];
+                if (p.row) {
+                    for (let i = 1; i < col0.length; i++) {
+                        if (col0[i] && ('' + col0[i].value).trim() === p.row) { try { if (col0[i].uid) p.rowUid = col0[i].uid; } catch (e) { } return i; }
+                    }
+                }
+                if (p.rowUid) {
+                    for (let i = 1; i < col0.length; i++) {
+                        if (col0[i] && col0[i].uid === p.rowUid) {
+                            const lab = ('' + col0[i].value).trim();
+                            if (lab) { console.log('[milestone sync] row relabelled', p.row, '->', lab); p.row = lab; }
+                            return i;
+                        }
+                    }
+                }
+                return -1;
+            }
             // The row label the builder derives from a milestone's name (py: _label).
             __msLabelOf(name) {
                 let s = ('' + (name || '')).replace(/['\u2019]/g, '').replace(/\d+/g, ' ').replace(/[^A-Za-z_ ]+/g, ' ').trim().replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
@@ -10169,7 +10401,7 @@ function (progress) {
                         for (let i = 1; i < col0.length; i++) {
                             const lab = col0[i] ? ('' + col0[i].value).trim() : '';
                             const l = lab.toLowerCase();
-                            if (l === want || l === want + '_due') { p.table = pl.name; p.row = lab; linked++; break; }
+                            if (l === want || l === want + '_due') { p.table = pl.name; p.row = lab; try { if (col0[i].uid) p.rowUid = col0[i].uid; } catch (e) { } linked++; break; }
                         }
                         if (p.table) break;
                     }
@@ -10214,9 +10446,7 @@ function (progress) {
                             }
                         }
                         if (!plate || colDate < 0) continue;
-                        let r = -1;
-                        const col0 = plate.wells[0] || [];
-                        for (let i = 1; i < col0.length; i++) { if (col0[i] && ('' + col0[i].value).trim() === p.row) { r = i; break; } }
+                        const r = this.__msRowOf(plate, p);
                         if (r < 0) continue;
                         const cell = plate.wells[colDate] && plate.wells[colDate][r];
                         if (!cell) continue;
@@ -10244,7 +10474,13 @@ function (progress) {
                         } catch (e) { }
                         const cellStr = ('' + (cell.value == null ? '' : cell.value)).trim().slice(0, 10);
                         const pointStr = this.__ymd(p.date);
-                        if (p.__syncedDate == null) p.__syncedDate = pointStr;
+                        if (p.__syncedDate == null) {
+                            // First sight of this point: a point that just arrived from the other
+                            // person carries the newer date, so the row follows it; otherwise the
+                            // two are assumed in step as built.
+                            p.__syncedDate = p.__remoteFresh ? (cellStr || pointStr) : pointStr;
+                            p.__remoteFresh = false;
+                        }
                         const set = (c, v) => { const w = plate.wells[c] && plate.wells[c][r]; if (!w) return; try { w.setValue(v, true); } catch (e) { w.value = v; } };
                         if (cellStr && cellStr !== p.__syncedDate) {
                             // edited in the table: move the point
@@ -10257,7 +10493,12 @@ function (progress) {
                                 try { if (this.__collab && this.__collab.holds && !this.__collab.holds(o)) this.__collab.acquire(o); } catch (e) { }
                             }
                         } else if (pointStr && pointStr !== p.__syncedDate) {
-                            // moved on the timeline: rewrite the row
+                            // moved on the timeline: rewrite the row. When this client is the one
+                            // moving it (it holds the timeline), it takes the table too, so the
+                            // rewritten row travels to the others along with the point.
+                            try {
+                                if (this.__collab && this.__collab.holds && this.__collab.holds(o) && !this.__collab.holds(plate)) this.__collab.acquire(plate);
+                            } catch (e) { }
                             set(colDate, pointStr);
                             if (colDay >= 0) set(colDay, new Date(p.date).toLocaleDateString(undefined, { weekday: 'short' }));
                             p.__syncedDate = pointStr;
@@ -10353,8 +10594,7 @@ function (progress) {
                         let cReq = -1, r = -1;
                         if (pl && pl.wells) {
                             for (let c = 0; c < pl.wells.length; c++) { const w = pl.wells[c] && pl.wells[c][0]; if (w && ('' + w.value).trim() === 'Required_To_Date') cReq = c; }
-                            const col0 = pl.wells[0] || [];
-                            for (let i = 1; i < col0.length; i++) if (col0[i] && ('' + col0[i].value).trim() === p.row) { r = i; break; }
+                            r = this.__msRowOf(pl, p);
                         }
                         if (!pl) note = ' · table ' + p.table + ' not found';
                         else if (r < 0) note = ' · row ' + p.row + ' not found in ' + p.table;
@@ -10413,10 +10653,192 @@ function (progress) {
                 if (!obj) return false;
                 this.__objectOnly = { obj, owner: (info && info.owner) || '', label: (info && info.label) || (obj.name || '') };
                 const isTable = !(typeof obj.drawPlot === 'function') && !obj.shape;
+                if (this.__viewer) {
+                    // The viewer: not maximized (no navy backdrop, no title bar), just the
+                    // canvas zoomed onto the object, its own buttons and name tab taken away.
+                    // The reader pans and zooms the canvas; nothing on it takes a press.
+                    this.__maxHideButtons(obj);
+                    try { obj.showTopMenuBar = false; obj.showMenuBar = false; } catch (e) { }
+                    try { obj.attr__displayMenuButtons = false; } catch (e) { }
+                    try { this.__viewerStartWindow(obj); } catch (e) { console.warn('viewer window', e); }
+                    try { this.__viewerFit(obj); } catch (e) { console.warn('viewer fit', e); }
+                    // The box grows or shrinks to its labels once drawn at the new zoom: fit again.
+                    setTimeout(() => { try { if (this.__viewer && !this.__viewerDrag) this.__viewerFit(obj); } catch (e) { } }, 900);
+                    try { this.setMessage('Shared with you by ' + (this.__objectOnly.owner || 'the owner') + ': ' + (obj.name || 'this object') + '. View only.', 3); } catch (e) { }
+                    return true;
+                }
                 if (isTable) { try { this.setSelected(obj); } catch (e) { } }
                 this.maximizeObject(obj);
-                try { this.setMessage('Shared with you by ' + (this.__objectOnly.owner || 'the owner') + ': ' + (obj.name || 'this object') + '. Your edits are seen live.', 3); } catch (e) { }
+                try { this.setMessage('Shared with you by ' + (this.__objectOnly.owner || 'the owner') + ': ' + (obj.name || 'this object') + (this.__readOnly ? '. View only: scroll or drag to move through time.' : '. Your edits are seen live.'), 3); } catch (e) { }
                 return true;
+            }
+            // A drag through time begins. With Control held it is a ZOOM instead: the time
+            // under the pointer stays put and the scale follows the horizontal travel (right
+            // is finer, left is coarser). Shared by the editor's canvas and the viewer.
+            __tlDragStart(o, x, y) {
+                const d = { o, lastX: x, sx: x, sy: y, moved: false, zoom: !!(window.__bajaCtrl) };
+                if (d.zoom) {
+                    try {
+                        const w = this.__tlWin(o);
+                        d.span0 = w.span; d.start0 = w.startMs;
+                        d.anchorMs = this.__tlXToMs(o, this.__tlXUnitsAt(o, x));
+                        d.frac = (d.anchorMs - w.startMs) / (w.span || 1);
+                    } catch (e) { d.zoom = false; }
+                }
+                return d;
+            }
+            __tlDragMove(d, x, y) {
+                const dx = x - d.lastX; d.lastX = x;
+                if (!d.moved && Math.abs(x - d.sx) + Math.abs(y - d.sy) > 3) d.moved = true;
+                if (!d.moved) return;
+                if (d.zoom) {
+                    // 220 px of travel is one factor of e; 1 hour to 200 years.
+                    const factor = Math.exp(-(x - d.sx) / 220);
+                    const span = Math.max(3600e3, Math.min(200 * 365.25 * 864e5, d.span0 * factor));
+                    const start = d.anchorMs - d.frac * span;
+                    try { this.__tlSetWindow(d.o, start, start + span); } catch (e) { }
+                    return;
+                }
+                if (dx) { try { this.__tlPanPx(d.o, dx); } catch (e) { } }
+            }
+            // True when a press on a timeline lands on something that handles the press
+            // itself: a milestone pill, an interval's line or (when selected) its end
+            // handles, the button row, or the resize corner.
+            __tlPressOnControl(o, x, y) {
+                try { if (this.__msHit(o, x, y)) return true; } catch (e) { }
+                try { if (typeof o.inButtons === 'function' && o.inButtons(x, y, this)) return true; } catch (e) { }
+                try { if (typeof o.inResize === 'function' && o.inResize(x, y)) return true; } catch (e) { }
+                try {
+                    for (const p of ((o.scatterData && o.scatterData.points) || [])) {
+                        if (!p || p.type !== 'interval' || p.start_scx == null || p.end_scx == null || p.scy == null) continue;
+                        const x0 = Math.min(p.start_scx, p.end_scx) - 14, x1 = Math.max(p.start_scx, p.end_scx) + 14;
+                        if (x >= x0 && x <= x1 && Math.abs(y - p.scy) <= 14) return true;
+                    }
+                } catch (e) { }
+                return false;
+            }
+            // A table whose cells have shrunk below MIN_W x MIN_H screen pixels is drawn as a
+            // placeholder: a see-through rectangle on its footprint with its name. Returns
+            // true when it drew the placeholder (the caller then skips the table itself).
+            __drawTinyTable(obj, ctx, MIN_W = 10, MIN_H = 5) {
+                if (!obj || !obj.wells || !obj.wells.length || !obj.grid || obj.shape) return false;
+                if (this.__maximized === obj) return false;
+                const b = this.__maxWorldBounds(obj);
+                if (!b) return false;
+                const g = this.grid;
+                const x0 = g.X(b.x0), x1 = g.X(b.x1), y0 = g.Y(b.yTop), y1 = g.Y(b.yBot);
+                const left = Math.min(x0, x1), top = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+                if (!(w > 0 && h > 0)) return false;
+                const cols = Math.max(1, (obj.grid.xmax - obj.grid.xmin) || obj.wells.length);
+                const rows = Math.max(1, (obj.grid.ymax - obj.grid.ymin) || (obj.wells[0] ? obj.wells[0].length : 1));
+                // The SMALLEST cell decides, and EITHER dimension is enough: one column under
+                // MIN_W wide, or one row under MIN_H tall, and the table is a placeholder.
+                // The even share of the footprint is the starting point; each column's and
+                // row's own size (cells carry w and h in the table's units) can only lower it.
+                let minW = w / cols, minH = h / rows;
+                try {
+                    try { obj.grid.rescale(); } catch (e) { }
+                    const pxW = (u) => Math.abs(g.screenWidth(obj.grid.screenWidth(u)));
+                    const pxH = (u) => Math.abs(g.screenHeight(obj.grid.screenHeight(u)));
+                    for (let c = 0; c < obj.wells.length; c++) {            // widths along the first row
+                        const cell = obj.wells[c] && obj.wells[c][0];
+                        if (cell && Number.isFinite(cell.w) && cell.w > 0) { const v = pxW(cell.w); if (Number.isFinite(v) && v > 0) minW = Math.min(minW, v); }
+                    }
+                    const col0 = obj.wells[0] || [];
+                    for (let r = 0; r < col0.length; r++) {                  // heights down the first column
+                        const cell = col0[r];
+                        if (cell && Number.isFinite(cell.h) && cell.h > 0) { const v = pxH(cell.h); if (Number.isFinite(v) && v > 0) minH = Math.min(minH, v); }
+                    }
+                } catch (e) { }
+                const tooNarrow = minW < MIN_W, tooShort = minH < MIN_H;
+                if (!(tooNarrow || tooShort)) return false;
+                // A table never shrinks out of sight: its placeholder is at least 10 x 10 px,
+                // grown about the footprint's centre, however far the canvas is zoomed out.
+                const FLOOR = 10;
+                let dl = left, dt = top, dw = w, dh = h;
+                if (dw < FLOOR) { dl = left + w / 2 - FLOOR / 2; dw = FLOOR; }
+                if (dh < FLOOR) { dt = top + h / 2 - FLOOR / 2; dh = FLOOR; }
+                // Off screen: nothing to draw, and the table itself is skipped too.
+                if (dl > ctx.canvas.width || dt > ctx.canvas.height || dl + dw < 0 || dt + dh < 0) return true;
+                const selected = this.selectedPlate === obj;
+                ctx.save();
+                ctx.setLineDash([]);
+                ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+                ctx.fillStyle = selected ? 'rgba(26,163,189,0.16)' : 'rgba(26,163,189,0.07)';
+                ctx.strokeStyle = selected ? '#1aa3bd' : 'rgba(10,37,64,0.45)';
+                ctx.lineWidth = selected ? 2 : 1;
+                const r = Math.min(6, dw / 4, dh / 4);
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') ctx.roundRect(dl, dt, dw, dh, r); else ctx.rect(dl, dt, dw, dh);
+                ctx.fill(); ctx.stroke();
+                // The name: inside when it fits, else just above the rectangle.
+                const name = ('' + (obj.name || 'Table')).replace(/_/g, ' ');
+                const size = Math.max(9, Math.min(14, Math.floor(dh * 0.5)));
+                ctx.font = '600 ' + size + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                ctx.fillStyle = '#0a2540';
+                let text = name;
+                const fits = (t) => ctx.measureText(t).width <= Math.max(0, dw - 8);
+                const inside = dh >= size + 4 && fits(name);
+                if (inside) {
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(text, dl + dw / 2, dt + dh / 2);
+                } else {
+                    if (dh >= size + 4) { while (text.length > 3 && !fits(text + '…')) text = text.slice(0, -1); if (text !== name) text += '…'; }
+                    if (dh >= size + 4 && text.length > 3) { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, dl + dw / 2, dt + dh / 2); }
+                    else { ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(name, dl, dt - 2); }
+                }
+                ctx.restore();
+                return true;
+            }
+            // Zoom the canvas so the object fills the window, with room around it for the
+            // labels a timeline draws above its box.
+            __viewerFit(obj) {
+                const b = this.__maxWorldBounds(obj);
+                if (!b) return;
+                this.grid.rescale();
+                const cw = Math.max(1, this.grid.width), ch = Math.max(1, this.grid.height);
+                const w = Math.max(1e-9, b.x1 - b.x0), h = Math.max(1e-9, b.yTop - b.yBot);
+                // As maximize does: x and y are fitted INDEPENDENTLY (MGrid scales them apart
+                // and a timeline sizes itself from the x scale alone), so the timeline fills the
+                // window both ways. A margin at the sides, and room above for the labels a
+                // timeline stacks over its box and below for its date tags.
+                // The bottom allowance includes the free-plan banner, which floats over the
+                // canvas and would otherwise sit on the axis dates.
+                const isPlot = typeof obj.drawPlot === 'function';
+                const side = 0.04, top = isPlot ? 90 : 40, bottom = (isPlot ? 70 : 40) + this.__bottomChromePx();
+                const xRange = w * (1 + 2 * side);
+                const avail = Math.max(120, ch - top - bottom);
+                const yRange = h * ch / avail;
+                const xmin = b.x0 - w * side, xmax = xmin + xRange;
+                const ymax = b.yTop + yRange * (top / ch), ymin = ymax - yRange;
+                this.pushGrid();
+                AnimateGrid.INTERUPT = true;
+                try { new AnimateGrid(this.grid).animateTo(xmin, xmax, ymin, ymax, 18); } catch (e) {
+                    this.grid.xmin = xmin; this.grid.xmax = xmax; this.grid.ymin = ymin; this.grid.ymax = ymax; this.grid.rescale();
+                }
+                try { this.clearActionGlyphs(); } catch (e) { }
+            }
+            // The viewer opens ZOOMED IN on the first milestone: a window of about three
+            // months starting just before it. Later milestones are off to the right; a drag
+            // through time brings them in.
+            __viewerStartWindow(o) {
+                if (!this.__tlIs(o)) return;
+                this.__tlStampDates(o);
+                let first = Infinity;
+                for (const p of ((o.scatterData && o.scatterData.points) || [])) {
+                    if (!p) continue;
+                    for (const d of [p.date, p.__startDate]) {
+                        if (d == null) continue;
+                        const t = new Date(d).getTime();
+                        if (Number.isFinite(t)) first = Math.min(first, t);
+                    }
+                }
+                if (!Number.isFinite(first)) return;
+                const DAY = 864e5;
+                const span = this.__tlWin(o).span;
+                const win = Math.max(45 * DAY, Math.min(Number.isFinite(span) && span > 0 ? span : 100 * DAY, 100 * DAY));
+                const start = first - win * 0.08;
+                this.__tlSetWindow(o, start, start + win);
             }
             exitMaximize() {
                 if (!this.__maximized) return;
@@ -10612,6 +11034,16 @@ function (progress) {
                 // Right side of the title bar: [ Menu ▾ ] [ Exit maximize ]. The Menu pill stands
                 // in for the object's own buttons, which are hidden while maximized.
                 // A single-object share has no Exit: the badge names who shared it instead.
+                if (this.__viewer || (this.__readOnly && this.__objectOnly)) {
+                    // The viewer: a title bar and nothing on it to press. Who shared it and
+                    // that it is view only are said in words at the right edge.
+                    ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+                    ctx.fillStyle = 'rgba(234,246,249,0.75)'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+                    ctx.fillText('Shared by ' + ((this.__objectOnly && this.__objectOnly.owner) || 'the owner') + ' \u00b7 view only', W - 16, 22);
+                    this.__maxExitRect = null; this.__maxMenuRect = null; this.__maxRestoreRect = null;
+                    ctx.restore();
+                    return;
+                }
                 const label = this.__objectOnly ? ('Shared by ' + (this.__objectOnly.owner || 'the owner')) : 'Exit maximize';
                 ctx.font = '600 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
                 const bw = Math.ceil(ctx.measureText(label).width) + 28, bh = 28;
@@ -17404,6 +17836,18 @@ function (progress) {
             }
 
             init() {
+                // Whether Control is held, for the mouse handlers (they get coordinates, not
+                // the event). One set of listeners per page, whichever track calls init().
+                try {
+                    if (!window.__bajaCtrlTracked) {
+                        window.__bajaCtrlTracked = true;
+                        window.__bajaCtrl = false;
+                        window.addEventListener('keydown', (e) => { if (e.key === 'Control' || e.ctrlKey) window.__bajaCtrl = true; }, true);
+                        window.addEventListener('keyup', (e) => { if (e.key === 'Control' || !e.ctrlKey) window.__bajaCtrl = false; }, true);
+                        window.addEventListener('blur', () => { window.__bajaCtrl = false; });
+                        window.addEventListener('mousemove', (e) => { window.__bajaCtrl = !!e.ctrlKey; }, true);
+                    }
+                } catch (e) { }
                 let colorWells = (type) => {
                     if (type === 'STD') {
                         return 'lightBlue'
@@ -17462,6 +17906,7 @@ function (progress) {
             }
 
             setMenu(_menu) {
+                if (this.__viewer) return;   // the viewer shows no menu, whatever asks for one
                 if (isMobile()) {
                     if (_menu.list && _menu.list.length > 0) {
                         exec('flexigraph/show-mobile-menu-no-reset.js', _menu.list)
@@ -17493,6 +17938,7 @@ function (progress) {
             }
 
             showMenuWithTitle(title, m) {
+                if (this.__viewer) return;
                 const cols = 2;
                 this.menu = new Menu(m,
                     this.grid.Xwc(this.grid.xi + this.grid.width / 2 - 200),
@@ -23120,6 +23566,10 @@ function (progress) {
                         if (obj.drawPlot) {
                             obj.drawPlot(this, ctx);
                         } else if (obj.draw) {
+                            // Zoomed out so far that a cell is under 10 x 5 px, a table is an
+                            // unreadable smear of lines: draw where it IS instead -- its
+                            // outline, faintly filled, and its name -- and nothing inside.
+                            try { if (this.__drawTinyTable(obj, ctx)) return; } catch (e) { }
                             obj.draw(this, ctx);
                             // Cell connection arrows: faint and thin, so they hint without intruding.
                             this.drawFormulaDependencyArrows(obj, ctx, this.grid);
@@ -23166,7 +23616,8 @@ function (progress) {
                     if (this.__objectOnlyId && !this.__maximized) {
                         const id = '' + this.__objectOnlyId;
                         allObjects = allObjects.filter(o => o && ('' + (o.uid || o.id)) === id);
-                        try {
+                        // The viewer keeps the plain canvas: just the timeline, zoomed in.
+                        if (!this.__viewer) try {
                             ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
                             ctx.fillStyle = '#0a2540'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
                             ctx.restore();
@@ -23868,7 +24319,10 @@ function (progress) {
                     try {
                         const cur = (this.m_plots || []).find(x => x && ('' + x.uid) === uid);
                         if (cur && this.__tlIs(cur) && state.scatterData && Array.isArray(state.scatterData.points)) {
-                            const pts = state.scatterData.points.map(pt_ => (pt_ && typeof pt_ === 'object') ? Object.assign({}, pt_) : pt_).filter(Boolean);
+                            // Marked as remote: the milestone sync then writes THEIR dates into the
+                            // table rows, rather than reading the rows' older dates as an edit and
+                            // snapping the points back (the flip-back the recipients saw).
+                            const pts = state.scatterData.points.map(pt_ => (pt_ && typeof pt_ === 'object') ? Object.assign({}, pt_, { __remoteFresh: true }) : pt_).filter(Boolean);
                             if (!cur.scatterData) cur.scatterData = { points: [] };
                             cur.scatterData.points = pts;
                             if (typeof state.name === 'string' && state.name) cur.name = state.name;

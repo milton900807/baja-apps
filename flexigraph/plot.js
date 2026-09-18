@@ -3978,6 +3978,36 @@ function (MGrid) {
                 this.fitScaleToData = true;
             }
 
+            // The plot as a PNG data URL at a given size (the social card of a public link is
+            // 1200x630). Same drawing as toPNG, with the track's grid put back afterwards.
+            toPNGDataURL(pt, width, height, pad) {
+                width = width || 1200; height = height || 630; pad = (pad == null) ? 50 : pad;
+                const graph = pt.grid;
+                const gw = graph.width, gh = graph.height;
+                const wasGP = MGrid.GP;
+                const hl = this.highlight;
+                let dataURL = '';
+                try {
+                    graph.width = width; graph.height = height;
+                    const c = document.createElement('canvas');
+                    c.width = width; c.height = height;
+                    const ctx = c.getContext('2d');
+                    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, width, height);
+                    MGrid.GP = true;
+                    const ng = this.grid.clone();
+                    ng.width = width - 2 * pad; ng.height = height - 2 * pad; ng.xi = pad; ng.yi = pad;
+                    ng.rescale();
+                    this.highlight = false;
+                    this.drawPlot(pt, ctx, ng, true);
+                    dataURL = c.toDataURL('image/png');
+                } catch (e) { console.warn('preview render', e); dataURL = ''; }
+                MGrid.GP = wasGP;
+                this.highlight = hl;
+                graph.width = gw; graph.height = gh;
+                try { graph.rescale(); } catch (e) { }
+                return dataURL;
+            }
+
             async toPNG(pt) {
 
                 const graph = pt.grid;
@@ -4075,24 +4105,40 @@ function (MGrid) {
                     if (this.___hover) {
 
                         let move_endpoint = {
-                            md: true,
+                            md: true, moved: false,
                             id: 'move_endpoint' + this.name,
                             mouseMoveListener: (x, y) => {
                                 if (move_endpoint.md) {
                                     let mmx = this.grid.Xwc((x) - this.grid.xi * 2);
-                                    if (this.___hover.handle === 'end')
-                                        this.___hover.point.x = mmx + this.grid.worldWidth(20);
-                                    else
-                                        this.___hover.point.startX = mmx;
+                                    // The DATE moves with the handle: the timeline re-derives every end from its
+                                    // date each frame, so a handle whose x alone changed snapped back on release.
+                                    const pnt = this.___hover.point;
+                                    if (!move_endpoint.moved) {
+                                        move_endpoint.moved = true;
+                                        try { pushHistory(HM(this)); } catch (e) { }
+                                        try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
+                                    }
+                                    if (this.___hover.handle === 'end') {
+                                        pnt.x = mmx + this.grid.worldWidth(20);
+                                        try { const d = this.__tlUnitsToDate(pnt.x); if (d) pnt.date = d; } catch (e) { }
+                                    } else {
+                                        pnt.startX = mmx;
+                                        try { const d = this.__tlUnitsToDate(pnt.startX); if (d) pnt.__startDate = d; } catch (e) { }
+                                    }
+                                    try { if (pt.setMessage) pt.setMessage((pnt.name || 'Range') + ': ' + (pnt.__startDate ? pt.__tlFmt(new Date(pnt.__startDate).getTime()) + ' to ' : '') + pt.__tlFmt(new Date(pnt.date).getTime()), 3); } catch (e) { }
                                 }
                             },
                             mouseUpListener: (x, y) => {
+                                // Dropped where it is, at once: the listener goes and the mouse is back in
+                                // navigate mode (wb(null) restores it); no half-second of dead input.
                                 move_endpoint.md = false;
-                                setTimeout(() => {
-                                    this.deselectAll();
-                                    pt.wb(null)
-                                }, 500)
-
+                                try { this.deselectAll(); } catch (e) { }
+                                try { this.___hover = null; } catch (e) { }
+                                try { pt.wb(null); } catch (e) { }
+                                try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) { gg.graph.__suppressPan = false; if (gg.graph.setMouseMode) gg.graph.setMouseMode('navigate'); } } catch (e) { }
+                                if (move_endpoint.moved) {
+                                    try { pt.__msSyncAt = 0; if (pt.__syncMilestoneLinks) pt.__syncMilestoneLinks(); } catch (e) { }
+                                }
                             },
                             mouseDownListener: (x, y) => {
 
@@ -4213,24 +4259,40 @@ function (MGrid) {
                         if (this.___hover) {
 
                             let move_endpoint = {
-                                md: true,
+                                md: true, moved: false,
                                 id: 'move_endpoint' + this.name,
                                 mouseMoveListener: (x, y) => {
                                     if (move_endpoint.md) {
                                         let mmx = this.grid.Xwc((x) - this.grid.xi * 2);
-                                        if (this.___hover.handle === 'end')
-                                            this.___hover.point.x = mmx + this.grid.worldWidth(20);
-                                        else
-                                            this.___hover.point.startX = mmx;
+                                        // The DATE moves with the handle: the timeline re-derives every end from its
+                                        // date each frame, so a handle whose x alone changed snapped back on release.
+                                        const pnt = this.___hover.point;
+                                        if (!move_endpoint.moved) {
+                                            move_endpoint.moved = true;
+                                            try { pushHistory(HM(this)); } catch (e) { }
+                                            try { if (pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
+                                        }
+                                        if (this.___hover.handle === 'end') {
+                                            pnt.x = mmx + this.grid.worldWidth(20);
+                                            try { const d = this.__tlUnitsToDate(pnt.x); if (d) pnt.date = d; } catch (e) { }
+                                        } else {
+                                            pnt.startX = mmx;
+                                            try { const d = this.__tlUnitsToDate(pnt.startX); if (d) pnt.__startDate = d; } catch (e) { }
+                                        }
+                                        try { if (pt.setMessage) pt.setMessage((pnt.name || 'Range') + ': ' + (pnt.__startDate ? pt.__tlFmt(new Date(pnt.__startDate).getTime()) + ' to ' : '') + pt.__tlFmt(new Date(pnt.date).getTime()), 3); } catch (e) { }
                                     }
                                 },
                                 mouseUpListener: (x, y) => {
+                                    // Dropped where it is, at once: the listener goes and the mouse is back in
+                                    // navigate mode (wb(null) restores it); no half-second of dead input.
                                     move_endpoint.md = false;
-                                    setTimeout(() => {
-                                        this.deselectAll();
-                                        pt.wb(null)
-                                    }, 500)
-
+                                    try { this.deselectAll(); } catch (e) { }
+                                    try { this.___hover = null; } catch (e) { }
+                                    try { pt.wb(null); } catch (e) { }
+                                    try { const gg = CurrentLayout.getStashed('graph'); if (gg && gg.graph) { gg.graph.__suppressPan = false; if (gg.graph.setMouseMode) gg.graph.setMouseMode('navigate'); } } catch (e) { }
+                                    if (move_endpoint.moved) {
+                                        try { pt.__msSyncAt = 0; if (pt.__syncMilestoneLinks) pt.__syncMilestoneLinks(); } catch (e) { }
+                                    }
                                 },
                                 mouseDownListener: (x, y) => {
 
@@ -4854,6 +4916,15 @@ function (MGrid) {
                 this.unhighlight();
             }
 
+            // Axis units -> Date on a timeline (the inverse of normalizeTimePoints' mapping).
+            __tlUnitsToDate(xu) {
+                if (!this.startDate || !this.endDate || !this.grid) return null;
+                const s = toMillis(this.startDate), e = toMillis(this.endDate);
+                const xmin = this.grid.xmin, xmax = this.grid.xmax;
+                if (!isFinite(s) || !isFinite(e) || !(xmax > xmin)) return null;
+                const d = new Date(s + (xu - xmin) / (xmax - xmin) * (e - s));
+                return isNaN(d.getTime()) ? null : d;
+            }
             normalizeTimePoints(graph) {
                 const screen_ = 200;
                 let xwm = graph.worldWidth(this.grid.worldWidth(screen_))
@@ -4955,13 +5026,28 @@ function (MGrid) {
                 });
                 menuList.push(
                     {
+                        // A milestone with its own row and budget: the point, the row in the
+                        // milestones table, the amount in the budgets table, the formulas.
+                        label: `Add budgeted milestone`,
+                        __date: '',
+                        click: async (scx, scy) => {
+                            if (pt && typeof pt.__tlAddBudgetedMilestone === 'function') await pt.__tlAddBudgetedMilestone(this);
+                        },
+                        move: () => {
+                        }
+                    });
+                menuList.push(
+                    {
                         label: `Plot Name`,
                         click: async (scx, scy) => {
 
-                            let va = await prompt("Name", ["Name"], { "Name": this.name }, 300, 300)
-                            let m = va['Name']
-                            if (m != null) {
-                                this.name = m;
+                            let va = await prompt("Rename the timeline", ["Name"], { "Name": this.name }, 300, 300)
+                            let m = va ? va['Name'] : null;
+                            if (m != null && ('' + m).trim() && ('' + m).trim() !== this.name) {
+                                try { pushHistory(HM(this)); } catch (e) { }
+                                try { if (pt && pt.__collab && pt.__collab.holds && !pt.__collab.holds(this)) pt.__collab.acquire(this); } catch (e) { }
+                                this.name = ('' + m).trim();
+                                try { pt.setMessage('Renamed to ' + this.name + ' (Ctrl+Z undoes)', 2); } catch (e) { }
                             }
 
                         },
@@ -8912,7 +8998,11 @@ function (MGrid) {
                 const __group = (label, items) => (items.length ? { label: label + ' ▸', __date: '', click: async () => __open(label, items) } : null);
 
                 const __zoom = __find(/^zoom (in|out)$/);
+                // Rename sits at the top level: the name is on the tab, the bookmarks and
+                // every share, so it should not take a trip through Appearance to change.
+                const __rename = __pick(['Plot Name', 'Rename timeline…']);
                 const __add = __pick(
+                    ['Add budgeted milestone', 'Milestone with a budget row…'],
                     ['Add Pts', 'Point (milestone, interval, PDF)…'],
                     ['(x+y) Arrow', 'Arrow (x+y)'],
                     ['Add items', 'Items from text…'],
@@ -8965,6 +9055,7 @@ function (MGrid) {
 
                 __top = [
                     __zoom,
+                    ...__rename,
                     __group('Add', __add),
                     __group('Time', __time),
                     __group('Edit', __edit),
@@ -13105,7 +13196,7 @@ function (MGrid) {
 
                             const active = !!(this.resizing || this.__resizing);
                             if (this.showMenuBar)
-                                drawResizeHandle(ctx, brx + 40, bry + 40, size, true, this.____callout);
+                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly)) drawResizeHandle(ctx, brx + 40, bry + 40, size, true, this.____callout);
 
                             const hbSize = size + pad;
                             this.__resizeHandle = {
@@ -13130,7 +13221,7 @@ function (MGrid) {
                                 const bry = rect.y + rect.h - pad;
 
                                 const active = !!(this.resizing || this.__resizing);
-                                drawResizeHandle(ctx, brx + 40, bry + 40, size, false, this.____callout);
+                                if (!(typeof pt !== 'undefined' && pt && pt.__readOnly)) drawResizeHandle(ctx, brx + 40, bry + 40, size, false, this.____callout);
 
                                 const hbSize = size + pad;
                                 this.__resizeHandle = {
@@ -14809,18 +14900,21 @@ function (MGrid) {
                                                 ctx.stroke();
 
                                                 // The caret says "this opens a menu". Navy, same as the border.
-                                                const cx = nameBox.x + nameBox.w - pillPadX - CARET_W / 2;
-                                                const cy = adjustedBoxY + boxHeight / 2;
-                                                ctx.shadowColor = 'transparent';
-                                                ctx.strokeStyle = '#0a2540';
-                                                ctx.lineWidth = 1.6;
-                                                ctx.lineCap = 'round';
-                                                ctx.lineJoin = 'round';
-                                                ctx.beginPath();
-                                                ctx.moveTo(cx - 4, cy - 2);
-                                                ctx.lineTo(cx, cy + 2.5);
-                                                ctx.lineTo(cx + 4, cy - 2);
-                                                ctx.stroke();
+                                                // Not for a view-only reader: nothing opens for them.
+                                                if (!(pt && pt.__readOnly)) {
+                                                    const cx = nameBox.x + nameBox.w - pillPadX - CARET_W / 2;
+                                                    const cy = adjustedBoxY + boxHeight / 2;
+                                                    ctx.shadowColor = 'transparent';
+                                                    ctx.strokeStyle = '#0a2540';
+                                                    ctx.lineWidth = 1.6;
+                                                    ctx.lineCap = 'round';
+                                                    ctx.lineJoin = 'round';
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(cx - 4, cy - 2);
+                                                    ctx.lineTo(cx, cy + 2.5);
+                                                    ctx.lineTo(cx + 4, cy - 2);
+                                                    ctx.stroke();
+                                                }
                                                 ctx.restore();
 
                                                 ctx.save();
@@ -15078,7 +15172,7 @@ function (MGrid) {
 
                             const handleSize = 30;
 
-                            drawResizeHandle(ctx, brx + 40, bry + 40, handleSize, !!this.resizing, true);
+                            if (!(typeof pt !== 'undefined' && pt && pt.__readOnly)) drawResizeHandle(ctx, brx + 40, bry + 40, handleSize, !!this.resizing, true);
 
                         } else {
                             ctx.shadowBlur = 1;
