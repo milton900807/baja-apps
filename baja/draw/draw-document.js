@@ -20,6 +20,11 @@ function (platetrack, opts) {
     // and the card is re-laid out in place, keeping its position and size.
     return (async () => {
         const o = opts || {};
+        // HM is a local of whichever app module happens to define it, not a global, so a
+        // script that is exec'd on its own loads its own copy: a bare HM() was undefined
+        // here and the snapshot never reached the undo stack.
+        const HM_ = await exec('baja/history/HM');
+
         const esc = (s) => ('' + (s == null ? '' : s))
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -100,6 +105,10 @@ function (platetrack, opts) {
 
         // An existing document keeps its place and size: only its text changes.
         if (editing) {
+            // The canvas as it stands, so Ctrl+Z brings the old text back. HM(platetrack)
+            // snapshots the whole canvas (gs.root), which is what restores an object; a
+            // snapshot of one object cannot resurrect something that is no longer there.
+            try { pushHistory(HM_(platetrack)); } catch (e) { console.warn('[document] history', e); }
             editing.html = html;
             editing.source = '' + text;
             editing.__blocks = null;
@@ -109,7 +118,6 @@ function (platetrack, opts) {
             try { editing.setLastTouched(); } catch (e) { }
             try { platetrack.wb(null); } catch (e) { }
             try { platetrack.setMessage('Saved “' + editing.name + '”', 1); } catch (e) { }
-            try { pushHistory && pushHistory(); } catch (e) { }
             return editing;
         }
 
@@ -163,12 +171,12 @@ function (platetrack, opts) {
                         h: g.worldHeight(hpx),
                     };
                     let doc = null;
+                    try { pushHistory(HM_(platetrack)); } catch (e) { console.warn('[document] history', e); }
                     try {
                         doc = await platetrack.addDocument(name, html, { at: at, width: wpx, height: hpx, source: '' + text });
                     } catch (e) { console.warn('[document] insert', e); }
                     try { platetrack.wb(null); } catch (e) { }
                     try { platetrack.setMessage(doc ? ('Added “' + name + '” -- select it and choose Document again to edit the text') : 'Could not add the document', 1.1); } catch (e) { }
-                    try { pushHistory && pushHistory(); } catch (e) { }
                     resolve(doc);
                 },
                 close: () => { resolve(null); },

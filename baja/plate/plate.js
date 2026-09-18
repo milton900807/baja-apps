@@ -12521,6 +12521,14 @@ function () {
                 if (jsonData.plateType && (jsonData.plateType === 'transparent' || jsonData.plateType === 'TRANSPARENT')) {
                     return TransparentPlate.buildPlateFromJSON(jsonData);
                 }
+                // A document is not a table. It rebuilds from its own JSON -- the html, the
+                // text its author typed, its place and size -- because run through the table
+                // builder below it came back as an empty Plate: a card with nothing in it,
+                // after a reload or an undo.
+                if (jsonData.plateType === 'document') {
+                    if (ModelDocument) return ModelDocument.buildFromJSON(jsonData);
+                    console.warn('[document] class unavailable, rebuilt as an empty plate');
+                }
                 if (jsonData.grid.xmax < 1) {
                     jsonData.grid.xmax = 1;
                 }

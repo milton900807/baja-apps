@@ -3626,8 +3626,12 @@ function (plateManager, progress) {
             addChem(ch) {
                 this.chem.push(ch);
             }
-            showMenu(list, x, y) {
-                let width = 320;
+            showMenu(list, x, y, menuWidth) {
+                // 320 is the width of an ordinary menu of short commands. A caller that has
+                // wording to show -- a confirmation says what is about to be lost -- asks for
+                // the width its longest line needs, and used to be ignored here, so the
+                // sentence was cut off at "Its te…". gene.js has always honoured it.
+                let width = (menuWidth > 0) ? menuWidth : 320;
                 if (isMobile()) {
                     exec('flexigraph/show-mobile-menu.js', x, y, list, this.graph, this.genegraph_panel_layout)
                 } else {

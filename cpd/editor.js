@@ -4506,6 +4506,12 @@ function (path, config) {
                                         })
                                     },
                                     {
+                                        label: 'Delete Document', ionfunction: createIonFunction(async () => {
+                                            // The selected document, or one chosen from a list.
+                                            await exec('baja/draw/delete-document.js', pm.plateTrack)
+                                        })
+                                    },
+                                    {
                                         label: 'Postit Note', ionfunction: createIonFunction(async () => {
                                             await exec('baja/draw/draw-postit.js', pm.plateTrack)
 
