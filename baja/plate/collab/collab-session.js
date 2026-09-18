@@ -22,6 +22,21 @@ function (pt, opts) {
         const me = ('' + (getUser() || '')).trim().toLowerCase();
         const docPath = '' + (o.path || '');
         const graph = o.graph || null;
+        // WHICH DOCUMENT THIS SESSION BELONGS TO. The session writes `graph` to `docPath`, but
+        // the page can move to another document without it: File > New resets the track in
+        // place (new id, new name, empty canvas), and a later autosave, the save on the way
+        // out, or the save in destroy() then wrote that empty canvas over this file (sptlc2.bjb,
+        // 2026-09-18). The track's id at join time is remembered; a save is only ever made
+        // while the page still shows that track, and otherwise the session shuts itself down.
+        const joinedUid = (() => { try { return pt && pt.uid ? '' + pt.uid : ''; } catch (e) { return ''; } })();
+        // The track itself was cleared or replaced in place (File > New): definitely not ours.
+        const trackReset = () => { try { return !!joinedUid && !!pt && ('' + pt.uid) !== joinedUid; } catch (e) { return true; } };
+        // What a save would write is `graph`, so its track must be ours too. A mismatch there
+        // can be a moment's lag after a load, so it only skips the save; it never tears down.
+        const stillOurs = () => {
+            if (trackReset()) return false;
+            try { const g = graph && graph.plateTrack; return !g || g === pt || !joinedUid || ('' + g.uid) === joinedUid; } catch (e) { return false; }
+        };
         if (!pt || !docPath || !me) return null;
 
         // socket.io client: the server serves its own copy at /socket.io/socket.io.js.
@@ -224,6 +239,11 @@ function (pt, opts) {
         // ---- save -----------------------------------------------------------------------
         session.save = async (g, opts) => {
             if (session.viewOnly) return { status: 'view-only' };
+            if (!stillOurs()) {
+                console.warn('[collab] not saving: the page no longer shows the document this session joined (' + docPath + ')');
+                if (trackReset()) { session.dirty = false; try { session.destroy(); } catch (e) { } }
+                throw new Error('This canvas is no longer "' + (docPath.split('/').pop() || 'the shared document') + '"; nothing was saved over it.');
+            }
             const quiet = !!(opts && opts.quiet);
             const target = g || graph;
             if (!target) throw new Error('nothing to save');
@@ -263,6 +283,7 @@ function (pt, opts) {
         };
         const autosave = () => {
             if (!session.dirty || session.saving || !session.connected || !docPath) return;
+            if (!stillOurs()) { if (trackReset()) { session.dirty = false; try { session.destroy(); } catch (e) { } } return; }
             if (editing()) return;   // try again next tick, after the edit
             const run = async () => {
                 if (session.saving || !session.dirty) return;
@@ -279,6 +300,7 @@ function (pt, opts) {
         session.__onLeave = () => {
             try {
                 if (!session.dirty || !docPath) return;
+                if (!stillOurs()) return;   // never the leaving page's other document over this one
                 const seen = new WeakSet();
                 const value = JSON.stringify(graph, function (key, v) {
                     if (key === 'canvas') return;

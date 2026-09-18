@@ -20794,6 +20794,16 @@ function (progress) {
             }
 
             reset(path) {
+                // A live co-editing session belongs to the document being cleared. Close it now,
+                // while the canvas still holds that document: its last save goes to the right
+                // file with the right content, and nothing is left joined to the old path to
+                // save the new, empty canvas over it afterwards.
+                try {
+                    if (this.__collab) {
+                        const s = this.__collab; this.__collab = null; this.__collabDoc = null;
+                        try { s.destroy(); } catch (e) { }
+                    }
+                } catch (e) { }
 
                 pushHistory(HM(this))
 

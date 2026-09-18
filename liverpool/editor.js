@@ -32,6 +32,17 @@ function (path, config) {
 
         const GC = await exec('liverpool/lib/genetic-code.js');
         const HLA = await exec('liverpool/lib/hla.js');
+        // The trained presentation model takes over from the anchor-motif screen when its
+        // files load. It registers through HLA's own setExternalPredictor seam, and a
+        // failure here is not fatal: hla.js falls back to the motif screen and every row
+        // says which engine produced it. 278 alleles instead of 19.
+        const PM = await exec('liverpool/lib/presentation-model.js');
+        try {
+            const on = await PM.install(HLA);
+            step(on ? ('presentation model active: ' + JSON.stringify(PM.info()))
+                    : ('presentation model unavailable, using the motif screen: '
+                       + (PM.lastError ? PM.lastError.message : 'unknown')));
+        } catch (e) { step('presentation model failed to install: ' + e); }
         const MUT = await exec('liverpool/lib/mutation.js');
         const EP = await exec('liverpool/lib/epitope.js');
         const CON = await exec('liverpool/lib/construct.js');

@@ -73,7 +73,6 @@ function (pt, type, type_path, _name) {
 
                 mouseMoveListener: (x, y) => {
                     if (hd.md) {
-                        console.log(' drag ')
                         hd.currentX = x;
                         hd.currentY = y;
                         const rectWidth = hd.currentX - hd.startX;

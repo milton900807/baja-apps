@@ -1329,7 +1329,6 @@ function (graph, genegraph_panel_layout) {
             draw = null;
             menuManager = null;
             smenu = null;
-            console.log(" drag ")
             mouseUpListener = (x, y) => {
                 px = 0;
                 py = 0;

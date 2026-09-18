@@ -294,6 +294,17 @@ function (graph, main_layout, path, reference_object) {
                                             }
 
                                             let rs = await POSTJSON(jsonobj, host_ + '/save-user-data');
+                                            // The server refuses to replace a workbook that has content with an
+                                            // empty one (a 409; the HTTP error comes back as the answer here, its
+                                            // body in .error). Say so, and do not carry on as if it had saved.
+                                            {
+                                                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+                                                if (body && body.refused === 'empty-overwrite') {
+                                                    progressBar(100);
+                                                    try { infoPrompt(body.error || body.msg || 'Not saved: this would replace a workbook with an empty one.'); } catch (e) { }
+                                                    return;
+                                                }
+                                            }
 
                                             if (rs['path'].indexOf('myfiles') >= 0 && rs['path'].indexOf(getUser()) >= 0) {
                                                 rs['path'] = rs['path'].replace('/' + getUser(), '')

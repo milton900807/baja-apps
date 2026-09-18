@@ -170,6 +170,18 @@ function () {
         return !!(e && typeof e === 'object' && e.t === 1);
     };
 
+    // The exact vector handed to the trees. Exposed so verify_browser_scorer.js can diff
+    // it against the python side index by index: when the two languages disagree this is
+    // the first thing worth looking at, and guessing is slower than checking.
+    const featuresFor = (allele, pep) => {
+        const groove = grooveFor(allele);
+        if (!groove) return null;
+        const x = new Float64Array(NFEAT);
+        grooveBlock(groove, x);
+        peptideBlock(('' + pep).toUpperCase(), x);
+        return x;
+    };
+
     // score(allele, peptides) -> [{peptide, score, rank}] or null when the allele is not
     // covered. Returning null is the signal hla.js uses to fall back to the motif screen.
     const score = (allele, peptides) => {
@@ -180,19 +192,24 @@ function () {
         const x = new Float64Array(NFEAT);
         grooveBlock(groove, x);                       // constant across the whole list
         const peptideWidth = FRAME * 20 + LENGTHS.length;
+        const src = 'presentation-model';
+        const conf = wasTrainedOn(allele) ? 'trained' : 'pan-allele';
 
         const out = [];
         for (let i = 0; i < peptides.length; i++) {
             const pep = ('' + peptides[i]).toUpperCase();
             if (pep.length < 8 || pep.length > 11 || /[^ACDEFGHIKLMNPQRSTVWY]/.test(pep)) {
-                out.push({ peptide: pep, score: 0, rank: 100 });
+                out.push({ peptide: pep, score: 0, rank: 100, source: src, confidence: conf });
                 continue;
             }
             x.fill(0, 0, peptideWidth);               // only the peptide block changes
             peptideBlock(pep, x);
             const s = sigmoid(rawScore(x));
             const r = rankOf(allele, pep.length, s);
-            out.push({ peptide: pep, score: s, rank: (r == null ? 100 : r) });
+            out.push({
+                peptide: pep, score: s, rank: (r == null ? 100 : r),
+                source: src, confidence: conf
+            });
         }
         return out;
     };
@@ -236,6 +253,7 @@ function () {
     return {
         load: load, install: install, predictor: predictor, score: score,
         supports: supports, wasTrainedOn: wasTrainedOn, info: info,
+        featuresFor: featuresFor,
         frame9: frame9, rankOf: rankOf,
         get lastError() { return lastError; }
     };

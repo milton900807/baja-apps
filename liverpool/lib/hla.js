@@ -263,7 +263,12 @@ function () {
                         score: (r && typeof r.score === 'number') ? r.score : null,
                         core: (r && r.core) || list[i], offset: (r && r.offset) || 0,
                         bind: bandOf((r && r.rank) != null ? r.rank : 100),
-                        source: 'external', confidence: 'external'
+                        // A predictor that names itself is carried through to the report.
+                        // The trained presentation model uses this to distinguish an allele
+                        // it was fitted on from one scored purely from groove similarity,
+                        // which are both legitimate but are not the same evidence.
+                        source: (r && r.source) || 'external',
+                        confidence: (r && r.confidence) || 'external'
                     }));
                 }
             } catch (e) {
