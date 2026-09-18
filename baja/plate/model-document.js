@@ -319,6 +319,20 @@ function () {
 
                 // More below: a soft fade and a scroll bar, so it is clear there is more.
                 if (maxScroll > 0) {
+                    // The fade goes where the text is cut -- below when more follows, above
+                    // when the card has been scrolled -- so a half-height line reads as more
+                    // document rather than as a fault in the drawing.
+                    const fade = (yFrom, yTo) => {
+                        const g = ctx.createLinearGradient(0, yFrom, 0, yTo);
+                        g.addColorStop(0, 'rgba(255,255,255,0.96)');
+                        g.addColorStop(1, 'rgba(255,255,255,0)');
+                        ctx.fillStyle = g;
+                        ctx.fillRect(x + 1, Math.min(yFrom, yTo), w - 2, Math.abs(yTo - yFrom));
+                    };
+                    const fadeH = Math.min(26, (bottom - top) * 0.25);
+                    if (this.scroll > 0.5) fade(top, top + fadeH);
+                    if (this.scroll < maxScroll - 0.5) fade(bottom, bottom - fadeH);
+
                     const trackH = bottom - top;
                     const thumb = Math.max(18, trackH * (trackH / total));
                     const pos = (this.scroll / maxScroll) * (trackH - thumb);
