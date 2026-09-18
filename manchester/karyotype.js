@@ -9431,7 +9431,7 @@ function (path, config) {
                                     badge: 'makes this possible', icon: 'compress', ready: true,
                                     blurb: lohResult ? 'The scan has run; its tracts have not been read out into genes yet, and the genes are what this needs.'
                                         : 'It needs a tumor and its normal, one on each side of the chromosomes. The scan finds where the tumor kept one allele.',
-                                    open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
+                                    open: () => { try { lohStart(); } catch (e) { } } });
                             } else if (mode === 'phased') {
                                 sub.push({ accent: 'choose', title: 'Load a phased VCF', badge: 'makes this possible',
                                     icon: 'upload_file', ready: true,
@@ -9466,7 +9466,7 @@ function (path, config) {
                                     badge: 'step 1', icon: 'compress', ready: true,
                                     blurb: lohResult ? 'The scan has run; reading its tracts out into genes is what this needs.'
                                         : 'It needs a tumor and its normal. The scan finds where the tumor kept one allele.',
-                                    open: () => { try { if (lohResult) lohMenu(); else analysisMenu(); } catch (e) { } } });
+                                    open: () => { try { lohStart(); } catch (e) { } } });
                             } else {
                                 sub.push(lossCalcCard('', 'step 1'));
                             }
@@ -9643,6 +9643,30 @@ function (path, config) {
             specs.forEach((sp) => books.push({ section: 'Loss of heterozygosity', accent: 'run', title: sp.labelN + '  →  ' + sp.labelT, badge: sp.kind === 'side' ? 'two files' : 'two samples', icon: sp.kind === 'side' ? 'compare' : 'people',
                 blurb: sp.blurb, ready: true, open: () => computeLOH(sp) }));
             return books;
+        };
+        // A CARD THAT SAYS "RUN THE SCAN" HAS TO RUN IT. The cards that name the scan as a
+        // prerequisite used to open the Analyze library, which is a menu the scan is
+        // somewhere inside of; pressed from another shelf that reads as nothing happening.
+        // This goes to the scan itself: the genes when the tracts are already found, the
+        // one question the scan cannot answer for itself (which of the pair is the normal)
+        // when they are not, and Upload when there is no pair to ask it about.
+        const lohStart = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            if (lohBusy) { graph.setMessage(' The scan is still running. '); return; }
+            if (lohResult) {
+                if (lohResult.genes || lohGeneBusy) { lohMenu(); return; }
+                graph.setMessage(' Reading the genes inside the tracts\u2026 ');
+                lohFindGenes();
+                return;
+            }
+            const specs = lohSpecs();
+            if (!specs.length) {
+                graph.setError(' The scan needs a tumor and its normal, and one genome is loaded. Put the second file on the left of the chromosomes. ', 10);
+                uploadMenu();
+                return;
+            }
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Loss of heterozygosity',
+                subtitle: 'Which one is the normal? Choosing starts the scan.', graph: graph, books: lohPickerBooks() });
         };
         const lohMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
