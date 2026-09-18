@@ -2476,6 +2476,12 @@ function (path, config) {
                         })
                     },
                     {
+                        label: 'Rename Document', ionfunction: createIonFunction(async () => {
+                            // The name on the card and in the lists; the text is not touched.
+                            await exec('baja/draw/rename-document.js', pm.plateTrack)
+                        })
+                    },
+                    {
                         label: 'Delete Document', ionfunction: createIonFunction(async () => {
                             // The selected document, or one chosen from a list; confirmed either way.
                             await exec('baja/draw/delete-document.js', pm.plateTrack)

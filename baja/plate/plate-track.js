@@ -10989,9 +10989,7 @@ function (progress) {
             async autoTypeTables(plates, opts) {
                 const list = (plates && plates.length) ? plates : (this.root || []);
                 try {
-                    const r = await exec('baja/plate/views/auto-cell-types.js', this, list, opts || {});
-                    if (r && r.cells) console.log('[auto cell types]', r.cells, 'cells in', r.tables, 'tables:', r.byType);
-                    return r;
+                    return await exec('baja/plate/views/auto-cell-types.js', this, list, opts || {});
                 } catch (e) { console.warn('[auto cell types]', e); return null; }
             }
             // A table whose cells have shrunk below MIN_W x MIN_H screen pixels is drawn as a
