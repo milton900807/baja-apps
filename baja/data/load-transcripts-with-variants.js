@@ -1,6 +1,13 @@
 function (server, graph, genegraph_panel_layout, ids, variants) {
     // Load these transcripts, and put these variants on whichever of them they land in.
     //
+    // TWO TRACKS OF THE SAME GENE, when the caller asks for them. An entry may be a plain
+    // transcript id, as it always was, or { id, group, label }: the track is labelled, and it
+    // takes only the variants carrying the same `group`. That is how the LOH design strategy
+    // opens a gene -- the germline on one track, the tumor with its own changes on another --
+    // so an allele-selective oligo can be designed against the difference between them. A
+    // variant the tumor kept from the germline is in both groups, and appears on both.
+    //
     // The variants come from somewhere that already knows where they are -- the chromosome
     // view, holding a pasted or uploaded VCF -- so nothing is looked up again here. What this
     // does is the part only a track can do: turn a genomic coordinate into a position on a
@@ -13,7 +20,7 @@ function (server, graph, genegraph_panel_layout, ids, variants) {
     const restoreHover = () => { try { exec('baja/manchester/menu/mouse-over-highlight.js', graph, genegraph_panel_layout); } catch (e) { } };
 
     return (async () => {
-        const wanted = (ids || []).filter(Boolean);
+        const wanted = (ids || []).filter(Boolean).map((x) => (typeof x === 'string' ? { id: x } : x)).filter((e) => e && e.id);
         if (!wanted.length) { say('No transcripts to load.'); return false; }
         const vs = variants || [];
 
@@ -31,17 +38,24 @@ function (server, graph, genegraph_panel_layout, ids, variants) {
 
         let loaded = 0, placed = 0;
         for (let i = 0; i < wanted.length; i++) {
-            say('Loading ' + wanted[i] + ' — ' + (i + 1) + ' of ' + wanted.length + '…');
+            const E = wanted[i];
+            say('Loading ' + E.id + (E.label ? ' (' + E.label + ')' : '') + ' — ' + (i + 1) + ' of ' + wanted.length + '…');
             const before = new Set((graph.track || []));
-            try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, wanted[i]); }
+            try { await exec('baja/data/prompt-load-transcript.js', server, graph, genegraph_panel_layout, E.id); }
             catch (e) { continue; }
             const fresh = (graph.track || []).filter((t) => t && !before.has(t));
             if (!fresh.length) continue;
             loaded += fresh.length;
-            if (!vs.length || !SnpIndel) continue;
+            // The label goes in the track's DESCRIPTION, which is drawn beside its name. The
+            // name is what other tools match a track by, so it is left alone.
+            if (E.label) for (const t of fresh) { try { t.description = E.label + (t.description ? '  ·  ' + t.description : ''); } catch (e) { } }
+            // A grouped entry takes its own group's variants; an ungrouped one takes them all,
+            // which is what every caller before this did.
+            const mine = E.group ? vs.filter((v) => v && v.group === E.group) : vs;
+            if (!mine.length || !SnpIndel) continue;
             try { graph.pushOntoHistory(); } catch (e) { }
             for (const track of fresh) {
-                for (const v of vs) {
+                for (const v of mine) {
                     // variantWorldX answers "is this coordinate on this track, and where" in
                     // one call, and returns null when it is not -- which is also the test for
                     // whether the variant belongs here at all.
@@ -85,7 +99,7 @@ function (server, graph, genegraph_panel_layout, ids, variants) {
             }
         }
         try { if (graph.wake) graph.wake(); } catch (e) { }
-        say('Loaded ' + loaded + ' transcript' + (loaded === 1 ? '' : 's')
+        say('Loaded ' + loaded + ' track' + (loaded === 1 ? '' : 's')
             + (vs.length ? ' and placed ' + placed + ' variant' + (placed === 1 ? '' : 's')
                 + ' of ' + vs.length + ' carried over' : '') + '.');
         restoreHover();

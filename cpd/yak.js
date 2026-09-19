@@ -403,7 +403,7 @@ function (path, filebrowserplease) {
                         // invisible from the place you go to find your work. Genomes save as
                         // '.genome'; '.karyotype' and '.karyotype.json' are what they were saved
                         // as before, the same format.
-                        filetype: 'baja,genome,karyotype,karyotype.json',
+                        filetype: 'baja,genome,karyotype,karyotype.json,design',
                         showSearch: true,
                         "ionfunction.cmd": createIonFunction((element) => {
                             commands.go(path_j, element.cmd);
@@ -487,6 +487,13 @@ function (path, filebrowserplease) {
                                         mode: 'editor'
                                     }
                                     exec('manchester/editor', element.path, config, `/app/manchester/editor`)
+                                }
+                                else if (/\.design$/i.test(element.path)) {
+                                    // An LOH design strategy opens in the Design Viewer.
+                                    const dpath = element.path;
+                                    clear();
+                                    window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
+                                    exec('manchester/design-viewer', dpath);
                                 }
                                 else if (/\.(?:genome|karyotype(?:\.json)?)$/i.test(element.path)) {
                                     // A genome file (.genome, or the legacy .karyotype and

@@ -38,6 +38,9 @@ function (__path, __header) {
         // A genome file opens in the Genome Viewer, not the track editor. It is saved as
         // .genome; the .karyotype and .karyotype.json it was saved as before are the same
         // format, still in people's folders, and open the same way.
+        // A .design file (an LOH design strategy saved from the Genome Viewer) opens in the
+        // Design Viewer, which needs nothing but the file.
+        const isDesign = (el) => /\.design$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
         const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
         // The file's own name, for a message. Escaped, because msgpanel takes HTML and a
@@ -81,6 +84,13 @@ function (__path, __header) {
                     path_j = element.path;
                     // Guarded on mode so Delete still targets the file rather than
                     // opening it.
+                    if (mode !== 'delete' && isDesign(element)) {
+                        const dpath = element.path;
+                        clear();
+                        window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
+                        exec('manchester/design-viewer', dpath);
+                        return;
+                    }
                     if (mode !== 'delete' && isKaryotype(element)) {
                         const kpath = element.path;
                         clear();
@@ -493,6 +503,13 @@ function (__path, __header) {
                         // right back here -- no clear(), this isn't navigating anywhere.
                         await applyGzFileToCurrentGraph(element);
                         try { CurrentLayout.reset('mainPanel'); } catch (e) { }
+                        return;
+                    }
+                    if (isDesign(element)) {
+                        const dpath = element.path;
+                        clear();
+                        window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
+                        exec('manchester/design-viewer', dpath);
                         return;
                     }
                     if (isKaryotype(element)) {

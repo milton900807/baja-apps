@@ -9,7 +9,7 @@ copy by LOH (CYCLOPS), a paralog the mutant now leans on, a neighbour lost with 
 (collateral lethality). Whether any of that applies to a given variant is judgement, and that is
 the part handed to Claude -- over candidates chosen deterministically, with the numbers attached.
 
-Three actions (param 1):
+Four actions (param 1):
 
   essential   species
       -> { ok, genes: [[symbol, chr, start, end, strand, effect_mean, dep_frac, class], ...] }
@@ -20,6 +20,15 @@ Three actions (param 1):
   spans       species, JSON [symbol, ...]
       -> { ok, genes: [[symbol, chr, start, end, strand], ...] }   protein-coding spans, for the
       gain-of-function scan's oncogene catalogue (any species with a gene-symbols table).
+
+  depmap      JSON { genes: [symbol, ...] }  (human; up to MAX_DEPMAP_GENES)
+      -> { ok, n_models, genes: JSON { SYMBOL: { effect_mean, effect_median, dep_frac, class,
+                n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...} } } }
+      What the cell-line panel says about each gene in a design strategy: how essential it is,
+      where it is most essential, whether the lines that are themselves down to one copy of it
+      are more dependent (the dosage test, lineage regressed out, as loh-synthetic-lethal.py
+      does it), and the paralog most likely to stand in for it. Genes DepMap never screened
+      come back as { screened: false }.
 
   assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...],
                      gain_of_function: [...], context }
@@ -69,6 +78,132 @@ def first_existing(rel):
         if os.path.exists(p):
             return p
     return ""
+
+
+MAX_DEPMAP_GENES = 200
+CN_LOW, CN_HI_LO, CN_HI_HI = 0.60, 0.85, 1.15      # copy number / ploidy: one copy of two; normal
+MIN_HEMI, MIN_NEUTRAL, CN_FDR = 10, 20, 0.25
+MIN_LINEAGE = 10
+
+
+def depmap(req):
+    import math
+    import numpy as np
+    bd = os.path.dirname(first_existing("reference_data/depmap/gene_effect.npy"))
+    if not bd:
+        return {"ok": False, "error": "the DepMap bundle is not on this server"}
+    want = []
+    for g in (req.get("genes") or []):
+        g = str(g).strip().upper()
+        if g and g not in want:
+            want.append(g)
+    want = want[:MAX_DEPMAP_GENES]
+    genes = [g.strip().upper() for g in open(os.path.join(bd, "genes.txt")).read().rstrip("\n").split("\n")]
+    gidx = {g: i for i, g in enumerate(genes)}
+    known = [g for g in want if g in gidx]
+    res = {g: {"screened": False} for g in want if g not in gidx}
+    if not known:
+        return {"ok": True, "n_models": 0, "genes": json.dumps(res)}
+    works.msg("Reading DepMap for %d gene(s)…" % len(known))
+    G = np.load(os.path.join(bd, "gene_effect.npy"), mmap_mode="r")
+    n_models = G.shape[0]
+    cols = np.array([gidx[g] for g in known])
+    order = np.argsort(cols)
+    back = np.empty(len(cols), dtype=np.int64)
+    back[order] = np.arange(len(cols))
+    E = np.asarray(G[:, cols[order]], dtype=np.float64)[:, back]
+    lin = []
+    lp = os.path.join(bd, "lineage.txt")
+    if os.path.exists(lp):
+        lin = [x.strip() for x in open(lp).read().rstrip("\n").split("\n")]
+    lin = (lin + [""] * n_models)[:n_models]
+    # Lineage regressed out for the dosage test, so a vulnerability of one tissue is not read
+    # as a consequence of dosage.
+    cats = sorted(set(lin))
+    D = np.zeros((n_models, len(cats) + 1))
+    D[:, 0] = 1.0
+    cidx = {c: k + 1 for k, c in enumerate(cats)}
+    for i, c in enumerate(lin):
+        D[i, cidx[c]] = 1.0
+    Ef = np.where(np.isfinite(E), E, np.nanmean(E, axis=0))
+    beta, _, _, _ = np.linalg.lstsq(D, Ef, rcond=None)
+    Rres = Ef - D @ beta
+    C = PL = None
+    cp, pp = os.path.join(bd, "cn.npy"), os.path.join(bd, "ploidy.npy")
+    if os.path.exists(cp) and os.path.exists(pp):
+        C = np.asarray(np.load(cp, mmap_mode="r")[:, cols[order]], dtype=np.float64)[:, back]
+        PL = np.asarray(np.load(pp), dtype=np.float64)
+    tests = []
+    lin_arr = np.array(lin)
+    for j, g in enumerate(known):
+        e = E[:, j]
+        ok = np.isfinite(e)
+        ev = e[ok]
+        frac = float((ev < DEP_CUT).mean()) if len(ev) else 0.0
+        row = {"screened": True, "n_models": int(ok.sum()), "effect_mean": round(float(ev.mean()), 3) if len(ev) else None,
+               "effect_median": round(float(np.median(ev)), 3) if len(ev) else None, "dep_frac": round(frac, 3),
+               "class": ess_class(frac) if frac >= ESS_MIN_FRAC else ("rarely essential" if frac < 0.05 else "essential in a few lines")}
+        # Where it matters most: the lineages with the most negative mean effect.
+        lins = []
+        for c in cats:
+            m = (lin_arr == c) & ok
+            if c and m.sum() >= MIN_LINEAGE:
+                lins.append((c, float(e[m].mean()), int(m.sum())))
+        lins.sort(key=lambda x: x[1])
+        row["lineages"] = [[c, round(v, 3), n] for c, v, n in lins[:3]]
+        row["dosage"] = {"tested": False, "why": "no copy number in this DepMap bundle"}
+        if C is not None:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                ratio = C[:, j] / PL
+            prof = np.isfinite(ratio) & np.isfinite(C[:, j]) & ok
+            hemi = prof & (ratio <= CN_LOW) & (C[:, j] >= 1)
+            neut = prof & (ratio >= CN_HI_LO) & (ratio <= CN_HI_HI)
+            if hemi.sum() >= MIN_HEMI and neut.sum() >= MIN_NEUTRAL:
+                a, b = Rres[hemi, j], Rres[neut, j]
+                se = math.sqrt(max(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b), 1e-12))
+                t = (a.mean() - b.mean()) / se
+                row["dosage"] = {"tested": True, "n_hemizygous": int(hemi.sum()), "n_neutral": int(neut.sum()),
+                                 "delta": round(float(a.mean() - b.mean()), 3), "t": round(float(t), 2),
+                                 "p": math.erfc(abs(t) / math.sqrt(2.0)) if t < 0 else 1.0}
+                tests.append(j)
+            else:
+                row["dosage"] = {"tested": False, "why": "too few lines down to one copy (%d)" % int(hemi.sum())}
+        res[g] = row
+    # Benjamini-Hochberg over the genes tested here.
+    if tests:
+        ps = sorted(((res[known[j]]["dosage"]["p"], j) for j in tests))
+        m = len(ps)
+        prev = 1.0
+        adj = {}
+        for rank in range(m - 1, -1, -1):
+            p, j = ps[rank]
+            prev = min(prev, p * m / (rank + 1))
+            adj[j] = prev
+        for j in tests:
+            d = res[known[j]]["dosage"]
+            d["fdr"] = round(adj[j], 4)
+            d["confirmed"] = bool(d["delta"] < 0 and d["fdr"] <= CN_FDR)
+            d.pop("p", None)
+    # The paralog the trained model thinks would stand in, where it has one.
+    pp2 = os.path.join(bd, "paralog_sl.tsv")
+    if os.path.exists(pp2):
+        best = {}
+        with open(pp2) as fh:
+            head = fh.readline().rstrip("\n").split("\t")
+            ia, ib, ip = head.index("A"), head.index("B"), head.index("pred")
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                a = f[ia].upper()
+                if a in res and res[a].get("screened"):
+                    try:
+                        pr = float(f[ip])
+                    except ValueError:
+                        continue
+                    if a not in best or pr > best[a][1]:
+                        best[a] = (f[ib], pr)
+        for a, (b2, pr) in best.items():
+            res[a]["paralog"] = {"gene": b2, "pred": round(pr, 3)}
+    return {"ok": True, "n_models": int(n_models), "genes": json.dumps(res)}
 
 
 def spans(species, symbols):
@@ -313,7 +448,10 @@ def assess(req):
 
 action = str(works.param(1) or "").strip()
 try:
-    if action == "spans":
+    if action == "depmap":
+        raw = works.param(2)
+        out = depmap(raw if isinstance(raw, dict) else json.loads(str(raw or "{}")))
+    elif action == "spans":
         raw = works.param(3)
         out = spans(str(works.param(2) or "human").strip().lower(), raw if isinstance(raw, list) else json.loads(str(raw or "[]")))
     elif action == "essential":

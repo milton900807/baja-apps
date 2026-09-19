@@ -28,6 +28,9 @@ function (graph, genegraph_panel_layout, __path) {
         // .genome, and also the .karyotype and .karyotype.json these were saved as before
         // the extension changed -- those files are still in people's folders and are the
         // same format, so they open the same way.
+        // A .design file (an LOH design strategy saved from the Genome Viewer) opens in the
+        // Design Viewer, which needs nothing but the file.
+        const isDesign = (el) => /\.design$/i.test(('' + ((el && (el.name || el.path)) || '')).trim());
         const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
 
@@ -57,6 +60,12 @@ function (graph, genegraph_panel_layout, __path) {
 
                     "ionfunction.fileClick": createIonFunction(async (element) => {
                         clear();
+                        if (isDesign(element)) {
+                            const dpath = element.path;
+                                                    window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
+                            exec('manchester/design-viewer', dpath);
+                            return;
+                        }
                         if (isKaryotype(element)) {
                             // Path AS-IS, for the same reason the editor gets it as-is:
                             // /load-file grants access on the folder id the browser is
@@ -485,12 +494,18 @@ function (graph, genegraph_panel_layout, __path) {
                                         // '.genome' is what the Genome Viewer saves; '.karyotype'
                                         // and '.karyotype.json' are what it saved before, the same
                                         // format, listed separately because neither ends in the other.
-                                        filetype: '.baja,.genome,.karyotype,.karyotype.json',
+                                        filetype: '.baja,.genome,.karyotype,.karyotype.json,.design',
                                         root: init_path,
                                         "ionfunction.cmd": createIonFunction((element) => {
                                         }),
                                         "ionfunction.fileClick": createIonFunction(async (element) => {
                                             clear();
+                                            if (isDesign(element)) {
+                                                const dpath = element.path;
+                                                                                            window.history.pushState({ design: dpath }, 'design', `/app/manchester/design-viewer?path=${dpath}`);
+                                                exec('manchester/design-viewer', dpath);
+                                                return;
+                                            }
                                             if (isKaryotype(element)) {
                                                 window.history.replaceState('', 'karyotype',
                                                     `/app/manchester/karyotype?path=${element.path}`);

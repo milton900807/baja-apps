@@ -8763,6 +8763,9 @@ function (path, config) {
                 // whether each is activating and what the loss did to it.
                 gain_of_function: ((gof && gof.list) || []).filter((x) => x.level !== 'possible' || x.inLoh).slice(0, 60).map((x) => ({
                     gene: x.gene, change: x.change, effect: x.effect, level: x.level, in_loh: x.inLoh,
+                    depmap: (R.dm && R.dm[('' + x.gene).toUpperCase()] && R.dm[('' + x.gene).toUpperCase()].screened)
+                        ? { effect_mean: R.dm[('' + x.gene).toUpperCase()].effect_mean, dep_frac: R.dm[('' + x.gene).toUpperCase()].dep_frac,
+                            class: R.dm[('' + x.gene).toUpperCase()]['class'], top_lineages: R.dm[('' + x.gene).toUpperCase()].lineages } : null,
                     tumor_state: x.state, origin: x.origin === 'somatic' ? 'somatic' : 'germline', tumor_vaf: x.baf >= 0 ? Math.round(x.baf * 100) / 100 : -1 })),
             };
             say('Assessing which of these could be selectively lethal (this takes a minute or two)...');
@@ -8883,7 +8886,7 @@ function (path, config) {
                     const cl = gofClass(g.gene, v);
                     if (!cl) continue;
                     const inLoh = tracts.some((t) => t.ci === g.ci && v.pos >= t.lo && v.pos <= t.hi);
-                    res.list.push({ gene: g.gene, ci: g.ci, transcript: v.transcript || '', chr: drawn[g.ci].name, pos: v.pos, ref: v.ref, alt: v.alt,
+                    res.list.push({ gene: g.gene, ci: g.ci, start: g.start, end: g.end, transcript: v.transcript || '', chr: drawn[g.ci].name, pos: v.pos, ref: v.ref, alt: v.alt,
                         change: v.hgvs || (v.ref + '>' + v.alt), effect: v.effect, level: cl.level, why: cl.why,
                         inLoh: inLoh, state: v.state, origin: v.origin, baf: v.baf });
                 }
@@ -9261,6 +9264,45 @@ function (path, config) {
         // zoom the genome to them. The Claude assessment is a button, not a wait: it is cached
         // on the LOH result with everything else here, so it is asked once and saved.
         let lohUiBusy = false;
+        // WHAT THE CELL-LINE PANEL SAYS ABOUT EACH GENE IN THE STRATEGY. Essentiality, the
+        // lineages that depend on it most, whether the lines already down to one copy of it
+        // are more dependent (the dosage test -- the evidence a single-copy target rests on),
+        // and the paralog that might stand in. Cached on the LOH result, so it is read once
+        // and saved with the genome; genes DepMap never screened say so.
+        const lohDepmapFor = async (genes, say) => {
+            const R = lohResult;
+            if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
+            R.dm = R.dm || {};
+            const want = [];
+            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !R.dm[k] && want.indexOf(k) < 0) want.push(k); }
+            if (want.length) {
+                const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                if (say) say('Reading DepMap for ' + want.length + ' gene' + (want.length === 1 ? '' : 's') + '...');
+                const rs = await exec(LOH_SL_SCRIPT, em, 'depmap', JSON.stringify({ genes: want.slice(0, 200) }));
+                if (rs && rs.ok) {
+                    let got = {};
+                    try { got = JSON.parse(rs.genes || '{}'); } catch (e) { got = {}; }
+                    for (const k in got) R.dm[k] = got[k];
+                    R.dmModels = +rs.n_models || R.dmModels || 0;
+                }
+            }
+            return R.dm;
+        };
+        // One line of it, for a gene row.
+        const dmText = (d, nModels) => {
+            if (!d) return '';
+            if (!d.screened) return 'DepMap: not in the screen';
+            const bits = [d['class'] + ', a dependency in ' + Math.round((d.dep_frac || 0) * 100) + '% of '
+                + (d.n_models || nModels || 0).toLocaleString() + ' lines (mean ' + d.effect_mean + ')'];
+            if (d.lineages && d.lineages.length) bits.push('most in ' + d.lineages.slice(0, 2).map((l) => l[0] + ' (' + l[1] + ')').join(', '));
+            const ds = d.dosage || {};
+            if (ds.tested) {
+                bits.push(ds.confirmed ? ('worse when the line is down to one copy: ' + ds.delta + ' over ' + ds.n_hemizygous + ' hemizygous lines, FDR ' + ds.fdr)
+                    : (ds.delta < 0 ? 'leans worse at one copy, not significant (FDR ' + ds.fdr + ')' : 'no worse at one copy'));
+            } else if (ds.why) bits.push('dosage not tested (' + ds.why + ')');
+            if (d.paralog) bits.push('closest paralog ' + d.paralog.gene + ' (model ' + d.paralog.pred + ')');
+            return 'DepMap: ' + bits.join('; ');
+        };
         // One variant, in the shape the editor hand-off carries (the same fields openRegions
         // sends), with what this report knows about it written into its annotations.
         const lohHandoffVariant = (ci, v, gene) => {
@@ -9325,20 +9367,89 @@ function (path, config) {
             for (const x of ((GOF && GOF.list) || [])) addVar(itemFor(x.gene, x.ci), x);
             for (const c of ((ESS && ESS.candidates) || [])) { const it = itemFor(c.g.gene, c.g.ci); for (const v of c.variants) addVar(it, v); }
             for (const g of ((ESS && ESS.single) || []).slice(0, 40)) itemFor(g.gene, g.ci);
+            let DM = null;
+            try { DM = await lohDepmapFor(items.map((it) => it.gene), say); } catch (e) { step('depmap: ' + e); }
+            const dmLine = (gene) => {
+                const t = dmText(DM && DM[('' + gene).toUpperCase()], (lohResult && lohResult.dmModels) || 0);
+                return t ? '<br/><span style="color:#9fb3c8;">' + esc(t) + '</span>' : '';
+            };
 
-            // To the editor: the ticked genes' transcripts, with exactly the mutations listed
-            // for them, focused on the first. A gene with no mutation and so no transcript read
-            // goes through its region panel instead, which finds the transcript.
+            // Where each gene sits, so the tracks can carry every allele inside it and not
+            // only the changes this report picked out.
+            const spanOf = new Map();
+            const addSpan = (g, ci, st, en) => {
+                const k = ('' + g).toUpperCase();
+                if (!spanOf.has(k) && ci >= 0 && st > 0 && en > 0) spanOf.set(k, { ci: ci, lo: +st, hi: +en });
+            };
+            for (const g of (R.genes || [])) addSpan(g.gene, g.ci, g.start, g.end);
+            for (const c of ((ESS && ESS.candidates) || [])) addSpan(c.g.gene, c.g.ci, c.g.start, c.g.end);
+            for (const g of ((ESS && ESS.single) || [])) addSpan(g.gene, g.ci, g.start, g.end);
+            for (const x of ((GOF && GOF.list) || [])) addSpan(x.gene, x.ci, x.start, x.end);
+            // TWO TRACKS, SO THE DIFFERENCE CAN BE DESIGNED AGAINST. The germline track carries
+            // what the normal has across the gene, the tumor track what the tumor has: the
+            // somatic changes, and the germline alleles it kept when LOH took the other one.
+            // An allele-selective oligo is designed against exactly that difference, so the
+            // whole gene's alleles go over, not only the changes this report singled out.
+            const GERM = 'germline', TUM = 'tumor';
+            const SPAN_CAP = 400;
+            const trackVarsFor = (it, cap) => {
+                const out = { germ: [], tum: [] }, seen = new Set();
+                const sp = spanOf.get(('' + it.gene).toUpperCase());
+                const lim = cap || SPAN_CAP;
+                const push = (v, inG, inT) => {
+                    const key = v.pos + ':' + v.ref + ':' + v.alt;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    const base = lohHandoffVariant(it.ci, v, it.gene);
+                    if (inG && out.germ.length < lim) out.germ.push(Object.assign({}, base, { group: GERM }));
+                    if (inT && out.tum.length < lim) out.tum.push(Object.assign({}, base, { group: TUM }));
+                };
+                // The report's own variants first: they carry the consequence and the reason.
+                for (const v of it.variants) {
+                    const inG = v.origin === 'germline';
+                    const inT = (v.inT !== false) && v.state !== 'lost' && v.state !== 'uncalled';
+                    push(v, inG, inT || !inG);
+                }
+                if (sp && vdata[sp.ci] && vdata[sp.ci].n) {
+                    const d = vdata[sp.ci];
+                    let a = 0, z = d.n;
+                    while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < sp.lo) a = m + 1; else z = m; }
+                    for (let k = a; k < d.n && d.pos[k] <= sp.hi; k++) {
+                        if (out.germ.length >= lim && out.tum.length >= lim) break;
+                        const ab = allelesAt(sp.ci, k);
+                        let gN = GT_NONE, gT = GT_NONE, bT = -1;
+                        if (spec.kind === 'sample') { gN = gtOf(d, k, spec.normal); gT = gtOf(d, k, spec.tumor); bT = bafOf(d, k, spec.tumor); }
+                        else {
+                            const sd = d.side ? d.side[k] : 0;
+                            if (sd === spec.normal) gN = d.gtw ? gtOfSide(d, k, spec.normal) : GT_HET;
+                            if (sd === spec.tumor) { gT = d.gtw ? gtOfSide(d, k, spec.tumor) : GT_HET; bT = bafOfSide(d, k, spec.tumor); }
+                        }
+                        const inG = gN >= GT_HET, inT = gT >= GT_HET;
+                        if (!inG && !inT) continue;
+                        push({ pos: d.pos[k], ref: ab[0], alt: ab[1], hgvs: '', effect: '', origin: inG ? 'germline' : 'somatic',
+                            state: tumorAlleleState(gT, bT), baf: bT }, inG, inT);
+                    }
+                }
+                return out;
+            };
             const design = async (list) => {
                 const withTx = list.filter((it) => it.transcript);
                 if (!withTx.length) {
                     if (list[0]) { close(); await openSymbolInEditor(list[0].gene); }
                     return;
                 }
-                const ids = Array.from(new Set(withTx.map((it) => it.transcript))).slice(0, 8);
-                const vars = [];
-                for (const it of withTx) for (const v of it.variants) vars.push(lohHandoffVariant(it.ci, v, it.gene));
-                const f = vars[0] ? { chr: vars[0].chr, pos: vars[0].pos } : null;
+                const ids = [], vars = [], seenTx = new Set();
+                for (const it of withTx) {
+                    if (seenTx.has(it.transcript) || ids.length >= 12) continue;
+                    seenTx.add(it.transcript);
+                    const tv = trackVarsFor(it);
+                    ids.push({ id: it.transcript, group: GERM, label: 'Germline \u2014 ' + spec.labelN });
+                    ids.push({ id: it.transcript, group: TUM, label: 'Tumor \u2014 ' + spec.labelT });
+                    for (const v of tv.germ) vars.push(v);
+                    for (const v of tv.tum) vars.push(v);
+                }
+                const first = vars.find((v) => v.group === TUM) || vars[0];
+                const f = first ? { chr: first.chr, pos: first.pos } : null;
                 const ok = await handToEditor(ids, vars, f);
                 if (ok && !window.__bajaHandoffNewTab) close();
             };
@@ -9359,9 +9470,11 @@ function (path, config) {
                 + (() => { try { const sl = sexLineFor(spec); return sl ? '<br/>Sex: ' + esc(sl) : ''; } catch (e) { return ''; } })() + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('lu-close', 'Close')
+                + btn('lu-save', 'Save as .design', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')
                 + btn('lu-pdf', 'PDF report', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
                 + btn('lu-design', 'Design ticked in editor', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;opacity:0.5;', 'disabled')
                 + '</div></div>'
+                + '<div id="lu-savebar" style="display:none;flex:0 0 auto;padding:10px 22px;background:#0a1e3a;border-bottom:1px solid rgba(255,255,255,0.12);font:12.5px Arial;"></div>'
                 + '<div id="lu-body" style="flex:1 1 auto;overflow:auto;padding:22px 22px 40px;"></div>';
             document.body.appendChild(panel);
             for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
@@ -9381,7 +9494,7 @@ function (path, config) {
                 return card('<div style="display:flex;align-items:flex-start;gap:12px;">'
                     + '<input type="checkbox" class="lu-pick" data-i="' + it.idx + '" style="margin-top:4px;"' + (picked.has(it.idx) ? ' checked' : '') + '/>'
                     + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(it.gene) + '</span> ' + chips
-                    + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + '</div></div>'
+                    + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(it.gene) + '</div></div>'
                     + '<button class="lu-design" data-i="' + it.idx + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
                     + 'border:1px solid #22c55e;background:transparent;color:#86efac;">' + (can ? 'Design in editor' : 'Open gene') + '</button></div>');
             };
@@ -9521,6 +9634,87 @@ function (path, config) {
                 const a1 = q('#lu-ask'); if (a1) a1.onclick = ask;
                 const a2 = q('#lu-reask'); if (a2) a2.onclick = ask;
                 syncDesign();
+            };
+            // THE STRATEGY AS A FILE. Everything on this screen, self-contained: the numbers, the
+            // map, the tracts and their genes, every section's genes with their changes and DepMap
+            // readings, the assessment if one was made, and -- per gene -- exactly what the editor
+            // hand-off carries, so the Design Viewer can send a gene to the editor without the
+            // genome it came from. Saved into My Files as .design.
+            const designDoc = () => {
+                let fig = '';
+                try { fig = lohFigurePNG(R, tsgList, hits); } catch (e) { fig = ''; }
+                const vD = (v) => ({ change: v.hgvs || v.change || (v.ref + '>' + v.alt), effect: v.effect || '', origin: v.origin || '',
+                    state: v.state || '', baf: v.baf == null ? -1 : v.baf, level: v.level || '', why: v.why || '' });
+                // Both tracks' variants per gene, so the Design Viewer can open the germline and
+                // the tumor without the genome they came from. Capped per gene: the file is meant
+                // to be opened, not to carry a VCF.
+                const handoff = {};
+                for (const it of items) {
+                    if (!(it.ci >= 0) || !it.transcript) continue;
+                    const tv = trackVarsFor(it, 60);
+                    handoff[('' + it.gene).toUpperCase()] = { gene: it.gene, transcript: it.transcript,
+                        germline: tv.germ, tumor: tv.tum };
+                }
+                const trs = tracts.slice().sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                let genomePath = '';
+                try { genomePath = '' + ((window.history.state || {}).karyotype || ''); } catch (e) { genomePath = ''; }
+                let sex = '';
+                try { sex = sexLineFor(spec); } catch (e) { sex = ''; }
+                return {
+                    type: 'baja-loh-design', version: 1, saved: new Date().toISOString(),
+                    species: r.species || 'human', assembly: r.assembly || '',
+                    tumor: spec.labelT, germline: spec.labelN, scanNormal: R.spec.labelN, sex: sex, genome: genomePath,
+                    numbers: { het: R.het, loh: R.loh, kept: R.kept, uncalled: R.uncalled, tracts: tracts.length,
+                        lohBp: tracts.reduce((a, t) => a + t.len, 0),
+                        biallelic: tsgList.filter((g) => (hits.get(g.gene) || {}).rank === 0).length,
+                        gofHomozygous: ((GOF && GOF.list) || []).filter((x) => x.inLoh && x.state === 'retained' && x.level !== 'possible').length,
+                        essential: ESS ? ESS.candidates.length : null },
+                    figure: fig,
+                    tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank,
+                        len: t.len, n: t.n, genes: (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400) })),
+                    tsg: tsgList.map((g) => { const hh = hits.get(g.gene) || {}; return { gene: g.gene, verdict: hh.verdict || '', rank: hh.rank == null ? 9 : hh.rank,
+                        variants: (hh.variants || []).map(vD) }; }),
+                    gof: (GOF && !GOF.error) ? { checked: GOF.checked, list: GOF.list.map((x) => Object.assign(vD(x), { gene: x.gene, inLoh: x.inLoh, stateWord: gofStateWord(x) })) } : null,
+                    essential: (ESS && !ESS.error) ? essOrder(ESS.candidates).map((c) => ({ gene: c.g.gene, cls: c.g.cls, dep_frac: c.g.dep_frac,
+                        effect_mean: c.g.effect_mean, inLoh: c.loh, variants: c.variants.map(vD) })) : null,
+                    singleCopy: (ESS && ESS.single) ? ESS.single.slice(0, 40).map((g) => ({ gene: g.gene, cls: g.cls, dep_frac: g.dep_frac, effect_mean: g.effect_mean })) : [],
+                    assessment: (ESS && ESS.assessment) ? Object.assign({}, ESS.assessment, { assessedAt: ESS.assessedAt || '' }) : null,
+                    depmap: DM || {}, depmapModels: (lohResult && lohResult.dmModels) || 0,
+                    handoff: handoff,
+                };
+            };
+            const saveBar = q('#lu-savebar');
+            q('#lu-save').onclick = () => {
+                const def = dlSafe(spec.labelT + '_LOH_design_strategy');
+                saveBar.style.display = 'block';
+                saveBar.innerHTML = 'Save to My Files as <input id="lu-name" value="' + esc(def) + '" style="width:320px;margin:0 6px;padding:5px 8px;border-radius:6px;'
+                    + 'border:1px solid rgba(255,255,255,0.25);background:#071a30;color:#fff;font:12.5px Arial;"/>.design '
+                    + '<button id="lu-save-go" style="cursor:pointer;margin-left:8px;border-radius:7px;padding:6px 14px;font:700 12px Arial;border:1px solid #f59e0b;background:#f59e0b;color:#1f1300;">Save</button>'
+                    + ' <a href="#" id="lu-save-x" style="margin-left:8px;color:#8ab4ff;">cancel</a> <span id="lu-save-msg" style="margin-left:10px;color:#9fb3c8;"></span>';
+                q('#lu-save-x').onclick = (e) => { e.preventDefault(); saveBar.style.display = 'none'; };
+                q('#lu-save-go').onclick = async () => {
+                    const msg = q('#lu-save-msg');
+                    let name = ('' + (q('#lu-name').value || '')).trim().replace(/[\/]+/g, '_').replace(/\.json$/i, '').replace(/\.design$/i, '');
+                    if (!name) { msg.textContent = 'A file name is needed.'; return; }
+                    name += '.design';
+                    msg.textContent = 'Saving...';
+                    try {
+                        const text = JSON.stringify(designDoc());
+                        let path = '';
+                        if (text.length > 6 * 1024 * 1024) {
+                            const up = await uploadToMyFiles(new File([text], name, { type: 'application/json' }), null, '');
+                            if (up && up.error) throw new Error(up.error);
+                            path = '/' + (up.folder || 'myfiles') + '/' + name;
+                        } else {
+                            const rs = await POSTJSON({ name: name, key: 'user', user: getUser(), spath: '', value: text }, window['env']['apiUrl'] + '/save-user-data');
+                            if (!rs || !(rs.status === 'saved' || rs.path)) throw new Error((rs && (rs.status || rs.error)) || 'the server did not save it');
+                            path = ('' + (rs.path || ('/myfiles/' + name))).replace(/\/{2,}/g, '/');
+                        }
+                        const url = '/app/manchester/design-viewer?path=' + path;
+                        msg.innerHTML = 'Saved as <b>' + esc(name) + '</b> in My Files. <a href="' + esc(url) + '" target="_blank" style="color:#86efac;">Open in the Design Viewer</a>';
+                        say(name + ' saved to My Files.');
+                    } catch (e) { msg.textContent = 'Could not save: ' + (e && e.message ? e.message : e); }
+                };
             };
             q('#lu-close').onclick = () => close();
             q('#lu-design').onclick = () => { const list = Array.from(picked).map((i) => items[i]).filter(Boolean); if (list.length) design(list); };
