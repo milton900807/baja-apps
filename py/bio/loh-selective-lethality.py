@@ -28,12 +28,14 @@ Five actions (param 1):
 
   depmap      JSON { genes: [symbol, ...] }  (human; up to MAX_DEPMAP_GENES)
       -> { ok, n_models, genes: JSON { SYMBOL: { effect_mean, effect_median, dep_frac, class,
-                n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...} } } }
+                n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...},
+                tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]] } } } }
       What the cell-line panel says about each gene in a design strategy: how essential it is,
       where it is most essential, whether the lines that are themselves down to one copy of it
       are more dependent (the dosage test, lineage regressed out, as loh-synthetic-lethal.py
       does it), and the paralog most likely to stand in for it. Genes DepMap never screened
-      come back as { screened: false }.
+      come back as { screened: false }. tpm is GTEx v10 median TPM: every CNS region GTEx
+      sampled, then other tissues; null when GTEx has no such symbol.
 
   assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...],
                      gain_of_function: [...], context }
@@ -91,6 +93,78 @@ MIN_HEMI, MIN_NEUTRAL, CN_FDR = 10, 20, 0.25
 MIN_LINEAGE = 10
 
 
+# Tissue expression from GTEx v10 (median TPM per tissue): every CNS region GTEx sampled, then
+# a panel of other tissues.
+GTEX_FILE = "reference_data/gtex/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz"
+GTEX_SOURCE = "GTEx v10, median TPM"
+GTEX_CNS = [
+    ("Brain_Cortex", "Cortex"),
+    ("Brain_Frontal_Cortex_BA9", "Frontal cortex (BA9)"),
+    ("Brain_Anterior_cingulate_cortex_BA24", "Anterior cingulate (BA24)"),
+    ("Brain_Hippocampus", "Hippocampus"),
+    ("Brain_Amygdala", "Amygdala"),
+    ("Brain_Hypothalamus", "Hypothalamus"),
+    ("Brain_Caudate_basal_ganglia", "Caudate"),
+    ("Brain_Putamen_basal_ganglia", "Putamen"),
+    ("Brain_Nucleus_accumbens_basal_ganglia", "Nucleus accumbens"),
+    ("Brain_Substantia_nigra", "Substantia nigra"),
+    ("Brain_Cerebellum", "Cerebellum"),
+    ("Brain_Cerebellar_Hemisphere", "Cerebellar hemisphere"),
+    ("Brain_Spinal_cord_cervical_c-1", "Spinal cord (C1)"),
+]
+GTEX_OTHER = [
+    ("Nerve_Tibial", "Tibial nerve"),
+    ("Pituitary", "Pituitary"),
+    ("Whole_Blood", "Whole blood"),
+    ("Spleen", "Spleen"),
+    ("Liver", "Liver"),
+    ("Lung", "Lung"),
+    ("Heart_Left_Ventricle", "Heart (LV)"),
+    ("Kidney_Cortex", "Kidney cortex"),
+    ("Muscle_Skeletal", "Skeletal muscle"),
+    ("Colon_Transverse", "Colon"),
+    ("Stomach", "Stomach"),
+    ("Pancreas", "Pancreas"),
+    ("Breast_Mammary_Tissue", "Breast"),
+    ("Skin_Not_Sun_Exposed_Suprapubic", "Skin"),
+    ("Adipose_Subcutaneous", "Adipose"),
+    ("Thyroid", "Thyroid"),
+    ("Adrenal_Gland", "Adrenal"),
+    ("Testis", "Testis"),
+    ("Ovary", "Ovary"),
+    ("Prostate", "Prostate"),
+    ("Uterus", "Uterus"),
+]
+
+
+def gtex_tpm(symbols):
+    """{SYMBOL: {source, cns: [[label, tpm]], other: [[label, tpm]]}} for the symbols GTEx has."""
+    import gzip
+    path = first_existing(GTEX_FILE)
+    want = set(symbols)
+    if not path or not want:
+        return {}
+    found = {}
+    with gzip.open(path, "rt") as fh:
+        fh.readline()
+        fh.readline()
+        head = fh.readline().rstrip("\n").split("\t")
+        col = {name: i for i, name in enumerate(head)}
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            sym = f[1].strip().upper()
+            if sym not in want:
+                continue
+            total = sum(float(x) for x in f[2:] if x)
+            if sym in found and found[sym][0] >= total:
+                continue          # a symbol on two gene ids: keep the more expressed one
+
+            def panel(tissues):
+                return [[label, round(float(f[col[key]]), 2)] for key, label in tissues if key in col]
+            found[sym] = (total, {"source": GTEX_SOURCE, "cns": panel(GTEX_CNS), "other": panel(GTEX_OTHER)})
+    return {s: v for s, (_, v) in found.items()}
+
+
 def depmap(req):
     import math
     import numpy as np
@@ -107,6 +181,9 @@ def depmap(req):
     gidx = {g: i for i, g in enumerate(genes)}
     known = [g for g in want if g in gidx]
     res = {g: {"screened": False} for g in want if g not in gidx}
+    tpm = gtex_tpm(want)
+    for g in res:
+        res[g]["tpm"] = tpm.get(g)          # always present, so a cached row shows it was looked up
     if not known:
         return {"ok": True, "n_models": 0, "genes": json.dumps(res)}
     works.msg("Reading DepMap for %d gene(s)…" % len(known))
@@ -208,6 +285,8 @@ def depmap(req):
                         best[a] = (f[ib], pr)
         for a, (b2, pr) in best.items():
             res[a]["paralog"] = {"gene": b2, "pred": round(pr, 3)}
+    for g in known:
+        res[g]["tpm"] = tpm.get(g)
     return {"ok": True, "n_models": int(n_models), "genes": json.dumps(res)}
 
 

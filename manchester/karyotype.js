@@ -9371,7 +9371,7 @@ function (path, config) {
             if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
             R.dm = R.dm || {};
             const want = [];
-            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !R.dm[k] && want.indexOf(k) < 0) want.push(k); }
+            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !(R.dm[k] && 'tpm' in R.dm[k]) && want.indexOf(k) < 0) want.push(k); }   // no tpm key: cached before GTEx was added
             if (want.length) {
                 const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
                 if (say) say('Reading DepMap for ' + want.length + ' gene' + (want.length === 1 ? '' : 's') + '...');
