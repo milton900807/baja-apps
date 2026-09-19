@@ -9271,13 +9271,23 @@ function (path, config) {
                             + ({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'lost', uncalled: 'not called' }[v.state] || v.state)
                             + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '');
                         const essShown = essOrder(SL.candidates);
+                        let DMp = null;
+                        try { DMp = await lohDepmapFor(essShown.slice(0, 60).map((c) => c.g.gene), (m) => dlMsg(m)); } catch (e) { DMp = null; }
+                        const tpmText = (gene) => {
+                            const t = DMp && DMp[('' + gene).toUpperCase()] && DMp[('' + gene).toUpperCase()].tpm;
+                            if (!t) return '';
+                            const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
+                            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
+                        };
                         sheets.push({ name: 'Essential genes with tumor-specific changes', rows: (essShown.length ? essShown.slice(0, 60).map((c) => ({
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
                             'DepMap': dep(c.g),
                             'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
+                            'Tissue expression (GTEx v10, median TPM)': tpmText(c.g.gene),
                         })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
                             : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }])
-                            .concat([{ 'Source': 'DepMap, ' + DEPMAP_PORTAL + ' . ' + DEPMAP_CITES.map((c) => c.text + ' https://doi.org/' + c.doi).join(' ') }]) });
+                            .concat([{ 'Source': 'DepMap, ' + DEPMAP_PORTAL + ' . ' + DEPMAP_CITES.map((c) => c.text + ' https://doi.org/' + c.doi).join(' ')
+                                + ' Tissue expression: GTEx Portal, release v10, gene median TPM, https://gtexportal.org .' }]) });
                         const As = SL.assessment || {};
                         sheets.push({ name: 'Selective lethality assessment', rows: [{
                             'What this is': 'Hypotheses, not findings: a language model was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
@@ -9384,6 +9394,19 @@ function (path, config) {
                 }
             }
             return R.dm;
+        };
+        // Tissue expression (GTEx median TPM) for a gene row: CNS first, then other tissues.
+        const tpmFmt = (v) => v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+        const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
+        const tpmHtml = (d, esc) => {
+            const t = d && d.tpm;
+            if (!t) return '';
+            const row = (name, list) => (list && list.length) ? '<div style="margin-top:3px;"><span style="color:#9fb3c8;">' + name + ':</span> '
+                + list.map((x) => '<span style="white-space:nowrap;margin-right:8px;">' + esc(x[0]) + ' <b style="color:' + tpmColor(x[1]) + ';">' + tpmFmt(x[1]) + '</b></span>').join(' ')
+                + '</div>' : '';
+            return '<div style="margin-top:6px;font:11.5px Arial;color:#cfe0f5;line-height:1.6;">'
+                + '<span style="color:#9fb3c8;">Tissue expression (' + esc(t.source || 'GTEx median TPM') + ')</span>'
+                + row('CNS', t.cns) + row('Other tissues', t.other) + '</div>';
         };
         // One line of it, for a gene row.
         const dmText = (d, nModels) => {
@@ -9607,12 +9630,12 @@ function (path, config) {
             const section = (title, note, inner) => '<div style="margin:26px 0 10px;font:700 15px Arial;color:#e8f0fb;">' + esc(title) + '</div>'
                 + (note ? '<div style="font:12px Arial;color:#9fb3c8;margin:-4px 0 10px;">' + note + '</div>' : '') + inner;
             // A gene row: its name, chips, the changes, and the two ways to the editor.
-            const geneRow = (it, chips, lines) => {
+            const geneRow = (it, chips, lines, after) => {
                 const can = !!it.transcript;
                 return card('<div style="display:flex;align-items:flex-start;gap:12px;">'
                     + '<input type="checkbox" class="lu-pick" data-i="' + it.idx + '" style="margin-top:4px;"' + (picked.has(it.idx) ? ' checked' : '') + '/>'
                     + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(it.gene) + '</span> ' + chips
-                    + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(it.gene) + '</div></div>'
+                    + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(it.gene) + (after || '') + '</div></div>'
                     + '<button class="lu-design" data-i="' + it.idx + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
                     + 'border:1px solid #22c55e;background:transparent;color:#86efac;">' + (can ? 'Design in editor' : 'Open gene') + '</button></div>');
             };
@@ -9687,7 +9710,8 @@ function (path, config) {
                     h += section('Essential genes with tumor-specific changes', 'DepMap dependencies the tumor has changed and the germline has not: the starting points for an allele-selective design.',
                         ESS.error ? card(esc(ESS.error)) : ESS.candidates.length ? essOrder(ESS.candidates).slice(0, 60).map((c) => geneRow(byGene.get(('' + c.g.gene).toUpperCase()),
                             chip(c.g.cls, '#60a5fa') + (c.loh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
-                            esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'))).join('')
+                            esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'),
+                            tpmHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
                     h += depmapCiteHtml(esc);
                     // CLAUDE

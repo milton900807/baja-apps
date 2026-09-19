@@ -35,14 +35,27 @@ function () {
             if (d.paralog) bits.push('closest paralog ' + d.paralog.gene + ' (model ' + d.paralog.pred + ')');
             return '<br/><span style="color:#9fb3c8;">' + esc('DepMap: ' + bits.join('; ')) + '</span>';
         };
+        // Tissue expression (GTEx median TPM), saved with the gene's DepMap row: CNS first.
+        const tpmFmt = (v) => v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+        const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
+        const tpmHtml = (gene) => {
+            const d = DM[('' + gene).toUpperCase()], t = d && d.tpm;
+            if (!t) return '';
+            const row = (name, list) => (list && list.length) ? '<div style="margin-top:3px;"><span style="color:#9fb3c8;">' + name + ':</span> '
+                + list.map((x) => '<span style="white-space:nowrap;margin-right:8px;">' + esc(x[0]) + ' <b style="color:' + tpmColor(x[1]) + ';">' + tpmFmt(x[1]) + '</b></span>').join(' ')
+                + '</div>' : '';
+            return '<div style="margin-top:6px;font:11.5px Arial;color:#cfe0f5;line-height:1.6;">'
+                + '<span style="color:#9fb3c8;">Tissue expression (' + esc(t.source || 'GTEx median TPM') + ')</span>'
+                + row('CNS', t.cns) + row('Other tissues', t.other) + '</div>';
+        };
         // A gene row. It can go to the editor when the file carries its transcript.
-        const geneRow = (gene, chips, lines) => {
+        const geneRow = (gene, chips, lines, after) => {
             const h = handoff[('' + gene).toUpperCase()];
             const can = !!(h && h.transcript);
             return card('<div style="display:flex;align-items:flex-start;gap:12px;">'
                 + (can ? '<input type="checkbox" class="dv-pick" data-g="' + esc(('' + gene).toUpperCase()) + '" style="margin-top:4px;"/>' : '<span style="width:13px;"></span>')
                 + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(gene) + '</span> ' + chips
-                + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(gene) + '</div></div>'
+                + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + dmLine(gene) + (after || '') + '</div></div>'
                 + (can ? '<button class="dv-design" data-g="' + esc(('' + gene).toUpperCase()) + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;'
                     + 'font:700 12px Arial;border:1px solid #22c55e;background:transparent;color:#86efac;">Design in editor</button>' : '')
                 + '</div>');
@@ -137,7 +150,7 @@ function () {
         if (doc.essential) {
             h += section('Essential genes with tumor-specific changes', 'Insertions and deletions first, missense last.',
                 doc.essential.length ? doc.essential.slice(0, 60).map((c) => geneRow(c.gene, chip(c.cls, '#60a5fa') + (c.inLoh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
-                    (c.variants || []).slice(0, 6).map(vLine).join('<br/>'))).join('')
+                    (c.variants || []).slice(0, 6).map(vLine).join('<br/>'), tpmHtml(c.gene))).join('')
                     : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
             // Where the dependency numbers come from, as the strategy cited them when it was saved.
             const cites = (doc.depmapCitations && doc.depmapCitations.length) ? doc.depmapCitations : [
