@@ -14105,19 +14105,16 @@ function (path, config) {
             // LOSS OF HETEROZYGOSITY, AT THE TOP. It was a step inside "Find the losses", two
             // levels down, though it answers its own question and now carries its own report.
             if (lohResult) {
-                const R0 = lohResult, nT = lohTractList(R0).length;
-                books.push({ section: 'Loss of heterozygosity', title: 'Loss of heterozygosity', icon: 'compress',
-                    badge: nT + ' tract' + (nT === 1 ? '' : 's') + ' \u00b7 ' + Math.round(100 * (R0.het ? R0.loh / R0.het : 0)) + '% of sites', ready: true,
-                    blurb: R0.spec.labelN + ' as the normal, ' + R0.spec.labelT + ' as the tumor: the tracts, the genes in them, and what the loss makes the tumor depend on.',
-                    open: () => lohMenu() });
+                // ONE CARD, THE ONE THAT LEADS SOMEWHERE. The scan's own card and the PDF card
+                // were listed beside it; the strategy is what the scan is for, and both of the
+                // others are a step inside it -- the scan's results are still one press away,
+                // under "Loss of heterozygosity" at the foot of the strategy's own chooser, and
+                // the PDF is offered there too.
+                const R0 = lohResult;
                 books.push({ section: 'Loss of heterozygosity', title: 'LOH Design Strategy', icon: 'edit', badge: 'editor', accent: 'run',
                     ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
-                    blurb: 'Every tumor suppressor, activating change and essential gene with its mutation, each one a button into the oligo editor.',
+                    blurb: R0.spec.labelN + ' as the normal, ' + R0.spec.labelT + ' as the tumor. Every tumor suppressor, activating change and essential gene with its mutation, each one a button into the oligo editor.',
                     open: () => lohReportStart('ui') });
-                books.push({ section: 'Loss of heterozygosity', title: 'Summary report (PDF)', icon: 'picture_as_pdf', badge: 'pdf',
-                    ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
-                    blurb: 'The loss written up, with the genome map, the large losses by cytoband, second hits, gain-of-function changes and the selective-lethality assessment.',
-                    open: () => lohReportStart('pdf') });
             } else {
                 const ls = lohSpecs();
                 books.push({ section: 'Loss of heterozygosity', title: 'Scan for loss of heterozygosity', icon: 'compress', accent: ls.length ? 'run' : 'choose',
