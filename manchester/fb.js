@@ -35,10 +35,10 @@ function (__path, __header) {
         let view = 'myfiles';
 
         let path_j = '.'
-        // A karyotype opens in the karyotype view, not the track editor. Accepts the
-        // .karyotype.json these were saved as before the extension was shortened --
-        // same format, still in people's folders.
-        const isKaryotype = (el) => /\.karyotype(\.json)?$/i.test(
+        // A genome file opens in the Genome Viewer, not the track editor. It is saved as
+        // .genome; the .karyotype and .karyotype.json it was saved as before are the same
+        // format, still in people's folders, and open the same way.
+        const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
         // The file's own name, for a message. Escaped, because msgpanel takes HTML and a
         // file name is whatever the person who saved it typed.

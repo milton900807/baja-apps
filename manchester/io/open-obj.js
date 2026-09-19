@@ -21,14 +21,14 @@ function (graph, genegraph_panel_layout, __path) {
             return startsWithSlash ? newPath : newPath.substring(1);
         }
 
-        // A .karyotype file is not an editor screen. It holds a genome, its variants and
+        // A .genome file is not an editor screen. It holds a genome, its variants and
         // a view, and manchester/karyotype.js is what reads that -- so it is handed the
         // path directly. Putting it through the track editor would open a screen with no
         // tracks in it, which reads as a file that failed to load.
-        // .karyotype, and also the .karyotype.json these were saved as before the
-        // extension changed -- those files are still in people's folders and are the
+        // .genome, and also the .karyotype and .karyotype.json these were saved as before
+        // the extension changed -- those files are still in people's folders and are the
         // same format, so they open the same way.
-        const isKaryotype = (el) => /\.karyotype(\.json)?$/i.test(
+        const isKaryotype = (el) => /\.(?:genome|karyotype(?:\.json)?)$/i.test(
             ('' + ((el && (el.name || el.path)) || '')).trim());
 
         let MSGraph = await exec('lib/msgraph.js');
@@ -482,10 +482,10 @@ function (graph, genegraph_panel_layout, __path) {
                                         user: getUser(),
                                         // Comma-separated; each entry is matched against the
                                         // END of the name, so a multi-part extension works.
-                                        // '.karyotype.json' is listed separately because it does
-                                        // NOT end in '.karyotype' -- it is what these were saved
-                                        // as before the extension was shortened, same format.
-                                        filetype: '.baja,.karyotype,.karyotype.json',
+                                        // '.genome' is what the Genome Viewer saves; '.karyotype'
+                                        // and '.karyotype.json' are what it saved before, the same
+                                        // format, listed separately because neither ends in the other.
+                                        filetype: '.baja,.genome,.karyotype,.karyotype.json',
                                         root: init_path,
                                         "ionfunction.cmd": createIonFunction((element) => {
                                         }),

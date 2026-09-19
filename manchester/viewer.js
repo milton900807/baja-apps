@@ -63,8 +63,9 @@ function (path, config) {
         }
         // A shared KARYOTYPE (not a .baja): hand off to the karyotype viewer, which renders
         // it read-only with no login, because this viewer route is auth-exempt. The share
-        // code resolves to a .karyotype path exactly as a .baja one does.
-        const __isKaryo = (x) => { try { return /\.karyotype(\.json)?$/i.test(decodeURIComponent('' + (x || ''))); } catch (e) { return /\.karyotype(\.json)?$/i.test('' + (x || '')); } };
+        // code resolves to a .genome path (or a legacy .karyotype one) exactly as a .baja one does.
+        const __KARYO_RE = /\.(?:genome|karyotype(?:\.json)?)$/i;
+        const __isKaryo = (x) => { try { return __KARYO_RE.test(decodeURIComponent('' + (x || ''))); } catch (e) { return __KARYO_RE.test('' + (x || '')); } };
         let __kp = '';
         if (__code && __isKaryo(__p)) __kp = __p;
         if (!__kp) { try { const __qp = new URL(window.location.href).searchParams.get('path'); if (__qp && __isKaryo(__qp)) __kp = __qp; } catch (e) { } }

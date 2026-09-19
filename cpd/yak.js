@@ -400,9 +400,10 @@ function (path, filebrowserplease) {
                         columns: 3,
                         // Karyotypes alongside screens. Both are documents this application
                         // saves and reopens, and listing only one of them meant the other was
-                        // invisible from the place you go to find your work. '.karyotype.json'
-                        // is what these were saved as before the extension settled.
-                        filetype: 'baja,karyotype,karyotype.json',
+                        // invisible from the place you go to find your work. Genomes save as
+                        // '.genome'; '.karyotype' and '.karyotype.json' are what they were saved
+                        // as before, the same format.
+                        filetype: 'baja,genome,karyotype,karyotype.json',
                         showSearch: true,
                         "ionfunction.cmd": createIonFunction((element) => {
                             commands.go(path_j, element.cmd);
@@ -487,8 +488,9 @@ function (path, filebrowserplease) {
                                     }
                                     exec('manchester/editor', element.path, config, `/app/manchester/editor`)
                                 }
-                                else if (/\.karyotype(\.json)?$/i.test(element.path)) {
-                                    // A karyotype opens in the karyotype editor, not the
+                                else if (/\.(?:genome|karyotype(?:\.json)?)$/i.test(element.path)) {
+                                    // A genome file (.genome, or the legacy .karyotype and
+                                    // .karyotype.json) opens in the Genome Viewer, not the
                                     // screen editor -- it is a different document with a
                                     // different reader. replaceState-shaped URL so a reload
                                     // comes back to the file, the same as a screen does.

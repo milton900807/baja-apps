@@ -46,7 +46,7 @@ function (pt, graph, pm) {
         panel.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483000;'
             + 'width:min(640px,94vw);max-height:calc(100vh - 90px);overflow:auto;background:#ffffff;color:#0a2540;border-radius:12px;'
             + 'box-shadow:0 12px 40px rgba(10,37,64,0.35);border:1px solid rgba(10,37,64,0.14);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:18px;';
-        const kindOf = (name) => /\.bjb$/i.test('' + name) ? 'workbook' : /\.karyotype(\.json)?$/i.test('' + name) ? 'genome' : /\.baja$/i.test('' + name) ? 'design' : '';
+        const kindOf = (name) => /\.bjb$/i.test('' + name) ? 'workbook' : /\.(?:genome|karyotype(?:\.json)?)$/i.test('' + name) ? 'genome' : /\.baja$/i.test('' + name) ? 'design' : '';
         const row = (title, sub, meta, code, name) => '<div class="sd-row" data-code="' + esc(code) + '" data-name="' + esc(name || '') + '" style="display:flex;align-items:center;gap:10px;padding:' + (mobile ? '12px 10px' : '9px 10px') + ';border:1px solid #dfe6ee;border-radius:8px;margin:6px 0;background:#f4f7fa;">'
             + '<div style="flex:1;min-width:0;"><div style="font:600 13px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(title) + '</div>'
             + '<div style="font-size:12px;color:#4a5a70;">' + sub + (meta ? ' &middot; <span style="color:#6b7a90;">' + esc(meta) + '</span>' : '') + '</div></div>'
@@ -57,10 +57,10 @@ function (pt, graph, pm) {
             + '<div style="font:600 16px system-ui;margin-bottom:2px;padding-right:24px;">Shared documents</div>'
             + '<div style="font-size:12.5px;color:#4a5a70;">Open lands in the shared copy, the one you and the other person both work on.</div>';
         html += head('Shared with you (' + withMe.length + ')');
-        html += withMe.length ? withMe.map(s => row(s.name.replace(/\.(bjb|baja|karyotype(\.json)?)$/i, ''), 'from <b>' + esc(short(s.owner)) + '</b>', s.at ? when(s.at) : '', s.code, s.name)).join('')
+        html += withMe.length ? withMe.map(s => row(s.name.replace(/\.(bjb|baja|genome|karyotype(\.json)?)$/i, ''), 'from <b>' + esc(short(s.owner)) + '</b>', s.at ? when(s.at) : '', s.code, s.name)).join('')
             : '<div style="padding:6px 10px;font-size:12px;color:#6b7a90;">Nothing has been shared with you yet.</div>';
         html += head('You shared (' + mine.length + ')');
-        html += mine.length ? mine.map(s => row(('' + s.name).replace(/\.(bjb|baja|karyotype(\.json)?)$/i, '') + (s.object ? ' — ' + (s.object.label || s.object.kind) + ' only' : ''), 'with <b>' + esc(short(s.to)) + '</b>', when(s.updated || s.created), s.code, s.name)).join('')
+        html += mine.length ? mine.map(s => row(('' + s.name).replace(/\.(bjb|baja|genome|karyotype(\.json)?)$/i, '') + (s.object ? ' — ' + (s.object.label || s.object.kind) + ' only' : ''), 'with <b>' + esc(short(s.to)) + '</b>', when(s.updated || s.created), s.code, s.name)).join('')
             : '<div style="padding:6px 10px;font-size:12px;color:#6b7a90;">You have not shared a document yet. Use Share for co-editing on a document.</div>';
         panel.innerHTML = html;
         const backdrop = document.createElement('div');

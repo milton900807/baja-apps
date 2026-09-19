@@ -2,7 +2,7 @@ function (options) {
 
     // WHAT TO DO WITH A FILE NO APPLICATION CLAIMS.
     //
-    // Most files in My Files open in an editor: a .baja screen, a .karyotype, a .liverpool
+    // Most files in My Files open in an editor: a .baja screen, a .genome, a .liverpool
     // design. Everything else -- a pasted VCF, a spreadsheet, a note, anything uploaded --
     // had no handler at all. Clicking one cleared the screen and left the user on a blank
     // page, which is the worst of the three possible behaviors: it looks like a crash and

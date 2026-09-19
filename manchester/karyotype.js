@@ -171,11 +171,14 @@ function (path, config) {
             const i = t.lastIndexOf('/');
             return (i >= 0 ? t.slice(i + 1) : t) || t;
         };
+        // A GENOME FILE IS .genome. It was .karyotype before that, and .karyotype.json
+        // before that; the format inside never changed, so all three still open, and
+        // only a new save is written as .genome. Every test for "is this one of ours"
+        // goes through here.
+        const GENOME_FILE_RE = /\.(?:genome|karyotype(?:\.json)?)$/i;
         const asSavedFile = (v) => {
             const t = decodePath(v);
-            // Also .karyotype.json: what these were saved as before the extension
-            // changed. Same format, still in people's folders.
-            return /\.karyotype(\.json)?$/i.test(t) ? t : '';
+            return GENOME_FILE_RE.test(t) ? t : '';
         };
         // THE URL FOLLOWS THE OPEN FILE. Set wherever a document becomes the current
         // one -- opened from a file browser, opened from this view's own Open, or
@@ -343,7 +346,7 @@ function (path, config) {
             if (loadingShown) return;
             loadingShown = true;
             const t = ('' + (title || '')).trim() || 'Karyotype';
-            const isFile = /\.karyotype(\.json)?$/i.test(t);
+            const isFile = GENOME_FILE_RE.test(t);
             const lay = {
                 wid: 'card', height: '100%', componentRef: 'mainPanel',
                 data: {
@@ -359,7 +362,7 @@ function (path, config) {
                                     // big line below is free to be only the name.
                                     + '<div style="font:600 11px/1.4 inherit;letter-spacing:.09em;'
                                     + 'text-transform:uppercase;color:#8296ab;">'
-                                    + (isFile ? 'Opening karyotype' : 'Karyotype') + '</div>'
+                                    + (isFile ? 'Opening genome' : 'Genome') + '</div>'
                                     + '<div id="karyo-load-title" style="font:600 21px/1.35 inherit;'
                                     + 'color:#0f172a;margin-top:7px;word-break:break-word;">'
                                     + esc(isFile ? t : 'Loading') + '</div>'
@@ -6009,7 +6012,7 @@ function (path, config) {
         // encoded -- the same reason a .baja file does not announce itself as .json.
         // Nothing filters My Files by extension, so the browser lists and opens it
         // exactly as before.
-        const SAVE_EXT = '.karyotype';
+        const SAVE_EXT = '.genome';
 
         // The document WITHOUT its variants: every field that is bounded by the screen
         // rather than by the file. stateDoc() adds the variants to it and stateParts()
@@ -13933,8 +13936,8 @@ function (path, config) {
         // its variants, view and bookmarks.
         const shareBaseName = () => {
             let fn = '';
-            try { const st = window.history.state; fn = (st && st.karyotype) ? ('' + st.karyotype).split('/').pop().replace(/\.karyotype(\.json)?$/i, '') : ''; } catch (e) { }
-            return dlSafe(fn || (dlSpecies() + (dlAssembly() ? ('_' + dlAssembly()) : '')) || 'karyotype');
+            try { const st = window.history.state; fn = (st && st.karyotype) ? ('' + st.karyotype).split('/').pop().replace(GENOME_FILE_RE, '') : ''; } catch (e) { }
+            return dlSafe(fn || (dlSpecies() + (dlAssembly() ? ('_' + dlAssembly()) : '')) || 'genome');
         };
         const shareEsc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const shareKaryoPublic = async () => {
@@ -13946,7 +13949,7 @@ function (path, config) {
                 // a saved one, and building it as a single string was the allocation that
                 // took the tab down. Over the direct limit it goes up in chunks instead.
                 const __b = stateParts();
-                const name = shareBaseName() + '.karyotype';
+                const name = shareBaseName() + SAVE_EXT;
                 __b.parts[0] = __b.parts[0] + ',"name":' + JSON.stringify(name);
                 const blob = new Blob(__b.parts, { type: 'application/json' });
                 __b.parts.length = 0;
@@ -13974,7 +13977,7 @@ function (path, config) {
         const shareKaryoWithPerson = () => {
             const host_ = window['env']['apiUrl']; const user = ('' + (getUser() || '')).trim();
             if (!user) { dlErr('Sign in to share.'); return; }
-            const designName = shareBaseName() + '.karyotype';
+            const designName = shareBaseName() + SAVE_EXT;
             const body = (r) => (r && r.error && typeof r.error === 'object') ? r.error : r;
             try { const old = document.getElementById('baja-karyo-share-dialog'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
             const backdrop = document.createElement('div');
@@ -15843,11 +15846,11 @@ function (path, config) {
                 if (savingNow) { step('save ignored: one is already running'); return; }
                 let name = ('' + (raw || '')).trim().replace(/[\r\n]+/g, ' ');
                 if (!name) { graph.setMessage(' A file name is needed. '); return; }
-                // A trailing .json is dropped rather than kept alongside: it makes
-                // "chr21.json" save as chr21.karyotype instead of chr21.json.karyotype,
-                // and turns an old chr21.karyotype.json name back into chr21.karyotype.
-                name = name.replace(/\.json$/i, '');
-                if (!/\.karyotype$/i.test(name)) name += SAVE_EXT;
+                // Any extension this file has had is replaced by the current one, and a
+                // trailing .json is dropped rather than kept alongside: "chr21.json",
+                // "chr21.karyotype" and "chr21.karyotype.json" all save as chr21.genome.
+                // The old file is left where it is and still opens.
+                name = name.replace(/\.json$/i, '').replace(/\.(?:genome|karyotype)$/i, '') + SAVE_EXT;
                 if (name === SAVE_EXT) { graph.setMessage(' A file name is needed. '); return; }
                 // The folder the browser is standing in is the folder it saves into.
                 let spath = '';
