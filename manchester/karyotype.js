@@ -8960,6 +8960,29 @@ function (path, config) {
             list.sort((a, b) => a.rank - b.rank || b.frac - a.frac || ('' + a.gene).localeCompare('' + b.gene));
             return list;
         };
+        // ESSENTIAL GENES IN THE LOH REGION: every DepMap dependency inside a tract, changed by
+        // the tumor or not. Changed genes first (insertions and deletions before missense, as
+        // essOrder has it), then the most depended-on.
+        const EIL_TITLE = 'Essential genes in LOH region';
+        const lohEssentialInTracts = (R, ESS, tracts) => {
+            if (!ESS || ESS.error) return null;
+            const lohG = new Map(((R && R.genes) || []).map((g) => [('' + g.gene).toUpperCase(), g]));
+            const pool = [];
+            for (const c of (ESS.candidates || [])) if (c.loh) pool.push({ g: c.g, variants: c.variants });
+            for (const g of (ESS.single || [])) pool.push({ g: g, variants: [] });
+            return essOrder(pool).map((x) => {
+                const g = x.g;
+                const t = tracts.find((t2) => t2.ci === g.ci && g.end >= t2.lo && g.start <= t2.hi);
+                const lg = lohG.get(('' + g.gene).toUpperCase());
+                return { gene: g.gene, ci: g.ci, start: g.start, end: g.end, cls: g.cls, dep_frac: g.dep_frac,
+                    effect_mean: g.effect_mean, variants: x.variants,
+                    bands: t ? (bandSpan(t.c, t.lo, t.hi) || t.c.name) : '', extent: t ? t.ext.word : '',
+                    lost: lg ? lg.lost : null, kept: lg ? lg.kept : null, frac: lg ? lg.frac : null };
+            });
+        };
+        const eilLohText = (x) => (x.bands ? 'In ' + x.bands + (x.extent ? ' (' + x.extent + ')' : '') + '. ' : '')
+            + ((x.lost != null && (x.lost + x.kept)) ? x.lost + ' of ' + (x.lost + x.kept) + ' heterozygous sites in the gene lost an allele.'
+                : 'No heterozygous site inside the gene; the tract around it carries the call.');
         // For the reports that are not the LOH report: the scan's own pair, when there is one.
         const gofForReport = async () => {
             if (!lohResult) return gofSheet(null, null);
@@ -9220,7 +9243,24 @@ function (path, config) {
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
 
-                sheets.push(gofSheet(GOF, Object.assign({}, R, { spec: spec })));
+                // ESSENTIAL GENES IN THE LOH REGION (human: DepMap is a human screen). The scan is
+                // cached on the LOH result, so a report built with the assessment reuses it.
+                let ESS0 = null;
+                if (('' + (r.species || 'human')).toLowerCase() === 'human') {
+                    try { ESS0 = await lohEssentialScan(R, spec, tracts, (m) => dlMsg(m)); } catch (e) { ESS0 = { error: '' + (e && e.message ? e.message : e) }; }
+                }
+                const EIL0 = lohEssentialInTracts(R, ESS0, tracts);
+                sheets.push({ name: EIL_TITLE, rows: !ESS0 ? [{ 'Not assessed': 'DepMap is a human screen; there is no essentiality data for this genome.' }]
+                    : ESS0.error ? [{ 'Not assessed': ESS0.error }]
+                    : (EIL0 && EIL0.length) ? EIL0.slice(0, 80).map((x) => ({
+                        'Gene': x.gene + (x.variants.length ? ' (tumor-specific change)' : ''),
+                        'DepMap': x.cls + ', a dependency in ' + Math.round(x.dep_frac * 100) + '% of cell lines (mean effect ' + x.effect_mean.toFixed(2) + ')',
+                        'LOH': eilLohText(x),
+                        'Changes': x.variants.length ? x.variants.slice(0, 6).map((v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : '') + ' - '
+                            + (v.origin === 'somatic' ? 'somatic' : 'germline, other allele lost') + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ')
+                            : 'none: one copy left, or two identical ones',
+                    })).concat(EIL0.length > 80 ? [{ 'More': (EIL0.length - 80) + ' further essential genes in the tracts.' }] : [])
+                    : [{ 'Result': 'No essential gene lies inside an LOH tract.' }] });
                 if (O.claude) {
                     if (!SL || SL.error) {
                         sheets.push({ name: 'Selective lethality', rows: [{ 'Not assessed': (SL && SL.error) || 'the assessment did not run' }] });
@@ -9425,7 +9465,8 @@ function (path, config) {
             const ONC = lohOncogenes(R, GOF);
             for (const g of ONC) itemFor(g.gene, g.ci);
             for (const c of ((ESS && ESS.candidates) || [])) { const it = itemFor(c.g.gene, c.g.ci); for (const v of c.variants) addVar(it, v); }
-            for (const g of ((ESS && ESS.single) || []).slice(0, 40)) itemFor(g.gene, g.ci);
+            const EIL = lohEssentialInTracts(R, ESS, tracts) || [];
+            for (const x of EIL.slice(0, 100)) itemFor(x.gene, x.ci);
             // EVERY GENE GETS A TRANSCRIPT, so every row opens in the editor the same way -- a
             // germline track and a tumor track -- and not only the rows that carry a mutation.
             // The tract scan already knows most of them; the rest (and a scan saved before the
@@ -9631,18 +9672,16 @@ function (path, config) {
                             esc(hh.verdict) + (hh.variants.length ? '<br/>' + hh.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
                     }).join('') : card('No gene on the tumor-suppressor list lies inside a tract.'));
 
-                // GAIN OF FUNCTION
-                const gl = (GOF && GOF.list) || [];
-                const gGenes = Array.from(new Set(gl.map((x) => x.gene)));
-                h += section(GOF_SHEET, 'Changes the tumor carries in ' + ((GOF && GOF.checked) || 0) + ' oncogenes. An activating allele LOH has left on every copy has lost the wild-type partner that restrains it.',
-                    GOF && GOF.error ? card(esc(GOF.error)) : gGenes.length ? gGenes.map((gn) => {
-                        const xs = gl.filter((x) => x.gene === gn);
-                        const top = xs[0];
-                        const col = top.inLoh && top.state === 'retained' ? '#fbbf24' : top.level === 'hotspot' ? '#fb923c' : '#94a3b8';
-                        return geneRow(byGene.get(('' + gn).toUpperCase()), chip(top.level, col) + (top.inLoh ? ' ' + chip(top.state === 'retained' ? 'homozygous by LOH' : 'in an LOH tract', '#a855f7') : ''),
-                            xs.slice(0, 6).map((x) => vLine(x) + '<br/><span style="color:#9fb3c8;">' + esc(x.why) + '; ' + esc(gofStateWord(x)) + '</span>').join('<br/>'));
-                    }).join('') : card('No protein-altering change in these oncogenes is carried by the tumor.'));
-
+                // ESSENTIAL GENES IN THE LOH REGION
+                if (ESS) {
+                    h += section(EIL_TITLE, '', ESS.error ? card(esc(ESS.error)) : EIL.length ? EIL.slice(0, 100).map((x) => {
+                        const changed = x.variants.length > 0;
+                        return geneRow(byGene.get(('' + x.gene).toUpperCase()),
+                            chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
+                            '<span style="color:#9fb3c8;">' + esc(eilLohText(x)) + '</span>'
+                            + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                    }).join('') : card('No essential gene lies inside an LOH tract.'));
+                }
                 // ESSENTIAL GENES
                 if (ESS) {
                     h += section('Essential genes with tumor-specific changes', 'DepMap dependencies the tumor has changed and the germline has not: the starting points for an allele-selective design.',
@@ -9651,11 +9690,6 @@ function (path, config) {
                             esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
                     h += depmapCiteHtml(esc);
-                    if (ESS.single && ESS.single.length) {
-                        h += section('Essential genes at one copy, unmutated', 'Single-copy dependencies (CYCLOPS): a partial knockdown the diploid normal tissue tolerates. No mutation, so they open through their region panel.',
-                            ESS.single.slice(0, 40).map((g) => geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(g.cls, '#60a5fa'),
-                                esc('dependency in ' + Math.round(g.dep_frac * 100) + '% of cell lines, mean effect ' + g.effect_mean.toFixed(2)))).join(''));
-                    }
                     // CLAUDE
                     const A = ESS.assessment;
                     let inner = '';
@@ -9769,7 +9803,8 @@ function (path, config) {
                     gof: (GOF && !GOF.error) ? { checked: GOF.checked, list: GOF.list.map((x) => Object.assign(vD(x), { gene: x.gene, inLoh: x.inLoh, stateWord: gofStateWord(x) })) } : null,
                     essential: (ESS && !ESS.error) ? essOrder(ESS.candidates).map((c) => ({ gene: c.g.gene, cls: c.g.cls, dep_frac: c.g.dep_frac,
                         effect_mean: c.g.effect_mean, inLoh: c.loh, variants: c.variants.map(vD) })) : null,
-                    singleCopy: (ESS && ESS.single) ? ESS.single.slice(0, 40).map((g) => ({ gene: g.gene, cls: g.cls, dep_frac: g.dep_frac, effect_mean: g.effect_mean })) : [],
+                    essentialInLoh: EIL.slice(0, 100).map((x) => ({ gene: x.gene, cls: x.cls, dep_frac: x.dep_frac, effect_mean: x.effect_mean,
+                        bands: x.bands, extent: x.extent, lost: x.lost, kept: x.kept, frac: x.frac, variants: x.variants.map(vD) })),
                     assessment: (ESS && ESS.assessment) ? Object.assign({}, ESS.assessment, { assessedAt: ESS.assessedAt || '' }) : null,
                     depmap: DM || {}, depmapModels: (lohResult && lohResult.dmModels) || 0,
                     depmapCitations: DEPMAP_CITES, depmapPortal: DEPMAP_PORTAL,

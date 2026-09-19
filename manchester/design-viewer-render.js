@@ -111,10 +111,21 @@ function () {
                 esc(g.verdict) + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''))).join('')
             : card('No gene on the tumor-suppressor list lies inside a tract.'));
 
-        // GAIN OF FUNCTION
-        const gl = (doc.gof && doc.gof.list) || [];
+        // ESSENTIAL GENES IN THE LOH REGION -- or, in a file saved before that section, the
+        // gain-of-function section it was saved with.
+        if (Array.isArray(doc.essentialInLoh)) {
+            h += section('Essential genes in LOH region', '', doc.essentialInLoh.length ? doc.essentialInLoh.map((x) => {
+                const changed = (x.variants || []).length > 0;
+                const lohTxt = (x.bands ? 'In ' + x.bands + (x.extent ? ' (' + x.extent + ')' : '') + '. ' : '')
+                    + ((x.lost != null && (x.lost + x.kept)) ? x.lost + ' of ' + (x.lost + x.kept) + ' heterozygous sites in the gene lost an allele.'
+                        : 'No heterozygous site inside the gene; the tract around it carries the call.');
+                return geneRow(x.gene, chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
+                    '<span style="color:#9fb3c8;">' + esc(lohTxt) + '</span>' + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+            }).join('') : card('No essential gene lies inside an LOH tract.'));
+        }
+        const gl = Array.isArray(doc.essentialInLoh) ? [] : ((doc.gof && doc.gof.list) || []);
         const gGenes = Array.from(new Set(gl.map((x) => x.gene)));
-        h += section('Gain-of-function mutations and LOH', doc.gof ? 'Changes the tumor carries in ' + (doc.gof.checked || 0) + ' oncogenes.' : 'Not assessed in this file.',
+        if (!Array.isArray(doc.essentialInLoh)) h += section('Gain-of-function mutations and LOH', doc.gof ? 'Changes the tumor carries in ' + (doc.gof.checked || 0) + ' oncogenes.' : 'Not assessed in this file.',
             gGenes.length ? gGenes.map((gn) => {
                 const xs = gl.filter((x) => x.gene === gn), top = xs[0];
                 const col = top.inLoh && top.state === 'retained' ? '#fbbf24' : top.level === 'hotspot' ? '#fb923c' : '#94a3b8';
@@ -138,7 +149,7 @@ function () {
                 + cites.map((c) => esc(c.text) + ' <a href="https://doi.org/' + esc(c.doi) + '" target="_blank" rel="noopener" style="color:#8ab4ff;">doi:' + esc(c.doi) + '</a>').join(' ')
                 + '</div>';
         }
-        if ((doc.singleCopy || []).length) {
+        if (!Array.isArray(doc.essentialInLoh) && (doc.singleCopy || []).length) {
             h += section('Essential genes at one copy, unmutated', 'Single-copy dependencies: a partial knockdown the diploid normal tissue tolerates.',
                 doc.singleCopy.map((g) => geneRow(g.gene, chip(g.cls, '#60a5fa'), '')).join(''));
         }
