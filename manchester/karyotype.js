@@ -9264,6 +9264,7 @@ function (path, config) {
                         'Changes in the gene': g.variants.length ? g.variants.slice(0, 8).map((x) => x.change + ' (' + dmmWord(x.effect) + ', ' + x.level + ') - '
                             + x.origin + ', ' + gofStateWord(x) + (x.baf >= 0 ? ' (tumor VAF ' + Math.round(x.baf * 100) + '%)' : '')).join('; ')
                             : 'none protein-altering',
+                        'What the gene is for': fnPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No oncogene from the catalogue lies inside a tract.' : 'No tract, so no oncogene is affected.' }] });
@@ -9282,6 +9283,7 @@ function (path, config) {
                             + ' - ' + v.origin + ', ' + ({ retained: 'on the copy left', lost: 'on the copy lost', both: 'tumor still reads both alleles', uncalled: 'not called in the tumor' }[v.state] || v.state)
                             + (v.baf >= 0 ? ' (tumor VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ') + (h.variants.length > 12 ? '; and ' + (h.variants.length - 12) + ' more' : '')
                             : 'none in the coding sequence, splice sites or UTRs',
+                        'What the gene is for': fnPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
@@ -9805,7 +9807,7 @@ function (path, config) {
                                 ? esc(g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites in the gene lost an allele (' + pct(g.frac) + ')')
                                 : 'No heterozygous site inside the gene; the tract around it carries the call') + '</span>'
                             + (g.variants.length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
-                            tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
+                            fnHtml(DM && DM[('' + g.gene).toUpperCase()], esc) + tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
                     }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
 
                 // TUMOR SUPPRESSORS
@@ -9815,7 +9817,7 @@ function (path, config) {
                         const col = hh.rank === 0 ? '#f87171' : hh.rank <= 2 ? '#fbbf24' : '#94a3b8';
                         return geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(hh.rank === 0 ? 'biallelic' : hh.rank <= 2 ? 'possible second hit' : 'one copy left', col),
                             esc(hh.verdict) + (hh.variants.length ? '<br/>' + hh.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
-                            tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
+                            fnHtml(DM && DM[('' + g.gene).toUpperCase()], esc) + tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
                     }).join('') : card('No gene on the tumor-suppressor list lies inside a tract.'));
 
                 // ESSENTIAL GENES IN THE LOH REGION
