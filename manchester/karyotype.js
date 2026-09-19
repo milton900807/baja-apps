@@ -8507,7 +8507,8 @@ function (path, config) {
             for (const g of genes) {
                 const vs = (perGene.get(g.gene) || []).map((v) => {
                     const e = dmmEffCache.get(v.key);
-                    return Object.assign(v, { effect: e ? e.effect : 'intergenic', gene: e ? e.gene : '', hgvs: e ? (e.hgvs_p || e.hgvs_c || '') : '' });
+                    return Object.assign(v, { effect: e ? e.effect : 'intergenic', gene: e ? e.gene : '', hgvs: e ? (e.hgvs_p || e.hgvs_c || '') : '',
+                        transcript: e && e.transcript ? ('' + e.transcript).replace(/\.\d+$/, '') : '' });
                 }).filter((v) => v.gene && ('' + v.gene).toUpperCase() === ('' + g.gene).toUpperCase() && v.effect !== 'intronic' && v.effect !== 'intergenic');
                 vs.sort((x, y) => dmmSev(x.effect) - dmmSev(y.effect) || x.pos - y.pos);
                 out.set(g.gene, vs);
@@ -8546,7 +8547,15 @@ function (path, config) {
         // essential genes that sit in a tract unmutated, the single-copy kind. What comes
         // back is a set of hypotheses, and the report prints it as one.
         const LOH_SL_SCRIPT = server + '/py/bio/loh-selective-lethality.py';
-        const lohSelectiveLethality = async (R, spec, tracts, say) => {
+        // Two steps, both cached on the LOH result for the germline they were read against (so
+        // they are saved with the genome): the essential-gene scan, which is quick and
+        // deterministic, and the Claude assessment, which costs a minute and a model call and
+        // is only asked for when wanted -- the interactive report offers it as a button, the
+        // PDF reuses one already made.
+        const lohSlKey = (spec) => spec.kind + ':' + spec.normal + ':' + spec.tumor;
+        const lohEssentialScan = async (R, spec, tracts, say) => {
+            const key = lohSlKey(spec);
+            if (R.sl && R.sl.key === key && R.sl.res && !R.sl.res.error) return R.sl.res;
             const res = { candidates: [], single: [], assessment: null, model: '', error: '', nEssential: 0, nModels: 0 };
             const species = ('' + (r.species || 'human')).toLowerCase();
             if (species !== 'human') { res.error = 'DepMap is a human screen, so there is no essentiality data for ' + species + '.'; return res; }
@@ -8573,6 +8582,12 @@ function (path, config) {
             res.candidates.sort((a, b) => worst(a) - worst(b) || b.g.dep_frac - a.g.dep_frac);
             const mutated = new Set(res.candidates.map((c) => c.g.gene));
             res.single = ess.filter((g) => !mutated.has(g.gene) && inTract(g)).sort((a, b) => b.dep_frac - a.dep_frac);
+            R.sl = { key: key, res: res };
+            return res;
+        };
+        const lohClaudeAssess = async (R, spec, tracts, res, gof, say) => {
+            const species = ('' + (r.species || 'human')).toLowerCase();
+            const em = new EngineMonitor((m) => { try { log(m); say(m); } catch (e) { } });
             const payload = {
                 tumor: spec.labelT, germline: spec.labelN, species: species, n_models: res.nModels,
                 context: 'LOH scan: ' + R.loh + ' of ' + R.het + ' heterozygous sites lost an allele, in ' + tracts.length + ' tract(s): '
@@ -8583,13 +8598,167 @@ function (path, config) {
                         origin: v.origin === 'somatic' ? 'somatic' : 'germline_lost_wt', tumor_state: v.state, tumor_vaf: v.baf >= 0 ? Math.round(v.baf * 100) / 100 : -1 })),
                 })),
                 single_copy: res.single.slice(0, 60).map((g) => ({ gene: g.gene, effect_mean: g.effect_mean, dep_frac: g.dep_frac, class: g.cls })),
+                // Oncogene changes, hotspots and anything LOH touched first: the model judges
+                // whether each is activating and what the loss did to it.
+                gain_of_function: ((gof && gof.list) || []).filter((x) => x.level !== 'possible' || x.inLoh).slice(0, 60).map((x) => ({
+                    gene: x.gene, change: x.change, effect: x.effect, level: x.level, in_loh: x.inLoh,
+                    tumor_state: x.state, origin: x.origin === 'somatic' ? 'somatic' : 'germline', tumor_vaf: x.baf >= 0 ? Math.round(x.baf * 100) / 100 : -1 })),
             };
             say('Asking Claude which of these could be selectively lethal (this takes a minute or two)...');
             const as = await exec(LOH_SL_SCRIPT, em, 'assess', JSON.stringify(payload));
-            if (!as || !as.ok) { res.error = (as && as.error) || 'the assessment could not be made'; return res; }
+            if (!as || !as.ok) { res.assessError = (as && as.error) || 'the assessment could not be made'; return res; }
             try { res.assessment = JSON.parse(as.assessment || '{}'); } catch (e) { res.assessment = null; }
             res.model = as.model || '';
+            res.assessedAt = new Date().toISOString();
+            res.assessError = '';
             return res;
+        };
+        // Both, for the PDF: a scan, and an assessment reused when one was already made for
+        // this germline (fresh = true asks again).
+        const lohSelectiveLethality = async (R, spec, tracts, say, gof, fresh) => {
+            const res = await lohEssentialScan(R, spec, tracts, say);
+            if (res.error) return res;
+            if (fresh || !res.assessment) await lohClaudeAssess(R, spec, tracts, res, gof, say);
+            return Object.assign({}, res, { error: res.assessError || '' });
+        };
+        // ---- GAIN OF FUNCTION, AND WHAT LOH DID TO IT ------------------------------------
+        //
+        // LOH is read above for what it takes away. It can also concentrate what a tumor
+        // gained: an activating allele that LOH has left on every remaining copy has lost the
+        // wild-type partner that restrains it and, after a copy-neutral loss, is present at
+        // twice the dose -- JAK2 V617F on 9p, KRAS and EGFR after a copy-neutral loss of their
+        // arm, mutant p53 after 17p. So every change the tumor carries in a known oncogene is
+        // classified here and placed against the tracts.
+        //
+        // The catalogue is curated and deliberately short: recurrent activating codons from the
+        // hotspot literature (cancerhotspots.org, COSMIC), plus the classes of change that
+        // activate a gene without being a point hotspot (EGFR exon 19 deletions, MET exon 14
+        // splice changes, CALR exon 9 frameshifts, truncations of PPM1D and the NOTCH1 PEST
+        // domain). Anything else protein-altering in these genes is reported as "possible",
+        // and the Claude assessment judges it.
+        const GOF_HOTSPOTS = {
+            KRAS: [12, 13, 59, 61, 117, 146], NRAS: [12, 13, 59, 61, 117, 146], HRAS: [12, 13, 61],
+            BRAF: [464, 466, 469, 594, 597, 600, 601], MAP2K1: [57, 124], RAC1: [29],
+            PIK3CA: [88, 345, 420, 542, 545, 546, 1043, 1047], AKT1: [17], MTOR: [2215],
+            EGFR: [709, 719, 768, 790, 858, 861], ERBB2: [310, 755, 777, 842],
+            MET: [1228, 1230], ALK: [1174, 1275], RET: [634, 918],
+            FGFR2: [252, 253, 549], FGFR3: [248, 249, 372, 373, 650],
+            KIT: [559, 560, 642, 816, 822], PDGFRA: [561, 842], FLT3: [835, 836],
+            JAK2: [617], MPL: [515], IDH1: [132], IDH2: [140, 172],
+            CTNNB1: [32, 33, 34, 37, 41, 45], GNAQ: [183, 209], GNA11: [183, 209], GNAS: [201, 227],
+            ESR1: [380, 536, 537, 538], EZH2: [646, 677, 687], MYD88: [265], XPO1: [571],
+            SF3B1: [625, 662, 666, 700], U2AF1: [34, 157], SRSF2: [95], NFE2L2: [29, 34, 79, 80, 82],
+            // Mutant p53 is also a loss, and is read as one in the tumor-suppressor section;
+            // these codons are listed here for the dominant-negative and gain-of-function
+            // activity attributed to them, which is debated.
+            TP53: [175, 245, 248, 249, 273, 282],
+            CALR: [], PPM1D: [], NOTCH1: [], CXCR4: [],
+        };
+        const GOF_LEVEL_RANK = { hotspot: 0, likely: 1, possible: 2 };
+        const codonOfVariant = (v) => {
+            const m = /p\.[A-Za-z*]{1,3}(\d+)/.exec('' + (v.hgvs || ''));
+            if (m) return +m[1];
+            const c = /c\.(\d+)/.exec('' + (v.hgvs || ''));
+            return c ? Math.ceil(+c[1] / 3) : 0;
+        };
+        // { level, why } for a change the tumor carries in a catalogue gene, or null.
+        const gofClass = (gene, v) => {
+            const G = ('' + gene).toUpperCase(), e = v.effect, cod = codonOfVariant(v);
+            if (!(G in GOF_HOTSPOTS) || !DMM_PROTEIN.has(e)) return null;
+            const trunc = e === 'frameshift' || e === 'stop_gained';
+            if ((e === 'missense' || e === 'hotspot_missense' || e === 'pathogenic_missense') && GOF_HOTSPOTS[G].indexOf(cod) >= 0) {
+                if (G === 'TP53') return { level: 'hotspot', why: 'a p53 hotspot (codon ' + cod + '): dominant-negative and gain-of-function activity is proposed but debated; the loss it causes is read in the tumor-suppressor section' };
+                return { level: 'hotspot', why: 'a recurrent activating codon (' + G + ' ' + cod + ')' };
+            }
+            if (e === 'inframe_indel') {
+                if (G === 'EGFR' && cod >= 745 && cod <= 753) return { level: 'likely', why: 'an EGFR exon 19 in-frame deletion' };
+                if (G === 'EGFR' && cod >= 762 && cod <= 775) return { level: 'likely', why: 'an EGFR exon 20 insertion' };
+                if (G === 'ERBB2' && cod >= 774 && cod <= 781) return { level: 'likely', why: 'an ERBB2 exon 20 insertion' };
+                if (G === 'KIT' && cod >= 550 && cod <= 592) return { level: 'likely', why: 'a KIT exon 11 juxtamembrane in-frame change' };
+                if (G === 'FLT3' && cod >= 572 && cod <= 630) return { level: 'likely', why: 'a FLT3 juxtamembrane in-frame duplication (ITD-like)' };
+                if (G === 'CTNNB1' && cod >= 30 && cod <= 48) return { level: 'likely', why: 'an in-frame change in the CTNNB1 degron' };
+            }
+            if (G === 'MET' && (e === 'splice_donor' || e === 'splice_acceptor')) return { level: 'likely', why: 'a MET splice-site change (exon 14 skipping, if it is at exon 14)' };
+            if (G === 'CALR' && e === 'frameshift' && cod >= 350) return { level: 'likely', why: 'a CALR exon 9 frameshift' };
+            if (G === 'PPM1D' && trunc && cod >= 400) return { level: 'likely', why: 'a PPM1D last-exon truncation (stabilised protein)' };
+            if (G === 'NOTCH1' && trunc && cod >= 2400) return { level: 'likely', why: 'a NOTCH1 PEST-domain truncation (stabilised intracellular domain)' };
+            if (G === 'CXCR4' && trunc && cod >= 300) return { level: 'likely', why: 'a CXCR4 C-terminal truncation (WHIM-like)' };
+            if (trunc) return null;          // a truncation elsewhere in an oncogene is not a gain
+            return { level: 'possible', why: 'a protein-altering change in an oncogene, not at a known activating codon' };
+        };
+        const gofStateWord = (x) => !x.inLoh ? 'outside any LOH tract'
+            : x.state === 'retained' ? 'in an LOH tract, on every remaining copy: the wild-type allele is gone'
+            : x.state === 'both' ? 'in an LOH tract, but the tumor still reads both alleles here (it may have arisen after the loss, on one of two copies, or be subclonal)'
+            : x.state === 'lost' ? 'in an LOH tract, on the copy the tumor lost'
+            : 'in an LOH tract, not called in the tumor';
+        // The tracts, as every report reads them.
+        const lohTractList = (R) => {
+            const out = [];
+            for (const c2 of ((R && R.chroms) || [])) for (const t of (c2.runs || [])) {
+                const c = drawn[c2.ci];
+                if (c) out.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: tractExtent(c, t.lo, t.hi) });
+            }
+            return out;
+        };
+        // Cached on the LOH result for the germline it was read against, so a second report
+        // does not read it again and a saved genome carries it.
+        const lohGofScan = async (R, spec, tracts, say) => {
+            const key = spec.kind + ':' + spec.normal + ':' + spec.tumor;
+            if (R.gof && R.gof.key === key && Array.isArray(R.gof.list)) return R.gof;
+            const res = { key: key, list: [], checked: 0, error: '', germline: spec.labelN, at: new Date().toISOString() };
+            const species = ('' + (r.species || 'human')).toLowerCase();
+            const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+            say('Checking oncogenes for gain-of-function changes...');
+            const sp = await exec(LOH_SL_SCRIPT, em, 'spans', species, JSON.stringify(Object.keys(GOF_HOTSPOTS)));
+            if (!sp || !sp.ok) { res.error = (sp && sp.error) || 'the oncogene spans could not be read'; return res; }
+            let rows = [];
+            try { rows = JSON.parse(sp.genes || '[]'); } catch (e) { rows = []; }
+            const genes = rows.map((x) => ({ gene: x[0], ci: chromIndexOf(x[1]), start: +x[2], end: +x[3] }))
+                .filter((g) => g.ci >= 0 && vdata[g.ci] && vdata[g.ci].n);
+            res.checked = rows.length;
+            const byGene = await lohGeneVariants(genes, spec, say, (v) => v.inT);
+            for (const g of genes) {
+                for (const v of (byGene.get(g.gene) || [])) {
+                    const cl = gofClass(g.gene, v);
+                    if (!cl) continue;
+                    const inLoh = tracts.some((t) => t.ci === g.ci && v.pos >= t.lo && v.pos <= t.hi);
+                    res.list.push({ gene: g.gene, ci: g.ci, transcript: v.transcript || '', chr: drawn[g.ci].name, pos: v.pos, ref: v.ref, alt: v.alt,
+                        change: v.hgvs || (v.ref + '>' + v.alt), effect: v.effect, level: cl.level, why: cl.why,
+                        inLoh: inLoh, state: v.state, origin: v.origin, baf: v.baf });
+                }
+            }
+            const lohRank = (x) => (x.inLoh && x.state === 'retained') ? 0 : x.inLoh ? 1 : 2;
+            res.list.sort((a, b) => lohRank(a) - lohRank(b) || GOF_LEVEL_RANK[a.level] - GOF_LEVEL_RANK[b.level] || ('' + a.gene).localeCompare('' + b.gene));
+            R.gof = res;
+            return res;
+        };
+        // The section every report carries. Without an LOH scan it says so, rather than
+        // leaving a reader to wonder whether the question was asked.
+        const GOF_SHEET = 'Gain-of-function mutations and LOH';
+        const gofSheet = (G, R) => {
+            if (!R) return { name: GOF_SHEET, rows: [{ 'Not assessed': 'No loss-of-heterozygosity scan has been run on this genome. Run it (Analyze, Loss of heterozygosity) '
+                + 'to see whether LOH has left an activating mutation on every remaining copy.' }] };
+            if (!G || G.error) return { name: GOF_SHEET, rows: [{ 'Not assessed': (G && G.error) || 'the gain-of-function scan did not run' }] };
+            const L = G.list, homo = L.filter((x) => x.inLoh && x.state === 'retained'), inT = L.filter((x) => x.inLoh);
+            const head = { 'What this checks': 'Every protein-altering change ' + (R.spec.labelT || 'the tumor') + ' carries in ' + G.checked
+                    + ' oncogenes, classified as a known activating hotspot, a likely gain of function, or a possible one of unknown effect, and placed against the LOH tracts.',
+                'In short': !L.length ? 'No such change is carried by the tumor.'
+                    : (homo.length ? 'LOH has left ' + homo.length + ' activating change' + (homo.length === 1 ? '' : 's') + ' on every remaining copy: '
+                        + homo.map((x) => x.gene + ' ' + x.change).join(', ') + '. ' : 'No gain-of-function change has been made homozygous by LOH. ')
+                    + (inT.length - homo.length ? (inT.length - homo.length) + ' more lie in a tract with both alleles still read. ' : '')
+                    + (L.length - inT.length ? (L.length - inT.length) + ' lie outside the tracts.' : '') };
+            return { name: GOF_SHEET, rows: [head].concat(L.slice(0, 40).map((x) => ({
+                'Gene': x.gene + ' - ' + x.level + (x.level === 'possible' ? ' gain of function' : ' activating change'),
+                'Change': x.change + ' (' + dmmWord(x.effect) + ') at ' + x.chr + ':' + human(x.pos) + ', ' + x.origin + (x.baf >= 0 ? ', tumor VAF ' + Math.round(x.baf * 100) + '%' : ''),
+                'Why': x.why,
+                'LOH': gofStateWord(x),
+            }))).concat(L.length > 40 ? [{ 'More': (L.length - 40) + ' further changes, all outside the tracts or of possible effect.' }] : []) };
+        };
+        // For the reports that are not the LOH report: the scan's own pair, when there is one.
+        const gofForReport = async () => {
+            if (!lohResult) return gofSheet(null, null);
+            try { return gofSheet(await lohGofScan(lohResult, lohResult.spec, lohTractList(lohResult), (m) => dlMsg(m)), lohResult); }
+            catch (e) { return gofSheet({ error: '' + (e && e.message ? e.message : e) }, lohResult); }
         };
         // THE GENOME MAP: every chromosome as a bar at scale, the tracts over it, the
         // centromere marked, the tumor suppressors inside a tract named, and each
@@ -8663,7 +8832,8 @@ function (path, config) {
         // against it -- somatic means absent from it -- and with more than two samples loaded
         // the LOH scan's normal is not necessarily the one to compare against. The scan's
         // normal comes first and is the default.
-        const lohReportStart = () => {
+        const lohReportStart = (mode) => {
+            const ui = mode === 'ui';
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             const R = lohResult;
             if (!R) { dlMsg('Run the loss-of-heterozygosity scan first.'); return; }
@@ -8682,14 +8852,16 @@ function (path, config) {
                 + 'and the essential genes carrying a change the tumor has and the germline does not are handed to Claude, which judges whether any of them '
                 + 'could make the tumor selectively lethal. That takes a minute or two.' + (isHuman ? '' : ' (Essentiality comes from DepMap, a human screen, so it is left out for this genome.)') }];
             opts.forEach((o) => books.push({ section: 'Germline', accent: 'run', title: o.label, icon: 'person',
-                badge: o.normal === R.spec.normal ? 'the LOH scan\'s normal' : 'germline', ready: !lohReportBusy, readyNote: 'a report is being built',
-                blurb: 'Compare ' + R.spec.labelT + ' against ' + o.label + ', then build the report with the selective-lethality assessment.',
-                open: () => { lohMenu(); lohReportPDF({ germ: o, claude: isHuman }); } }));
-            books.push({ section: 'Germline', title: 'The report without the Claude assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
+                badge: o.normal === R.spec.normal ? 'the LOH scan\'s normal' : 'germline', ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
+                blurb: ui ? 'Compare ' + R.spec.labelT + ' against ' + o.label + ' and open the report on screen, where each gene and its mutation can go to the oligo editor.'
+                    : 'Compare ' + R.spec.labelT + ' against ' + o.label + ', then build the report with the selective-lethality assessment.',
+                open: () => { if (ui) { try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { } lohReportUI({ germ: o }); return; }
+                    lohMenu(); lohReportPDF({ germ: o, claude: isHuman }); } }));
+            if (!ui) books.push({ section: 'Germline', title: 'The report without the Claude assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
                 blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
                 open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
             books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'LOH report', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH report on screen' : 'LOH report (PDF)', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
                 graph: graph, books: books });
         };
         const lohReportPDF = async (opts) => {
@@ -8734,9 +8906,12 @@ function (path, config) {
                 const hrd = tracts.filter((t) => t.len > LOH_HRD_MIN && !t.ext.whole).length;
                 const biallelic = tsgs.filter((g) => { const h = hits.get(g.gene); return h && h.rank === 0; });
                 const possible = tsgs.filter((g) => { const h = hits.get(g.gene); return h && (h.rank === 1 || h.rank === 2); });
+                let GOF = null;
+                try { GOF = await lohGofScan(R, spec, tracts, (m) => dlMsg(m)); }
+                catch (e) { GOF = { error: '' + (e && e.message ? e.message : e), list: [] }; }
                 let SL = null;
                 if (O.claude) {
-                    try { SL = await lohSelectiveLethality(R, spec, tracts, (m) => dlMsg(m)); }
+                    try { SL = await lohSelectiveLethality(R, spec, tracts, (m) => dlMsg(m), GOF); }
                     catch (e) { SL = { error: '' + (e && e.message ? e.message : e), candidates: [], single: [] }; }
                 }
                 const slFind = (SL && SL.assessment && SL.assessment.findings) || [];
@@ -8751,6 +8926,13 @@ function (path, config) {
                 if (tsgs.length) lines.push(tsgs.length + ' tumor suppressor' + (tsgs.length === 1 ? ' is' : 's are') + ' inside a tract (' + tsgs.map((g) => g.gene).join(', ') + ')'
                     + (tsgs.length - biallelic.length ? '; ' + (tsgs.length - biallelic.length) + ' of them ' + ((tsgs.length - biallelic.length) === 1 ? 'is' : 'are') + ' down to one copy with no second hit seen' : '') + '.');
                 else if (genes.length) lines.push('No gene on the tumor-suppressor list lies inside a tract.');
+                if (GOF && !GOF.error) {
+                    const homo = GOF.list.filter((x) => x.inLoh && x.state === 'retained' && x.level !== 'possible');
+                    const hot = GOF.list.filter((x) => x.level === 'hotspot');
+                    if (homo.length) lines.push('LOH has left an activating change on every remaining copy of ' + homo.map((x) => x.gene + ' (' + x.change + ')').join(', ')
+                        + ': the wild-type allele that restrains it is gone.');
+                    else if (hot.length) lines.push('Activating hotspots carried by the tumor, none made homozygous by LOH: ' + hot.slice(0, 6).map((x) => x.gene + ' ' + x.change).join(', ') + '.');
+                }
                 if (SL && !SL.error) {
                     const hi = slFind.filter((f) => f.confidence !== 'low');
                     lines.push(SL.candidates.length + ' essential gene' + (SL.candidates.length === 1 ? ' carries' : 's carry') + ' a protein-altering change specific to the tumor. '
@@ -8815,6 +8997,7 @@ function (path, config) {
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
 
+                sheets.push(gofSheet(GOF, Object.assign({}, R, { spec: spec })));
                 if (O.claude) {
                     if (!SL || SL.error) {
                         sheets.push({ name: 'Selective lethality', rows: [{ 'Not assessed': (SL && SL.error) || 'the assessment did not run' }] });
@@ -8902,6 +9085,281 @@ function (path, config) {
             } finally {
                 lohReportBusy = false;
             }
+        };
+        // ---- THE LOH REPORT, INTERACTIVE -------------------------------------------------------
+        //
+        // The same findings as the PDF, on screen, with the step the PDF cannot take: every gene
+        // carrying a specific mutation can go to the oligo editor WITH that mutation, to design
+        // against it -- an allele-selective oligo for a change the tumor has on every copy, a
+        // knockdown for a single-copy dependency. Tick several and they open together. Tracts
+        // open their gene list (the region panel, with its own Analysis and editor buttons) or
+        // zoom the genome to them. The Claude assessment is a button, not a wait: it is cached
+        // on the LOH result with everything else here, so it is asked once and saved.
+        let lohUiBusy = false;
+        // One variant, in the shape the editor hand-off carries (the same fields openRegions
+        // sends), with what this report knows about it written into its annotations.
+        const lohHandoffVariant = (ci, v, gene) => {
+            const c = drawn[ci], d = vdata[ci];
+            const k = variantIndexAt(ci, v.pos, v.ref, v.alt);
+            const gl = (k >= 0 && d) ? genotypesOf(d, k) : [];
+            const annots = ['GENE=' + gene];
+            if (v.hgvs || v.change) annots.push('HGVS=' + (v.hgvs || v.change));
+            if (v.effect) annots.push('CONSEQUENCE=' + v.effect);
+            if (v.origin) annots.push('ORIGIN=' + v.origin);
+            if (v.state) annots.push('LOH_STATE=' + v.state);
+            if (v.level) annots.push('GAIN_OF_FUNCTION=' + v.level);
+            if (gl.length) {
+                annots.push('SAMPLES=' + gl.map((g) => g[0]).join(','));
+                annots.push('GT=' + gl.map((g) => GT_TEXT[g[1]] || './.').join(','));
+            }
+            return { chr: c.name.replace(/^chr/, ''), pos: v.pos, ref: v.ref, alt: v.alt,
+                name: gene + ' ' + (v.hgvs || v.change || (v.ref + '>' + v.alt)), sig: (k >= 0 && d) ? sigOf(d, k) : '',
+                source: 'VCF', samples: gl.map((g) => g[0]), genotypes: gl.map((g) => GT_TEXT[g[1]] || './.'), phase: '', annotations: annots };
+        };
+        const lohReportUI = async (opts) => {
+            const O = opts || {};
+            const R = lohResult;
+            if (!R) { dlMsg('Run the loss-of-heterozygosity scan first.'); return; }
+            if (lohUiBusy || lohReportBusy) { dlMsg('The report is still being built.'); return; }
+            if (lohGeneBusy) { dlMsg('The genes in the tracts are still being read.'); return; }
+            lohUiBusy = true;
+            const say = (m) => dlMsg(m);
+            const spec = Object.assign({}, R.spec, O.germ ? { normal: O.germ.normal, labelN: O.germ.label } : {});
+            let hits = new Map(), GOF = null, ESS = null;
+            const tracts = lohTractList(R);
+            try {
+                if (!R.genes && tracts.length) await new Promise((res) => { lohFindGenes(res); });
+                const tsgs = (R.genes || []).filter(lossIsTsg);
+                say('Reading the tumor suppressors in the tracts for a second hit...');
+                try { hits = await lohSecondHits(tsgs, spec, say); } catch (e) { step('second hits: ' + e); }
+                try { GOF = await lohGofScan(R, spec, tracts, say); } catch (e) { GOF = { error: '' + e, list: [] }; }
+                if (('' + (r.species || 'human')).toLowerCase() === 'human') {
+                    try { ESS = await lohEssentialScan(R, spec, tracts, say); } catch (e) { ESS = { error: '' + e, candidates: [], single: [] }; }
+                }
+            } finally { lohUiBusy = false; }
+            say('The report is open.');
+
+            const esc = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const pct = (x) => (Math.round(1000 * x) / 10) + '%';
+            const mb = (n) => (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + ' Mb';
+            // Every gene that can go to the editor, registered once: rows refer to it by index.
+            const items = [], byGene = new Map(), picked = new Set();
+            const itemFor = (gene, ci) => {
+                const key = ('' + gene).toUpperCase();
+                if (byGene.has(key)) return byGene.get(key);
+                const it = { gene: gene, ci: ci, transcript: '', variants: [], idx: items.length };
+                items.push(it); byGene.set(key, it);
+                return it;
+            };
+            const addVar = (it, v) => {
+                if (!it.transcript && v.transcript) it.transcript = v.transcript;
+                if (!it.variants.some((x) => x.pos === v.pos && x.ref === v.ref && x.alt === v.alt)) it.variants.push(v);
+            };
+            const tsgList = (R.genes || []).filter(lossIsTsg);
+            for (const g of tsgList) { const it = itemFor(g.gene, g.ci); for (const v of ((hits.get(g.gene) || {}).variants || [])) addVar(it, v); }
+            for (const x of ((GOF && GOF.list) || [])) addVar(itemFor(x.gene, x.ci), x);
+            for (const c of ((ESS && ESS.candidates) || [])) { const it = itemFor(c.g.gene, c.g.ci); for (const v of c.variants) addVar(it, v); }
+            for (const g of ((ESS && ESS.single) || []).slice(0, 40)) itemFor(g.gene, g.ci);
+
+            // To the editor: the ticked genes' transcripts, with exactly the mutations listed
+            // for them, focused on the first. A gene with no mutation and so no transcript read
+            // goes through its region panel instead, which finds the transcript.
+            const design = async (list) => {
+                const withTx = list.filter((it) => it.transcript);
+                if (!withTx.length) {
+                    if (list[0]) { close(); await openSymbolInEditor(list[0].gene); }
+                    return;
+                }
+                const ids = Array.from(new Set(withTx.map((it) => it.transcript))).slice(0, 8);
+                const vars = [];
+                for (const it of withTx) for (const v of it.variants) vars.push(lohHandoffVariant(it.ci, v, it.gene));
+                const f = vars[0] ? { chr: vars[0].chr, pos: vars[0].pos } : null;
+                const ok = await handToEditor(ids, vars, f);
+                if (ok && !window.__bajaHandoffNewTab) close();
+            };
+
+            try { const old = document.getElementById('baja-karyo-lohui'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const panel = document.createElement('div');
+            panel.id = 'baja-karyo-lohui';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            const btn = (id, label, style, extra) => '<button id="' + id + '" ' + (extra || '') + ' style="cursor:pointer;border-radius:8px;padding:9px 16px;'
+                + 'font:700 12.5px Arial;' + (style || 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;') + '">' + label + '</button>';
+            panel.innerHTML = ''
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">Loss of heterozygosity</div>'
+                + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(spec.labelT) + ' (tumor) against ' + esc(spec.labelN) + ' (germline)'
+                + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '') + '</div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
+                + btn('lu-close', 'Close')
+                + btn('lu-pdf', 'PDF report', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
+                + btn('lu-design', 'Design ticked in editor', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;opacity:0.5;', 'disabled')
+                + '</div></div>'
+                + '<div id="lu-body" style="flex:1 1 auto;overflow:auto;padding:22px 22px 40px;"></div>';
+            document.body.appendChild(panel);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            const q = (sel) => panel.querySelector(sel);
+            const close = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+            const body = q('#lu-body');
+
+            const chip = (text, col) => '<span style="display:inline-block;border-radius:20px;padding:2px 9px;font:700 11px Arial;white-space:nowrap;'
+                + 'background:' + col + '22;border:1px solid ' + col + '99;color:' + col + ';">' + esc(text) + '</span>';
+            const card = (inner) => '<div style="background:#0a1e3a;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 14px;margin-bottom:8px;">' + inner + '</div>';
+            const section = (title, note, inner) => '<div style="margin:26px 0 10px;font:700 15px Arial;color:#e8f0fb;">' + esc(title) + '</div>'
+                + (note ? '<div style="font:12px Arial;color:#9fb3c8;margin:-4px 0 10px;">' + note + '</div>' : '') + inner;
+            // A gene row: its name, chips, the changes, and the two ways to the editor.
+            const geneRow = (it, chips, lines) => {
+                const can = !!it.transcript;
+                return card('<div style="display:flex;align-items:flex-start;gap:12px;">'
+                    + '<input type="checkbox" class="lu-pick" data-i="' + it.idx + '" style="margin-top:4px;"' + (picked.has(it.idx) ? ' checked' : '') + '/>'
+                    + '<div style="flex:1;min-width:0;"><span style="font:700 14px Arial;color:#e8f0fb;">' + esc(it.gene) + '</span> ' + chips
+                    + '<div style="font:12.5px Arial;color:#cfe0f5;margin-top:5px;line-height:1.5;">' + lines + '</div></div>'
+                    + '<button class="lu-design" data-i="' + it.idx + '" style="flex:0 0 auto;cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;'
+                    + 'border:1px solid #22c55e;background:transparent;color:#86efac;">' + (can ? 'Design in editor' : 'Open gene') + '</button></div>');
+            };
+            const vLine = (v) => esc((v.hgvs || v.change || (v.ref + '>' + v.alt)) + ' (' + dmmWord(v.effect) + ')') + ' &middot; ' + esc(v.origin === 'somatic' ? 'somatic' : 'germline')
+                + ' &middot; ' + esc({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'on the copy lost', uncalled: 'not called in the tumor' }[v.state] || v.state || '')
+                + (v.baf >= 0 ? ' &middot; VAF ' + Math.round(v.baf * 100) + '%' : '');
+
+            const render = () => {
+                let h = '<div style="max-width:1100px;margin:0 auto;">';
+                // THE NUMBERS
+                const lohLen = tracts.reduce((a, t) => a + t.len, 0);
+                const stat = (n, l, col) => '<div style="flex:1 1 170px;border-radius:10px;padding:12px 14px;background:#0a1e3a;border:1px solid ' + (col || 'rgba(255,255,255,0.14)') + ';">'
+                    + '<div style="font:700 22px Arial;color:' + (col || '#e8f0fb') + ';">' + n + '</div><div style="font:12px Arial;color:#9fb3c8;">' + l + '</div></div>';
+                const homo = ((GOF && GOF.list) || []).filter((x) => x.inLoh && x.state === 'retained' && x.level !== 'possible');
+                const biall = tsgList.filter((g) => (hits.get(g.gene) || {}).rank === 0);
+                h += '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+                    + stat(pct(R.het ? R.loh / R.het : 0), R.loh.toLocaleString() + ' of ' + R.het.toLocaleString() + ' heterozygous sites lost an allele')
+                    + stat(tracts.length, 'tracts, ' + mb(lohLen))
+                    + stat(biall.length, 'tumor suppressors inactivated on both copies', biall.length ? '#f87171' : '')
+                    + stat(homo.length, 'activating changes made homozygous by LOH', homo.length ? '#fbbf24' : '')
+                    + stat(ESS ? ESS.candidates.length : '-', 'essential genes with a tumor-specific change', '#60a5fa')
+                    + '</div>';
+                let fig = '';
+                try { fig = lohFigurePNG(R, tsgList, hits); } catch (e) { fig = ''; }
+                if (fig) h += '<img src="' + fig + '" style="width:100%;margin-top:16px;border-radius:10px;background:#fff;"/>';
+
+                // TRACTS
+                const tr = tracts.slice().sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                h += section('Tracts', 'Largest first. Genes opens the region panel for the tract, where genes can be ticked into the editor or analysed further.',
+                    tr.length ? tr.slice(0, 40).map((t, i) => card('<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
+                        + '<div style="flex:1;min-width:0;"><span style="font:700 13.5px Arial;">' + esc(bandSpan(t.c, t.lo, t.hi) || t.c.name) + '</span> '
+                        + chip(t.ext.word, t.ext.rank <= 1 ? '#a855f7' : t.ext.rank === 2 ? '#f97316' : '#94a3b8')
+                        + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.c.name + ':' + human(t.lo) + '-' + human(t.hi)) + ' &middot; ' + mb(t.len)
+                        + ' &middot; ' + t.n.toLocaleString() + ' sites lost</div></div>'
+                        + '<button class="lu-tract" data-t="' + i + '" data-a="genes" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Genes</button>'
+                        + '<button class="lu-tract" data-t="' + i + '" data-a="zoom" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Zoom</button></div>')).join('')
+                    : card('No tract: lost sites are scattered, not in runs.'));
+
+                // TUMOR SUPPRESSORS
+                h += section('Tumor suppressors in LOH', 'Is the copy left also broken? A damaging change on the only copy left is biallelic inactivation.',
+                    tsgList.length ? tsgList.slice().sort((a, b) => ((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)).map((g) => {
+                        const hh = hits.get(g.gene) || { verdict: '', rank: 9, variants: [] };
+                        const col = hh.rank === 0 ? '#f87171' : hh.rank <= 2 ? '#fbbf24' : '#94a3b8';
+                        return geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(hh.rank === 0 ? 'biallelic' : hh.rank <= 2 ? 'possible second hit' : 'one copy left', col),
+                            esc(hh.verdict) + (hh.variants.length ? '<br/>' + hh.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                    }).join('') : card('No gene on the tumor-suppressor list lies inside a tract.'));
+
+                // GAIN OF FUNCTION
+                const gl = (GOF && GOF.list) || [];
+                const gGenes = Array.from(new Set(gl.map((x) => x.gene)));
+                h += section(GOF_SHEET, 'Changes the tumor carries in ' + ((GOF && GOF.checked) || 0) + ' oncogenes. An activating allele LOH has left on every copy has lost the wild-type partner that restrains it.',
+                    GOF && GOF.error ? card(esc(GOF.error)) : gGenes.length ? gGenes.map((gn) => {
+                        const xs = gl.filter((x) => x.gene === gn);
+                        const top = xs[0];
+                        const col = top.inLoh && top.state === 'retained' ? '#fbbf24' : top.level === 'hotspot' ? '#fb923c' : '#94a3b8';
+                        return geneRow(byGene.get(('' + gn).toUpperCase()), chip(top.level, col) + (top.inLoh ? ' ' + chip(top.state === 'retained' ? 'homozygous by LOH' : 'in an LOH tract', '#a855f7') : ''),
+                            xs.slice(0, 6).map((x) => vLine(x) + '<br/><span style="color:#9fb3c8;">' + esc(x.why) + '; ' + esc(gofStateWord(x)) + '</span>').join('<br/>'));
+                    }).join('') : card('No protein-altering change in these oncogenes is carried by the tumor.'));
+
+                // ESSENTIAL GENES
+                if (ESS) {
+                    h += section('Essential genes with tumor-specific changes', 'DepMap dependencies the tumor has changed and the germline has not: the starting points for an allele-selective design.',
+                        ESS.error ? card(esc(ESS.error)) : ESS.candidates.length ? ESS.candidates.slice(0, 60).map((c) => geneRow(byGene.get(('' + c.g.gene).toUpperCase()),
+                            chip(c.g.cls, '#60a5fa') + (c.loh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
+                            esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'))).join('')
+                            : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
+                    if (ESS.single && ESS.single.length) {
+                        h += section('Essential genes at one copy, unmutated', 'Single-copy dependencies (CYCLOPS): a partial knockdown the diploid normal tissue tolerates. No mutation, so they open through their region panel.',
+                            ESS.single.slice(0, 40).map((g) => geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(g.cls, '#60a5fa'),
+                                esc('dependency in ' + Math.round(g.dep_frac * 100) + '% of cell lines, mean effect ' + g.effect_mean.toFixed(2)))).join(''));
+                    }
+                    // CLAUDE
+                    const A = ESS.assessment;
+                    let inner = '';
+                    if (!A) {
+                        inner = card('<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;"><div style="flex:1;min-width:240px;font:12.5px Arial;color:#cfe0f5;">'
+                            + 'Claude reads the genes above -- essential, single-copy, and oncogene changes -- and proposes which specific change could make the tumor selectively lethal, '
+                            + 'with the reasoning, an approach, and the caveats. About a minute and a half.' + (ESS.assessError ? '<br/><span style="color:#fca5a5;">' + esc(ESS.assessError) + '</span>' : '') + '</div>'
+                            + '<button id="lu-ask" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Ask Claude</button></div>');
+                    } else {
+                        const confCol = { high: '#86efac', medium: '#fbbf24', low: '#94a3b8' };
+                        inner = card('<div style="font:12px Arial;color:#9fb3c8;">Hypotheses, not findings, from ' + esc(ESS.model || 'Claude') + (ESS.assessedAt ? ' on ' + esc(new Date(ESS.assessedAt).toLocaleString()) : '') + '. '
+                                + '<a href="#" id="lu-reask" style="color:#8ab4ff;">Ask again</a></div><div style="font:13px Arial;color:#e8f0fb;margin-top:6px;line-height:1.5;">' + esc(A.summary || '') + '</div>')
+                            + (A.findings || []).map((f) => {
+                                const it = byGene.get(('' + f.gene).toUpperCase()) || itemFor(f.gene, -1);
+                                return geneRow(it, chip(f.mechanism, '#c4b5fd') + ' ' + chip(f.confidence + ' confidence', confCol[f.confidence] || '#94a3b8'),
+                                    '<b>' + esc(f.variant) + '</b><br/>' + esc(f.rationale)
+                                    + '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#8ab4ff;">Approach, normal cells, caveats</summary>'
+                                    + '<div style="margin-top:6px;"><b>Approach:</b> ' + esc(f.approach) + '</div><div style="margin-top:4px;"><b>In normal cells:</b> ' + esc(f.normal_cells) + '</div>'
+                                    + '<div style="margin-top:4px;"><b>Caveats:</b> ' + esc(f.caveats) + '</div></details>');
+                            }).join('')
+                            + (A.not_pursued ? card('<div style="font:12px Arial;color:#9fb3c8;"><b>Not pursued:</b> ' + esc(A.not_pursued) + '</div>') : '');
+                    }
+                    h += section('Selective lethality - assessed by Claude', '', inner);
+                }
+                h += '</div>';
+                body.innerHTML = h;
+                wire();
+            };
+            const syncDesign = () => {
+                const b2 = q('#lu-design');
+                if (!b2) return;
+                b2.disabled = !picked.size;
+                b2.style.opacity = picked.size ? '' : '0.5';
+                b2.textContent = picked.size ? 'Design ' + picked.size + ' ticked in editor' : 'Design ticked in editor';
+            };
+            const wire = () => {
+                Array.prototype.forEach.call(panel.querySelectorAll('.lu-pick'), (cb) => {
+                    cb.onchange = () => { const i = +cb.getAttribute('data-i'); if (cb.checked) picked.add(i); else picked.delete(i);
+                        // The same gene appears in more than one section; its boxes move together.
+                        Array.prototype.forEach.call(panel.querySelectorAll('.lu-pick[data-i="' + i + '"]'), (x) => { x.checked = cb.checked; });
+                        syncDesign(); };
+                });
+                Array.prototype.forEach.call(panel.querySelectorAll('.lu-design'), (b2) => {
+                    b2.onclick = () => { const it = items[+b2.getAttribute('data-i')]; if (it) design([it]); };
+                });
+                const tr = tracts.slice().sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                Array.prototype.forEach.call(panel.querySelectorAll('.lu-tract'), (b2) => {
+                    b2.onclick = async () => {
+                        const t = tr[+b2.getAttribute('data-t')];
+                        if (!t) return;
+                        close();
+                        if (b2.getAttribute('data-a') === 'genes') { await openRegions([{ i: t.ci, lo: t.lo, hi: t.hi }]); return; }
+                        const pad = Math.max(1, (t.hi - t.lo) / MB * 0.15);
+                        await goView({ x0: barLeft(t.ci) - 0.6 * SLOT, x1: barRight(t.ci) + 0.6 * SLOT, y0: wy(t.hi) - pad, y1: wy(t.lo) + pad });
+                    };
+                });
+                const ask = async (e) => {
+                    if (e) e.preventDefault();
+                    if (!ESS) return;
+                    const host = e && e.target ? e.target.closest('div') : null;
+                    try { if (host) host.innerHTML = '<span style="color:#fbbf24;">Asking Claude... this takes a minute or two.</span>'; } catch (e2) { }
+                    try { await lohClaudeAssess(R, spec, tracts, ESS, GOF, say); } catch (e2) { ESS.assessError = '' + e2; }
+                    say(ESS.assessment ? 'Claude\'s assessment is in the report.' : ('The assessment failed: ' + (ESS.assessError || '')));
+                    render();
+                };
+                const a1 = q('#lu-ask'); if (a1) a1.onclick = ask;
+                const a2 = q('#lu-reask'); if (a2) a2.onclick = ask;
+                syncDesign();
+            };
+            q('#lu-close').onclick = () => close();
+            q('#lu-design').onclick = () => { const list = Array.from(picked).map((i) => items[i]).filter(Boolean); if (list.length) design(list); };
+            q('#lu-pdf').onclick = () => { lohReportPDF({ germ: O.germ, claude: !!(ESS && ESS.assessment) }); };
+            render();
         };
         // ---- SYNTHETIC LETHALITY FROM THE LOSS OF HETEROZYGOSITY -----------------
         //
@@ -9519,6 +9977,8 @@ function (path, config) {
                 'Source': A('oligodesigner.com Genome Viewer, ' + new Date().toLocaleString()),
             }] });
 
+            // Gain-of-function changes and what LOH did to them: in every report, said even when no scan was run.
+            sheets.push(await gofForReport());
             for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = A(v); }
             const base = dlSafe(dlSpecies() + '_allele_selective_report');
             const title = A('Allele-selective targets - ' + (W.name || '') + ' - ' + sites.length + ' site'
@@ -10391,7 +10851,12 @@ function (path, config) {
                     + 'whether its remaining copy also carries a damaging change.'
                     + ' Choose the germline to compare against, and Claude judges whether any essential gene the tumor has changed could make it selectively lethal.'
                     + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
-                open: () => { lohReportStart(); } });
+                open: () => { lohReportStart('pdf'); } });
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'Report on screen, to design against', badge: 'editor', icon: 'edit',
+                ready: !lohReportBusy && !lohGeneBusy && !lohUiBusy, readyNote: 'a report is being built',
+                blurb: 'The same findings, interactive: every tumor suppressor, activating change and essential gene with its specific mutation, '
+                    + 'each one a button that opens its transcript in the oligo editor with that mutation marked. Tick several to design against them together.',
+                open: () => { lohReportStart('ui'); } });
             const tracts = (R.chroms || []).reduce((a, c2) => a + (c2.runs ? c2.runs.length : 0), 0);
             books.push({ section: 'Loss of heterozygosity', accent: 'run', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
                 badge: R.genes ? R.genes.length + ' genes' : (tracts + ' tract' + (tracts === 1 ? '' : 's')), icon: 'biotech',
@@ -11448,6 +11913,8 @@ function (path, config) {
                     'Inhibitors': 'Approved means a licensed drug; phase 1 to 3 means it is in trials; preclinical and tool compound mean it exists but has not reached patients. A target with no compound is not a dead end: it is where an antisense or siRNA design starts.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + BAJA3 + '. Documentation: ' + BAJA3_DOC,
                 }] });
+                // Gain-of-function changes and what LOH did to them: in every report, said even when no scan was run.
+                sheets.push(await gofForReport());
                 for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = pdfAscii(v); }
                 const base = dlSafe(dlSpecies() + '_' + R.genes.join('-') + '_BAJA-3_higher_order_report');
                 dlMsg('Building the report...');
@@ -11784,6 +12251,8 @@ function (path, config) {
             }] });
 
             // Every value through the ASCII gate, once, here.
+            // Gain-of-function changes and what LOH did to them: in every report, said even when no scan was run.
+            sheets.push(await gofForReport());
             for (const sh of sheets) for (const row of sh.rows) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = ascii(v); }
             const base = L ? dlSafe(dlSpecies() + '_' + (L.sample || 'sample') + '_loss_matrix_summary')
                 : dlSafe(dlSpecies() + '_' + ((slResult || parResult).genes || []).join('-') + '_targets_summary');
@@ -12914,6 +13383,30 @@ function (path, config) {
             books.push({ section: 'Look up', title: 'Patents — the whole landscape', badge: patOn ? 'on' : 'off', toggle: true, on: patOn, icon: 'gavel',
                 blurb: 'Draw a strip down every chromosome showing where patented sequences fall; open again to hide it.',
                 ready: true, open: () => { try { patLoad(); } catch (e) { } } });
+            // LOSS OF HETEROZYGOSITY, AT THE TOP. It was a step inside "Find the losses", two
+            // levels down, though it answers its own question and now carries its own report.
+            if (lohResult) {
+                const R0 = lohResult, nT = lohTractList(R0).length;
+                books.push({ section: 'Loss of heterozygosity', title: 'Loss of heterozygosity', icon: 'compress',
+                    badge: nT + ' tract' + (nT === 1 ? '' : 's') + ' \u00b7 ' + Math.round(100 * (R0.het ? R0.loh / R0.het : 0)) + '% of sites', ready: true,
+                    blurb: R0.spec.labelN + ' as the normal, ' + R0.spec.labelT + ' as the tumor: the tracts, the genes in them, and what the loss makes the tumor depend on.',
+                    open: () => lohMenu() });
+                books.push({ section: 'Loss of heterozygosity', title: 'Report on screen, to design against', icon: 'edit', badge: 'editor', accent: 'run',
+                    ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
+                    blurb: 'Every tumor suppressor, activating change and essential gene with its mutation, each one a button into the oligo editor.',
+                    open: () => lohReportStart('ui') });
+                books.push({ section: 'Loss of heterozygosity', title: 'Summary report (PDF)', icon: 'picture_as_pdf', badge: 'pdf',
+                    ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
+                    blurb: 'The loss written up, with the genome map, the large losses by cytoband, second hits, gain-of-function changes and the selective-lethality assessment.',
+                    open: () => lohReportStart('pdf') });
+            } else {
+                const ls = lohSpecs();
+                books.push({ section: 'Loss of heterozygosity', title: 'Scan for loss of heterozygosity', icon: 'compress', accent: ls.length ? 'run' : 'choose',
+                    badge: ls.length ? (ls.some((x) => x.kind === 'side') ? 'two files' : 'two samples') : 'needs a tumor and its normal', ready: true,
+                    blurb: ls.length ? 'Sites the normal carries on two alleles and the tumor on one: the tracts, the genes inside them, second hits, activating changes the loss made homozygous, and a report.'
+                        : 'Needs a tumor and its normal: two samples of one VCF, or a second file loaded on the left of the chromosomes.',
+                    open: () => lohStart() });
+            }
             {
                 const nV2 = vtotal || vdata.reduce((a, d) => a + (d ? d.n : 0), 0);
                 const nPh = asPhasedSamples().length;
@@ -16478,6 +16971,7 @@ function (path, config) {
         // failing, and the editor is told how many were left behind.
         const HANDOFF_MAX_CHARS = 3_500_000;
         const handToEditor = async (ids, inRange, focus) => {
+            try { window.__bajaHandoffNewTab = false; } catch (e) { }
             const list = (ids || []).filter(Boolean);
             if (!list.length) { graph.setMessage(' Nothing to open. '); return false; }
             step('opening ' + list.length + ' transcript(s) with ' + (inRange || []).length + ' variant(s)');
@@ -16521,6 +17015,9 @@ function (path, config) {
                             + ' in the oligo editor, in a new tab. This genome stays as it is. '
                             + (payload.trimmed ? payload.trimmed.toLocaleString() + ' variants were left behind: too many to carry. ' : ''));
                         step('handed off to a new tab: ' + key);
+                        // Said so, for a caller that stays on screen: the LOH report keeps
+                        // itself open when the editor went to a new tab, and closes when not.
+                        try { window.__bajaHandoffNewTab = true; } catch (e) { }
                         return true;
                     }
                     try { localStorage.removeItem(key); } catch (e) { }

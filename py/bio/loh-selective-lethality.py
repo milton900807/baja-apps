@@ -9,7 +9,7 @@ copy by LOH (CYCLOPS), a paralog the mutant now leans on, a neighbour lost with 
 (collateral lethality). Whether any of that applies to a given variant is judgement, and that is
 the part handed to Claude -- over candidates chosen deterministically, with the numbers attached.
 
-Two actions (param 1):
+Three actions (param 1):
 
   essential   species
       -> { ok, genes: [[symbol, chr, start, end, strand, effect_mean, dep_frac, class], ...] }
@@ -17,12 +17,20 @@ Two actions (param 1):
       from the annotation, so the browser can find the tumor's variants inside them. Human only:
       DepMap is a human screen.
 
-  assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...], context }
+  spans       species, JSON [symbol, ...]
+      -> { ok, genes: [[symbol, chr, start, end, strand], ...] }   protein-coding spans, for the
+      gain-of-function scan's oncogene catalogue (any species with a gene-symbols table).
+
+  assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...],
+                     gain_of_function: [...], context }
       -> { ok, assessment: JSON { summary, findings: [...], not_pursued }, model }
       candidates: [{ gene, depmap: {effect_mean, dep_frac, class}, in_loh, loh_fraction,
                      variants: [{ change, effect, origin, tumor_state, tumor_vaf }] }]
       single_copy: [{ gene, effect_mean, dep_frac, class }]  essential genes inside a tract with
                      no mutation (the CYCLOPS kind), for context.
+      gain_of_function: [{ gene, change, effect, level, in_loh, tumor_state, origin, tumor_vaf }]
+                     changes in oncogenes (level: hotspot / likely / possible), with whether LOH
+                     has left the activating allele on every remaining copy.
 
 The findings are hypotheses. The model is told to tie every one to a variant it was given, to say
 when the data do not support a mechanism, and that "none" is an acceptable answer.
@@ -39,7 +47,10 @@ except Exception:  # pragma: no cover
     requests = None
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-opus-5"
+# The strongest model, on purpose, and its own setting: ANTHROPIC_MODEL is the server-wide default
+# and is set to a fast model on production, where this judgement came back from Haiku with most
+# findings filed as "other" and the tumor-state fields misread.
+ANTHROPIC_MODEL = os.environ.get("LOH_SL_MODEL") or "claude-opus-5"
 API_URL = "https://api.anthropic.com/v1/messages"
 
 DEP_CUT = -0.5            # a line "depends on" a gene below this Chronos effect (as everywhere here)
@@ -58,6 +69,27 @@ def first_existing(rel):
         if os.path.exists(p):
             return p
     return ""
+
+
+def spans(species, symbols):
+    sym_path = first_existing("reference_data/%s.gene-symbols.tsv" % re.sub(r"[^a-z0-9]", "", species))
+    if not sym_path:
+        return {"ok": False, "error": "no gene-symbols table for %s on this server" % species}
+    want = {str(x).strip().upper() for x in (symbols or []) if str(x).strip()}
+    rows, seen = [], set()
+    with open(sym_path) as fh:
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 6 or f[5] != "protein_coding":
+                continue
+            s = f[0].upper()
+            if s in want and s not in seen:
+                seen.add(s)
+                try:
+                    rows.append([f[0], f[1], int(f[2]), int(f[3]), f[4]])
+                except ValueError:
+                    pass
+    return {"ok": True, "genes": json.dumps(rows)}
 
 
 def ess_class(frac):
@@ -118,7 +150,10 @@ SYSTEM = (
     "You are given (1) genes the DepMap CRISPR screen calls essential, each carrying variants that "
     "are specific to the tumor -- somatic, or germline heterozygous where the tumor has lost the "
     "other allele by LOH -- with each variant's consequence, origin and the tumor's allele state; "
-    "(2) essential genes inside LOH tracts with no mutation.\n"
+    "(2) essential genes inside LOH tracts with no mutation; (3) changes in ONCOGENES, each marked "
+    "as a known activating hotspot, likely or possible gain of function, with whether an LOH tract "
+    "has left the activating allele on every remaining copy (the wild-type copy that restrains it is "
+    "gone, and mutant dosage is doubled, as with JAK2 V617F or KRAS after copy-neutral LOH).\n"
     "Judge, gene by gene, whether a specific change creates a therapeutic window. Mechanisms to "
     "consider (name the one that applies): single-copy essential (CYCLOPS: an essential gene the "
     "tumor holds one copy of, normal cells two); mutant-allele-specific targeting (the tumor's only "
@@ -127,7 +162,11 @@ SYSTEM = (
     "(a damaging change leaves reduced function with no reserve, so partial inhibition becomes "
     "lethal); synthetic lethality with a pathway partner (the gene is lost outright and a partner "
     "pathway becomes essential, as PARP is to BRCA loss); paralog dependency; collateral lethality; "
-    "neomorphic or gain-of-dependency changes.\n"
+    "neomorphic or gain-of-dependency changes; oncogene activation (a gain-of-function allele the "
+    "tumor depends on -- oncogene addiction -- and that a mutant-selective drug or an allele-selective "
+    "oligo can remove without touching the wild-type protein normal cells use). For every "
+    "gain-of-function change given, say whether it is plausibly activating, what LOH did to it, and "
+    "whether it is targetable.\n"
     "Rules: every finding must name a gene and a variant from the input; the variant field is the "
     "change exactly as given (e.g. p.Lys700Glu), or 'no variant' for a single-copy gene. "
     "Use the DepMap numbers given; do not invent statistics, trials or citations. "
@@ -151,6 +190,7 @@ SCHEMA = {
                     "mechanism": {"type": "string", "enum": [
                         "single-copy essential (CYCLOPS)", "mutant-allele-specific targeting",
                         "hypomorph on the last copy", "synthetic lethality with a pathway partner",
+                        "oncogene activation (gain of function)",
                         "paralog dependency", "collateral lethality",
                         "neomorphic or gain of dependency", "other"]},
                     "rationale": {"type": "string"},
@@ -217,7 +257,8 @@ def clean(s, n=600):
 def assess(req):
     cands = [c for c in (req.get("candidates") or []) if isinstance(c, dict) and c.get("gene")][:MAX_CANDIDATE_GENES]
     single = [c for c in (req.get("single_copy") or []) if isinstance(c, dict) and c.get("gene")][:MAX_SINGLE_COPY]
-    if not cands and not single:
+    gof = [c for c in (req.get("gain_of_function") or []) if isinstance(c, dict) and c.get("gene")][:MAX_CANDIDATE_GENES]
+    if not cands and not single and not gof:
         return {"ok": True, "assessment": json.dumps({"summary": "No essential gene carries a tumor-specific change, "
                                                                  "and none sits in an LOH tract.",
                                                       "findings": [], "not_pursued": ""}), "model": ""}
@@ -232,11 +273,14 @@ def assess(req):
            "tumor_state: retained = carried on every remaining copy in the tumor; both = the tumor "
            "still reads both alleles; tumor_vaf = the tumor's variant allele fraction (-1 unknown). "
            "in_loh: the gene lies in an LOH tract.\n%s\n\n"
-           "ESSENTIAL GENES IN LOH TRACTS WITH NO MUTATION (%d), for single-copy dependence:\n%s\n")
+           "ESSENTIAL GENES IN LOH TRACTS WITH NO MUTATION (%d), for single-copy dependence:\n%s\n\n"
+           "CHANGES IN ONCOGENES (%d). level: hotspot = a recurrent activating codon; likely = an "
+           "activating class of change in that gene; possible = another protein-altering change, effect "
+           "unknown. in_loh / tumor_state as above.\n%s\n")
     ask = ask % (tumor or "tumor", germ or "normal", clean(req.get("species"), 20) or "human",
                  clean(req.get("context"), 1500), len(cands), str(req.get("n_models") or "the"),
-                 json.dumps(cands), len(single), json.dumps(single))
-    works.msg("Asking Claude which of %d essential gene(s) offer a selective window…" % (len(cands) + len(single)))
+                 json.dumps(cands), len(single), json.dumps(single), len(gof), json.dumps(gof))
+    works.msg("Asking Claude about %d essential gene(s) and %d oncogene change(s)…" % (len(cands) + len(single), len(gof)))
     try:
         import claude_usage as _cu  # type: ignore
         _cu.bump("loh-selective-lethality")
@@ -245,7 +289,8 @@ def assess(req):
     parsed, err, model = call_claude(ask)
     if err or not isinstance(parsed, dict):
         return {"ok": False, "error": "the assessment could not be made: %s" % (err or "empty reply")}
-    known = {str(c.get("gene")).upper() for c in cands} | {str(c.get("gene")).upper() for c in single}
+    known = ({str(c.get("gene")).upper() for c in cands} | {str(c.get("gene")).upper() for c in single}
+             | {str(c.get("gene")).upper() for c in gof})
     findings = []
     for f in (parsed.get("findings") or []):
         if not isinstance(f, dict):
@@ -255,20 +300,23 @@ def assess(req):
         if g.upper() not in known:
             continue
         conf = str(f.get("confidence") or "low").lower()
-        findings.append({k: clean(f.get(k), 900) for k in ("gene", "variant", "mechanism", "rationale", "approach",
+        findings.append({k: clean(f.get(k), 2000) for k in ("gene", "variant", "mechanism", "rationale", "approach",
                                                           "normal_cells", "caveats")})
         findings[-1]["confidence"] = conf if conf in ("high", "medium", "low") else "low"
     order = {"high": 0, "medium": 1, "low": 2}
     findings.sort(key=lambda f: order.get(f["confidence"], 3))
     works.msg("%d finding(s)" % len(findings))
     return {"ok": True, "model": model, "assessment": json.dumps({
-        "summary": clean(parsed.get("summary"), 1500), "findings": findings,
-        "not_pursued": clean(parsed.get("not_pursued"), 1500)})}
+        "summary": clean(parsed.get("summary"), 4000), "findings": findings,
+        "not_pursued": clean(parsed.get("not_pursued"), 6000)})}
 
 
 action = str(works.param(1) or "").strip()
 try:
-    if action == "essential":
+    if action == "spans":
+        raw = works.param(3)
+        out = spans(str(works.param(2) or "human").strip().lower(), raw if isinstance(raw, list) else json.loads(str(raw or "[]")))
+    elif action == "essential":
         out = essential(str(works.param(2) or "human").strip().lower())
     elif action == "assess":
         raw = works.param(2)
