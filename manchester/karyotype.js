@@ -11509,14 +11509,8 @@ function (path, config) {
             books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'One row per chromosome: heterozygous sites, how many went homozygous, the fraction, and the tracts.',
                 open: () => { try { dlSaveText(lohCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH') + '.csv', 'text/csv'); dlMsg('LOH table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
-            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'Summary report (PDF)', badge: 'pdf', icon: 'picture_as_pdf',
-                ready: !lohReportBusy && !lohGeneBusy, readyNote: lohReportBusy ? 'being built' : 'the genes are still being read',
-                blurb: 'The loss written up: how much of the genome lost an allele, the large chromosomal losses by cytoband '
-                    + '(whole-chromosome, arm-level, segmental), a genome map, and every tumor suppressor inside a tract with '
-                    + 'whether its remaining copy also carries a damaging change.'
-                    + ' Choose the germline to compare against, and an assessment says whether any essential gene the tumor has changed could make it selectively lethal.'
-                    + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
-                open: () => { lohReportStart('pdf'); } });
+            // The PDF is not offered here either: it is the "PDF report" button on the design
+            // strategy itself, which is where someone reading the loss already is.
             books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'LOH Design Strategy', badge: 'editor', icon: 'edit',
                 ready: !lohReportBusy && !lohGeneBusy && !lohUiBusy, readyNote: 'a report is being built',
                 blurb: 'The same findings, interactive: every tumor suppressor, activating change and essential gene with its specific mutation, '
