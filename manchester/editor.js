@@ -3703,19 +3703,45 @@ function (path, config) {
                                             // The tracks are in; let them lay out and be drawn before framing one.
                                             await __editorOnScreen(6000);
                                             await new Promise((res) => setTimeout(res, 300));
+                                            // THE WHOLE STACK FIRST. Framing one variant is a
+                                            // refinement of a good view, not a substitute for one:
+                                            // if the variant cannot be placed, or its frame turns
+                                            // out to hold nothing, what stays on screen is the
+                                            // tracks themselves rather than empty canvas.
+                                            try { if (graph.viewAllTracks) await graph.viewAllTracks(); } catch (e) { }
                                             for (const t of (graph.track || [])) {
                                                 let wx = null;
                                                 try { wx = t.variantWorldX ? t.variantWorldX(F.chr, F.pos) : null; } catch (e) { wx = null; }
                                                 if (wx == null || !isFinite(wx)) continue;
+                                                // INSIDE THE TRACK, or not at all. A position that
+                                                // lands outside the track's own extent means the
+                                                // coordinate did not belong to it, and zooming
+                                                // there frames blank canvas -- which is what
+                                                // happened once the zoom started working at all.
+                                                const box = t.tgraph || t.grid;
+                                                if (!box || !isFinite(box.xi) || !isFinite(box.width)) continue;
+                                                const pad = Math.abs(box.width) * 0.02;
+                                                if (wx < box.xi - pad || wx > box.xi + box.width + pad) continue;
                                                 let snp = null;
                                                 try { snp = (t.snpindels || []).find((s) => s && Math.abs((+s.xi) - (+F.pos)) < 2); } catch (e) { snp = null; }
                                                 try { if (snp) await exec('baja/manchester/menu/focus-mutation.js', graph, snp, 10000, { track: t }); } catch (e) { }
                                                 try {
-                                                    const half = 60 * Math.abs((t.tgraph && t.tgraph.screenWidth) ? t.tgraph.screenWidth(1) : 1);
-                                                    if (graph.zoomRect && isFinite(half) && half > 0) {
-                                                        const yA = t.tgraph.yi, yB = t.tgraph.yi + (t.tgraph.height || 0);
-                                                        const cy = (yA + yB) / 2, span = Math.abs(yB - yA) || 0.1;
-                                                        await graph.zoomRect(wx - half, wx + half, cy + span * 3.2, cy - span * 2.0, 450);
+                                                    // Zoom in X only. The hand-off carries a track
+                                                    // per sample -- germline and tumour, or A and B --
+                                                    // and an allele-selective design is read by
+                                                    // comparing them, so every track stays in view
+                                                    // while the site itself is framed.
+                                                    const half = 60 * Math.abs((box.screenWidth) ? box.screenWidth(1) : (Math.abs(box.width) / 200));
+                                                    let y0 = Infinity, y1 = -Infinity;
+                                                    for (const t2 of (graph.track || [])) {
+                                                        const b2 = t2.tgraph || t2.grid;
+                                                        if (!b2 || !isFinite(b2.yi)) continue;
+                                                        const a2 = b2.yi, z2 = b2.yi + (isFinite(b2.height) ? b2.height : 0);
+                                                        y0 = Math.min(y0, a2, z2); y1 = Math.max(y1, a2, z2);
+                                                    }
+                                                    if (graph.zoomRect && isFinite(half) && half > 0 && isFinite(y0) && isFinite(y1)) {
+                                                        const padY = Math.max((y1 - y0) * 0.35, 0.1);
+                                                        await graph.zoomRect(wx - half, wx + half, y1 + padY, y0 - padY, 450);
                                                     }
                                                 } catch (e) { }
                                                 break;
