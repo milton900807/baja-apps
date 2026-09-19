@@ -6036,6 +6036,22 @@ function (path, config) {
             // The per-sample colors the user chose, so the by-sample view reopens in the
             // same colors. One hex per sample column, in sample order.
             out.sampleColors = SAMPLES.map((nm, si) => SAMPLE_COLOR[si] || '');
+            // THE FILES BEHIND THE MARKS, BY NAME. Every card that compares the two sides --
+            // the differential, the LOH scan and its report, Upload's "which side" -- names
+            // them by these, and without them a reopened genome says "right file" and "left
+            // file" where it said tumor.vcf and germline.vcf. The sample columns each file
+            // wrote go too: reading a genotype "for a side" needs them. And the last file's
+            // profile, which "What is loaded" describes; without its header command lines
+            // when those make it large, since those are the part nobody reads there.
+            out.sideFiles = [sideFile[0] || '', sideFile[1] || ''];
+            out.sideSlots = [sideSlots[0].slice(), sideSlots[1].slice()];
+            if (lastVcfProfile) {
+                try {
+                    let vp = lastVcfProfile;
+                    if (JSON.stringify(vp).length > 64 * 1024) vp = Object.assign({}, vp, { commands: [], versions: [] });
+                    out.vcfProfile = vp;
+                } catch (e) { }
+            }
             out.highlight = hlActive || 0;
             out.regions = (regions || []).map((rg) => ({ i: rg.i, lo: rg.lo, hi: rg.hi, label: rg.label || '', gene: rg.gene || '',
                 lof: rg.lof ? 1 : 0, dz: rg.dz ? 1 : 0, disease: rg.disease || '' }));
@@ -6327,6 +6343,19 @@ function (path, config) {
                     });
                 } catch (e) { }
             }
+            // The file names and their sample columns, so every label that named a file names
+            // it again. A file saved before these were written has none, and keeps the
+            // "right file" / "left file" it always had.
+            if (Array.isArray(doc.sideFiles)) {
+                for (let sd = 0; sd < 2; sd++) { if (typeof doc.sideFiles[sd] === 'string') sideFile[sd] = doc.sideFiles[sd]; }
+            }
+            if (Array.isArray(doc.sideSlots)) {
+                for (let sd = 0; sd < 2; sd++) {
+                    const sl = doc.sideSlots[sd];
+                    if (Array.isArray(sl)) sideSlots[sd] = sl.map((x) => +x).filter((x) => x >= 0 && x < SAMPLES.length);
+                }
+            }
+            if (doc.vcfProfile && typeof doc.vcfProfile === 'object') lastVcfProfile = doc.vcfProfile;
             if (doc.colorMode && ['class', 'sample', 'phase'].indexOf(doc.colorMode) >= 0) {
                 try { setColorMode(doc.colorMode); } catch (e) { }
             }
