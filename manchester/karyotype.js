@@ -9443,6 +9443,11 @@ function (path, config) {
                 if (rs && rs.ok) {
                     let got = {};
                     try { got = JSON.parse(rs.values || '{}'); } catch (e) { got = {}; }
+                    // A DIFFERENT SET OF COLUMNS EMPTIES THE CACHE. Rows are plain arrays read
+                    // against the tissue list, so a genome scanned before a column was added
+                    // (the stem and progenitor cells) holds rows that are too short, and those
+                    // genes would never be asked for again. Length changes, cache goes.
+                    if (T.tissues && rs.tissues && rs.tissues.length !== T.tissues.length) { T.values = {}; T.asked = {}; }
                     T.tissues = rs.tissues || T.tissues; T.n_cns = +rs.n_cns || T.n_cns; T.source = rs.source || T.source;
                     T.n_stem = +rs.n_stem || T.n_stem; T.stem_source = rs.stem_source || T.stem_source;
                     for (const k of want.slice(0, 5000)) { T.asked[k] = 1; if (got[k]) T.values[k] = got[k]; }
