@@ -2864,11 +2864,17 @@ function (path, config) {
         // allele-selective design needs to know. None of it was read before. Sample names
         // are registered once, across every file loaded, up to GT_MAX of them.
         const GT_MAX = 8;
-        const SAMPLES = [];                     // names, in slot order
+        const SAMPLES = [];                     // the name shown, in slot order
+        // THE NAME IN THE FILE, kept beside the one shown. A sample can be relabelled ("tumor",
+        // "the mother") and everything on screen follows, but the next file that carries the
+        // same VCF sample must still land in the same slot -- so the slot is looked up by the
+        // name the file uses first, and only then by what it is called here.
+        const SAMPLE_VCF = [];
         const sampleSlot = (name) => {
             const n = ('' + (name || '')).trim() || ('sample ' + (SAMPLES.length + 1));
-            let i = SAMPLES.indexOf(n);
-            if (i < 0) { if (SAMPLES.length >= GT_MAX) return -1; SAMPLES.push(n); i = SAMPLES.length - 1; }
+            let i = SAMPLE_VCF.indexOf(n);
+            if (i < 0) i = SAMPLES.indexOf(n);
+            if (i < 0) { if (SAMPLES.length >= GT_MAX) return -1; SAMPLES.push(n); SAMPLE_VCF.push(n); i = SAMPLES.length - 1; }
             return i;
         };
         // One byte per genotype. Codes 2 and up carry the alternate allele.
@@ -6184,6 +6190,8 @@ function (path, config) {
             // selected regions, the color scheme, and the active highlight.
             const __hasGt = SAMPLES.length > 0;
             out.samples = SAMPLES.slice();
+            out.sampleVcfNames = SAMPLE_VCF.slice();       // so a relabelled sample still matches its file
+            out.sideLabels = SIDE_LABEL.slice();
             out.hasGt = __hasGt;
             out.hasConf = true;
             out.colorMode = colorMode;
@@ -6412,7 +6420,12 @@ function (path, config) {
             // Restore the sample columns BEFORE placing variants, so finalise packs the
             // genotype lane to the right width (SAMPLES.length).
             if (Array.isArray(doc.samples) && doc.samples.length) {
-                try { SAMPLES.length = 0; for (const nm of doc.samples.slice(0, GT_MAX)) SAMPLES.push('' + nm); } catch (e) { }
+                try {
+                    SAMPLES.length = 0; SAMPLE_VCF.length = 0;
+                    const vn = Array.isArray(doc.sampleVcfNames) ? doc.sampleVcfNames : [];
+                    if (Array.isArray(doc.sideLabels)) { SIDE_LABEL[0] = '' + (doc.sideLabels[0] || ''); SIDE_LABEL[1] = '' + (doc.sideLabels[1] || ''); }
+                    doc.samples.slice(0, GT_MAX).forEach((nm, i) => { SAMPLES.push('' + nm); SAMPLE_VCF.push('' + (vn[i] == null ? nm : vn[i])); });
+                } catch (e) { }
             }
             const __gtScratch = new Uint8Array(GT_MAX);
             const __cfScratch = new Uint8Array(GT_MAX);
@@ -7987,7 +8000,8 @@ function (path, config) {
         let diffResult = null;          // { spec, A:{label, genes}, B:{label, genes}, onlyA, onlyB, both, at }
         let diffBusy = false;
         const sideCounts = () => { let l = 0, t = 0; for (const d of vdata) { if (!d) continue; t += d.n || 0; l += d.nL || 0; } return { left: l, right: t - l, total: t }; };
-        const sideName = (sd) => (sideFile[sd] ? shortFile(sideFile[sd]) : (sd ? 'left file' : 'right file'));
+        const SIDE_LABEL = ['', ''];            // what the two loaded files are called, if renamed
+        const sideName = (sd) => SIDE_LABEL[sd] || (sideFile[sd] ? shortFile(sideFile[sd]) : (sd ? 'left file' : 'right file'));
         // The same name with its side attached, for the one line that has to say both.
         const sideWhere = (sd) => sideName(sd) + (sideFile[sd] ? ' (' + (sd ? 'left' : 'right') + ')' : '');
         // THE GENOTYPE A MARK WAS GIVEN BY ITS OWN FILE. Reading slot 0 for both sides is
@@ -9089,8 +9103,31 @@ function (path, config) {
             if (!ui) books.push({ section: 'Germline', title: 'The report without the selective-lethality assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
                 blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
                 open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
+            // THE COMPARISON ITSELF, not only the germline. The scan was run on one pair, and
+            // that pair decides which sample is read as the tumour -- the thing the strategy is
+            // designed against. Any other pair can be chosen here; picking one that is not the
+            // scan's runs the scan again on it first, then opens the report.
+            const others = lohSpecs().filter((sp) => !(sp.kind === R.spec.kind && sp.normal === R.spec.normal && sp.tumor === R.spec.tumor));
+            if (others.length) {
+                books.push({ section: 'A different comparison', note: true,
+                    title: 'The scan compared ' + R.spec.labelT + ' against ' + R.spec.labelN + '. Another pair can be used instead -- the genome is scanned again on it, which takes as long as the first scan did.' });
+                others.forEach((sp) => books.push({ section: 'A different comparison', title: sp.labelT + ' as the tumour, ' + sp.labelN + ' as the normal',
+                    icon: sp.kind === 'side' ? 'compare_arrows' : 'people', badge: sp.kind === 'side' ? 'two files' : 'two samples', ready: !lohBusy && !lohReportBusy && !lohUiBusy,
+                    readyNote: 'a scan or a report is running', blurb: sp.blurb + ' Scans again, then opens ' + (ui ? 'the design strategy' : 'the report') + ' on it.',
+                    open: async () => {
+                        try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+                        await computeLOH(sp);
+                        if (!lohResult) return;                 // the scan was refused or found nothing
+                        // Only when there is a tract to read: lohFindGenes answers nothing otherwise.
+                        if (!lohResult.genes && (lohResult.chroms || []).some((c2) => c2.runs && c2.runs.length)) {
+                            await new Promise((res) => { lohFindGenes(res); });
+                        }
+                        lohReportStart(mode);
+                    } }));
+            }
             books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH Design Strategy' : 'LOH report (PDF)', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH Design Strategy' : 'LOH report (PDF)',
+                subtitle: 'Comparing ' + R.spec.labelT + ' against ' + R.spec.labelN + ' \u2014 choose the germline, or a different comparison',
                 graph: graph, books: books });
         };
         const lohReportPDF = async (opts) => {
@@ -13886,6 +13923,56 @@ function (path, config) {
             exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Check the calls',
                 subtitle: 'how far to trust what is loaded', graph: graph, books: books });
         };
+        // LABELLING WHAT IS LOADED. A VCF's sample column is called whatever the pipeline
+        // called it -- "SAMPLE1", a barcode, a run id -- and two files are "the left one" and
+        // "the right one". Anyone comparing a tumour with its normal needs to say which is
+        // which, once, and have every panel, report and saved file follow. The name in the
+        // file is kept (SAMPLE_VCF), so a label never stops a later file matching its slot.
+        const labelSamplesDialog = () => {
+            const esc4 = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const sc = sideCounts();
+            const rows = [];
+            for (let i = 0; i < SAMPLES.length; i++) rows.push({ kind: 'sample', i: i, was: SAMPLE_VCF[i] || SAMPLES[i], now: SAMPLES[i] });
+            if (sc.right) rows.push({ kind: 'side', i: 0, was: sideFile[0] ? shortFile(sideFile[0]) : 'the file on the right', now: SIDE_LABEL[0] });
+            if (sc.left) rows.push({ kind: 'side', i: 1, was: sideFile[1] ? shortFile(sideFile[1]) : 'the file on the left', now: SIDE_LABEL[1] });
+            if (!rows.length) { graph.setMessage(' Load a VCF first: there is nothing to label. '); return; }
+            try { const old = document.getElementById('baja-karyo-labels'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const wrap = document.createElement('div');
+            wrap.id = 'baja-karyo-labels';
+            wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483300;background:rgba(0,0,0,0.45);font-family:Arial,Helvetica,sans-serif;';
+            const field = 'width:100%;box-sizing:border-box;background:#0a1e3a;color:#e8f0fb;border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:8px;font:13px Arial;';
+            wrap.innerHTML = '<div style="position:absolute;top:70px;left:50%;transform:translateX(-50%);width:min(560px,94vw);max-height:calc(100vh - 110px);overflow:auto;'
+                + 'background:#0b2545;color:#fff;border:1px solid rgba(255,255,255,0.14);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.45);padding:18px;">'
+                + '<div style="font:700 16px Arial;margin-bottom:4px;">Label what is loaded</div>'
+                + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:14px;">The name you give is used everywhere -- the pills, the loss matrix, the differential, '
+                + 'the LOH scan and its reports -- and is saved with the genome. The name inside the file is kept.</div>'
+                + rows.map((rw, k) => '<div style="margin-bottom:12px;"><div style="font:12px Arial;color:#9fb3c8;margin-bottom:4px;">'
+                    + (rw.kind === 'sample' ? 'Sample column <b style="color:#cfe0f5;">' + esc4(rw.was) + '</b>' : 'File: <b style="color:#cfe0f5;">' + esc4(rw.was) + '</b>')
+                    + '</div><input id="kl-' + k + '" value="' + esc4(rw.now || '') + '" placeholder="' + esc4(rw.was) + '" style="' + field + '"/></div>').join('')
+                + '<div style="margin-top:14px;display:flex;gap:10px;">'
+                + '<button id="kl-save" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Use these names</button>'
+                + '<button id="kl-reset" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">The names in the files</button>'
+                + '<button id="kl-x" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Cancel</button>'
+                + '</div></div>';
+            document.body.appendChild(wrap);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) wrap.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            const shut = () => { try { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) { } };
+            wrap.addEventListener('click', (e) => { if (e.target === wrap) shut(); });
+            wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') shut(); });
+            document.getElementById('kl-x').onclick = shut;
+            const apply = (values) => {
+                rows.forEach((rw, k) => {
+                    const v = ('' + (values ? values[k] : '')).trim();
+                    if (rw.kind === 'sample') SAMPLES[rw.i] = v || SAMPLE_VCF[rw.i] || SAMPLES[rw.i];
+                    else SIDE_LABEL[rw.i] = v;
+                });
+                for (let si = 0; si < SAMPLES.length; si++) HL_NAME[SAMPLE_HL_BASE + si] = SAMPLES[si] || ('sample ' + (si + 1));
+                shut();
+                graph.setMessage(' The names are in use. They are saved with the genome. ');
+            };
+            document.getElementById('kl-save').onclick = () => apply(rows.map((rw, k) => (document.getElementById('kl-' + k) || {}).value || ''));
+            document.getElementById('kl-reset').onclick = () => apply(rows.map(() => ''));
+        };
         const analysisMenu = () => {
             try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
             // Back at the root, whatever errand was running is over: someone who came here
@@ -13904,6 +13991,9 @@ function (path, config) {
             // from it: what this genome IS, then looking something up in it, then the two
             // analyses, with the deepest last. A library read top to bottom should get
             // further from the file with every section rather than jumping about.
+            books.push({ section: 'This genome', title: 'Label the samples and files', badge: SAMPLES.length ? String(SAMPLES.length) : '', icon: 'edit', ready: true,
+                blurb: 'Give each VCF sample column and each loaded file the name you use for it -- "tumour", "the normal", "day 14" -- and every panel, report and saved file follows.',
+                open: () => { try { labelSamplesDialog(); } catch (e) { } } });
             books.push({ section: 'This genome', title: 'What is loaded', badge: 'info', icon: 'info_outline',
                 blurb: 'Variants, samples, regions, highlights and patents on this genome.', ready: true,
                 open: () => { try { infoPanel(); } catch (e) { } } });
@@ -16156,10 +16246,11 @@ function (path, config) {
             vtotal = 0; vobjects = 0;
             gtSilent = null;
             sideFile[0] = ''; sideFile[1] = '';
+            SIDE_LABEL[0] = ''; SIDE_LABEL[1] = '';
             sideSlots[0] = []; sideSlots[1] = [];
             regions = []; try { geneCache.clear(); } catch (e) { }
             bookmarks = []; activeRegion = null; hlActive = 0;
-            try { SAMPLES.length = 0; SEX_EV.length = 0; } catch (e) { }
+            try { SAMPLES.length = 0; SAMPLE_VCF.length = 0; SEX_EV.length = 0; } catch (e) { }
             try { setColorMode('class'); } catch (e) { }
             try { reindexHighlights(); } catch (e) { }
             try { const nav = document.getElementById('baja-karyo-booknav'); if (nav && nav.parentNode) nav.parentNode.removeChild(nav); } catch (e) { }
