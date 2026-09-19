@@ -55,8 +55,10 @@ function () {
             + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
             + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(O.fileName || '') + ' &middot; ' + esc(doc.tumor) + ' (tumor) against '
             + esc(doc.germline) + ' (germline)' + (doc.sex ? '<br/>Sex: ' + esc(doc.sex) : '')
+            + (O.shared ? '<br/>Shared with you, view only' : '')
             + '<br/>Saved ' + esc(doc.saved ? new Date(doc.saved).toLocaleString() : '') + ' &middot; ' + esc((doc.species || '') + ' ' + (doc.assembly || '')) + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
+            + (O.onShare ? '<button id="dv-share" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Share</button>' : '')
             + (O.onClose ? '<button id="dv-close" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>' : '')
             + (doc.genome ? '<button id="dv-genome" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Open the genome</button>' : '')
             + '<button id="dv-design-picked" disabled style="cursor:pointer;opacity:0.5;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Design ticked in editor</button>'
@@ -90,7 +92,7 @@ function () {
         // ONCOGENES
         if (Array.isArray(doc.oncogenes)) {
             const on = doc.oncogenes.slice().sort((a, b) => a.rank - b.rank);
-            h += section('Oncogenes in LOH', 'Did LOH leave an activating allele on every remaining copy? The wild-type partner that restrains it is then gone.',
+            h += section('Oncogenes in LOH', '',
                 on.length ? on.map((g) => {
                     const col = g.rank === 0 ? '#fbbf24' : g.rank === 1 ? '#fb923c' : '#94a3b8';
                     const w = g.rank === 0 ? 'activating, homozygous by LOH' : g.rank === 1 ? 'activating, both alleles read' : g.rank === 2 ? 'possible change' : g.rank === 3 ? 'no change' : 'not assessed';
@@ -103,7 +105,7 @@ function () {
 
         // TUMOR SUPPRESSORS
         const ts = (doc.tsg || []).slice().sort((a, b) => a.rank - b.rank);
-        h += section('Tumor suppressors in LOH', 'Is the copy left also broken? A damaging change on the only copy left is biallelic inactivation.',
+        h += section('Tumor suppressors in LOH', '',
             ts.length ? ts.map((g) => geneRow(g.gene, chip(g.rank === 0 ? 'biallelic' : g.rank <= 2 ? 'possible second hit' : 'one copy left',
                 g.rank === 0 ? '#f87171' : g.rank <= 2 ? '#fbbf24' : '#94a3b8'),
                 esc(g.verdict) + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''))).join('')
@@ -210,6 +212,8 @@ function () {
         Array.prototype.forEach.call(root.querySelectorAll('.dv-design'), (b) => { b.onclick = () => design([b.getAttribute('data-g')]); });
         const bp = q('#dv-design-picked');
         if (bp) bp.onclick = () => { if (picked.size) design(Array.from(picked)); };
+        const bs = q('#dv-share');
+        if (bs && O.onShare) bs.onclick = () => O.onShare();
         const bc = q('#dv-close');
         if (bc && O.onClose) bc.onclick = () => O.onClose();
         const bg = q('#dv-genome');

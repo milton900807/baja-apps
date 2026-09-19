@@ -18,7 +18,28 @@ function (path, config) {
             if (!/^[0-9a-f]{32,}$/i.test(head) && !/^myfiles$/i.test(head)) t = '/myfiles/' + t.replace(/^\/+/, '');
             return t;
         };
-        const p = normPath(path);
+        // SHARED, TWO WAYS. config.shared: the public viewer (manchester/viewer.js) resolved a
+        // public link and hands the path over, no sign-in. ?share=<code>: a copy shared with a
+        // person, resolved against whoever is signed in; signed out, they sign in first and come
+        // back here. A shared copy is view-only: no Share button, and the URL is left as it came.
+        let shared = !!(config && config.shared);
+        let srcPath = path;
+        let sc = '';
+        try { sc = ('' + (new URL(window.location.href).searchParams.get('share') || '')).trim(); } catch (e) { sc = ''; }
+        if (sc) {
+            const who = ('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
+            if (!who) {
+                try { sessionStorage.setItem('oidc.returnTo', window.location.pathname + window.location.search); } catch (e) { }
+                window.location.href = window.location.origin + '/login?free=1';
+                return;
+            }
+            try {
+                const r0 = await GETJSON(host_ + '/share-open?code=' + encodeURIComponent(sc) + '&user=' + encodeURIComponent(who));
+                const b0 = (r0 && r0.error && typeof r0.error === 'object') ? r0.error : r0;
+                if (b0 && b0.path) { srcPath = '' + b0.path; shared = true; }
+            } catch (e) { }
+        }
+        const p = normPath(srcPath);
         const fileName = p.split('/').filter(Boolean).pop() || 'design';
 
         // ITS OWN PANEL, ON THE PAGE BODY. It was drawn inside the 'html' widget, whose Angular
@@ -43,8 +64,8 @@ function (path, config) {
 
         if (!p || !/\.design$/i.test(p)) { note('That is not a .design file.'); return; }
         note('Opening ' + esc(fileName) + '...');
-        // A reload comes back to this file.
-        try { window.history.replaceState({ design: p }, 'design', '/app/manchester/design-viewer?path=' + p); } catch (e) { }
+        // A reload comes back to this file -- the owner's own path; a shared copy keeps the link it came by.
+        if (!shared) { try { window.history.replaceState({ design: p }, 'design', '/app/manchester/design-viewer?path=' + p); } catch (e) { } }
 
         let doc = null, err = '';
         try {
@@ -58,6 +79,9 @@ function (path, config) {
         }
 
         const view = await exec('manchester/design-viewer-render.js');
-        view(root, doc, { fileName: fileName, path: p, onClose: close });
+        const onShare = shared ? null : async () => {
+            try { const openShare = await exec('manchester/design-share.js'); openShare(doc, fileName); } catch (e) { }
+        };
+        view(root, doc, { fileName: fileName, path: p, onClose: close, onShare: onShare, shared: shared });
     })();
 }

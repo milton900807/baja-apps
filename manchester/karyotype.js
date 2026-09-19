@@ -9546,6 +9546,7 @@ function (path, config) {
                 + (() => { try { const sl = sexLineFor(spec); return sl ? '<br/>Sex: ' + esc(sl) : ''; } catch (e) { return ''; } })() + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('lu-close', 'Close')
+                + btn('lu-share', 'Share', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')
                 + btn('lu-save', 'Save as .design', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')
                 + btn('lu-pdf', 'PDF report', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
                 + btn('lu-design', 'Design ticked in editor', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;opacity:0.5;', 'disabled')
@@ -9610,7 +9611,7 @@ function (path, config) {
                     : card('No tract: lost sites are scattered, not in runs.'));
 
                 // ONCOGENES
-                h += section('Oncogenes in LOH', 'Did LOH leave an activating allele on every remaining copy? The wild-type partner that restrains it is then gone.',
+                h += section('Oncogenes in LOH', '',
                     ONC.length ? ONC.map((g) => {
                         const col = g.rank === 0 ? '#fbbf24' : g.rank === 1 ? '#fb923c' : '#94a3b8';
                         const word = g.rank === 0 ? 'activating, homozygous by LOH' : g.rank === 1 ? 'activating, both alleles read' : g.rank === 2 ? 'possible change' : g.rank === 3 ? 'no change' : 'not assessed';
@@ -9622,7 +9623,7 @@ function (path, config) {
                     }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
 
                 // TUMOR SUPPRESSORS
-                h += section('Tumor suppressors in LOH', 'Is the copy left also broken? A damaging change on the only copy left is biallelic inactivation.',
+                h += section('Tumor suppressors in LOH', '',
                     tsgList.length ? tsgList.slice().sort((a, b) => ((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)).map((g) => {
                         const hh = hits.get(g.gene) || { verdict: '', rank: 9, variants: [] };
                         const col = hh.rank === 0 ? '#f87171' : hh.rank <= 2 ? '#fbbf24' : '#94a3b8';
@@ -9807,6 +9808,11 @@ function (path, config) {
                         say(name + ' saved to My Files.');
                     } catch (e) { msg.textContent = 'Could not save: ' + (e && e.message ? e.message : e); }
                 };
+            };
+            // SHARE: the same document a save writes, as a public link or to people by email.
+            q('#lu-share').onclick = async () => {
+                try { const openShare = await exec('manchester/design-share.js'); openShare(designDoc(), dlSafe(spec.labelT + '_LOH_design_strategy')); }
+                catch (e) { say('Sharing could not open: ' + (e && e.message ? e.message : e)); }
             };
             q('#lu-close').onclick = () => close();
             q('#lu-design').onclick = () => { const list = Array.from(picked).map((i) => items[i]).filter(Boolean); if (list.length) design(list); };

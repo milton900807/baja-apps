@@ -70,6 +70,20 @@ function (path, config) {
         if (__code && __isKaryo(__p)) __kp = __p;
         if (!__kp) { try { const __qp = new URL(window.location.href).searchParams.get('path'); if (__qp && __isKaryo(__qp)) __kp = __qp; } catch (e) { } }
         if (!__kp) { try { if (config && typeof config === 'object' && config.path && __isKaryo(config.path)) __kp = '' + config.path; } catch (e) { } }
+        // A shared LOH DESIGN STRATEGY: the Design Viewer, view-only and without sign-in.
+        const __isDesign = (x) => { try { return /\.design$/i.test(decodeURIComponent('' + (x || ''))); } catch (e) { return /\.design$/i.test('' + (x || '')); } };
+        let __dp = '';
+        if (__code && __isDesign(__p)) __dp = __p;
+        if (!__dp) { try { const __qp = new URL(window.location.href).searchParams.get('path'); if (__qp && __isDesign(__qp)) __dp = __qp; } catch (e) { } }
+        if (__dp) {
+            try { __spin.stop(); } catch (e) { }
+            try {
+                const __clean = window.location.origin + '/app/manchester/viewer' + (__code ? ('?s=' + encodeURIComponent(__code)) : '');
+                if (window.location.href !== __clean) window.history.replaceState({}, document.title, __clean);
+            } catch (e) { }
+            try { window.__bajaFreeTier = true; } catch (e) { }
+            return await exec('manchester/design-viewer', decodeURIComponent('' + __dp), { shared: true });
+        }
         if (__kp) {
             try { __spin.stop(); } catch (e) { }
             try {
