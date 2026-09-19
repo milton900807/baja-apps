@@ -9227,6 +9227,8 @@ function (path, config) {
                             : 'none protein-altering',
                     };
                 }) : [{ 'Result': genes.length ? 'No oncogene from the catalogue lies inside a tract.' : 'No tract, so no oncogene is affected.' }] });
+                let DMt = null;
+                if (tsgs.length) { try { DMt = await lohDepmapFor(tsgs.map((g) => g.gene), (m) => dlMsg(m)); } catch (e) { DMt = null; } }
                 sheets.push({ name: 'Tumor suppressors in LOH', rows: tsgs.length ? tsgs.slice().sort((a, b) => (((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)) || b.frac - a.frac).map((g) => {
                     const h = hits.get(g.gene) || { verdict: '', variants: [] };
                     const c = drawn[g.ci];
@@ -9240,6 +9242,7 @@ function (path, config) {
                             + ' - ' + v.origin + ', ' + ({ retained: 'on the copy left', lost: 'on the copy lost', both: 'tumor still reads both alleles', uncalled: 'not called in the tumor' }[v.state] || v.state)
                             + (v.baf >= 0 ? ' (tumor VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ') + (h.variants.length > 12 ? '; and ' + (h.variants.length - 12) + ' more' : '')
                             : 'none in the coding sequence, splice sites or UTRs',
+                        'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMt && DMt[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
 
@@ -9701,7 +9704,8 @@ function (path, config) {
                         const hh = hits.get(g.gene) || { verdict: '', rank: 9, variants: [] };
                         const col = hh.rank === 0 ? '#f87171' : hh.rank <= 2 ? '#fbbf24' : '#94a3b8';
                         return geneRow(byGene.get(('' + g.gene).toUpperCase()), chip(hh.rank === 0 ? 'biallelic' : hh.rank <= 2 ? 'possible second hit' : 'one copy left', col),
-                            esc(hh.verdict) + (hh.variants.length ? '<br/>' + hh.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                            esc(hh.verdict) + (hh.variants.length ? '<br/>' + hh.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
+                            tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
                     }).join('') : card('No gene on the tumor-suppressor list lies inside a tract.'));
 
                 // ESSENTIAL GENES IN THE LOH REGION

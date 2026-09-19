@@ -121,7 +121,7 @@ function () {
         h += section('Tumor suppressors in LOH', '',
             ts.length ? ts.map((g) => geneRow(g.gene, chip(g.rank === 0 ? 'biallelic' : g.rank <= 2 ? 'possible second hit' : 'one copy left',
                 g.rank === 0 ? '#f87171' : g.rank <= 2 ? '#fbbf24' : '#94a3b8'),
-                esc(g.verdict) + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''))).join('')
+                esc(g.verdict) + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''), tpmHtml(g.gene))).join('')
             : card('No gene on the tumor-suppressor list lies inside a tract.'));
 
         // ESSENTIAL GENES IN THE LOH REGION -- or, in a file saved before that section, the
