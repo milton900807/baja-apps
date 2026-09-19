@@ -4989,8 +4989,11 @@ function (path, config) {
         // Files -- through the same chunked /upload endpoint
         // baja/manchester/menu/upload-data.js uses. Chunked because the whole point of this
         // is files too big to hand over in one request.
-        const uploadToMyFiles = async (file, onPct, spath) => {
+        // `opts.type` other than 'data' sends it to the server's own tmp folder instead,
+        // under `opts.name`: that is where a job on the server can find it.
+        const uploadToMyFiles = async (file, onPct, spath, opts) => {
             const host_ = window['env']['apiUrl'];
+            const upType = (opts && opts.type) || 'data', upName = (opts && opts.name) || file.name;
             const chunkSize = 5 * 1024 * 1024;
             const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
             const uploadId = Date.now() + '-' + Math.random().toString(36).slice(2) + '-' + file.name;
@@ -4998,10 +5001,10 @@ function (path, config) {
                 const start = ci * chunkSize;
                 const fd = new FormData();
                 fd.append('user', getUser());
-                fd.append('type', 'data');
-                fd.append('file', file.slice(start, Math.min(start + chunkSize, file.size)), file.name);
+                fd.append('type', upType);
+                fd.append('file', file.slice(start, Math.min(start + chunkSize, file.size)), upName);
                 fd.append('uploadId', uploadId);
-                fd.append('filename', file.name);
+                fd.append('filename', upName);
                 // The folder the caller asked for; the endpoint joins it under the user's
                 // own root. Absent, a file lands in that root, which is what every caller
                 // before this one wanted.
@@ -5260,15 +5263,113 @@ function (path, config) {
                 + (unresolved.length ? ', ' + unresolved.length + ' not placed' : '');
         };
 
+        // ---- SEQUENCING READS: A FASTQ IS ALIGNED AND CALLED, THEN DRAWN AS A VCF ----------
+        //
+        // A FASTQ holds the reads a VCF would be called from, so it is turned into one:
+        // uploaded to the server (not to My Files -- reads run to gigabytes and are not what
+        // anyone opens again), aligned to this genome with bwa and called with bcftools by
+        // py/bio/fastq-to-vcf.py, and the VCF that comes back goes through addVcfFile like
+        // any other. The called VCF is what is kept in My Files.
+        //
+        // The job runs detached on the server -- the /py bridge would kill it at 15 minutes
+        // -- so this starts it and then asks after it, one question at a time.
+        const FASTQ_SCRIPT = server + '/py/bio/fastq-to-vcf.py';
+        const FASTQ_POLL_MS = 6000;
+        const looksLikeFastq = (t) => {
+            const l = ('' + (t || '')).split(/\r?\n/, 8);
+            if (l.length < 4 || l[0].charAt(0) !== '@' || l[2].charAt(0) !== '+') return false;
+            if (!l[1] || l[1].length !== l[3].length || !/^[A-Za-z.*\-]+$/.test(l[1])) return false;
+            // A second record, when the head reaches it, has to be one too.
+            return l.length < 8 || !l[4] || (l[4].charAt(0) === '@' && ('' + l[6]).charAt(0) === '+');
+        };
+        const fastqSpecies = () => {
+            const s = ('' + (r.species || '') + ' ' + (r.assembly || '')).toLowerCase();
+            if (/yeast|cerevisiae|saccer|r64/.test(s)) return 'yeast';
+            if (/mouse|musculus|mm10|mm39|grcm/.test(s)) return 'mouse';
+            if (/human|sapiens|hg38|grch38|^\s*$/.test(s)) return 'human';
+            return s.trim().split(/\s+/)[0];
+        };
+        // R1 before R2 whatever order the picker handed them over in; the sample is the
+        // name with the read and lane markers and the extensions taken off.
+        const MATE_RE = /([._-])(R?)([12])(?=([._-]\d{3})?\.f(ast)?q(\.b?gz)?$)/i;
+        const fastqSample = (name) => ('' + name)
+            .replace(/\.f(ast)?q(\.b?gz)?$/i, '').replace(/[._-]R?[12]([._-]\d{3})?$/i, '')
+            .replace(/_S\d+(_L\d{3})?$/i, '').replace(/[^\w.\-]+/g, '_').slice(0, 60) || 'sample';
+        const runFastq = async (files) => {
+            files = files.slice().sort((a, b) => {
+                const ma = MATE_RE.exec(a.name), mb = MATE_RE.exec(b.name);
+                return (ma ? +ma[3] : 0) - (mb ? +mb[3] : 0) || (a.name < b.name ? -1 : 1);
+            });
+            if (files.length > 2) return fail('Pick one FASTQ, or the two files of a read pair (R1 and R2).');
+            const species = fastqSpecies();
+            const sample = fastqSample(files[0].name);
+            const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            const names = [];
+            const total = files.reduce((n, f) => n + f.size, 0);
+            let sent = 0;
+            for (const f of files) {
+                const name = 'fq-' + token + '-' + ('' + f.name).replace(/[^\w.\-]+/g, '_').slice(-180);
+                const up = await uploadToMyFiles(f, (pct) => {
+                    graph.setMessage(' Uploading ' + (files.length > 1 ? 'the read pair' : f.name) + ' — '
+                        + Math.round((sent + f.size * pct / 100) * 100 / total) + '% of ' + fmtBytes(total) + '… ');
+                }, '', { type: 'fastq', name: name });
+                if (up && up.error) return fail(f.name + ' could not be uploaded: ' + up.error + '.');
+                sent += f.size;
+                names.push(name);
+            }
+            const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+            const pair = files.length === 2 ? ' as a read pair' : (MATE_RE.test(files[0].name)
+                ? ' single-end (pick R1 and R2 together to align them as a pair)' : '');
+            graph.setMessage(' Starting the alignment of ' + sample + pair + '… ');
+            let st = null;
+            try { st = await exec(FASTQ_SCRIPT, em, 'start', names.join('\n'), species, sample); } catch (e) { st = { error: '' + e }; }
+            if (!st || st.state !== 'running' || !st.job) {
+                return fail('The alignment could not start' + (st && st.error ? ': ' + st.error : '.'));
+            }
+            step('fastq job ' + st.job + ' ' + species + ' ' + names.join(','));
+            const job = st.job;
+            const clock = (s) => (s >= 3600 ? Math.floor(s / 3600) + ' h ' : '') + Math.floor((s % 3600) / 60) + ' min';
+            let misses = 0;
+            for (;;) {
+                await new Promise((res) => setTimeout(res, FASTQ_POLL_MS));
+                try { st = await exec(FASTQ_SCRIPT, em, 'status', job); misses = 0; }
+                catch (e) {
+                    // A deploy restarts the bridge; the job lives on outside it.
+                    if (++misses < 20) continue;
+                    return fail('Lost touch with the alignment on the server: ' + e);
+                }
+                if (!st) { if (++misses < 20) continue; return fail('Lost touch with the alignment on the server.'); }
+                if (st.state === 'running') {
+                    graph.setMessage(' ' + sample + ': ' + (st.message || st.stage || 'working') + ' (' + clock(+st.elapsed || 0) + ') ');
+                    continue;
+                }
+                break;
+            }
+            if (st.state !== 'done' || !st.vcf_b64) return fail(sample + ': ' + (st.error || 'the alignment did not finish.'));
+            const bin = atob(st.vcf_b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const vcfName = sample + '.' + (st.assembly || species) + '.vcf.gz';
+            const vcf = new File([bytes], vcfName, { type: 'application/gzip' });
+            const count = await addVcfFile(vcf);
+            const up = await uploadToMyFiles(vcf, null);
+            return count.added.toLocaleString() + ' variants drawn — ' + (st.message || '')
+                + (up && up.error ? ' The VCF was not saved: ' + up.error + '.' : ' ' + vcfName + ' saved to My Files.');
+        };
+
         // What to do with a file, by what it turns out to be. Returns one line for the
         // outcome message, or '' when it has already said what went wrong.
         // What went wrong, kept: the save that follows a failed read would otherwise put
         // "saved to My Files" over the reason, and the reader is left with a success line
         // for a file that drew nothing.
         let readFailure = '';
+        // Set by a reader that has kept its own result (reads keep the called VCF, not
+        // themselves), so the picker does not save the original too.
+        let keptAlready = false;
         const fail = (m) => { readFailure = m; graph.setMessage(' ' + m + ' '); return ''; };
-        const readAnyFile = async (file) => {
+        const readAnyFile = async (file, more) => {
             readFailure = '';
+            keptAlready = false;
             let head = '', gz = false;
             // The magic is read from the BYTES. Decoded as text, 0x8b is not valid UTF-8 on
             // its own and comes out as U+FFFD, so a check on the string never matched.
@@ -5280,6 +5381,10 @@ function (path, config) {
                 try { head = await headTextOf(file, FILE_HEAD); } catch (e) { head = ''; }
             }
             const isText = looksLikeText(head);
+            if (isText && looksLikeFastq(head)) {
+                keptAlready = true;
+                return await runFastq([file].concat(more || []));
+            }
             if (isText && looksLikeVcf(head)) {
                 const count = await addVcfFile(file);
                 return count.added.toLocaleString() + ' variants drawn';
@@ -5338,10 +5443,12 @@ function (path, config) {
         // The picker. Reading and uploading are separate jobs on the same file and both are
         // worth doing: whatever the file is, it is kept in My Files whether or not the
         // drawing found anything in it.
-        const pickFile = (accept, side) => {
+        const pickFile = (accept, side, multiple) => {
             try {
                 const input = document.createElement('input');
                 input.type = 'file';
+                // Two files at once is a read pair (R1 and R2); anything else reads the first.
+                if (multiple) input.multiple = true;
                 // The card that opened this says what kind of file it is for; the picker
                 // filters to that, and the reader still checks the bytes, not the name.
                 if (accept) { try { input.accept = accept; } catch (e) { } }
@@ -5349,12 +5456,13 @@ function (path, config) {
                 document.body.appendChild(input);
                 input.onchange = async () => {
                     const file = input.files && input.files[0];
+                    const more = input.files ? Array.prototype.slice.call(input.files, 1) : [];
                     try { document.body.removeChild(input); } catch (e) { }
                     if (!file) return;
                     step('file: ' + file.name + ' ' + file.size + ' bytes ' + (file.type || ''));
                     let outcome = '';
                     loadSide = side ? 1 : 0;
-                    try { outcome = await readAnyFile(file); }
+                    try { outcome = await readAnyFile(file, more); }
                     catch (e) {
                         graph.setMessage(' ' + file.name + ' could not be read: ' + (e && e.message ? e.message : e) + ' ');
                         step('read failed: ' + e);
@@ -5369,6 +5477,12 @@ function (path, config) {
                     // a copy is a side effect of that; announcing the copy over the variant
                     // count reports the less interesting half. The outcome line below still
                     // says whether the copy was kept.
+                    // Reads are not copied into My Files: the reader kept the VCF it called
+                    // from them, and its outcome line says so -- or says why it failed.
+                    if (keptAlready) {
+                        graph.setMessage(' ' + (outcome || readFailure || file.name + ' was not read.') + ' ');
+                        return;
+                    }
                     const quietSave = /\.vcf(\.b?gz)?$/i.test(file.name);
                     if (!quietSave) graph.setMessage(' Saving ' + file.name + ' to My Files… ');
                     const up = await uploadToMyFiles(file, (pct) => {
@@ -15116,6 +15230,15 @@ function (path, config) {
                         : '') + 'Whatever is opened is also kept in My Files.',
                     books: [
                         vcfCard,
+                        {
+                            accent: 'choose', icon: 'biotech',
+                            title: 'Sequencing reads (FASTQ)', badge: 'align · call',
+                            blurb: 'A FASTQ, plain or gzipped, or both files of a read pair (select R1 and R2 together). '
+                                + 'The reads are aligned to this genome with bwa and variants called with bcftools on the server; '
+                                + 'the VCF is drawn and kept in My Files. Panels and exomes take minutes; a first run on a genome '
+                                + 'also builds its alignment index.',
+                            open: () => pickFile('.fastq,.fq,.gz,.bgz', 0, true),
+                        },
                         {
                             accent: 'choose', icon: 'description',
                             title: 'A genetic report or lab PDF', badge: 'report',
