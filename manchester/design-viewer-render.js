@@ -112,7 +112,7 @@ function () {
                     return geneRow(g.gene, chip(w, col), esc(g.status)
                         + '<br/><span style="color:#9fb3c8;">' + ((g.lost + g.kept) ? esc(g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites in the gene lost an allele (' + pct(g.frac) + ')')
                             : 'No heterozygous site inside the gene; the tract around it carries the call') + '</span>'
-                        + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                        + ((g.variants || []).length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''), tpmHtml(g.gene));
                 }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
         }
 

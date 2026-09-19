@@ -9214,6 +9214,8 @@ function (path, config) {
                     : [{ 'Result': 'No tract: lost sites are scattered, not in runs of ' + LOH_RUN_MIN + ' or more. Scattered sites are more often noise than loss.' }] });
 
                 const oncs = lohOncogenes(R, GOF);
+                let DMo = null;
+                if (oncs.length) { try { DMo = await lohDepmapFor(oncs.map((g) => g.gene), (m) => dlMsg(m)); } catch (e) { DMo = null; } }
                 sheets.push({ name: 'Oncogenes in LOH', rows: oncs.length ? oncs.map((g) => {
                     const c = drawn[g.ci];
                     return {
@@ -9225,6 +9227,7 @@ function (path, config) {
                         'Changes in the gene': g.variants.length ? g.variants.slice(0, 8).map((x) => x.change + ' (' + dmmWord(x.effect) + ', ' + x.level + ') - '
                             + x.origin + ', ' + gofStateWord(x) + (x.baf >= 0 ? ' (tumor VAF ' + Math.round(x.baf * 100) + '%)' : '')).join('; ')
                             : 'none protein-altering',
+                        'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMo && DMo[('' + g.gene).toUpperCase()]),
                     };
                 }) : [{ 'Result': genes.length ? 'No oncogene from the catalogue lies inside a tract.' : 'No tract, so no oncogene is affected.' }] });
                 let DMt = null;
@@ -9695,7 +9698,8 @@ function (path, config) {
                             esc(g.status) + '<br/><span style="color:#9fb3c8;">' + ((g.lost + g.kept)
                                 ? esc(g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites in the gene lost an allele (' + pct(g.frac) + ')')
                                 : 'No heterozygous site inside the gene; the tract around it carries the call') + '</span>'
-                            + (g.variants.length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''));
+                            + (g.variants.length ? '<br/>' + g.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
+                            tpmHtml(DM && DM[('' + g.gene).toUpperCase()], esc));
                     }).join('') : card('No oncogene from the catalogue lies inside a tract.'));
 
                 // TUMOR SUPPRESSORS
