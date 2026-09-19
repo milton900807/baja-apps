@@ -55,7 +55,17 @@ function (path, config) {
         // Gone when the reader leaves: Close, the back button, or another page taking over.
         const remove = () => { try { if (root.parentNode) root.parentNode.removeChild(root); } catch (e) { } window.removeEventListener('popstate', remove); };
         window.addEventListener('popstate', remove);
-        const close = () => { remove(); try { if (window.history.length > 1) window.history.back(); else window.location.assign('/app/'); } catch (e) { } };
+        // CLOSING OPENS THE FILES. The browsers clear the screen before opening a design, so going
+        // back in history landed on an empty page. Close loads My Files (manchester/fb, the menu's
+        // "My Files") instead. Someone viewing a public link without an account has no My Files,
+        // and goes back to where they came from.
+        const close = () => {
+            remove();
+            const signedIn = !!('' + ((typeof getUser === 'function' ? getUser() : '') || '')).trim();
+            if (!signedIn) { try { if (window.history.length > 1) window.history.back(); else window.location.assign('/'); } catch (e) { } return; }
+            try { window.history.pushState({}, 'files', '/app/manchester/fb'); } catch (e) { }
+            try { exec('manchester/fb.js'); } catch (e) { try { window.location.assign('/app/manchester/fb'); } catch (e2) { } }
+        };
         for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) root.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
         const note = (html) => { root.innerHTML = '<div style="padding:40px;font:14px Arial;color:#cfe0f5;">' + html
             + '<div style="margin-top:18px;"><button id="dv-close0" style="cursor:pointer;border-radius:8px;padding:8px 16px;font:700 12.5px Arial;'
