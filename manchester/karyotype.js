@@ -8860,7 +8860,7 @@ function (path, config) {
                 blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
                 open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
             books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH report on screen' : 'LOH report (PDF)', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: ui ? 'LOH Design Strategy' : 'LOH report (PDF)', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
                 graph: graph, books: books });
         };
         const lohReportPDF = async (opts) => {
@@ -9187,7 +9187,7 @@ function (path, config) {
             panel.innerHTML = ''
                 + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 22px 14px;'
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
-                + '<div style="min-width:0;"><div style="font:700 20px Arial;">Loss of heterozygosity</div>'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(spec.labelT) + ' (tumor) against ' + esc(spec.labelN) + ' (germline)'
                 + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '') + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
@@ -10851,7 +10851,7 @@ function (path, config) {
                     + ' Choose the germline to compare against, and an assessment says whether any essential gene the tumor has changed could make it selectively lethal.'
                     + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
                 open: () => { lohReportStart('pdf'); } });
-            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'Report on screen, to design against', badge: 'editor', icon: 'edit',
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'LOH Design Strategy', badge: 'editor', icon: 'edit',
                 ready: !lohReportBusy && !lohGeneBusy && !lohUiBusy, readyNote: 'a report is being built',
                 blurb: 'The same findings, interactive: every tumor suppressor, activating change and essential gene with its specific mutation, '
                     + 'each one a button that opens its transcript in the oligo editor with that mutation marked. Tick several to design against them together.',
@@ -13390,7 +13390,7 @@ function (path, config) {
                     badge: nT + ' tract' + (nT === 1 ? '' : 's') + ' \u00b7 ' + Math.round(100 * (R0.het ? R0.loh / R0.het : 0)) + '% of sites', ready: true,
                     blurb: R0.spec.labelN + ' as the normal, ' + R0.spec.labelT + ' as the tumor: the tracts, the genes in them, and what the loss makes the tumor depend on.',
                     open: () => lohMenu() });
-                books.push({ section: 'Loss of heterozygosity', title: 'Report on screen, to design against', icon: 'edit', badge: 'editor', accent: 'run',
+                books.push({ section: 'Loss of heterozygosity', title: 'LOH Design Strategy', icon: 'edit', badge: 'editor', accent: 'run',
                     ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
                     blurb: 'Every tumor suppressor, activating change and essential gene with its mutation, each one a button into the oligo editor.',
                     open: () => lohReportStart('ui') });
