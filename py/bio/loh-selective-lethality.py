@@ -9,13 +9,18 @@ copy by LOH (CYCLOPS), a paralog the mutant now leans on, a neighbour lost with 
 (collateral lethality). Whether any of that applies to a given variant is judgement, and that is
 the part handed to Claude -- over candidates chosen deterministically, with the numbers attached.
 
-Four actions (param 1):
+Five actions (param 1):
 
   essential   species
       -> { ok, genes: [[symbol, chr, start, end, strand, effect_mean, dep_frac, class], ...] }
       Genes DepMap calls a dependency in at least ESS_MIN_FRAC of cell lines, with their span
       from the annotation, so the browser can find the tumor's variants inside them. Human only:
       DepMap is a human screen.
+
+  transcripts species, JSON [symbol, ...]
+      -> { ok, transcripts: JSON { SYMBOL: "ENST..." } }   one transcript per gene, as the editor
+      opens it: MANE Select, else Ensembl canonical, else basic protein-coding, else the longest.
+      Versions are dropped, the form the editor hand-off uses.
 
   spans       species, JSON [symbol, ...]
       -> { ok, genes: [[symbol, chr, start, end, strand], ...] }   protein-coding spans, for the
@@ -204,6 +209,59 @@ def depmap(req):
         for a, (b2, pr) in best.items():
             res[a]["paralog"] = {"gene": b2, "pred": round(pr, 3)}
     return {"ok": True, "n_models": int(n_models), "genes": json.dumps(res)}
+
+
+ANNOTATION = {"human": "reference_data/human.gencode.annotation.gff3.bgz", "mouse": "reference_data/mouse.annotation.gff3.bgz",
+              "rat": "reference_data/rat.annotation.gff3.bgz", "dog": "reference_data/dog.annotation.gff3.bgz",
+              "yeast": "reference_data/yeast.annotation.gff3.bgz"}
+
+
+def transcripts(species, symbols):
+    sp = spans(species, symbols)
+    if not sp.get("ok"):
+        return sp
+    gpath = first_existing(ANNOTATION.get(species, ""))
+    if not gpath:
+        return {"ok": False, "error": "no annotation for %s on this server" % species}
+    try:
+        import pysam
+        tbx = pysam.TabixFile(gpath)
+        contigs = set(tbx.contigs)
+    except Exception as e:
+        return {"ok": False, "error": "the annotation could not be read: %s" % e}
+    out = {}
+    for sym, chrom, start, end, _strand in json.loads(sp["genes"]):
+        c = chrom if chrom in contigs else (chrom[3:] if chrom.startswith("chr") and chrom[3:] in contigs else ("chr" + chrom if "chr" + chrom in contigs else ""))
+        if not c:
+            continue
+        best = None
+        try:
+            rows = tbx.fetch(c, max(0, start - 1), end)
+        except Exception:
+            continue
+        for r in rows:
+            f = r.split("\t")
+            if len(f) < 9 or f[2] not in ("transcript", "mRNA"):
+                continue
+            a = {}
+            for kv in f[8].split(";"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    a[k] = v
+            if (a.get("gene_name") or a.get("Name") or "").upper() != sym.upper():
+                continue
+            tags = a.get("tag", "")
+            tid = a.get("ID", "").replace("transcript:", "").split(".")[0]
+            if not tid:
+                continue
+            rank = 0 if "MANE_Select" in tags else 1 if "Ensembl_canonical" in tags else \
+                2 if ("basic" in tags and a.get("transcript_type", "protein_coding") == "protein_coding") else 3
+            key = (rank, -(int(f[4]) - int(f[3])))
+            if best is None or key < best[0]:
+                best = (key, tid)
+        if best:
+            out[sym.upper()] = best[1]
+    return {"ok": True, "transcripts": json.dumps(out)}
 
 
 def spans(species, symbols):
@@ -448,7 +506,10 @@ def assess(req):
 
 action = str(works.param(1) or "").strip()
 try:
-    if action == "depmap":
+    if action == "transcripts":
+        raw = works.param(3)
+        out = transcripts(str(works.param(2) or "human").strip().lower(), raw if isinstance(raw, list) else json.loads(str(raw or "[]")))
+    elif action == "depmap":
         raw = works.param(2)
         out = depmap(raw if isinstance(raw, dict) else json.loads(str(raw or "{}")))
     elif action == "spans":

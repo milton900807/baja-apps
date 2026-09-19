@@ -8461,7 +8461,8 @@ function (path, config) {
                         const bt = ('' + (g.biotype || '')).toLowerCase();
                         if (bt && bt !== 'protein_coding') continue;
                         byGene.set(nm, { gene: g.gene, chr: a.sp.name, start: +g.start || 0, end: +g.end || 0,
-                            strand: g.strand || '', ci: a.sp.ci, tract: a.sp.lo + '-' + a.sp.hi });
+                            strand: g.strand || '', ci: a.sp.ci, tract: a.sp.lo + '-' + a.sp.hi,
+                            transcript: ('' + (g.transcript || '')).replace(/\.\d+$/, '') });
                     }
                     done++;
                     await new Promise((res2) => setTimeout(res2, 0));
@@ -9425,6 +9426,23 @@ function (path, config) {
             for (const g of ONC) itemFor(g.gene, g.ci);
             for (const c of ((ESS && ESS.candidates) || [])) { const it = itemFor(c.g.gene, c.g.ci); for (const v of c.variants) addVar(it, v); }
             for (const g of ((ESS && ESS.single) || []).slice(0, 40)) itemFor(g.gene, g.ci);
+            // EVERY GENE GETS A TRANSCRIPT, so every row opens in the editor the same way -- a
+            // germline track and a tumor track -- and not only the rows that carry a mutation.
+            // The tract scan already knows most of them; the rest (and a scan saved before the
+            // transcript was kept) are asked for in one call.
+            {
+                const fromScan = new Map((R.genes || []).filter((g) => g.transcript).map((g) => [('' + g.gene).toUpperCase(), g.transcript]));
+                for (const it of items) if (!it.transcript) { const t = fromScan.get(('' + it.gene).toUpperCase()); if (t) it.transcript = t; }
+                const need = items.filter((it) => !it.transcript).map((it) => it.gene);
+                if (need.length) {
+                    try {
+                        const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                        const rs = await exec(LOH_SL_SCRIPT, em, 'transcripts', ('' + (r.species || 'human')).toLowerCase(), JSON.stringify(need.slice(0, 300)));
+                        const got = (rs && rs.ok) ? JSON.parse(rs.transcripts || '{}') : {};
+                        for (const it of items) if (!it.transcript && got[('' + it.gene).toUpperCase()]) it.transcript = got[('' + it.gene).toUpperCase()];
+                    } catch (e) { step('transcripts: ' + e); }
+                }
+            }
             let DM = null;
             try { DM = await lohDepmapFor(items.map((it) => it.gene), say); } catch (e) { step('depmap: ' + e); }
             const dmLine = (gene) => {
@@ -13264,7 +13282,7 @@ function (path, config) {
             books.push(baja3DocCard('Synthetic lethality'));
             books.push({ section: 'Back', title: 'Analyze', badge: 'back', icon: 'arrow_back', back: true, ready: true,
                 blurb: 'The loss matrix, the differential, loss of heterozygosity and the rest.', open: () => analysisMenu() });
-            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic lethality',
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'Synthetic Lethality using Background Genetics',
                 subtitle: BAJA3_LONG, graph: graph, books: books });
         };
         // ==== CHECKING THE CALLS THEMSELVES =================================================
@@ -13861,7 +13879,7 @@ function (path, config) {
                     hoResult && (hoResult.matched.length + ' in the catalogue'),
                     parResult && 'paralogs',
                     lohSlResult && (lohSlResult.cyclops.length + ' single-copy')].filter(Boolean);
-                books.push({ section: 'Synthetic lethality', title: 'Synthetic lethality', icon: 'biotech',
+                books.push({ section: 'Synthetic Lethality using Background Genetics', title: 'Synthetic Lethality using Background Genetics', icon: 'biotech',
                     badge: done.length ? done.join(' \u00b7 ') : (selGenes.size ? selWord() + ' selected' : BAJA3),
                     ready: true,
                     blurb: BAJA3_LONG + '. Which gene this tumor cannot survive losing, given what it has already '
