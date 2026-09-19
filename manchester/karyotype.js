@@ -9584,7 +9584,7 @@ function (path, config) {
                 + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(spec.labelT) + ' (tumor) against ' + esc(spec.labelN) + ' (germline)'
                 + (spec.normal !== R.spec.normal ? ' &middot; the scan used ' + esc(R.spec.labelN) : '')
-                + (() => { try { const sl = sexLineFor(spec); return sl ? '<br/>Sex: ' + esc(sl) : ''; } catch (e) { return ''; } })() + '</div></div>'
+                + '</div></div>'
                 + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
                 + btn('lu-close', 'Close')
                 + btn('lu-share', 'Share', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;')

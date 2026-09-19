@@ -54,7 +54,7 @@ function () {
             + 'border-bottom:1px solid rgba(255,255,255,0.12);position:sticky;top:0;z-index:2;">'
             + '<div style="min-width:0;"><div style="font:700 20px Arial;">LOH Design Strategy</div>'
             + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">' + esc(O.fileName || '') + ' &middot; ' + esc(doc.tumor) + ' (tumor) against '
-            + esc(doc.germline) + ' (germline)' + (doc.sex ? '<br/>Sex: ' + esc(doc.sex) : '')
+            + esc(doc.germline) + ' (germline)'
             + (O.shared ? '<br/>Shared with you, view only' : '')
             + '<br/>Saved ' + esc(doc.saved ? new Date(doc.saved).toLocaleString() : '') + ' &middot; ' + esc((doc.species || '') + ' ' + (doc.assembly || '')) + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
