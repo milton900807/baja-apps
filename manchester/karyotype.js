@@ -16010,6 +16010,355 @@ function (path, config) {
             return false;
         };
 
+        // ---- THE REGION'S DIFFERENTIAL MUTATIONAL MATRIX -----------------------------------
+        //
+        // Two samples, one stretch of genome: which genes are mutated in one and not the
+        // other, and how. The pairs are the ones the differential loss matrix compares -- two
+        // sample columns of one VCF, or the file on the right against the file on the left --
+        // read through the same rule (diffInclude: a genotype that carries the alternate
+        // allele, high-confidence calls only while that switch is on). Each variant's
+        // consequence comes from py/bio/loss-matrix.py in its "all" mode, on the MANE
+        // transcript, so this reads a change exactly as the loss matrix does -- but counts
+        // every change, not only the losses.
+        //
+        // WHAT "ONLY IN A" RESTS ON is shown per variant. For two sample columns B has a row
+        // at the site, and a confident 0/0 there is evidence of absence; a low-confidence
+        // call in B means B may carry it after all. For two files, absence from B's file may
+        // be a reference call or a site B never covered, and the matrix says so.
+        const DMM_PROTEIN = new Set(['frameshift', 'stop_gained', 'start_lost', 'splice_donor', 'splice_acceptor',
+            'hotspot_missense', 'pathogenic_missense', 'stop_lost', 'inframe_indel', 'missense']);
+        const DMM_LOF = new Set(['frameshift', 'stop_gained', 'start_lost', 'splice_donor', 'splice_acceptor',
+            'hotspot_missense', 'pathogenic_missense']);
+        const DMM_SEV = ['frameshift', 'stop_gained', 'start_lost', 'splice_donor', 'splice_acceptor', 'hotspot_missense',
+            'pathogenic_missense', 'stop_lost', 'inframe_indel', 'missense', 'synonymous', 'coding_unresolved', 'utr',
+            'non_coding_exon', 'intronic', 'intergenic', 'unclassified'];
+        const dmmSev = (e) => { const i = DMM_SEV.indexOf(e); return i < 0 ? 99 : i; };
+        const dmmWord = (e) => ('' + (e || '')).replace(/_/g, ' ');
+        // The differential loss colours, lifted for the dark panel: A red, B blue, both purple.
+        const DMM_COL = { A: '#f87171', B: '#60a5fa', S: '#a78bfa' };
+        const DMM_MAX = 5 * LOF_BATCH;      // variants whose consequence is asked for
+        const DMM_SBS = ['C>A', 'C>G', 'C>T', 'T>A', 'T>C', 'T>G'];
+        // Single-base substitutions folded onto the pyrimidine of the pair, the six classes
+        // every mutational spectrum is written in.
+        const dmmSbs = (ref, alt) => {
+            const cmp = { A: 'T', C: 'G', G: 'C', T: 'A' };
+            let r0 = ('' + ref).toUpperCase(), a0 = ('' + alt).toUpperCase();
+            if (r0.length !== 1 || a0.length !== 1 || !cmp[r0] || !cmp[a0] || r0 === a0) return '';
+            if (r0 === 'G' || r0 === 'A') { r0 = cmp[r0]; a0 = cmp[a0]; }
+            return r0 + '>' + a0;
+        };
+        // Each pair of sample columns once: which is A is chosen in the matrix, by Swap.
+        const dmmPairs = () => {
+            const seen = new Set();
+            return diffSpecs().filter((s) => {
+                if (s.kind !== 'sample') return true;
+                const key = Math.min(s.a, s.b) + ':' + Math.max(s.a, s.b);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+        const dmmSwap = (s) => Object.assign({}, s, { a: s.b, b: s.a, labelA: s.labelB, labelB: s.labelA, nA: s.nB, nB: s.nA });
+        const dmmGt = (spec, which, d, k) => {
+            const x = which === 'A' ? spec.a : spec.b;
+            return spec.kind === 'sample' ? gtOf(d, k, x) : gtOfSide(d, k, x);
+        };
+        // What the OTHER sample shows at a site only one of them carries.
+        const dmmAbsence = (spec, v, other) => {
+            if (spec.kind !== 'sample') return 'not in that file';
+            const own = v.A || v.B, d = vdata[v.ci], si = other === 'A' ? spec.a : spec.b;
+            if (!d || d.gtw <= si) return 'no call';
+            const gt = gtOf(d, own.k, si);
+            if (gt >= GT_HET) return 'low-confidence call';
+            if (gt !== GT_REF) return 'no call';
+            const t = confOf(d, own.k, si);
+            return t >= CONF_HIGH ? 'confident reference' : t === CONF_MED ? 'weak reference'
+                : t === CONF_LOW ? 'low-confidence reference' : 'reference, no depth';
+        };
+        // A sample's genotype at a variant's row, carried or not: for two sample columns the
+        // one that lacks it still has its own call there (0/0, ./.), and that is worth seeing.
+        const dmmGtText = (spec, v, which) => {
+            const own = v[which];
+            if (own) return GT_TEXT[own.gt] || 'carried';
+            if (spec.kind !== 'sample') return '';
+            const o = v.A || v.B, d = vdata[v.ci], si = which === 'A' ? spec.a : spec.b;
+            return (d && d.gtw > si) ? (GT_TEXT[gtOf(d, o.k, si)] || './.') : '';
+        };
+        const dmmCollect = (regs, spec) => {
+            const inA = diffInclude(spec, 'A'), inB = diffInclude(spec, 'B');
+            const recs = new Map();         // regions overlap; a site is counted once
+            for (const reg of regs) {
+                const d = vdata[reg.i];
+                if (!d || !d.n) continue;
+                let a = 0, z = d.n;
+                while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < reg.lo) a = m + 1; else z = m; }
+                for (let k = a; k < d.n && d.pos[k] <= reg.hi; k++) {
+                    const ia = inA(d, k), ib = inB(d, k);
+                    if (!ia && !ib) continue;
+                    const ab = allelesAt(reg.i, k);
+                    const key = reg.i + ':' + d.pos[k] + ':' + ab[0] + ':' + ab[1];
+                    let v = recs.get(key);
+                    if (!v) { v = { key: key, ci: reg.i, pos: d.pos[k], ref: ab[0], alt: ab[1], A: null, B: null }; recs.set(key, v); }
+                    if (ia && !v.A) v.A = { k: k, gt: dmmGt(spec, 'A', d, k) };
+                    if (ib && !v.B) v.B = { k: k, gt: dmmGt(spec, 'B', d, k) };
+                }
+            }
+            return Array.from(recs.values());
+        };
+        // Consequences, remembered by site: swapping A and B, or changing the pair, asks the
+        // server only about sites it has not already read.
+        const dmmEffCache = new Map();
+        const dmmConsequences = async (recs, em, say) => {
+            const want = recs.slice(0, DMM_MAX).filter((v) => !dmmEffCache.has(v.key));
+            for (let b = 0; b < want.length; b += LOF_BATCH) {
+                const part = want.slice(b, b + LOF_BATCH), vars = {};
+                for (const v of part) (vars[drawn[v.ci].name] = vars[drawn[v.ci].name] || []).push([v.pos, v.ref, v.alt]);
+                say('Reading the consequence of ' + want.length.toLocaleString() + ' variant' + (want.length === 1 ? '' : 's')
+                    + (want.length > LOF_BATCH ? ' — part ' + (b / LOF_BATCH + 1) + ' of ' + Math.ceil(want.length / LOF_BATCH) : '') + '…');
+                const rs = await exec(server + '/py/bio/loss-matrix.py', em,
+                    JSON.stringify({ species: (r.species || 'human'), variants: vars, all: true }));
+                if (!rs || !rs.ok) throw new Error((rs && rs.error) || 'the server could not read the variants');
+                let gs = [];
+                try { gs = JSON.parse(rs.genes || '[]'); } catch (e) { gs = []; }
+                for (const g of gs) {
+                    const ci = chromIndexOf(g.chr);
+                    for (const x of (g.variants || [])) {
+                        dmmEffCache.set(ci + ':' + x.pos + ':' + x.ref + ':' + x.alt, { gene: g.gene, transcript: g.transcript,
+                            start: g.start, end: g.end, effect: x.effect, hgvs_c: x.hgvs_c || '', hgvs_p: x.hgvs_p || '' });
+                    }
+                }
+                // Asked and not in a gene: remembered as that, so it is not asked again.
+                for (const v of part) if (!dmmEffCache.has(v.key)) dmmEffCache.set(v.key, null);
+            }
+            return recs.length > DMM_MAX;
+        };
+        const dmmBuild = (recs, spec) => {
+            const genes = new Map();
+            const tally = { A: 0, B: 0, S: 0 }, sbs = { A: {}, B: {}, S: {} };
+            let outside = 0, unread = 0;
+            for (const v of recs) {
+                const who = v.A && v.B ? 'S' : v.A ? 'A' : 'B';
+                v.who = who;
+                tally[who]++;
+                const sb = dmmSbs(v.ref, v.alt);
+                if (sb) sbs[who][sb] = (sbs[who][sb] || 0) + 1;
+                if (!dmmEffCache.has(v.key)) { unread++; continue; }
+                const e = dmmEffCache.get(v.key);
+                if (!e) { outside++; continue; }
+                v.gene = e.gene; v.effect = e.effect; v.hgvs_c = e.hgvs_c; v.hgvs_p = e.hgvs_p;
+                v.absence = who === 'A' ? dmmAbsence(spec, v, 'B') : who === 'B' ? dmmAbsence(spec, v, 'A') : '';
+                let g = genes.get(e.gene);
+                if (!g) {
+                    g = { gene: e.gene, transcript: e.transcript, chr: drawn[v.ci].name, start: e.start, end: e.end, vars: [],
+                        all: { A: 0, B: 0, S: 0 }, prot: { A: 0, B: 0, S: 0 } };
+                    genes.set(e.gene, g);
+                }
+                g.vars.push(v);
+                g.all[who]++;
+                if (DMM_PROTEIN.has(v.effect)) g.prot[who]++;
+            }
+            for (const g of genes.values()) g.vars.sort((x, y) => dmmSev(x.effect) - dmmSev(y.effect) || x.pos - y.pos);
+            return { spec: spec, recs: recs, genes: Array.from(genes.values()), tally: tally, sbs: sbs, outside: outside, unread: unread };
+        };
+        // The gene's standing under the current filter: the counts, the worst change private
+        // to each side, and one word for the row.
+        const dmmRow = (g, protOnly) => {
+            const inF = (v) => !protOnly || DMM_PROTEIN.has(v.effect);
+            const n = protOnly ? g.prot : g.all;
+            const worst = (who) => { const v = g.vars.find((x) => x.who === who && inF(x)); return v ? v.effect : ''; };
+            const call = n.A && n.B ? 'both, differently' : n.A ? 'A only' : n.B ? 'B only' : n.S ? 'shared' : '';
+            const lofPrivate = g.vars.some((x) => x.who !== 'S' && DMM_LOF.has(x.effect));
+            return { n: n, worstA: worst('A'), worstB: worst('B'), call: call, lofPrivate: lofPrivate, shown: g.vars.filter(inF) };
+        };
+        const dmmCSV = (R) => {
+            const rows = [];
+            for (const g of R.genes) {
+                for (const v of g.vars) {
+                    rows.push({ gene: g.gene, transcript: g.transcript, chrom: drawn[v.ci].name, pos: v.pos, ref: v.ref, alt: v.alt,
+                        effect: v.effect, protein_altering: DMM_PROTEIN.has(v.effect) ? 1 : 0, hgvs_c: v.hgvs_c || '', hgvs_p: v.hgvs_p || '',
+                        carried_by: v.who === 'S' ? 'both' : v.who === 'A' ? 'A only' : 'B only',
+                        sample_A: R.spec.labelA, gt_A: dmmGtText(R.spec, v, 'A'),
+                        sample_B: R.spec.labelB, gt_B: dmmGtText(R.spec, v, 'B'),
+                        other_sample_shows: v.absence || '', substitution: dmmSbs(v.ref, v.alt) });
+                }
+            }
+            return dlToCSV(rows);
+        };
+
+        const openDiffMutMatrix = (regs, headTitle, pairs) => {
+            let pairIdx = 0, spec = pairs[0], protOnly = true, R = null, busy = false, err = '';
+            const expanded = new Set();
+            const esc3 = (t) => ('' + (t == null ? '' : t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            try { const old = document.getElementById('baja-karyo-dmm'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+            const panel = document.createElement('div');
+            panel.id = 'baja-karyo-dmm';
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483001;background:#071a30;color:#fff;'
+                + 'font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden;';
+            const btn = (id, label, style) => '<button id="' + id + '" style="cursor:pointer;border-radius:8px;padding:9px 16px;'
+                + 'font:700 12.5px Arial;' + (style || 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;')
+                + '">' + label + '</button>';
+            panel.innerHTML = ''
+                + '<div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 22px 14px;'
+                + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 20px rgba(0,0,0,0.35);">'
+                + '<div style="min-width:0;"><div style="font:700 20px Arial;">Differential mutational matrix</div>'
+                + '<div id="dmm-sub" style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;"></div></div>'
+                + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
+                + btn('dmm-back', 'Back to the genes')
+                + btn('dmm-swap', 'Swap A and B', 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;')
+                + btn('dmm-csv', 'Download CSV', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;')
+                + '</div></div>'
+                + '<div id="dmm-body" style="flex:1 1 auto;overflow:auto;padding:22px 22px 32px;"></div>';
+            document.body.appendChild(panel);
+            for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) {
+                panel.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+            }
+            const q3 = (sel) => panel.querySelector(sel);
+            const close3 = () => { try { if (panel.parentNode) panel.parentNode.removeChild(panel); } catch (e) { } };
+            panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') close3(); });
+            const body = q3('#dmm-body');
+            const say = (m) => { if (!R) body.innerHTML = '<div style="max-width:980px;margin:40px auto;font:14px Arial;color:#cfe0f5;">' + esc3(m) + '</div>'; };
+
+            const chip = (who, text) => '<span style="display:inline-block;border-radius:20px;padding:2px 9px;font:700 11px Arial;'
+                + 'background:' + DMM_COL[who] + '22;border:1px solid ' + DMM_COL[who] + '99;color:' + DMM_COL[who] + ';">' + esc3(text) + '</span>';
+            const cell = (who, n, max) => {
+                const a = n ? (0.18 + 0.62 * Math.min(1, n / Math.max(1, max))) : 0;
+                return '<td style="text-align:center;padding:8px 6px;font:700 13px Arial;'
+                    + (n ? 'background:' + DMM_COL[who] + Math.round(a * 255).toString(16).padStart(2, '0') + ';color:#fff;' : 'color:#4b6480;')
+                    + '">' + (n || '·') + '</td>';
+            };
+            const render = () => {
+                const S = spec;
+                q3('#dmm-sub').innerHTML = esc3(headTitle) + ' · '
+                    + '<b style="color:' + DMM_COL.A + '">A</b> ' + esc3(S.labelA) + ' against '
+                    + '<b style="color:' + DMM_COL.B + '">B</b> ' + esc3(S.labelB)
+                    + (S.kind === 'side' ? ' (two files)' : ' (two samples of one file)');
+                if (busy || !R) return;
+                if (err) { body.innerHTML = '<div style="max-width:980px;margin:40px auto;font:14px Arial;color:#fca5a5;">' + esc3(err) + '</div>'; return; }
+                const rows = R.genes.map((g) => ({ g: g, x: dmmRow(g, protOnly) })).filter((o) => o.x.call);
+                // Differential first, losses among them first, then by how much differs.
+                const rank = (o) => (o.x.call === 'shared' ? 2 : 0) + (o.x.lofPrivate ? 0 : 1);
+                rows.sort((p, q) => rank(p) - rank(q) || (q.x.n.A + q.x.n.B) - (p.x.n.A + p.x.n.B) || ('' + p.g.gene).localeCompare('' + q.g.gene));
+                const nDiff = rows.filter((o) => o.x.call !== 'shared').length;
+                const maxN = rows.reduce((m, o) => Math.max(m, o.x.n.A, o.x.n.B, o.x.n.S), 1);
+                const T = R.tally;
+                const pairSel = pairs.length > 1
+                    ? '<label style="font:12.5px Arial;color:#cfe0f5;">Pair <select id="dmm-pair" style="margin-left:6px;background:#0a1e3a;color:#fff;'
+                        + 'border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:4px 6px;">'
+                        + pairs.map((p, i) => '<option value="' + i + '"' + (i === pairIdx ? ' selected' : '') + '>'
+                            + esc3(p.labelA + ' vs ' + p.labelB) + '</option>').join('') + '</select></label>'
+                    : '';
+                // THE SPECTRUM: the six substitution classes for what is private to each side
+                // and what is shared, as a share of that set, so two sets of different sizes
+                // can be read against each other.
+                const spec6 = ['A', 'S', 'B'].map((who) => {
+                    const c = R.sbs[who], tot = DMM_SBS.reduce((t, s) => t + (c[s] || 0), 0);
+                    return '<tr><td style="padding:5px 10px 5px 0;white-space:nowrap;">' + chip(who, who === 'S' ? 'shared' : who + ' only')
+                        + ' <span style="color:#9fb3c8;font:12px Arial;">' + tot.toLocaleString() + ' SNV' + (tot === 1 ? '' : 's') + '</span></td>'
+                        + DMM_SBS.map((s) => {
+                            const f = tot ? (c[s] || 0) / tot : 0;
+                            return '<td style="padding:5px 6px;min-width:74px;"><div style="height:10px;border-radius:3px;background:rgba(255,255,255,0.08);">'
+                                + '<div style="height:10px;border-radius:3px;width:' + Math.round(f * 100) + '%;background:' + DMM_COL[who] + ';"></div></div>'
+                                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:2px;">' + (tot ? Math.round(f * 100) + '%' : '—') + ' · ' + (c[s] || 0) + '</div></td>';
+                        }).join('') + '</tr>';
+                }).join('');
+                const evidenceNote = S.kind === 'side'
+                    ? 'Two files cannot show whether the other was sequenced at a site: "only in A" means no call in B\'s file, which may be a reference call or a coverage gap.'
+                    : 'For each private variant the other sample\'s call at that site is shown: a confident reference call is evidence of absence; a low-confidence call means it may be there after all.';
+                let h = '<div style="max-width:1100px;margin:0 auto;">'
+                    + '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
+                    + [['A', 'only in A · ' + S.labelA, T.A], ['S', 'in both', T.S], ['B', 'only in B · ' + S.labelB, T.B]].map((t) =>
+                        '<div style="flex:1 1 200px;border-radius:10px;padding:12px 14px;background:#0a1e3a;border:1px solid ' + DMM_COL[t[0]] + '66;">'
+                        + '<div style="font:700 22px Arial;color:' + DMM_COL[t[0]] + ';">' + t[2].toLocaleString() + '</div>'
+                        + '<div style="font:12px Arial;color:#9fb3c8;">variant' + (t[2] === 1 ? '' : 's') + ' ' + esc3(t[1]) + '</div></div>').join('')
+                    + '</div>'
+                    + '<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:10px;">'
+                    + '<label style="font:12.5px Arial;color:#cfe0f5;cursor:pointer;"><input type="checkbox" id="dmm-prot"' + (protOnly ? ' checked' : '')
+                    + ' style="margin-right:6px;"/>Protein-altering changes only</label>' + pairSel
+                    + '<span style="font:12.5px Arial;color:#9fb3c8;">' + nDiff + ' gene' + (nDiff === 1 ? '' : 's') + ' differ'
+                    + (nDiff === 1 ? 's' : '') + ' · ' + rows.length + ' mutated</span></div>'
+                    + '<div style="font:12px Arial;color:#9fb3c8;margin-bottom:14px;">'
+                    + (lossConfOnly ? 'High-confidence calls only, as in the loss matrix. ' : 'Every call, whatever its confidence. ')
+                    + esc3(evidenceNote)
+                    + (R.outside ? ' ' + R.outside.toLocaleString() + ' variant' + (R.outside === 1 ? ' falls' : 's fall') + ' outside any gene and ' + (R.outside === 1 ? 'is' : 'are') + ' counted above only.' : '')
+                    + (R.unread ? ' ' + R.unread.toLocaleString() + ' variant' + (R.unread === 1 ? ' was' : 's were') + ' past the ' + DMM_MAX.toLocaleString() + ' whose consequence is read at once; select a narrower region to place them.' : '')
+                    + '</div>';
+                if (!rows.length) {
+                    h += '<div style="padding:26px;border-radius:10px;background:#0a1e3a;font:14px Arial;color:#cfe0f5;">'
+                        + (R.recs.length ? 'No gene here carries a ' + (protOnly ? 'protein-altering ' : '') + 'change in either sample.'
+                            + (protOnly ? ' Untick "Protein-altering changes only" to see every change.' : '')
+                            : 'Neither sample has a variant in this region.') + '</div>';
+                } else {
+                    const th = (t, al) => '<th style="position:sticky;top:0;background:#0b2545;padding:9px 8px;font:700 11.5px Arial;color:#9fb3c8;text-align:' + (al || 'left') + ';">' + t + '</th>';
+                    h += '<table style="width:100%;border-collapse:separate;border-spacing:0 3px;">'
+                        + '<tr>' + th('Gene') + th('<span style="color:' + DMM_COL.A + '">A only</span>', 'center') + th('<span style="color:' + DMM_COL.S + '">Both</span>', 'center')
+                        + th('<span style="color:' + DMM_COL.B + '">B only</span>', 'center') + th('Worst private to A') + th('Worst private to B') + th('Call') + '</tr>';
+                    for (const o of rows) {
+                        const g = o.g, x = o.x, open = expanded.has(g.gene);
+                        const callWho = x.call === 'A only' ? 'A' : x.call === 'B only' ? 'B' : 'S';
+                        h += '<tr class="dmm-g" data-g="' + esc3(g.gene) + '" style="cursor:pointer;background:#0a1e3a;">'
+                            + '<td style="padding:8px 10px;border-radius:8px 0 0 8px;"><span style="font:700 13.5px Arial;color:#e8f0fb;">' + (open ? '▾ ' : '▸ ') + esc3(g.gene) + '</span>'
+                            + '<br/><span style="font:11.5px Arial;color:#9fb3c8;">' + esc3(g.transcript || '') + '</span></td>'
+                            + cell('A', x.n.A, maxN) + cell('S', x.n.S, maxN) + cell('B', x.n.B, maxN)
+                            + '<td style="padding:8px;font:12.5px Arial;color:' + (DMM_LOF.has(x.worstA) ? '#fca5a5' : '#cfe0f5') + ';">' + esc3(dmmWord(x.worstA) || '—') + '</td>'
+                            + '<td style="padding:8px;font:12.5px Arial;color:' + (DMM_LOF.has(x.worstB) ? '#93c5fd' : '#cfe0f5') + ';">' + esc3(dmmWord(x.worstB) || '—') + '</td>'
+                            + '<td style="padding:8px 10px;border-radius:0 8px 8px 0;">' + chip(callWho, x.call) + '</td></tr>';
+                        if (!open) continue;
+                        h += '<tr><td colspan="7" style="padding:4px 10px 12px 28px;"><table style="width:100%;border-collapse:collapse;font:12px Arial;">'
+                            + '<tr style="color:#9fb3c8;"><td style="padding:4px 6px;">Position</td><td>Change</td><td>Consequence</td><td>Protein</td>'
+                            + '<td>A (' + esc3(S.labelA) + ')</td><td>B (' + esc3(S.labelB) + ')</td><td>The other sample shows</td></tr>'
+                            + x.shown.map((v) => '<tr style="border-top:1px solid rgba(255,255,255,0.08);">'
+                                + '<td style="padding:5px 6px;white-space:nowrap;">' + esc3(drawn[v.ci].name + ':' + human(v.pos)) + '</td>'
+                                + '<td style="font-family:monospace;">' + esc3((v.ref.length > 12 ? v.ref.slice(0, 12) + '…' : v.ref) + '>' + (v.alt.length > 12 ? v.alt.slice(0, 12) + '…' : v.alt)) + '</td>'
+                                + '<td style="color:' + (DMM_LOF.has(v.effect) ? '#fca5a5' : '#e8f0fb') + ';">' + esc3(dmmWord(v.effect)) + '</td>'
+                                + '<td>' + esc3(v.hgvs_p || v.hgvs_c || '') + '</td>'
+                                + '<td style="color:' + (v.A ? DMM_COL.A : '#6b819b') + ';">' + esc3(dmmGtText(S, v, 'A') || '—') + '</td>'
+                                + '<td style="color:' + (v.B ? DMM_COL.B : '#6b819b') + ';">' + esc3(dmmGtText(S, v, 'B') || '—') + '</td>'
+                                + '<td style="color:' + (v.absence === 'confident reference' ? '#8ff0b0' : '#fcd34d') + ';">' + esc3(v.absence || '') + '</td></tr>').join('')
+                            + '</table></td></tr>';
+                    }
+                    h += '</table>';
+                }
+                h += '<div style="margin-top:26px;font:700 13px Arial;color:#e8f0fb;">Substitution spectrum</div>'
+                    + '<div style="font:12px Arial;color:#9fb3c8;margin:4px 0 8px;">Every single-base change in the region, genes or not, folded to the pyrimidine: '
+                    + 'the share of each class in what is private to A, shared, and private to B.</div>'
+                    + '<table style="border-collapse:collapse;"><tr><td></td>' + DMM_SBS.map((s) => '<td style="padding:0 6px;font:700 11.5px Arial;color:#9fb3c8;">' + s + '</td>').join('') + '</tr>'
+                    + spec6 + '</table></div>';
+                body.innerHTML = h;
+                const cb = q3('#dmm-prot');
+                if (cb) cb.onchange = () => { protOnly = cb.checked; render(); };
+                const ps = q3('#dmm-pair');
+                if (ps) ps.onchange = () => { pairIdx = +ps.value; spec = pairs[pairIdx]; compute(); };
+                Array.prototype.forEach.call(panel.querySelectorAll('.dmm-g'), (tr) => {
+                    tr.onclick = () => { const gname = tr.getAttribute('data-g'); if (expanded.has(gname)) expanded.delete(gname); else expanded.add(gname); render(); };
+                });
+            };
+            let run = 0;
+            const compute = async () => {
+                const mine = ++run;
+                busy = true; err = ''; R = null;
+                render();
+                say('Collecting the variants of ' + spec.labelA + ' and ' + spec.labelB + ' in the region…');
+                const recs = dmmCollect(regs, spec);
+                const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                try { if (recs.length) await dmmConsequences(recs, em, say); }
+                catch (e) { if (mine === run) { busy = false; err = 'The consequences could not be read: ' + (e && e.message ? e.message : e); R = { genes: [] }; render(); } return; }
+                if (mine !== run) return;       // a newer pair or swap took over
+                busy = false;
+                R = dmmBuild(recs, spec);
+                render();
+                step('mutational matrix ' + spec.labelA + ' vs ' + spec.labelB + ': ' + recs.length + ' variants, ' + R.genes.length + ' genes');
+            };
+            q3('#dmm-back').onclick = () => close3();
+            q3('#dmm-swap').onclick = () => { spec = dmmSwap(spec); pairs[pairIdx] = spec; compute(); };
+            q3('#dmm-csv').onclick = () => {
+                if (!R || !R.recs) return;
+                try {
+                    dlSaveText(dmmCSV(R), dlSafe(dlSpecies() + '_' + spec.labelA + '_vs_' + spec.labelB + '_' + headTitle + '_mutational_matrix') + '.csv', 'text/csv');
+                } catch (e) { graph.setMessage(' Could not build the CSV: ' + (e && e.message ? e.message : e) + ' '); }
+            };
+            compute();
+        };
+
         const openRegions = async (list, focusBp, straight) => {
             const regs = (list || []).filter((q) => q && q.i >= 0 && q.i < drawn.length
                 && isFinite(q.lo) && isFinite(q.hi) && q.hi >= q.lo);
@@ -16173,6 +16522,12 @@ function (path, config) {
                 // moment someone is about to leave the screen is the moment to say so.
                 + '<button id="kr-save" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
                 + 'border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Save a copy</button>'
+                + '<span style="position:relative;display:inline-block;">'
+                + '<button id="kr-analysis" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;'
+                + 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Analysis ▾</button>'
+                + '<div id="kr-analysis-menu" style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:380px;'
+                + 'z-index:2;background:#0b2545;border:1px solid rgba(255,255,255,0.18);border-radius:10px;'
+                + 'box-shadow:0 12px 32px rgba(0,0,0,0.5);padding:8px;"></div></span>'
                 + '<button id="kr-go" style="cursor:pointer;border-radius:8px;padding:9px 18px;font:700 12.5px Arial;'
                 + 'border:1px solid #22c55e;background:#22c55e;color:#04210f;">Open in editor</button>'
                 + '</div></div>'
@@ -16218,6 +16573,79 @@ function (path, config) {
                     graph.setMessage(' Could not save a copy: ' + (e && e.message ? e.message : e) + ' ');
                 }
             };
+            // ANALYSIS: WHAT ELSE THIS SELECTION CAN BE ASKED. The editor is one destination
+            // for a set of genes; these are the others. Each item says why it cannot run
+            // rather than disappearing, so the menu itself says what it needs.
+            const amenu = q2('#kr-analysis-menu');
+            const tickedGenes = () => {
+                let list = qa2('.kr-g').filter((cb) => cb.checked).map((cb) => genes[+cb.getAttribute('data-i')]);
+                if (!list.length) list = genes.slice();
+                const seen = new Set();
+                return list.filter((gn) => {
+                    const k = ('' + (gn.gene || '')).toUpperCase();
+                    if (!k || seen.has(k)) return false;
+                    seen.add(k);
+                    return true;
+                });
+            };
+            const aItem = (id, icon, title, blurb, why) => '<div class="kr-a" data-id="' + id + '" style="display:flex;gap:10px;'
+                + 'padding:10px 10px;border-radius:8px;' + (why ? 'opacity:0.55;cursor:default;' : 'cursor:pointer;') + '">'
+                + '<span class="material-icons" style="font-size:20px;color:' + (why ? '#9fb3c8' : '#fbbf24') + ';">' + icon + '</span>'
+                + '<span style="min-width:0;"><span style="font:700 13px Arial;color:#e8f0fb;">' + esc2(title) + '</span><br/>'
+                + '<span style="font:12px Arial;color:#9fb3c8;">' + esc2(why || blurb) + '</span></span></div>';
+            const showAnalysis = () => {
+                const pairs = dmmPairs();
+                const dmmWhy = !pairs.length
+                    ? 'Needs two samples: a VCF with two or more sample columns, or a second file loaded on the other side of the chromosomes.'
+                    : (!inRange.length ? 'No variants are loaded in this region.' : '');
+                const nPick = tickedGenes().length;
+                amenu.innerHTML = ''
+                    + aItem('dmm', 'grid_on', 'Differential mutational matrix',
+                        'Genes mutated in one sample and not the other across this region, with each change\'s consequence, '
+                        + 'the evidence that the other sample lacks it, and the substitution spectrum of each side. '
+                        + (pairs.length ? 'Compares ' + pairs[0].labelA + ' (A) with ' + pairs[0].labelB + ' (B)'
+                            + (pairs.length > 1 ? '; ' + (pairs.length - 1) + ' other pair' + (pairs.length > 2 ? 's' : '') + ' can be chosen inside' : '') + '.' : ''),
+                        dmmWhy)
+                    + aItem('sl', 'biotech', 'Synthetic lethality with ' + (nPick === genes.length ? 'these genes' : 'the ticked genes'),
+                        'Put ' + nPick + ' gene' + (nPick === 1 ? '' : 's') + ' into the microscope\'s selection and open ' + BAJA3
+                        + ': the DepMap screen, the published catalogue and the paralog model.', nPick ? '' : 'No genes to select.')
+                    + aItem('lib', 'science', 'Everything else in Analyze',
+                        'The loss matrix, differential loss, loss of heterozygosity and allele-selective targets, over the whole genome.', '');
+                Array.prototype.forEach.call(amenu.querySelectorAll('.kr-a'), (el) => {
+                    el.onmouseenter = () => { if (el.style.cursor === 'pointer') el.style.background = 'rgba(255,255,255,0.07)'; };
+                    el.onmouseleave = () => { el.style.background = ''; };
+                    el.onclick = (e) => {
+                        e.stopPropagation();
+                        if (el.style.cursor !== 'pointer') return;
+                        amenu.style.display = 'none';
+                        const id = el.getAttribute('data-id');
+                        if (id === 'dmm') { openDiffMutMatrix(regs, headTitle, pairs); return; }
+                        if (id === 'sl') {
+                            for (const gn of tickedGenes()) {
+                                const key = ('' + gn.gene).toUpperCase();
+                                if (selGenes.has(key)) continue;
+                                const ci = chromIndexOf(gn.__chr || '');
+                                selGenes.set(key, { gene: gn.gene, chr: gn.__chr || (ci >= 0 ? drawn[ci].name : ''), start: +gn.start, end: +gn.end,
+                                    strand: gn.strand, transcript: gn.transcript, biotype: gn.biotype, variants: [] });
+                            }
+                            if (graph.wake) graph.wake();
+                            close2();
+                            graph.setMessage(' ' + selWord() + ' selected for the microscope. ');
+                            try { synLethalMenu(); } catch (e2) { step('synthetic lethality menu: ' + e2); }
+                            return;
+                        }
+                        if (id === 'lib') { close2(); try { analysisMenu(); } catch (e2) { step('analysis menu: ' + e2); } }
+                    };
+                });
+                amenu.style.display = 'block';
+            };
+            q2('#kr-analysis').onclick = (e) => {
+                e.stopPropagation();
+                if (amenu.style.display === 'block') amenu.style.display = 'none'; else showAnalysis();
+            };
+            panel.addEventListener('click', (e) => {
+                if (amenu.style.display === 'block' && !amenu.contains(e.target)) amenu.style.display = 'none';
+            });
             // OPENING THE EDITOR IS SLOW AND USED TO LOOK INSTANT.
             //
             // handToEditor waits for the editor to come up and report a graph, polling for as

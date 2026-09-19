@@ -43,6 +43,11 @@ Resolves:
     { gene, gene_id, chr, start, end, strand, transcript, biotype, lof: 1,
       variants: [{ pos, ref, alt, effect, hgvs_c, hgvs_p }], n_lof, n_other }
   counts: JSON { effect -> n } over every variant scanned, LoF or not.
+
+  With "all": true in the request every gene a variant falls in is returned, not only the
+  lost ones, and each gene's `variants` lists every change with its effect -- the Genome
+  Viewer's differential mutational matrix reads consequences this way. LoF genes still
+  sort first and carry lof: 1.
 """
 import json
 import os
@@ -526,6 +531,7 @@ else:
         req = {}
 species = (str(req.get("species") or "human").strip().lower() or "human")
 variants = req.get("variants") or {}
+want_all = bool(req.get("all"))
 out["species"] = species
 
 total = 0
@@ -679,12 +685,13 @@ else:
                     if eff in LOF:
                         g["lof"] = 1
                         g["n_lof"] += 1
-                        g["variants"].append({"pos": pos, "ref": ref, "alt": alt, "effect": eff,
-                                              "hgvs_c": hc, "hgvs_p": hp})
                     else:
                         g["n_other"] += 1
+                    if eff in LOF or want_all:
+                        g["variants"].append({"pos": pos, "ref": ref, "alt": alt, "effect": eff,
+                                              "hgvs_c": hc, "hgvs_p": hp})
                 i = j + 1
-        lost = [g for g in genes.values() if g["lof"]]
+        lost = [g for g in genes.values() if g["lof"] or (want_all and g["variants"])]
         for g in lost:
             g["variants"].sort(key=lambda v: (SEVERITY.get(v["effect"], 99), v["pos"]))
         lost.sort(key=lambda g: (SEVERITY.get(g["variants"][0]["effect"], 99), -g["n_lof"], g["gene"]))
@@ -700,6 +707,7 @@ else:
         out["genes"] = json.dumps(lost)
         out["counts"] = json.dumps(counts)
         out["notes"] = json.dumps(notes)
-        works.msg("%d gene(s) with a loss-of-function variant among %d variant(s)" % (len(lost), scanned))
+        works.msg("%d gene(s) with a loss-of-function variant among %d variant(s)"
+                  % (sum(1 for g in lost if g["lof"]), scanned))
 
 works.resolve(out)
