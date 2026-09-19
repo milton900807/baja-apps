@@ -29,7 +29,7 @@ Six actions (param 1):
   depmap      JSON { genes: [symbol, ...] }  (human; up to MAX_DEPMAP_GENES)
       -> { ok, n_models, genes: JSON { SYMBOL: { effect_mean, effect_median, dep_frac, class,
                 n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...},
-                tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]] },
+                tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]], stem: [[type, tpm]] },
                 fn: { desc, cats: [...], terms: [...] } } } }
       What the cell-line panel says about each gene in a design strategy: how essential it is,
       where it is most essential, whether the lines that are themselves down to one copy of it
@@ -41,9 +41,10 @@ Six actions (param 1):
       from reference_data/geneannot; null when that bundle has no such symbol.
 
   tpm         JSON [symbol, ...]  (up to MAX_TPM_GENES)
-      -> { ok, source, n_cns, tissues: [label, ...], values: JSON { SYMBOL: [tpm, ...] } }
-      GTEx TPM only, in the order of tissues (the first n_cns are the CNS), for the tract gene
-      lists; genes GTEx lacks are left out.
+      -> { ok, source, stem_source, n_cns, n_stem, tissues: [label, ...],
+           values: JSON { SYMBOL: [tpm, ...] } }
+      Expression only, in the order of tissues -- the first n_cns are the CNS, the last n_stem
+      are stem and progenitor cells -- for the tract gene lists; genes GTEx lacks are left out.
 
   assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...],
                      gain_of_function: [...], context }
@@ -177,6 +178,34 @@ def gene_function(symbols):
     return out_
 
 
+# Stem and progenitor cells (ENCODE RNA-seq, built by py/bio/build-stemcell-tpm.py): GTEx samples
+# adult tissue only, and a gene a tumour depends on may be a gene the tissue's own progenitors
+# depend on too -- which is the difference between a tolerable therapy and one that stops renewal.
+STEM_FILE = "reference_data/stemcell/stem-tpm.tsv.gz"
+STEM_SOURCE = "ENCODE RNA-seq, TPM"
+
+
+def stem_tpm(symbols):
+    """({SYMBOL: [tpm, ...]}, [label, ...]) for the stem and progenitor panel."""
+    import gzip
+    path = first_existing(STEM_FILE)
+    want = set(symbols)
+    if not path or not want:
+        return {}, []
+    vals = {}
+    with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+        labels = fh.readline().rstrip("\n").split("\t")[1:]
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if not f or f[0] not in want:
+                continue
+            try:
+                vals[f[0]] = [round(float(x), 2) for x in f[1:]]
+            except ValueError:
+                continue
+    return vals, labels
+
+
 def gtex_tpm(symbols):
     """{SYMBOL: {source, cns: [[label, tpm]], other: [[label, tpm]]}} for the symbols GTEx has."""
     import gzip
@@ -202,7 +231,13 @@ def gtex_tpm(symbols):
             def panel(tissues):
                 return [[label, round(float(f[col[key]]), 2)] for key, label in tissues if key in col]
             found[sym] = (total, {"source": GTEX_SOURCE, "cns": panel(GTEX_CNS), "other": panel(GTEX_OTHER)})
-    return {s: v for s, (_, v) in found.items()}
+    out_ = {s: v for s, (_, v) in found.items()}
+    # Stem and progenitor cells alongside the tissues, from their own source.
+    sv, slabels = stem_tpm(want)
+    for sym, row in out_.items():
+        row["stem"] = [[slabels[i], v] for i, v in enumerate(sv.get(sym, []))] if sv.get(sym) else []
+        row["stem_source"] = STEM_SOURCE
+    return out_
 
 
 def tpm_only(symbols):
@@ -214,13 +249,16 @@ def tpm_only(symbols):
     want = [str(g).strip().upper() for g in (symbols or [])]
     want = [g for g in dict.fromkeys(want) if g][:MAX_TPM_GENES]
     got = gtex_tpm(want)
+    sv, slabels = stem_tpm(want)
     values = {}
     for g in want:
         v = got.get(g)
         if v:
-            values[g] = [x[1] for x in v["cns"]] + [x[1] for x in v["other"]]
-    return {"ok": True, "source": GTEX_SOURCE, "n_cns": len(GTEX_CNS),
-            "tissues": [label for _, label in GTEX_CNS] + [label for _, label in GTEX_OTHER],
+            values[g] = ([x[1] for x in v["cns"]] + [x[1] for x in v["other"]]
+                         + (sv.get(g) or [0.0] * len(slabels)))
+    return {"ok": True, "source": GTEX_SOURCE, "stem_source": STEM_SOURCE, "n_cns": len(GTEX_CNS),
+            "n_stem": len(slabels),
+            "tissues": [label for _, label in GTEX_CNS] + [label for _, label in GTEX_OTHER] + slabels,
             "values": json.dumps(values)}
 
 

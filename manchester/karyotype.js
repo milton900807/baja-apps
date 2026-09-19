@@ -9326,7 +9326,8 @@ function (path, config) {
                             const t = DMp && DMp[('' + gene).toUpperCase()] && DMp[('' + gene).toUpperCase()].tpm;
                             if (!t) return '';
                             const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
-                            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
+                            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.'
+                                + ((t.stem && t.stem.length) ? ' Stem and progenitor cells: ' + list(t.stem) + '.' : '');
                         };
                         sheets.push({ name: 'Essential genes with tumor-specific changes', rows: (essShown.length ? essShown.slice(0, 60).map((c) => ({
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
@@ -9431,7 +9432,7 @@ function (path, config) {
         const lohTpmFor = async (genes, say) => {
             const R = lohResult;
             if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
-            R.tpmT = R.tpmT || { tissues: null, n_cns: 0, source: '', values: {}, asked: {} };
+            R.tpmT = R.tpmT || { tissues: null, n_cns: 0, n_stem: 0, source: '', stem_source: '', values: {}, asked: {} };
             const T = R.tpmT;
             const want = [];
             for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !T.asked[k] && want.indexOf(k) < 0) want.push(k); }
@@ -9443,6 +9444,7 @@ function (path, config) {
                     let got = {};
                     try { got = JSON.parse(rs.values || '{}'); } catch (e) { got = {}; }
                     T.tissues = rs.tissues || T.tissues; T.n_cns = +rs.n_cns || T.n_cns; T.source = rs.source || T.source;
+                    T.n_stem = +rs.n_stem || T.n_stem; T.stem_source = rs.stem_source || T.stem_source;
                     for (const k of want.slice(0, 5000)) { T.asked[k] = 1; if (got[k]) T.values[k] = got[k]; }
                 }
             }
@@ -9495,7 +9497,8 @@ function (path, config) {
             const t = d && d.tpm;
             if (!t) return '';
             const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
-            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
+            return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.'
+                + ((t.stem && t.stem.length) ? ' Stem and progenitor cells (' + (t.stem_source || 'ENCODE') + '): ' + list(t.stem) + '.' : '');
         };
         // A tract's genes against the tissues, from the compact 'tpm' action: one row per gene,
         // the CNS columns first. Cells are shaded by level so the pattern reads at a glance.
@@ -9503,17 +9506,22 @@ function (path, config) {
             if (!T || !T.tissues) return '';
             const ncns = T.n_cns || 0;
             const shade = (v) => v >= 100 ? 'rgba(251,191,36,0.45)' : v >= 10 ? 'rgba(134,239,172,0.30)' : v >= 1 ? 'rgba(138,180,255,0.20)' : 'transparent';
-            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + (k < ncns ? '#c4b5fd' : '#9fb3c8') + ';'
-                + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
+            const nstem = T.n_stem || 0, stem0 = T.tissues.length - nstem;      // the stem columns are last
+            const colOf = (k) => k < ncns ? '#c4b5fd' : (nstem && k >= stem0) ? '#86efac' : '#9fb3c8';
+            const edge = (k) => (k === ncns || (nstem && k === stem0)) ? 'border-left:2px solid rgba(255,255,255,0.3);' : '';
+            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + colOf(k) + ';'
+                + edge(k) + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
             const rows = genes.map((g) => {
                 const v = T.values[('' + g).toUpperCase()];
                 return '<tr><td style="position:sticky;left:0;background:#0a1e3a;padding:2px 8px 2px 0;font:700 11px Arial;color:#e8f0fb;">' + esc(g) + '</td>'
-                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + '">' + tpmFmt(x) + '</td>').join('')
+                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + edge(k) + '">' + tpmFmt(x) + '</td>').join('')
                         : '<td colspan="' + T.tissues.length + '" style="color:#64748b;padding:2px 4px;">not in GTEx</td>') + '</tr>';
             }).join('');
             return '<div style="max-height:420px;overflow:auto;margin-top:6px;"><table style="border-collapse:collapse;font:11px Arial;color:#cfe0f5;">'
                 + '<thead><tr><th style="position:sticky;top:0;left:0;z-index:1;background:#0b2545;"></th>' + T.tissues.map(th).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
-                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(T.source || 'GTEx median TPM') + '. CNS columns first (purple), then other tissues.</div>';
+                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(T.source || 'GTEx median TPM')
+                + '. CNS columns first (purple), then other tissues'
+                + (nstem ? ', then stem and progenitor cells (green): ' + esc(T.stem_source || 'ENCODE RNA-seq, TPM') : '') + '.</div>';
         };
         const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
         const tpmHtml = (d, esc) => {
@@ -9524,7 +9532,10 @@ function (path, config) {
                 + '</div>' : '';
             return '<div style="margin-top:6px;font:11.5px Arial;color:#cfe0f5;line-height:1.6;">'
                 + '<span style="color:#9fb3c8;">Tissue expression (' + esc(t.source || 'GTEx median TPM') + ')</span>'
-                + row('CNS', t.cns) + row('Other tissues', t.other) + '</div>';
+                + row('CNS', t.cns) + row('Other tissues', t.other)
+                + ((t.stem && t.stem.length) ? row('Stem cells', t.stem)
+                    + '<div style="color:#9fb3c8;">Stem and progenitor cells: ' + esc(t.stem_source || 'ENCODE RNA-seq, TPM') + '</div>' : '')
+                + '</div>';
         };
         // One line of it, for a gene row.
         const dmText = (d, nModels) => {
@@ -9944,7 +9955,7 @@ function (path, config) {
                         if (!T || !T.tissues) return null;
                         const v = {};
                         for (const t of trs) for (const g of tractGenes(t)) { const k = ('' + g).toUpperCase(); if (T.values[k]) v[k] = T.values[k]; }
-                        return { source: T.source, n_cns: T.n_cns, tissues: T.tissues, values: v };
+                        return { source: T.source, stem_source: T.stem_source, n_cns: T.n_cns, n_stem: T.n_stem, tissues: T.tissues, values: v };
                     })(),
                     oncogenes: ONC.map((g) => ({ gene: g.gene, chr: g.chr, start: g.start, end: g.end, rank: g.rank, status: g.status,
                         lost: g.lost, kept: g.kept, frac: g.frac, variants: g.variants.map((x) => Object.assign(vD(x), { stateWord: gofStateWord(x) })) })),

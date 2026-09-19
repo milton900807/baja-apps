@@ -61,7 +61,10 @@ function () {
                 + '</div>' : '';
             return '<div style="margin-top:6px;font:11.5px Arial;color:#cfe0f5;line-height:1.6;">'
                 + '<span style="color:#9fb3c8;">Tissue expression (' + esc(t.source || 'GTEx median TPM') + ')</span>'
-                + row('CNS', t.cns) + row('Other tissues', t.other) + '</div>';
+                + row('CNS', t.cns) + row('Other tissues', t.other)
+                + ((t.stem && t.stem.length) ? row('Stem cells', t.stem)
+                    + '<div style="color:#9fb3c8;">Stem and progenitor cells: ' + esc(t.stem_source || 'ENCODE RNA-seq, TPM') + '</div>' : '')
+                + '</div>';
         };
         // A tract's genes against the tissues (doc.tractTpm: labels once, values per gene).
         const TT = doc.tractTpm || null;
@@ -69,17 +72,22 @@ function () {
             if (!TT || !TT.tissues) return '';
             const ncns = TT.n_cns || 0;
             const shade = (v) => v >= 100 ? 'rgba(251,191,36,0.45)' : v >= 10 ? 'rgba(134,239,172,0.30)' : v >= 1 ? 'rgba(138,180,255,0.20)' : 'transparent';
-            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + (k < ncns ? '#c4b5fd' : '#9fb3c8') + ';'
-                + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
+            const nstem = TT.n_stem || 0, stem0 = TT.tissues.length - nstem;      // the stem columns are last
+            const colOf = (k) => k < ncns ? '#c4b5fd' : (nstem && k >= stem0) ? '#86efac' : '#9fb3c8';
+            const edge = (k) => (k === ncns || (nstem && k === stem0)) ? 'border-left:2px solid rgba(255,255,255,0.3);' : '';
+            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + colOf(k) + ';'
+                + edge(k) + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
             const rows = genes.map((g) => {
                 const v = (TT.values || {})[('' + g).toUpperCase()];
                 return '<tr><td style="position:sticky;left:0;background:#0a1e3a;padding:2px 8px 2px 0;font:700 11px Arial;color:#e8f0fb;">' + esc(g) + '</td>'
-                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + '">' + tpmFmt(x) + '</td>').join('')
+                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + edge(k) + '">' + tpmFmt(x) + '</td>').join('')
                         : '<td colspan="' + TT.tissues.length + '" style="color:#64748b;padding:2px 4px;">not in GTEx</td>') + '</tr>';
             }).join('');
             return '<div style="max-height:420px;overflow:auto;margin-top:6px;"><table style="border-collapse:collapse;font:11px Arial;color:#cfe0f5;">'
                 + '<thead><tr><th style="position:sticky;top:0;left:0;z-index:1;background:#0b2545;"></th>' + TT.tissues.map(th).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
-                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(TT.source || 'GTEx median TPM') + '. CNS columns first (purple), then other tissues.</div>';
+                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(TT.source || 'GTEx median TPM')
+                + '. CNS columns first (purple), then other tissues'
+                + (nstem ? ', then stem and progenitor cells (green): ' + esc(TT.stem_source || 'ENCODE RNA-seq, TPM') : '') + '.</div>';
         };
         // A gene row. It can go to the editor when the file carries its transcript.
         const geneRow = (gene, chips, lines, after) => {
