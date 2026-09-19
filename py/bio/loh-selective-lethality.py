@@ -29,13 +29,16 @@ Six actions (param 1):
   depmap      JSON { genes: [symbol, ...] }  (human; up to MAX_DEPMAP_GENES)
       -> { ok, n_models, genes: JSON { SYMBOL: { effect_mean, effect_median, dep_frac, class,
                 n_models, lineages: [[lineage, mean_effect, n]], dosage: {...}, paralog: {...},
-                tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]] } } } }
+                tpm: { source, cns: [[tissue, tpm]], other: [[tissue, tpm]] },
+                fn: { desc, cats: [...], terms: [...] } } } }
       What the cell-line panel says about each gene in a design strategy: how essential it is,
       where it is most essential, whether the lines that are themselves down to one copy of it
       are more dependent (the dosage test, lineage regressed out, as loh-synthetic-lethal.py
       does it), and the paralog most likely to stand in for it. Genes DepMap never screened
       come back as { screened: false }. tpm is GTEx v10 median TPM: every CNS region GTEx
-      sampled, then other tissues; null when GTEx has no such symbol.
+      sampled, then other tissues; null when GTEx has no such symbol. fn is what the gene is
+      for -- a description and plain functional categories such as "stem cell / self-renewal" --
+      from reference_data/geneannot; null when that bundle has no such symbol.
 
   tpm         JSON [symbol, ...]  (up to MAX_TPM_GENES)
       -> { ok, source, n_cns, tissues: [label, ...], values: JSON { SYMBOL: [tpm, ...] } }
@@ -143,6 +146,37 @@ GTEX_OTHER = [
 ]
 
 
+# WHAT THE GENE IS FOR, from reference_data/geneannot (built by py/bio/build-gene-annotations.py
+# out of NCBI gene_info and the GO annotations): a descriptive name, a few plain functional
+# categories -- "stem cell / self-renewal", "splicing / spliceosome" -- and the process terms
+# behind them. A dependency score says how much a cell needs the gene; this says what for.
+GENEFN_FILE = "reference_data/geneannot/gene-function.tsv.gz"
+GENEFN_SOURCE = "NCBI Gene and the Gene Ontology"
+
+
+def gene_function(symbols):
+    """{SYMBOL: {desc, cats: [...], terms: [...]}} for the symbols the bundle knows."""
+    import gzip
+    path = first_existing(GENEFN_FILE)
+    want = set(symbols)
+    if not path or not want:
+        return {}
+    out_ = {}
+    with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+        fh.readline()
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 4 or f[0] not in want:
+                continue
+            cats = [x for x in f[2].split("|") if x]
+            terms = [x for x in f[3].split("|") if x]
+            if f[1] or cats or terms:
+                out_[f[0]] = {"desc": f[1], "cats": cats, "terms": terms, "source": GENEFN_SOURCE}
+            if len(out_) == len(want):
+                break
+    return out_
+
+
 def gtex_tpm(symbols):
     """{SYMBOL: {source, cns: [[label, tpm]], other: [[label, tpm]]}} for the symbols GTEx has."""
     import gzip
@@ -207,8 +241,10 @@ def depmap(req):
     known = [g for g in want if g in gidx]
     res = {g: {"screened": False} for g in want if g not in gidx}
     tpm = gtex_tpm(want)
+    fn = gene_function(want)
     for g in res:
         res[g]["tpm"] = tpm.get(g)          # always present, so a cached row shows it was looked up
+        res[g]["fn"] = fn.get(g)
     if not known:
         return {"ok": True, "n_models": 0, "genes": json.dumps(res)}
     works.msg("Reading DepMap for %d gene(s)…" % len(known))
@@ -312,6 +348,7 @@ def depmap(req):
             res[a]["paralog"] = {"gene": b2, "pred": round(pr, 3)}
     for g in known:
         res[g]["tpm"] = tpm.get(g)
+        res[g]["fn"] = fn.get(g)
     return {"ok": True, "n_models": int(n_models), "genes": json.dumps(res)}
 
 

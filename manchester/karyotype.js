@@ -9304,6 +9304,7 @@ function (path, config) {
                         'Changes': x.variants.length ? x.variants.slice(0, 6).map((v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : '') + ' - '
                             + (v.origin === 'somatic' ? 'somatic' : 'germline, other allele lost') + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ')
                             : 'none: one copy left, or two identical ones',
+                        'What the gene is for': fnPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
                         'Tissue expression (GTEx v10, median TPM)': tpmPlain(DMe && DMe[('' + x.gene).toUpperCase()]),
                     })).concat(EIL0.length > 80 ? [{ 'More': (EIL0.length - 80) + ' further essential genes in the tracts.' }] : [])
                     : [{ 'Result': 'No essential gene lies inside an LOH tract.' }] });
@@ -9329,11 +9330,13 @@ function (path, config) {
                             'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
                             'DepMap': dep(c.g),
                             'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
+                            'What the gene is for': fnPlain(DMp && DMp[('' + c.g.gene).toUpperCase()]),
                             'Tissue expression (GTEx v10, median TPM)': tpmText(c.g.gene),
                         })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
                             : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }])
                             .concat([{ 'Source': 'DepMap, ' + DEPMAP_PORTAL + ' . ' + DEPMAP_CITES.map((c) => c.text + ' https://doi.org/' + c.doi).join(' ')
-                                + ' Tissue expression: GTEx Portal, release v10, gene median TPM, https://gtexportal.org .' }]) });
+                                + ' Tissue expression: GTEx Portal, release v10, gene median TPM, https://gtexportal.org .'
+                                + ' What the gene is for: NCBI Gene, and the Gene Ontology (GO annotations for human), https://geneontology.org .' }]) });
                         const As = SL.assessment || {};
                         sheets.push({ name: 'Selective lethality assessment', rows: [{
                             'What this is': 'Hypotheses, not findings: a language model was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
@@ -9448,7 +9451,7 @@ function (path, config) {
             if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
             R.dm = R.dm || {};
             const want = [];
-            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !(R.dm[k] && 'tpm' in R.dm[k]) && want.indexOf(k) < 0) want.push(k); }   // no tpm key: cached before GTEx was added
+            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !(R.dm[k] && 'tpm' in R.dm[k] && 'fn' in R.dm[k]) && want.indexOf(k) < 0) want.push(k); }   // a missing key means the row was cached before that lookup existed
             if (want.length) {
                 const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
                 if (say) say('Reading DepMap for ' + want.length + ' gene' + (want.length === 1 ? '' : 's') + '...');
@@ -9462,8 +9465,30 @@ function (path, config) {
             }
             return R.dm;
         };
+        // WHAT THE GENE IS FOR, under a gene row: its description, the functional categories
+        // ("stem cell / self-renewal", "splicing / spliceosome") and the process terms behind
+        // them. Stem-cell and cancer-pathway categories are coloured: on a gene the tumour
+        // cannot do without, those are the ones that change what a design is aiming at.
+        const FN_HOT = { 'stem cell / self-renewal': '#fbbf24', 'cancer-associated pathway': '#f87171', 'telomere maintenance': '#fbbf24' };
+        const fnHtml = (d, esc) => {
+            const f = d && d.fn;
+            if (!f) return '';
+            const chipf = (t) => { const c = FN_HOT[t] || '#a78bfa';
+                return '<span style="display:inline-block;border-radius:20px;padding:1px 8px;margin:0 6px 4px 0;font:700 11px Arial;white-space:nowrap;'
+                    + 'background:' + c + '22;border:1px solid ' + c + '99;color:' + c + ';">' + esc(t) + '</span>'; };
+            return '<div style="margin-top:6px;font:12px Arial;color:#cfe0f5;line-height:1.55;">'
+                + (f.desc ? '<span style="color:#e8f0fb;">' + esc(f.desc) + '</span>' : '')
+                + ((f.cats && f.cats.length) ? '<div style="margin-top:4px;">' + f.cats.map(chipf).join('') + '</div>' : '')
+                + ((f.terms && f.terms.length) ? '<div style="font:11.5px Arial;color:#9fb3c8;">' + esc(f.terms.join(' \u00b7 ')) + '</div>' : '')
+                + '</div>';
+        };
         // Tissue expression (GTEx median TPM) for a gene row: CNS first, then other tissues.
         const tpmFmt = (v) => v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+        const fnPlain = (d) => {
+            const f = d && d.fn;
+            if (!f) return '';
+            return [f.desc || '', (f.cats || []).join(', '), (f.terms || []).join('; ')].filter(Boolean).join('. ');
+        };
         const tpmPlain = (d) => {
             const t = d && d.tpm;
             if (!t) return '';
@@ -9801,7 +9826,7 @@ function (path, config) {
                             chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
                             '<span style="color:#9fb3c8;">' + esc(eilLohText(x)) + '</span>'
                             + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
-                            tpmHtml(DM && DM[('' + x.gene).toUpperCase()], esc));
+                            fnHtml(DM && DM[('' + x.gene).toUpperCase()], esc) + tpmHtml(DM && DM[('' + x.gene).toUpperCase()], esc));
                     }).join('') : card('No essential gene lies inside an LOH tract.'));
                 }
                 // ESSENTIAL GENES
@@ -9810,7 +9835,7 @@ function (path, config) {
                         ESS.error ? card(esc(ESS.error)) : ESS.candidates.length ? essOrder(ESS.candidates).slice(0, 60).map((c) => geneRow(byGene.get(('' + c.g.gene).toUpperCase()),
                             chip(c.g.cls, '#60a5fa') + (c.loh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
                             esc('dependency in ' + Math.round(c.g.dep_frac * 100) + '% of cell lines, mean effect ' + c.g.effect_mean.toFixed(2)) + '<br/>' + c.variants.slice(0, 6).map(vLine).join('<br/>'),
-                            tpmHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc))).join('')
+                            fnHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc) + tpmHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
                     h += depmapCiteHtml(esc);
                     // CLAUDE

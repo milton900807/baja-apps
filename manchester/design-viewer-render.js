@@ -35,6 +35,21 @@ function () {
             if (d.paralog) bits.push('closest paralog ' + d.paralog.gene + ' (model ' + d.paralog.pred + ')');
             return '<br/><span style="color:#9fb3c8;">' + esc('DepMap: ' + bits.join('; ')) + '</span>';
         };
+        // What the gene is for, saved with its DepMap row: the description, the functional
+        // categories and the process terms behind them.
+        const FN_HOT = { 'stem cell / self-renewal': '#fbbf24', 'cancer-associated pathway': '#f87171', 'telomere maintenance': '#fbbf24' };
+        const fnHtml = (gene) => {
+            const d = DM[('' + gene).toUpperCase()], f = d && d.fn;
+            if (!f) return '';
+            const chipf = (t) => { const c = FN_HOT[t] || '#a78bfa';
+                return '<span style="display:inline-block;border-radius:20px;padding:1px 8px;margin:0 6px 4px 0;font:700 11px Arial;white-space:nowrap;'
+                    + 'background:' + c + '22;border:1px solid ' + c + '99;color:' + c + ';">' + esc(t) + '</span>'; };
+            return '<div style="margin-top:6px;font:12px Arial;color:#cfe0f5;line-height:1.55;">'
+                + (f.desc ? '<span style="color:#e8f0fb;">' + esc(f.desc) + '</span>' : '')
+                + ((f.cats && f.cats.length) ? '<div style="margin-top:4px;">' + f.cats.map(chipf).join('') + '</div>' : '')
+                + ((f.terms && f.terms.length) ? '<div style="font:11.5px Arial;color:#9fb3c8;">' + esc(f.terms.join(' \u00b7 ')) + '</div>' : '')
+                + '</div>';
+        };
         // Tissue expression (GTEx median TPM), saved with the gene's DepMap row: CNS first.
         const tpmFmt = (v) => v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(0) : v.toFixed(1);
         const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
@@ -154,7 +169,7 @@ function () {
                         : 'No heterozygous site inside the gene; the tract around it carries the call.');
                 return geneRow(x.gene, chip(x.cls, '#60a5fa') + ' ' + chip(changed ? 'tumor-specific change' : 'no change', changed ? '#fbbf24' : '#94a3b8'),
                     '<span style="color:#9fb3c8;">' + esc(lohTxt) + '</span>' + (changed ? '<br/>' + x.variants.slice(0, 6).map(vLine).join('<br/>') : ''),
-                    tpmHtml(x.gene));
+                    fnHtml(x.gene) + tpmHtml(x.gene));
             }).join('') : card('No essential gene lies inside an LOH tract.'));
         }
         const gl = Array.isArray(doc.essentialInLoh) ? [] : ((doc.gof && doc.gof.list) || []);
@@ -171,7 +186,7 @@ function () {
         if (doc.essential) {
             h += section('Essential genes with tumor-specific changes', 'Insertions and deletions first, missense last.',
                 doc.essential.length ? doc.essential.slice(0, 60).map((c) => geneRow(c.gene, chip(c.cls, '#60a5fa') + (c.inLoh ? ' ' + chip('in an LOH tract', '#a855f7') : ''),
-                    (c.variants || []).slice(0, 6).map(vLine).join('<br/>'), tpmHtml(c.gene))).join('')
+                    (c.variants || []).slice(0, 6).map(vLine).join('<br/>'), fnHtml(c.gene) + tpmHtml(c.gene))).join('')
                     : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
             // Where the dependency numbers come from, as the strategy cited them when it was saved.
             const cites = (doc.depmapCitations && doc.depmapCitations.length) ? doc.depmapCitations : [
