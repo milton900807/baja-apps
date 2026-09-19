@@ -8214,7 +8214,9 @@ function (path, config) {
             out.uncalled = out.het - seen.size;
             return out;
         };
-        const lohFindGenes = async () => {
+        // `then`, when given, runs instead of reopening the LOH shelf: the PDF report lists
+        // the genes as its own first step and carries on from here.
+        const lohFindGenes = async (then) => {
             if (!lohResult || lohGeneBusy) return;
             const spans = [];
             for (const c2 of lohResult.chroms) for (const run of (c2.runs || [])) spans.push({ ci: c2.ci, name: c2.name, lo: run.lo, hi: run.hi });
@@ -8292,6 +8294,7 @@ function (path, config) {
                 try { graph.setError(' The genes could not be read: ' + (e && e.message ? e.message : e) + ' ', 8); } catch (e2) { }
             }
             lohGeneBusy = false;
+            if (typeof then === 'function') { then(); return; }
             // AND THE MENU ITSELF IS NOT FREE. lohMenu builds one card per gene and the shelf
             // renders every one into the DOM, which on a few thousand genes is its own visible
             // pause -- after the work has finished and the counters have stopped moving, which
@@ -8320,6 +8323,367 @@ function (path, config) {
             retained_heterozygous: g.kept, not_called_in_tumor: g.uncalled,
             loh_fraction: Math.round(g.frac * 1000) / 1000, tract: g.chr + ':' + g.tract,
         })));
+
+        // ---- THE LOH REPORT, AS A PDF ---------------------------------------------------------
+        //
+        // What the scan found, written down for someone who was not looking at the screen:
+        // how much of the genome lost an allele, which large pieces of which chromosomes
+        // went (named by cytoband, and called whole-chromosome, arm-level or segmental), and
+        // what that did to the tumor suppressors inside them -- including the question LOH
+        // exists to answer, whether the one copy left is ALSO broken. Rendered by
+        // /export-table like the other reports on this screen, with the genome map drawn
+        // here as a picture.
+        const LOH_LARGE = 10e6;          // a tract at least this long is a large loss
+        const LOH_HRD_MIN = 15e6;        // the HRD-LOH convention: LOH regions longer than this...
+        const LOH_ARM_COVER = 0.8;       // ...an arm or chromosome this covered counts as all of it
+        let lohReportBusy = false;
+        const chrShort = (nm) => ('' + nm).replace(/^chr/i, '');
+        const bandAt = (c, p) => {
+            const bs = c.bands || [];
+            for (let i = 0; i < bs.length; i++) if (p >= bs[i].start && p < bs[i].end) return bs[i].name || '';
+            return '';
+        };
+        // "17p13.3-p11.2", or "" where the karyotype carries no band names (most non-human).
+        const bandSpan = (c, lo, hi) => {
+            const a = bandAt(c, lo), b = bandAt(c, hi);
+            if (!a && !b) return '';
+            const s = chrShort(c.name);
+            return s + (a || '?') + (b && b !== a ? '-' + b : '');
+        };
+        // Arms that can carry an informative site: an acrocentric p arm is satellite and
+        // stalk, with nothing a VCF calls on it, so it cannot count against a whole-
+        // chromosome loss.
+        const armsOf = (c) => {
+            const cen = c.centromere;
+            if (!cen || !(cen.start > 0) || !(cen.end < c.length)) return [{ name: '', lo: 0, hi: c.length }];
+            const arms = [];
+            if (cen.start >= 0.2 * c.length) arms.push({ name: 'p', lo: 0, hi: cen.start });
+            arms.push({ name: 'q', lo: cen.end, hi: c.length });
+            return arms;
+        };
+        const tractExtent = (c, lo, hi) => {
+            const cover = (a) => Math.max(0, Math.min(hi, a.hi) - Math.max(lo, a.lo)) / Math.max(1, a.hi - a.lo);
+            const arms = armsOf(c);
+            const covered = arms.filter((a) => cover(a) >= LOH_ARM_COVER);
+            if (covered.length === arms.length) return { word: 'whole chromosome', rank: 0, whole: true, arms: '' };
+            const armNames = covered.map((a) => a.name).join('');
+            if (covered.length) return { word: 'arm-level (' + chrShort(c.name) + armNames + ')', rank: 1, whole: false, arms: armNames };
+            if (hi - lo >= LOH_LARGE) return { word: 'large segment', rank: 2, whole: false, arms: '' };
+            return { word: 'focal', rank: 3, whole: false, arms: '' };
+        };
+        // The tumor's own reads at one variant: does the allele sit on the copy that is
+        // left, on the one that went, or is the tumor still carrying both?
+        const tumorAlleleState = (gt, b) => {
+            if (b >= 0) return b >= T_LOST_HI ? 'retained' : (b <= T_LOST_LO ? 'lost' : 'both');
+            if (gt === GT_HOM || gt === GT_HOMP) return 'retained';
+            if (gt === GT_REF) return 'lost';
+            if (gt === GT_NONE) return 'uncalled';
+            return 'both';
+        };
+        // THE SECOND HIT. For each tumor suppressor in a tract: every variant either sample
+        // carries inside it, its consequence (loss-matrix.py, the same reading the loss
+        // matrix uses), whether it is germline or the tumor's own, and where the tumor's
+        // reads put it. A damaging change on the only copy left is biallelic inactivation.
+        const lohSecondHits = async (genes, spec, say) => {
+            const recs = [], perGene = new Map();
+            for (const g of genes) {
+                const ci = g.ci, d = vdata[ci];
+                const list = [];
+                perGene.set(g.gene, list);
+                if (!d || !d.n) continue;
+                let a = 0, z = d.n;
+                while (a < z) { const m = (a + z) >> 1; if (d.pos[m] < g.start - 10) a = m + 1; else z = m; }
+                // Two files: each side's entries by allele, so a variant in both files is read
+                // once, from the tumor's entry, whichever of the two comes first in storage.
+                const normalAt = new Map(), tumorAt = new Map();
+                if (spec.kind === 'side') {
+                    for (let k = a; k < d.n && d.pos[k] <= g.end + 10; k++) {
+                        const sd = d.side ? d.side[k] : 0, ab = allelesAt(ci, k), ak = d.pos[k] + ':' + ab[0] + ':' + ab[1];
+                        if (sd === spec.normal) normalAt.set(ak, k); else if (sd === spec.tumor) tumorAt.set(ak, k);
+                    }
+                }
+                const seen = new Set();
+                for (let k = a; k < d.n && d.pos[k] <= g.end + 10; k++) {
+                    const ab = allelesAt(ci, k);
+                    const ak = d.pos[k] + ':' + ab[0] + ':' + ab[1], key = ci + ':' + ak;
+                    if (seen.has(key)) continue;
+                    let inN, inT, gtT, bT;
+                    if (spec.kind === 'sample') {
+                        const gN = gtOf(d, k, spec.normal); gtT = gtOf(d, k, spec.tumor); bT = bafOf(d, k, spec.tumor);
+                        inN = gN >= GT_HET; inT = gtT >= GT_HET;
+                    } else {
+                        const tk = tumorAt.has(ak) ? tumorAt.get(ak) : -1;
+                        inN = normalAt.has(ak);
+                        if (tk >= 0) {
+                            gtT = d.gtw ? gtOfSide(d, tk, spec.tumor) : GT_HET; bT = bafOfSide(d, tk, spec.tumor);
+                            inT = gtT !== GT_REF;
+                        } else {
+                            // A germline variant the tumor file never called: lost with its copy, or not covered.
+                            gtT = GT_NONE; bT = -1; inT = false;
+                        }
+                    }
+                    if (!inN && !inT) continue;
+                    seen.add(key);
+                    const v = { key: key, ci: ci, pos: d.pos[k], ref: ab[0], alt: ab[1],
+                        origin: inN ? 'germline' : 'somatic', state: tumorAlleleState(gtT, bT),
+                        baf: bT };
+                    list.push(v);
+                    recs.push(v);
+                }
+            }
+            if (recs.length) {
+                const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                await dmmConsequences(recs, em, say);
+            }
+            const out = new Map();
+            for (const g of genes) {
+                const vs = (perGene.get(g.gene) || []).map((v) => {
+                    const e = dmmEffCache.get(v.key);
+                    return Object.assign(v, { effect: e ? e.effect : 'intergenic', gene: e ? e.gene : '', hgvs: e ? (e.hgvs_p || e.hgvs_c || '') : '' });
+                }).filter((v) => v.gene && ('' + v.gene).toUpperCase() === ('' + g.gene).toUpperCase() && v.effect !== 'intronic' && v.effect !== 'intergenic');
+                vs.sort((x, y) => dmmSev(x.effect) - dmmSev(y.effect) || x.pos - y.pos);
+                const lofOnKept = vs.find((v) => DMM_LOF.has(v.effect) && v.state === 'retained');
+                const protOnKept = vs.find((v) => DMM_PROTEIN.has(v.effect) && v.state === 'retained');
+                const lofBoth = vs.find((v) => DMM_LOF.has(v.effect) && v.state === 'both');
+                const lofGone = vs.find((v) => DMM_LOF.has(v.effect) && v.origin === 'germline' && v.state === 'lost');
+                const hv = (v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : '') + ' (' + v.origin + ')';
+                let verdict, rank;
+                if (lofOnKept) { verdict = 'Biallelic: LOH plus ' + hv(lofOnKept) + ' on the only copy left'; rank = 0; }
+                else if (lofBoth) { verdict = 'Damaging change, but the tumor still reads both alleles there: ' + hv(lofBoth) + '. Possibly subclonal, or the loss here is partial'; rank = 1; }
+                else if (protOnKept) { verdict = 'Possible second hit: ' + hv(protOnKept) + ' on the copy left, of uncertain effect'; rank = 2; }
+                else if (lofGone) { verdict = 'The germline ' + dmmWord(lofGone.effect) + (lofGone.hgvs ? ' ' + lofGone.hgvs : '') + ' was on the copy that was lost; the copy left is intact at that site'; rank = 3; }
+                else { verdict = 'One copy left; no second hit in the VCF'; rank = 4; }
+                out.set(g.gene, { verdict: verdict, rank: rank, variants: vs });
+            }
+            return out;
+        };
+        // THE GENOME MAP: every chromosome as a bar at scale, the tracts over it, the
+        // centromere marked, the tumor suppressors inside a tract named, and each
+        // chromosome's LOH fraction at the right. Drawn at twice the size it prints.
+        const lohFigurePNG = (R, tsgs, hits) => {
+            const rows = drawn.map((c, ci) => ({ c: c, ci: ci, st: R.chroms.find((x) => x.ci === ci) || null }));
+            const W = 1600, left = 120, right = 250, top = 118, rowH = 46;
+            const H = top + rows.length * rowH + 30;
+            const cv = document.createElement('canvas');
+            cv.width = W; cv.height = H;
+            const ctx = cv.getContext('2d');
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+            const maxLen = Math.max.apply(null, drawn.map((c) => c.length || 0)) || 1;
+            const barW = W - left - right, sx = (p) => left + (p / maxLen) * barW;
+            ctx.fillStyle = '#0f172a'; ctx.font = 'bold 30px Arial';
+            ctx.fillText('Loss of heterozygosity: ' + R.spec.labelT + ' against ' + R.spec.labelN, 24, 44);
+            ctx.font = '19px Arial'; ctx.fillStyle = '#475569';
+            ctx.fillText('Purple: LOH tract. Red label: tumor suppressor inside a tract (* = biallelic, a damaging change on the copy left).', 24, 76);
+            ctx.fillText('Right: share of the normal\'s heterozygous sites on that chromosome that lost an allele in the tumor.', 24, 100);
+            const TSGC = '#dc2626';
+            rows.forEach((row, i) => {
+                const y = top + i * rowH, c = row.c, bh = 14, by = y + 20;
+                ctx.fillStyle = '#0f172a'; ctx.font = 'bold 18px Arial'; ctx.textAlign = 'right';
+                ctx.fillText(chrShort(c.name), left - 14, by + 13);
+                ctx.textAlign = 'left';
+                ctx.fillStyle = row.st ? '#e2e8f0' : '#f1f5f9';
+                ctx.fillRect(sx(0), by, sx(c.length) - sx(0), bh);
+                ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.strokeRect(sx(0), by, sx(c.length) - sx(0), bh);
+                for (const t of (row.st ? row.st.runs : [])) {
+                    ctx.fillStyle = '#a855f7';
+                    ctx.fillRect(sx(t.lo), by - 3, Math.max(2, sx(t.hi) - sx(t.lo)), bh + 6);
+                }
+                if (c.centromere && c.centromere.start > 0) {
+                    const cx = sx((c.centromere.start + c.centromere.end) / 2);
+                    ctx.fillStyle = '#334155';
+                    ctx.beginPath(); ctx.moveTo(cx - 5, by - 5); ctx.lineTo(cx + 5, by - 5); ctx.lineTo(cx, by + 1); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(cx - 5, by + bh + 5); ctx.lineTo(cx + 5, by + bh + 5); ctx.lineTo(cx, by + bh - 1); ctx.fill();
+                }
+                // Tumor suppressors, labels nudged apart so neighbours do not overprint.
+                let lastX = -1e9;
+                tsgs.filter((g) => g.ci === row.ci).sort((a, b) => a.start - b.start).forEach((g) => {
+                    const gx = sx((g.start + g.end) / 2), hit = hits.get(g.gene), bi = hit && hit.rank === 0;
+                    ctx.fillStyle = TSGC;
+                    ctx.fillRect(gx - 1.5, by - 6, 3, bh + 12);
+                    ctx.font = (bi ? 'bold ' : '') + '15px Arial';
+                    const label = g.gene + (bi ? '*' : '');
+                    const lw = ctx.measureText(label).width;
+                    const lx = Math.max(gx - lw / 2, lastX + 6);
+                    ctx.fillText(label, lx, by - 9);
+                    lastX = lx + lw;
+                });
+                ctx.textAlign = 'left';
+                if (row.st) {
+                    const f = row.st.frac, fx = W - right + 30;
+                    ctx.fillStyle = '#e2e8f0'; ctx.fillRect(fx, by, 120, bh);
+                    ctx.fillStyle = f >= 0.7 ? '#a855f7' : f >= 0.3 ? '#f97316' : '#94a3b8';
+                    ctx.fillRect(fx, by, Math.max(1, 120 * f), bh);
+                    ctx.fillStyle = '#0f172a'; ctx.font = '16px Arial';
+                    ctx.fillText(Math.round(f * 100) + '%', fx + 130, by + 13);
+                } else {
+                    ctx.fillStyle = '#94a3b8'; ctx.font = 'italic 15px Arial';
+                    ctx.fillText('no informative sites', W - right + 30, by + 13);
+                }
+            });
+            return cv.toDataURL('image/png');
+        };
+        const lohReportPDF = async () => {
+            if (lohReportBusy) { dlMsg('The report is still being built.'); return; }
+            const R = lohResult;
+            if (!R) { dlMsg('Run the loss-of-heterozygosity scan first.'); return; }
+            if (lohGeneBusy) { dlMsg('The genes in the tracts are still being read; build the report when they are listed.'); return; }
+            lohReportBusy = true;
+            try {
+                // The genes in the tracts are part of the report, so they are read here if the
+                // shelf's own card has not been pressed yet.
+                if (!R.genes && (R.chroms || []).some((c2) => c2.runs && c2.runs.length)) {
+                    await new Promise((res) => { lohFindGenes(res); });
+                }
+                const A = pdfAscii;
+                const pct = (x) => (Math.round(1000 * x) / 10) + '%';
+                const mb = (n) => (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + ' Mb';
+                const genes = R.genes || [];
+                const tsgs = genes.filter(lossIsTsg);
+                dlMsg('Reading the tumor suppressors in the tracts for a second hit...');
+                let hits = new Map();
+                try { hits = await lohSecondHits(tsgs, R.spec, (m) => dlMsg(m)); }
+                catch (e) { step('second hits: ' + e); }
+                const tracts = [];
+                for (const c2 of R.chroms) for (const t of (c2.runs || [])) {
+                    const c = drawn[c2.ci];
+                    const ext = tractExtent(c, t.lo, t.hi);
+                    const inside = tsgs.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi);
+                    const nGenes = genes.filter((g) => g.ci === c2.ci && g.end >= t.lo && g.start <= t.hi).length;
+                    tracts.push({ c: c, ci: c2.ci, lo: t.lo, hi: t.hi, n: t.n, len: t.hi - t.lo, ext: ext, tsg: inside, nGenes: nGenes });
+                }
+                tracts.sort((a, b) => a.ext.rank - b.ext.rank || b.len - a.len);
+                const scannedLen = R.chroms.reduce((s, c2) => s + (drawn[c2.ci].length || 0), 0);
+                const lohLen = tracts.reduce((s, t) => s + t.len, 0);
+                const nWhole = tracts.filter((t) => t.ext.rank === 0).length;
+                const nArm = tracts.filter((t) => t.ext.rank === 1).length;
+                const nLarge = tracts.filter((t) => t.ext.rank === 2).length;
+                const nFocal = tracts.filter((t) => t.ext.rank === 3).length;
+                const hrd = tracts.filter((t) => t.len > LOH_HRD_MIN && !t.ext.whole).length;
+                const biallelic = tsgs.filter((g) => { const h = hits.get(g.gene); return h && h.rank === 0; });
+                const possible = tsgs.filter((g) => { const h = hits.get(g.gene); return h && (h.rank === 1 || h.rank === 2); });
+
+                // THE HEADLINE, in sentences, for the reader who reads nothing else.
+                const lines = [];
+                lines.push(pct(R.het ? R.loh / R.het : 0) + ' of the ' + R.het.toLocaleString() + ' sites heterozygous in the normal lost an allele in the tumor, '
+                    + 'across ' + tracts.length + ' tract' + (tracts.length === 1 ? '' : 's') + ' covering ' + mb(lohLen) + ' (' + pct(scannedLen ? lohLen / scannedLen : 0) + ' of the chromosomes with informative sites).');
+                if (nWhole || nArm) lines.push((nWhole ? nWhole + ' whole-chromosome' : '') + (nWhole && nArm ? ' and ' : '') + (nArm ? nArm + ' arm-level' : '') + ' loss'
+                    + ((nWhole + nArm) === 1 ? '' : 'es') + ': ' + tracts.filter((t) => t.ext.rank <= 1).map((t) => chrShort(t.c.name) + t.ext.arms).join(', ') + '.');
+                if (biallelic.length) lines.push('Biallelic inactivation of ' + biallelic.map((g) => g.gene).join(', ') + ': LOH together with a damaging change on the remaining copy.');
+                if (tsgs.length) lines.push(tsgs.length + ' tumor suppressor' + (tsgs.length === 1 ? ' is' : 's are') + ' inside a tract (' + tsgs.map((g) => g.gene).join(', ') + ')'
+                    + (tsgs.length - biallelic.length ? '; ' + (tsgs.length - biallelic.length) + ' of them ' + ((tsgs.length - biallelic.length) === 1 ? 'is' : 'are') + ' down to one copy with no second hit seen' : '') + '.');
+                else if (genes.length) lines.push('No gene on the tumor-suppressor list lies inside a tract.');
+
+                // PAGE ONE is the headline and the map: what someone handed this report sees
+                // without turning a page. The numbers behind the headline follow.
+                const sheets = [];
+                sheets.push({ name: 'Summary', rows: [{
+                    'Samples': R.spec.labelT + ' (tumor) against ' + R.spec.labelN + ' (normal), '
+                        + (R.spec.kind === 'sample' ? 'two sample columns of one VCF' : 'two VCF files matched by position')
+                        + '; ' + dlSpecies() + (dlAssembly() ? ' ' + dlAssembly() : '') + (R.at ? '; scanned ' + new Date(R.at).toLocaleString() : ''),
+                    'In short': lines.join(' '),
+                }] });
+                let fig = '';
+                try { fig = lohFigurePNG(R, tsgs, hits); } catch (e) { step('LOH figure: ' + e); }
+                if (fig) sheets.push({ name: 'Genome map', rows: [], images: [{ title: 'Figure 1. LOH tracts across the genome, tumor suppressors inside them, and the LOH fraction per chromosome.', png_b64: fig }] });
+                sheets.push({ name: 'The numbers', rows: [{
+                    'Heterozygous sites in the normal': R.het.toLocaleString(),
+                    'Lost an allele in the tumor': R.loh.toLocaleString() + ' (' + pct(R.het ? R.loh / R.het : 0) + ')',
+                    'Still heterozygous in the tumor': R.kept.toLocaleString(),
+                    'Not called in the tumor': R.uncalled ? R.uncalled.toLocaleString() + ' (LOH or a coverage gap; a VCF cannot tell, so never counted as LOH)' : '0',
+                    'LOH tracts': tracts.length + ': ' + [nWhole ? nWhole + ' whole chromosome' : '', nArm ? nArm + ' arm-level' : '',
+                        nLarge ? nLarge + ' large segment' + (nLarge === 1 ? '' : 's') + ' (>= 10 Mb)' : '', nFocal ? nFocal + ' focal' : ''].filter(Boolean).join(', '),
+                    'Genome in LOH tracts': mb(lohLen) + ' of ' + mb(scannedLen) + ' (' + pct(scannedLen ? lohLen / scannedLen : 0) + ')',
+                    'LOH regions > 15 Mb, not whole-chromosome': hrd + ' (the count the HRD-LOH score is built on; from SNV tracts here, so an approximation, not a validated HRD test)',
+                    'Protein-coding genes in the tracts': genes.length ? genes.length.toLocaleString() + (R.genesTruncated ? ' (some lookups hit their limit)' : '') : (tracts.length ? 'could not be read' : 'none'),
+                    'Tumor suppressors in the tracts': tsgs.length ? tsgs.map((g) => g.gene).join(', ') : 'none',
+                    'Biallelic (LOH + damaging second hit)': biallelic.length ? biallelic.map((g) => g.gene).join(', ') : 'none seen',
+                    'Possible second hit': possible.length ? possible.map((g) => g.gene).join(', ') : 'none',
+                }] });
+
+                sheets.push({ name: 'Large chromosomal losses', rows: tracts.length ? tracts.filter((t) => t.ext.rank <= 2).map((t) => ({
+                    'Region': t.c.name + ':' + human(t.lo) + '-' + human(t.hi),
+                    'Cytobands': bandSpan(t.c, t.lo, t.hi),
+                    'Extent': t.ext.word,
+                    'Length': mb(t.len) + ' (' + pct(t.len / Math.max(1, t.c.length)) + ' of ' + t.c.name + ')',
+                    'Sites that lost an allele': t.n.toLocaleString(),
+                    'Protein-coding genes': t.nGenes ? t.nGenes.toLocaleString() : '',
+                    'Tumor suppressors inside': t.tsg.map((g) => g.gene + (hits.get(g.gene) && hits.get(g.gene).rank === 0 ? ' (biallelic)' : '')).join(', '),
+                })).concat(nFocal ? [{ 'Focal tracts (< 10 Mb)': tracts.filter((t) => t.ext.rank === 3).map((t) =>
+                    (bandSpan(t.c, t.lo, t.hi) || t.c.name) + ' ' + t.c.name + ':' + human(t.lo) + '-' + human(t.hi) + ' (' + mb(t.len) + ')').join('; ') }] : [])
+                    : [{ 'Result': 'No tract: lost sites are scattered, not in runs of ' + LOH_RUN_MIN + ' or more. Scattered sites are more often noise than loss.' }] });
+
+                sheets.push({ name: 'Tumor suppressors in LOH', rows: tsgs.length ? tsgs.slice().sort((a, b) => (((hits.get(a.gene) || {}).rank ?? 9) - ((hits.get(b.gene) || {}).rank ?? 9)) || b.frac - a.frac).map((g) => {
+                    const h = hits.get(g.gene) || { verdict: '', variants: [] };
+                    const c = drawn[g.ci];
+                    return {
+                        'Gene': g.gene,
+                        'Location': g.chr + ':' + human(g.start) + '-' + human(g.end) + (c ? ' (' + (bandSpan(c, g.start, g.start) || c.name) + ')' : ''),
+                        'Status': h.verdict,
+                        'LOH across the gene': (g.lost + g.kept) ? g.lost + ' of ' + (g.lost + g.kept) + ' heterozygous sites lost an allele (' + pct(g.frac) + ')'
+                            : 'no heterozygous site inside the gene; the tract around it carries the call',
+                        'Variants in the gene': h.variants.length ? h.variants.slice(0, 12).map((v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : '') + ' at ' + human(v.pos)
+                            + ' - ' + v.origin + ', ' + ({ retained: 'on the copy left', lost: 'on the copy lost', both: 'tumor still reads both alleles', uncalled: 'not called in the tumor' }[v.state] || v.state)
+                            + (v.baf >= 0 ? ' (tumor VAF ' + Math.round(v.baf * 100) + '%)' : '')).join('; ') + (h.variants.length > 12 ? '; and ' + (h.variants.length - 12) + ' more' : '')
+                            : 'none in the coding sequence, splice sites or UTRs',
+                    };
+                }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
+
+                sheets.push({ name: 'By chromosome', rows: [drawn.map((c, ci) => R.chroms.find((x) => x.ci === ci)).filter(Boolean).reduce((row, c2) => {
+                    row[c2.name] = pct(c2.frac) + ' LOH - ' + c2.loh.toLocaleString() + ' of ' + c2.het.toLocaleString() + ' heterozygous sites lost'
+                        + (c2.uncalled ? ', ' + c2.uncalled.toLocaleString() + ' not called' : '')
+                        + (c2.runs.length ? '; ' + c2.runs.length + ' tract' + (c2.runs.length === 1 ? '' : 's') + ', longest ' + fmtSpan(Math.max.apply(null, c2.runs.map((t) => t.hi - t.lo))) : '; no tract');
+                    return row;
+                }, {})] });
+
+                // Named genes only: an Ensembl id without a symbol tells a reader nothing here,
+                // and the gene CSV keeps every one of them.
+                const others = genes.filter((g) => !lossIsTsg(g) && !/^ENS[A-Z]*G\d/.test('' + g.gene));
+                if (others.length) {
+                    // SIX TO A LINE. The PDF wraps by character count, and a long run of
+                    // capitals is wider than it counts, so a wrapped list of symbols ran off
+                    // the page edge and cut names in half. Short lines never wrap.
+                    const OTHER_MAX = 150, PER_LINE = 6;
+                    const shown = others.slice(0, OTHER_MAX);
+                    const row = { 'How many': others.length.toLocaleString() + ' protein-coding genes; the '
+                        + Math.min(OTHER_MAX, others.length) + ' most completely covered are listed, with the share of their heterozygous sites lost'
+                        + (others.length > OTHER_MAX ? '. Download the genes as CSV for all of them' : '') };
+                    for (let i = 0; i < shown.length; i += PER_LINE) {
+                        row[(i + 1) + '-' + Math.min(i + PER_LINE, shown.length)] = shown.slice(i, i + PER_LINE)
+                            .map((g) => g.gene + ((g.lost + g.kept) ? ' ' + Math.round(g.frac * 100) + '%' : '')).join(', ');
+                    }
+                    sheets.push({ name: 'Other genes in the tracts', rows: [row] });
+                }
+                if (lohSlResult) {
+                    const S = lohSlResult;
+                    sheets.push({ name: 'Vulnerabilities this loss creates', rows: [{
+                        'Complete losses (LOH + a loss-of-function hit)': (S.complete || []).map((x) => x.gene).join(', ') || 'none',
+                        'Single-copy dependencies (targets at half dosage)': (S.cyclops || []).slice(0, 25).map((x) => x.gene + (x.cn_confirmed ? ' (dosage confirmed in cell lines)' : '')).join(', ') || 'none',
+                        'Notes': (S.notes || []).join(' '),
+                    }] });
+                }
+                sheets.push({ name: 'Methods and limits', rows: [{
+                    'Sites': 'A site counts when the normal is a credible heterozygote (B-allele fraction ' + G_HET_LO + '-' + G_HET_HI + ', or a heterozygous genotype where no allele depths were given). It has lost an allele when the tumor\'s reads are below ' + Math.round(T_LOST_LO * 100) + '% or above ' + Math.round(T_LOST_HI * 100) + '% one allele, or the tumor is called homozygous.',
+                    'Tracts': 'Runs of at least ' + LOH_RUN_MIN + ' lost sites, tolerating ' + LOH_RUN_GAP + ' retained sites inside a run, joined when closer than ' + (LOH_TRACT_JOIN / 1e6) + ' Mb. A tract spans its first to its last lost site, so its true edges lie a little outside.',
+                    'Extent': 'Whole chromosome or arm-level when a tract covers at least ' + Math.round(LOH_ARM_COVER * 100) + '% of every informative arm, or of one arm. Acrocentric short arms carry no called sites and are not counted. Large segment >= 10 Mb; focal below that.',
+                    'Second hit': 'Each variant inside a tumor suppressor is read on the MANE transcript (frameshift, stop-gained, splice-site, and hotspot or ClinVar-pathogenic missense count as damaging). On the copy left means the tumor\'s reads carry it on all remaining copies; germline means the normal carries it too.',
+                    'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies): that needs copy number. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
+                    'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
+                }] });
+
+                for (const sh of sheets) for (const row of (sh.rows || [])) for (const k in row) { const v = row[k]; if (typeof v === 'string') row[k] = A(v); }
+                const base = dlSafe(dlSpecies() + '_' + R.spec.labelT + '_vs_' + R.spec.labelN + '_LOH_report');
+                const title = A('Loss of heterozygosity report - ' + R.spec.labelT + ' (tumor) against ' + R.spec.labelN + ' (normal)');
+                dlMsg('Building the PDF...');
+                const rs = await POSTJSON({ format: 'pdf', filename: base, title: title, sheets: sheets }, dlHost + '/export-table');
+                const body = (rs && rs.error && typeof rs.error === 'object') ? rs.error : rs;
+                if (body && body.b64) { dlSaveB64(body.b64, body.filename || (base + '.pdf'), body.mime || 'application/pdf'); dlMsg((body.filename || base) + ' downloaded.'); }
+                else dlErr('Could not build the PDF: ' + ((body && (body.error || body.message)) || 'server error'));
+            } catch (e) {
+                dlErr('The LOH report could not be built: ' + (e && e.message ? e.message : e));
+            } finally {
+                lohReportBusy = false;
+            }
+        };
         // ---- SYNTHETIC LETHALITY FROM THE LOSS OF HETEROZYGOSITY -----------------
         //
         // A tract of LOH is not a list of lost genes, and the whole value of treating it
@@ -9801,6 +10165,13 @@ function (path, config) {
             books.push({ section: 'Loss of heterozygosity', title: 'Download as CSV', badge: 'csv', icon: 'file_download', ready: true,
                 blurb: 'One row per chromosome: heterozygous sites, how many went homozygous, the fraction, and the tracts.',
                 open: () => { try { dlSaveText(lohCSV(), dlSafe(dlSpecies() + '_' + R.spec.labelN + '_to_' + R.spec.labelT + '_LOH') + '.csv', 'text/csv'); dlMsg('LOH table downloaded.'); } catch (e) { dlErr('Could not build the CSV: ' + (e && e.message ? e.message : e)); } } });
+            books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'Summary report (PDF)', badge: 'pdf', icon: 'picture_as_pdf',
+                ready: !lohReportBusy && !lohGeneBusy, readyNote: lohReportBusy ? 'being built' : 'the genes are still being read',
+                blurb: 'The loss written up: how much of the genome lost an allele, the large chromosomal losses by cytoband '
+                    + '(whole-chromosome, arm-level, segmental), a genome map, and every tumor suppressor inside a tract with '
+                    + 'whether its remaining copy also carries a damaging change.'
+                    + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
+                open: () => { lohReportPDF(); } });
             const tracts = (R.chroms || []).reduce((a, c2) => a + (c2.runs ? c2.runs.length : 0), 0);
             books.push({ section: 'Loss of heterozygosity', accent: 'run', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
                 badge: R.genes ? R.genes.length + ' genes' : (tracts + ' tract' + (tracts === 1 ? '' : 's')), icon: 'biotech',
