@@ -17,7 +17,7 @@ function (pt, graph, pm, startPath, opts) {
         const esc = (v) => ('' + (v == null ? '' : v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const when = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
         const size = (n) => (n == null) ? '' : (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
-        const kindOf = (name) => /\.bjb$/i.test(name) ? 'workbook' : /\.baja$/i.test(name) ? 'design' : /\.(?:genome|karyotype(?:\.json)?)$/i.test(name) ? 'genome' : /\.(vcf|vcf\.gz)$/i.test(name) ? 'vcf' : '';
+        const kindOf = (name) => /\.bjb$/i.test(name) ? 'workbook' : /\.baja$/i.test(name) ? 'design' : /\.(?:genome|karyotype(?:\.json)?)$/i.test(name) ? 'genome' : /\.design$/i.test(name) ? 'loh design' : /\.(vcf|vcf\.gz)$/i.test(name) ? 'vcf' : '';
         // The listing, plus the server's message when it sends none: "Missing user id"
         // means the request went out before sign-in had settled, which is retried below.
         let lastListMsg = '';
@@ -99,6 +99,9 @@ function (pt, graph, pm, startPath, opts) {
             const a = '<svg width="18" height="18" viewBox="0 0 24 24" style="flex:0 0 18px;" ';
             if (k === 'workbook') return a + 'fill="#1aa3bd"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="6" width="4" height="15" rx="1"/><rect x="17" y="9" width="4" height="12" rx="1"/><rect x="2" y="21" width="20" height="1.5" fill="#0a2540" opacity=".5"/></svg>';
             if (k === 'design') return a + 'fill="none" stroke="#0f6e7a" stroke-width="2" stroke-linecap="round"><path d="M7 3c0 6 10 6 10 12s-10 6-10 6"/><path d="M17 3c0 6-10 6-10 12s10 6 10 6"/><path d="M8 8h8M8 16h8"/></svg>';
+            // An LOH design strategy: two strands, one allele marked, and a target.
+            if (k === 'loh design') return a + 'fill="none" stroke="#0f6e7a" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h11M3 11h11"/>'
+                + '<circle cx="8.5" cy="6" r="1.9" fill="#FD5E53" stroke="none"/><circle cx="17" cy="17" r="4.2"/><circle cx="17" cy="17" r="1.3" fill="#0f6e7a" stroke="none"/></svg>';
             if (k === 'genome') return a + 'fill="#0f6e7a"><rect x="9" y="2" width="6" height="8" rx="3"/><rect x="9" y="14" width="6" height="8" rx="3"/><circle cx="12" cy="12" r="2.2" fill="#FD5E53"/></svg>';
             return a + 'fill="none" stroke="#6b7a90" stroke-width="1.8" stroke-linejoin="round"><path d="M6 2h8l5 5v15H6z"/><path d="M14 2v5h5"/></svg>';
         };
@@ -172,6 +175,12 @@ function (pt, graph, pm, startPath, opts) {
                     const node = { path: el.getAttribute('data-path'), name: el.getAttribute('data-name'), isFolder: false };
                     if (embed && opts && typeof opts.onFile === 'function') { try { opts.onFile(node); } catch (e) { console.warn('open', e); } return; }
                     if (el.getAttribute('data-open') === '1') openWorkbook(node);
+                    else if (/\.design$/i.test(node.name)) {
+                        // A saved LOH design strategy opens in the Design Viewer.
+                        close();
+                        try { window.history.pushState({ design: node.path }, 'design', '/app/manchester/design-viewer?path=' + node.path); } catch (e) { }
+                        exec('manchester/design-viewer', node.path);
+                    }
                     else { try { pt && pt.setMessage('Only Baja workbooks (.bjb) open here. Designs open in the editor, genomes in the Genome Viewer.', 3); } catch (e) { } }
                 };
             });

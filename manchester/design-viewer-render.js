@@ -57,6 +57,7 @@ function () {
             + esc(doc.germline) + ' (germline)' + (doc.sex ? '<br/>Sex: ' + esc(doc.sex) : '')
             + '<br/>Saved ' + esc(doc.saved ? new Date(doc.saved).toLocaleString() : '') + ' &middot; ' + esc((doc.species || '') + ' ' + (doc.assembly || '')) + '</div></div>'
             + '<div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">'
+            + (O.onClose ? '<button id="dv-close" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button>' : '')
             + (doc.genome ? '<button id="dv-genome" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Open the genome</button>' : '')
             + '<button id="dv-design-picked" disabled style="cursor:pointer;opacity:0.5;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #22c55e;background:#22c55e;color:#04210f;">Design ticked in editor</button>'
             + '</div></div>';
@@ -209,6 +210,8 @@ function () {
         Array.prototype.forEach.call(root.querySelectorAll('.dv-design'), (b) => { b.onclick = () => design([b.getAttribute('data-g')]); });
         const bp = q('#dv-design-picked');
         if (bp) bp.onclick = () => { if (picked.size) design(Array.from(picked)); };
+        const bc = q('#dv-close');
+        if (bc && O.onClose) bc.onclick = () => O.onClose();
         const bg = q('#dv-genome');
         if (bg) bg.onclick = () => { try { window.open(window.location.origin + '/app/manchester/karyotype?path=' + doc.genome, '_blank'); } catch (e) { } };
     };

@@ -21,15 +21,25 @@ function (path, config) {
         const p = normPath(path);
         const fileName = p.split('/').filter(Boolean).pop() || 'design';
 
-        await showWidget({ wid: 'html', data: '<div id="baja-design-viewer" style="font-family:Arial,Helvetica,sans-serif;'
-            + 'background:#071a30;color:#fff;min-height:calc(100vh - 64px);"></div>' });
-        let root = null;
-        for (let i = 0; i < 50 && !root; i++) {
-            root = document.getElementById('baja-design-viewer');
-            if (!root) await new Promise((res) => setTimeout(res, 60));
-        }
-        if (!root) return;
-        const note = (html) => { root.innerHTML = '<div style="padding:40px;font:14px Arial;color:#cfe0f5;">' + html + '</div>'; };
+        // ITS OWN PANEL, ON THE PAGE BODY. It was drawn inside the 'html' widget, whose Angular
+        // binding re-applies the widget's original HTML on every change-detection pass -- so
+        // whatever was drawn into it was wiped straight away, leaving the empty navy container.
+        // A fixed panel on the body is outside that binding, as the LOH Design Strategy panel is.
+        try { const old = document.getElementById('baja-design-viewer'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+        const root = document.createElement('div');
+        root.id = 'baja-design-viewer';
+        root.style.cssText = 'position:fixed;inset:0;z-index:2147482000;overflow:auto;font-family:Arial,Helvetica,sans-serif;'
+            + 'background:#071a30;color:#fff;';
+        document.body.appendChild(root);
+        // Gone when the reader leaves: Close, the back button, or another page taking over.
+        const remove = () => { try { if (root.parentNode) root.parentNode.removeChild(root); } catch (e) { } window.removeEventListener('popstate', remove); };
+        window.addEventListener('popstate', remove);
+        const close = () => { remove(); try { if (window.history.length > 1) window.history.back(); else window.location.assign('/app/'); } catch (e) { } };
+        for (const ev of ['paste', 'cut', 'copy', 'keydown', 'keyup', 'input']) root.addEventListener(ev, (e) => { try { e.stopPropagation(); } catch (e2) { } });
+        const note = (html) => { root.innerHTML = '<div style="padding:40px;font:14px Arial;color:#cfe0f5;">' + html
+            + '<div style="margin-top:18px;"><button id="dv-close0" style="cursor:pointer;border-radius:8px;padding:8px 16px;font:700 12.5px Arial;'
+            + 'border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Close</button></div></div>';
+            const b0 = document.getElementById('dv-close0'); if (b0) b0.onclick = close; };
 
         if (!p || !/\.design$/i.test(p)) { note('That is not a .design file.'); return; }
         note('Opening ' + esc(fileName) + '...');
@@ -48,6 +58,6 @@ function (path, config) {
         }
 
         const view = await exec('manchester/design-viewer-render.js');
-        view(root, doc, { fileName: fileName, path: p });
+        view(root, doc, { fileName: fileName, path: p, onClose: close });
     })();
 }
