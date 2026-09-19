@@ -280,7 +280,7 @@ def assess(req):
     ask = ask % (tumor or "tumor", germ or "normal", clean(req.get("species"), 20) or "human",
                  clean(req.get("context"), 1500), len(cands), str(req.get("n_models") or "the"),
                  json.dumps(cands), len(single), json.dumps(single), len(gof), json.dumps(gof))
-    works.msg("Asking Claude about %d essential gene(s) and %d oncogene change(s)…" % (len(cands) + len(single), len(gof)))
+    works.msg("Assessing %d essential gene(s) and %d oncogene change(s)…" % (len(cands) + len(single), len(gof)))
     try:
         import claude_usage as _cu  # type: ignore
         _cu.bump("loh-selective-lethality")

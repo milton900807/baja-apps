@@ -5266,8 +5266,7 @@ function (path, config) {
                     title: file.name,
                     subtitle: placed.length + ' variant' + (placed.length === 1 ? '' : 's') + ' placed'
                         + (unresolved.length ? ', ' + unresolved.length + ' not placed' : '')
-                        + ' · ' + added.length + ' gene' + (added.length === 1 ? '' : 's') + ' selected'
-                        + (res.models ? ' · read by ' + res.models : ''),
+                        + ' · ' + added.length + ' gene' + (added.length === 1 ? '' : 's') + ' selected',
                     books: books
                 });
             } catch (e) { step('shelf failed: ' + e); }
@@ -8604,7 +8603,7 @@ function (path, config) {
                     gene: x.gene, change: x.change, effect: x.effect, level: x.level, in_loh: x.inLoh,
                     tumor_state: x.state, origin: x.origin === 'somatic' ? 'somatic' : 'germline', tumor_vaf: x.baf >= 0 ? Math.round(x.baf * 100) / 100 : -1 })),
             };
-            say('Asking Claude which of these could be selectively lethal (this takes a minute or two)...');
+            say('Assessing which of these could be selectively lethal (this takes a minute or two)...');
             const as = await exec(LOH_SL_SCRIPT, em, 'assess', JSON.stringify(payload));
             if (!as || !as.ok) { res.assessError = (as && as.error) || 'the assessment could not be made'; return res; }
             try { res.assessment = JSON.parse(as.assessment || '{}'); } catch (e) { res.assessment = null; }
@@ -8849,7 +8848,7 @@ function (path, config) {
             opts.sort((x, y) => (y.normal === R.spec.normal) - (x.normal === R.spec.normal));
             const isHuman = ('' + (r.species || 'human')).toLowerCase() === 'human';
             const books = [{ section: 'Germline', note: true, title: 'Which track is the germline for ' + R.spec.labelT + '? Each variant\'s origin is read against it, '
-                + 'and the essential genes carrying a change the tumor has and the germline does not are handed to Claude, which judges whether any of them '
+                + 'and the essential genes carrying a change the tumor has and the germline does not are assessed for whether any of them '
                 + 'could make the tumor selectively lethal. That takes a minute or two.' + (isHuman ? '' : ' (Essentiality comes from DepMap, a human screen, so it is left out for this genome.)') }];
             opts.forEach((o) => books.push({ section: 'Germline', accent: 'run', title: o.label, icon: 'person',
                 badge: o.normal === R.spec.normal ? 'the LOH scan\'s normal' : 'germline', ready: !lohReportBusy && !lohUiBusy, readyNote: 'a report is being built',
@@ -8857,7 +8856,7 @@ function (path, config) {
                     : 'Compare ' + R.spec.labelT + ' against ' + o.label + ', then build the report with the selective-lethality assessment.',
                 open: () => { if (ui) { try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { } lohReportUI({ germ: o }); return; }
                     lohMenu(); lohReportPDF({ germ: o, claude: isHuman }); } }));
-            if (!ui) books.push({ section: 'Germline', title: 'The report without the Claude assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
+            if (!ui) books.push({ section: 'Germline', title: 'The report without the selective-lethality assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
                 blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
                 open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
             books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
@@ -8936,9 +8935,9 @@ function (path, config) {
                 if (SL && !SL.error) {
                     const hi = slFind.filter((f) => f.confidence !== 'low');
                     lines.push(SL.candidates.length + ' essential gene' + (SL.candidates.length === 1 ? ' carries' : 's carry') + ' a protein-altering change specific to the tumor. '
-                        + (slFind.length ? 'Claude proposes ' + slFind.length + ' selective-lethality hypothes' + (slFind.length === 1 ? 'is' : 'es')
+                        + (slFind.length ? 'The assessment proposes ' + slFind.length + ' selective-lethality hypothes' + (slFind.length === 1 ? 'is' : 'es')
                             + (hi.length ? ', ' + hi.length + ' at medium or high confidence: ' + hi.slice(0, 4).map((f) => f.gene + ' (' + f.mechanism + ')').join(', ') : ', all at low confidence')
-                            + '.' : 'Claude found no selective-lethality window it would stand behind.'));
+                            + '.' : 'The assessment found no selective-lethality window it would stand behind.'));
                 }
 
                 // PAGE ONE is the headline and the map: what someone handed this report sees
@@ -9014,8 +9013,8 @@ function (path, config) {
                         })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
                             : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }] });
                         const As = SL.assessment || {};
-                        sheets.push({ name: 'Selective lethality - assessed by Claude', rows: [{
-                            'What this is': 'Hypotheses, not findings: ' + (SL.model || 'Claude') + ' was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
+                        sheets.push({ name: 'Selective lethality assessment', rows: [{
+                            'What this is': 'Hypotheses, not findings: a language model was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
                                 + 'and their DepMap numbers, and asked which tumor-specific change could open a therapeutic window. Every item needs checking before it is acted on.',
                             'Summary': As.summary || '',
                         }].concat(slFind.map((f, i) => ({
@@ -9292,13 +9291,13 @@ function (path, config) {
                     let inner = '';
                     if (!A) {
                         inner = card('<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;"><div style="flex:1;min-width:240px;font:12.5px Arial;color:#cfe0f5;">'
-                            + 'Claude reads the genes above -- essential, single-copy, and oncogene changes -- and proposes which specific change could make the tumor selectively lethal, '
+                            + 'The assessment reads the genes above -- essential, single-copy, and oncogene changes -- and proposes which specific change could make the tumor selectively lethal, '
                             + 'with the reasoning, an approach, and the caveats. About a minute and a half.' + (ESS.assessError ? '<br/><span style="color:#fca5a5;">' + esc(ESS.assessError) + '</span>' : '') + '</div>'
-                            + '<button id="lu-ask" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Ask Claude</button></div>');
+                            + '<button id="lu-ask" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Run the assessment</button></div>');
                     } else {
                         const confCol = { high: '#86efac', medium: '#fbbf24', low: '#94a3b8' };
-                        inner = card('<div style="font:12px Arial;color:#9fb3c8;">Hypotheses, not findings, from ' + esc(ESS.model || 'Claude') + (ESS.assessedAt ? ' on ' + esc(new Date(ESS.assessedAt).toLocaleString()) : '') + '. '
-                                + '<a href="#" id="lu-reask" style="color:#8ab4ff;">Ask again</a></div><div style="font:13px Arial;color:#e8f0fb;margin-top:6px;line-height:1.5;">' + esc(A.summary || '') + '</div>')
+                        inner = card('<div style="font:12px Arial;color:#9fb3c8;">Hypotheses, not findings, written by a language model' + (ESS.assessedAt ? ' on ' + esc(new Date(ESS.assessedAt).toLocaleString()) : '') + '. '
+                                + '<a href="#" id="lu-reask" style="color:#8ab4ff;">Run again</a></div><div style="font:13px Arial;color:#e8f0fb;margin-top:6px;line-height:1.5;">' + esc(A.summary || '') + '</div>')
                             + (A.findings || []).map((f) => {
                                 const it = byGene.get(('' + f.gene).toUpperCase()) || itemFor(f.gene, -1);
                                 return geneRow(it, chip(f.mechanism, '#c4b5fd') + ' ' + chip(f.confidence + ' confidence', confCol[f.confidence] || '#94a3b8'),
@@ -9309,7 +9308,7 @@ function (path, config) {
                             }).join('')
                             + (A.not_pursued ? card('<div style="font:12px Arial;color:#9fb3c8;"><b>Not pursued:</b> ' + esc(A.not_pursued) + '</div>') : '');
                     }
-                    h += section('Selective lethality - assessed by Claude', '', inner);
+                    h += section('Selective lethality assessment', '', inner);
                 }
                 h += '</div>';
                 body.innerHTML = h;
@@ -9347,9 +9346,9 @@ function (path, config) {
                     if (e) e.preventDefault();
                     if (!ESS) return;
                     const host = e && e.target ? e.target.closest('div') : null;
-                    try { if (host) host.innerHTML = '<span style="color:#fbbf24;">Asking Claude... this takes a minute or two.</span>'; } catch (e2) { }
+                    try { if (host) host.innerHTML = '<span style="color:#fbbf24;">Running the assessment... this takes a minute or two.</span>'; } catch (e2) { }
                     try { await lohClaudeAssess(R, spec, tracts, ESS, GOF, say); } catch (e2) { ESS.assessError = '' + e2; }
-                    say(ESS.assessment ? 'Claude\'s assessment is in the report.' : ('The assessment failed: ' + (ESS.assessError || '')));
+                    say(ESS.assessment ? 'The assessment is in the report.' : ('The assessment failed: ' + (ESS.assessError || '')));
                     render();
                 };
                 const a1 = q('#lu-ask'); if (a1) a1.onclick = ask;
@@ -10849,7 +10848,7 @@ function (path, config) {
                 blurb: 'The loss written up: how much of the genome lost an allele, the large chromosomal losses by cytoband '
                     + '(whole-chromosome, arm-level, segmental), a genome map, and every tumor suppressor inside a tract with '
                     + 'whether its remaining copy also carries a damaging change.'
-                    + ' Choose the germline to compare against, and Claude judges whether any essential gene the tumor has changed could make it selectively lethal.'
+                    + ' Choose the germline to compare against, and an assessment says whether any essential gene the tumor has changed could make it selectively lethal.'
                     + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
                 open: () => { lohReportStart('pdf'); } });
             books.push({ section: 'Loss of heterozygosity', accent: 'run', title: 'Report on screen, to design against', badge: 'editor', icon: 'edit',
