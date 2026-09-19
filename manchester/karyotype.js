@@ -6228,7 +6228,7 @@ function (path, config) {
             // vulnerabilities found from those. The marks are not stored -- they are re-derived
             // from the tracts and the variants, which are both here -- and neither is the
             // report, which is built from this.
-            if (lohResult) out.loh = lohResult;
+            if (lohResult) out.loh = Object.assign({}, lohResult, { tpmT: undefined });   // tract TPM is fetched again, not saved
             if (lohResult && lohSlResult) out.lohSl = lohSlResult;
             // The bookmarks go with the file. They are four numbers and a name each, so
             // they cost nothing next to the variants and are the part a reader opening
@@ -9385,6 +9385,27 @@ function (path, config) {
         // are more dependent (the dosage test -- the evidence a single-copy target rests on),
         // and the paralog that might stand in. Cached on the LOH result, so it is read once
         // and saved with the genome; genes DepMap never screened say so.
+        // GTEx TPM alone for many genes (the tract lists), cached on the LOH result like DepMap.
+        const lohTpmFor = async (genes, say) => {
+            const R = lohResult;
+            if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
+            R.tpmT = R.tpmT || { tissues: null, n_cns: 0, source: '', values: {}, asked: {} };
+            const T = R.tpmT;
+            const want = [];
+            for (const g of genes) { const k = ('' + g).toUpperCase(); if (k && !T.asked[k] && want.indexOf(k) < 0) want.push(k); }
+            if (want.length) {
+                const em = new EngineMonitor((m) => { try { log(m); } catch (e) { } });
+                if (say) say('Reading tissue expression for ' + want.length + ' gene' + (want.length === 1 ? '' : 's') + '...');
+                const rs = await exec(LOH_SL_SCRIPT, em, 'tpm', JSON.stringify(want.slice(0, 5000)));
+                if (rs && rs.ok) {
+                    let got = {};
+                    try { got = JSON.parse(rs.values || '{}'); } catch (e) { got = {}; }
+                    T.tissues = rs.tissues || T.tissues; T.n_cns = +rs.n_cns || T.n_cns; T.source = rs.source || T.source;
+                    for (const k of want.slice(0, 5000)) { T.asked[k] = 1; if (got[k]) T.values[k] = got[k]; }
+                }
+            }
+            return T.tissues ? T : null;
+        };
         const lohDepmapFor = async (genes, say) => {
             const R = lohResult;
             if (!R || ('' + (r.species || 'human')).toLowerCase() !== 'human') return null;
@@ -9411,6 +9432,24 @@ function (path, config) {
             if (!t) return '';
             const list = (xs) => (xs || []).map((x) => x[0] + ' ' + tpmFmt(x[1])).join(', ');
             return 'CNS: ' + list(t.cns) + '. Other tissues: ' + list(t.other) + '.';
+        };
+        // A tract's genes against the tissues, from the compact 'tpm' action: one row per gene,
+        // the CNS columns first. Cells are shaded by level so the pattern reads at a glance.
+        const tpmTableHtml = (genes, T, esc) => {
+            if (!T || !T.tissues) return '';
+            const ncns = T.n_cns || 0;
+            const shade = (v) => v >= 100 ? 'rgba(251,191,36,0.45)' : v >= 10 ? 'rgba(134,239,172,0.30)' : v >= 1 ? 'rgba(138,180,255,0.20)' : 'transparent';
+            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + (k < ncns ? '#c4b5fd' : '#9fb3c8') + ';'
+                + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
+            const rows = genes.map((g) => {
+                const v = T.values[('' + g).toUpperCase()];
+                return '<tr><td style="position:sticky;left:0;background:#0a1e3a;padding:2px 8px 2px 0;font:700 11px Arial;color:#e8f0fb;">' + esc(g) + '</td>'
+                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + '">' + tpmFmt(x) + '</td>').join('')
+                        : '<td colspan="' + T.tissues.length + '" style="color:#64748b;padding:2px 4px;">not in GTEx</td>') + '</tr>';
+            }).join('');
+            return '<div style="max-height:420px;overflow:auto;margin-top:6px;"><table style="border-collapse:collapse;font:11px Arial;color:#cfe0f5;">'
+                + '<thead><tr><th style="position:sticky;top:0;left:0;z-index:1;background:#0b2545;"></th>' + T.tissues.map(th).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(T.source || 'GTEx median TPM') + '. CNS columns first (purple), then other tissues.</div>';
         };
         const tpmColor = (v) => v >= 100 ? '#fbbf24' : v >= 10 ? '#86efac' : v >= 1 ? '#8ab4ff' : '#64748b';
         const tpmHtml = (d, esc) => {
@@ -9645,6 +9684,8 @@ function (path, config) {
             const section = (title, note, inner) => '<div style="margin:26px 0 10px;font:700 15px Arial;color:#e8f0fb;">' + esc(title) + '</div>'
                 + (note ? '<div style="font:12px Arial;color:#9fb3c8;margin:-4px 0 10px;">' + note + '</div>' : '') + inner;
             // A gene row: its name, chips, the changes, and the two ways to the editor.
+            // The protein-coding genes inside a tract, as the saved strategy lists them.
+            const tractGenes = (t) => (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400);
             const geneRow = (it, chips, lines, after) => {
                 const can = !!it.transcript;
                 return card('<div style="display:flex;align-items:flex-start;gap:12px;">'
@@ -9686,7 +9727,10 @@ function (path, config) {
                         + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.c.name + ':' + human(t.lo) + '-' + human(t.hi)) + ' &middot; ' + mb(t.len)
                         + ' &middot; ' + t.n.toLocaleString() + ' sites lost</div></div>'
                         + '<button class="lu-tract" data-t="' + i + '" data-a="genes" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(139,180,255,0.55);background:transparent;color:#8ab4ff;">Genes</button>'
-                        + '<button class="lu-tract" data-t="' + i + '" data-a="zoom" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Zoom</button></div>')).join('')
+                        + '<button class="lu-tract" data-t="' + i + '" data-a="zoom" style="cursor:pointer;border-radius:8px;padding:7px 12px;font:700 12px Arial;border:1px solid rgba(255,255,255,0.22);background:transparent;color:#fff;">Zoom</button></div>'
+                        + (tractGenes(t).length && ('' + (r.species || 'human')).toLowerCase() === 'human'
+                            ? '<details class="lu-tpm" data-t="' + i + '" style="margin-top:8px;font:12px Arial;color:#cfe0f5;"><summary style="cursor:pointer;color:#8ab4ff;">Tissue expression of the '
+                                + tractGenes(t).length + ' gene' + (tractGenes(t).length === 1 ? '' : 's') + ' (GTEx TPM)</summary><div class="lu-tpm-body" style="color:#9fb3c8;margin-top:6px;">Loading...</div></details>' : ''))).join('')
                     : card('No tract: lost sites are scattered, not in runs.'));
 
                 // ONCOGENES
@@ -9788,6 +9832,18 @@ function (path, config) {
                         await goView({ x0: barLeft(t.ci) - 0.6 * SLOT, x1: barRight(t.ci) + 0.6 * SLOT, y0: wy(t.hi) - pad, y1: wy(t.lo) + pad });
                     };
                 });
+                Array.prototype.forEach.call(panel.querySelectorAll('.lu-tpm'), (d2) => {
+                    d2.addEventListener('toggle', async () => {
+                        if (!d2.open || d2.getAttribute('data-done')) return;
+                        d2.setAttribute('data-done', '1');
+                        const t = tr[+d2.getAttribute('data-t')], body = d2.querySelector('.lu-tpm-body');
+                        if (!t || !body) return;
+                        const gs = tractGenes(t);
+                        let T = null;
+                        try { T = await lohTpmFor(gs); } catch (e) { T = null; }
+                        body.innerHTML = T ? tpmTableHtml(gs, T, esc) : 'Tissue expression is not available on this server.';
+                    });
+                });
                 const ask = async (e) => {
                     if (e) e.preventDefault();
                     if (!ESS) return;
@@ -9838,6 +9894,14 @@ function (path, config) {
                     figure: fig,
                     tracts: trs.map((t) => ({ chr: t.c.name, lo: t.lo, hi: t.hi, bands: bandSpan(t.c, t.lo, t.hi), extent: t.ext.word, rank: t.ext.rank,
                         len: t.len, n: t.n, genes: (R.genes || []).filter((g) => g.ci === t.ci && g.end >= t.lo && g.start <= t.hi).map((g) => g.gene).slice(0, 400) })),
+                    // GTEx TPM of the tract genes, compact: tissue labels once, values per gene.
+                    tractTpm: (() => {
+                        const T = R.tpmT;
+                        if (!T || !T.tissues) return null;
+                        const v = {};
+                        for (const t of trs) for (const g of tractGenes(t)) { const k = ('' + g).toUpperCase(); if (T.values[k]) v[k] = T.values[k]; }
+                        return { source: T.source, n_cns: T.n_cns, tissues: T.tissues, values: v };
+                    })(),
                     oncogenes: ONC.map((g) => ({ gene: g.gene, chr: g.chr, start: g.start, end: g.end, rank: g.rank, status: g.status,
                         lost: g.lost, kept: g.kept, frac: g.frac, variants: g.variants.map((x) => Object.assign(vD(x), { stateWord: gofStateWord(x) })) })),
                     tsg: tsgList.map((g) => { const hh = hits.get(g.gene) || {}; return { gene: g.gene, verdict: hh.verdict || '', rank: hh.rank == null ? 9 : hh.rank,
@@ -9869,6 +9933,7 @@ function (path, config) {
                     name += '.design';
                     msg.textContent = 'Saving...';
                     try {
+                        try { await lohTpmFor([].concat(...tracts.map(tractGenes)), (m) => { msg.textContent = m; }); } catch (e) { }
                         const text = JSON.stringify(designDoc());
                         let path = '';
                         if (text.length > 6 * 1024 * 1024) {
@@ -9888,6 +9953,7 @@ function (path, config) {
             };
             // SHARE: the same document a save writes, as a public link or to people by email.
             q('#lu-share').onclick = async () => {
+                try { await lohTpmFor([].concat(...tracts.map(tractGenes))); } catch (e) { }
                 try { const openShare = await exec('manchester/design-share.js'); openShare(designDoc(), dlSafe(spec.labelT + '_LOH_design_strategy')); }
                 catch (e) { say('Sharing could not open: ' + (e && e.message ? e.message : e)); }
             };

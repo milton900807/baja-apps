@@ -48,6 +48,24 @@ function () {
                 + '<span style="color:#9fb3c8;">Tissue expression (' + esc(t.source || 'GTEx median TPM') + ')</span>'
                 + row('CNS', t.cns) + row('Other tissues', t.other) + '</div>';
         };
+        // A tract's genes against the tissues (doc.tractTpm: labels once, values per gene).
+        const TT = doc.tractTpm || null;
+        const tpmTableHtml = (genes) => {
+            if (!TT || !TT.tissues) return '';
+            const ncns = TT.n_cns || 0;
+            const shade = (v) => v >= 100 ? 'rgba(251,191,36,0.45)' : v >= 10 ? 'rgba(134,239,172,0.30)' : v >= 1 ? 'rgba(138,180,255,0.20)' : 'transparent';
+            const th = (label, k) => '<th style="position:sticky;top:0;background:#0b2545;padding:4px 3px;font:600 10.5px Arial;color:' + (k < ncns ? '#c4b5fd' : '#9fb3c8') + ';'
+                + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">' + esc(label) + '</th>';
+            const rows = genes.map((g) => {
+                const v = (TT.values || {})[('' + g).toUpperCase()];
+                return '<tr><td style="position:sticky;left:0;background:#0a1e3a;padding:2px 8px 2px 0;font:700 11px Arial;color:#e8f0fb;">' + esc(g) + '</td>'
+                    + (v ? v.map((x, k) => '<td style="padding:2px 4px;text-align:right;background:' + shade(x) + ';' + (k === ncns ? 'border-left:2px solid rgba(255,255,255,0.3);' : '') + '">' + tpmFmt(x) + '</td>').join('')
+                        : '<td colspan="' + TT.tissues.length + '" style="color:#64748b;padding:2px 4px;">not in GTEx</td>') + '</tr>';
+            }).join('');
+            return '<div style="max-height:420px;overflow:auto;margin-top:6px;"><table style="border-collapse:collapse;font:11px Arial;color:#cfe0f5;">'
+                + '<thead><tr><th style="position:sticky;top:0;left:0;z-index:1;background:#0b2545;"></th>' + TT.tissues.map(th).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+                + '<div style="font:11px Arial;color:#9fb3c8;margin-top:4px;">' + esc(TT.source || 'GTEx median TPM') + '. CNS columns first (purple), then other tissues.</div>';
+        };
         // A gene row. It can go to the editor when the file carries its transcript.
         const geneRow = (gene, chips, lines, after) => {
             const h = handoff[('' + gene).toUpperCase()];
@@ -94,12 +112,14 @@ function () {
         // TRACTS
         const tr = doc.tracts || [];
         h += section('Tracts', 'Largest first, with the protein-coding genes inside each.',
-            tr.length ? tr.map((t) => card('<span style="font:700 13.5px Arial;">' + esc(t.bands || t.chr) + '</span> '
+            tr.length ? tr.map((t, i) => card('<span style="font:700 13.5px Arial;">' + esc(t.bands || t.chr) + '</span> '
                 + chip(t.extent, t.rank <= 1 ? '#a855f7' : t.rank === 2 ? '#f97316' : '#94a3b8')
                 + '<div style="font:12px Arial;color:#9fb3c8;margin-top:4px;">' + esc(t.chr + ':' + (+t.lo).toLocaleString() + '-' + (+t.hi).toLocaleString())
                 + ' &middot; ' + mb(t.len || 0) + ' &middot; ' + (t.n || 0).toLocaleString() + ' sites lost</div>'
                 + ((t.genes && t.genes.length) ? '<details style="margin-top:6px;font:12px Arial;color:#cfe0f5;"><summary style="cursor:pointer;color:#8ab4ff;">'
-                    + t.genes.length + ' gene' + (t.genes.length === 1 ? '' : 's') + '</summary><div style="margin-top:6px;line-height:1.6;">' + esc(t.genes.join(', ')) + '</div></details>' : ''))).join('')
+                    + t.genes.length + ' gene' + (t.genes.length === 1 ? '' : 's') + '</summary><div style="margin-top:6px;line-height:1.6;">' + esc(t.genes.join(', ')) + '</div></details>' : '')
+                + ((t.genes && t.genes.length && TT) ? '<details class="dv-tpm" data-t="' + i + '" style="margin-top:6px;font:12px Arial;color:#cfe0f5;"><summary style="cursor:pointer;color:#8ab4ff;">Tissue expression of the '
+                    + t.genes.length + ' gene' + (t.genes.length === 1 ? '' : 's') + ' (GTEx TPM)</summary><div class="dv-tpm-body"></div></details>' : ''))).join('')
             : card('No tract.'));
 
         // ONCOGENES
@@ -233,6 +253,13 @@ function () {
                 Array.prototype.forEach.call(root.querySelectorAll('.dv-pick[data-g="' + g + '"]'), (x) => { x.checked = cb.checked; });
                 sync();
             };
+        });
+        // Tract tables are built when opened: a whole-chromosome tract has hundreds of rows.
+        Array.prototype.forEach.call(root.querySelectorAll('.dv-tpm'), (d2) => {
+            d2.addEventListener('toggle', () => {
+                const body = d2.querySelector('.dv-tpm-body'), t = tr[+d2.getAttribute('data-t')];
+                if (d2.open && body && t && !body.innerHTML) body.innerHTML = tpmTableHtml(t.genes || []);
+            });
         });
         Array.prototype.forEach.call(root.querySelectorAll('.dv-design'), (b) => { b.onclick = () => design([b.getAttribute('data-g')]); });
         const bp = q('#dv-design-picked');

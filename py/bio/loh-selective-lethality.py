@@ -9,7 +9,7 @@ copy by LOH (CYCLOPS), a paralog the mutant now leans on, a neighbour lost with 
 (collateral lethality). Whether any of that applies to a given variant is judgement, and that is
 the part handed to Claude -- over candidates chosen deterministically, with the numbers attached.
 
-Five actions (param 1):
+Six actions (param 1):
 
   essential   species
       -> { ok, genes: [[symbol, chr, start, end, strand, effect_mean, dep_frac, class], ...] }
@@ -36,6 +36,11 @@ Five actions (param 1):
       does it), and the paralog most likely to stand in for it. Genes DepMap never screened
       come back as { screened: false }. tpm is GTEx v10 median TPM: every CNS region GTEx
       sampled, then other tissues; null when GTEx has no such symbol.
+
+  tpm         JSON [symbol, ...]  (up to MAX_TPM_GENES)
+      -> { ok, source, n_cns, tissues: [label, ...], values: JSON { SYMBOL: [tpm, ...] } }
+      GTEx TPM only, in the order of tissues (the first n_cns are the CNS), for the tract gene
+      lists; genes GTEx lacks are left out.
 
   assess      JSON { tumor, germline, species, candidates: [...], single_copy: [...],
                      gain_of_function: [...], context }
@@ -88,6 +93,7 @@ def first_existing(rel):
 
 
 MAX_DEPMAP_GENES = 200
+MAX_TPM_GENES = 5000
 CN_LOW, CN_HI_LO, CN_HI_HI = 0.60, 0.85, 1.15      # copy number / ploidy: one copy of two; normal
 MIN_HEMI, MIN_NEUTRAL, CN_FDR = 10, 20, 0.25
 MIN_LINEAGE = 10
@@ -163,6 +169,25 @@ def gtex_tpm(symbols):
                 return [[label, round(float(f[col[key]]), 2)] for key, label in tissues if key in col]
             found[sym] = (total, {"source": GTEX_SOURCE, "cns": panel(GTEX_CNS), "other": panel(GTEX_OTHER)})
     return {s: v for s, (_, v) in found.items()}
+
+
+def tpm_only(symbols):
+    """GTEx TPM for many genes at once, without the DepMap work: the tract gene lists.
+
+    Compact on purpose -- the tissue labels once, then one array of values per gene in that
+    order -- because a whole-chromosome tract carries hundreds of genes.
+    """
+    want = [str(g).strip().upper() for g in (symbols or [])]
+    want = [g for g in dict.fromkeys(want) if g][:MAX_TPM_GENES]
+    got = gtex_tpm(want)
+    values = {}
+    for g in want:
+        v = got.get(g)
+        if v:
+            values[g] = [x[1] for x in v["cns"]] + [x[1] for x in v["other"]]
+    return {"ok": True, "source": GTEX_SOURCE, "n_cns": len(GTEX_CNS),
+            "tissues": [label for _, label in GTEX_CNS] + [label for _, label in GTEX_OTHER],
+            "values": json.dumps(values)}
 
 
 def depmap(req):
@@ -591,6 +616,9 @@ try:
     elif action == "depmap":
         raw = works.param(2)
         out = depmap(raw if isinstance(raw, dict) else json.loads(str(raw or "{}")))
+    elif action == "tpm":
+        raw = works.param(2)
+        out = tpm_only(raw if isinstance(raw, list) else json.loads(str(raw or "[]")))
     elif action == "spans":
         raw = works.param(3)
         out = spans(str(works.param(2) or "human").strip().lower(), raw if isinstance(raw, list) else json.loads(str(raw or "[]")))
