@@ -387,7 +387,17 @@ function (path, config) {
             try { showWidget(lay); } catch (e) { step('loading panel failed: ' + e); }
         };
 
-        const savedPath = asSavedFile(path);
+        // A PATH WITH NO FOLDER ID IS IN THE USER'S OWN FILES. A saved path starts with the
+        // folder id the server keeps files under (a long hex string). The large-file save
+        // used to leave it off, so there are URLs and bookmarks reading "?path=/het.genome";
+        // /load-file resolves /myfiles/ to the signed-in user's folder, so those open again.
+        const ownFilePath = (p) => {
+            if (!p) return p;
+            const first = ('' + p).replace(/^\/+/, '').split('/')[0] || '';
+            if (/^[0-9a-f]{32,}$/i.test(first) || /^myfiles$/i.test(first)) return p;
+            return '/myfiles/' + ('' + p).replace(/^\/+/, '');
+        };
+        const savedPath = ownFilePath(asSavedFile(path));
         let pendingDoc = null;
         if (savedPath) {
             showLoading(baseName(savedPath));
@@ -5023,7 +5033,9 @@ function (path, config) {
                 } catch (e) { return { error: 'network error during upload' }; }
                 if (onPct) onPct(((ci + 1) / totalChunks) * 100);
             }
-            return { ok: true };
+            // The user's folder id, as /upload names it: the saved path has to begin with it,
+            // the same as /save-user-data's answer does, or /load-file cannot find the file.
+            return { ok: true, folder: (r && r.folder) ? ('' + r.folder) : '' };
         };
 
         // ---- ANY FILE, NOT ONLY A VCF -----------------------------------------------
@@ -16090,7 +16102,12 @@ function (path, config) {
                             try { graph.setMessage(' Saving ' + name + ' \u2014 ' + Math.round(pct) + '% of ' + fmtBytes(blob.size) + '\u2026 '); } catch (e) { }
                         }, spath);
                         if (up && up.error) throw new Error(up.error);
-                        rs = { status: 'saved', path: (spath ? (spath.replace(/\/$/, '') + '/') : '') + name };
+                        // The same shape /save-user-data returns for a small save: the user's
+                        // folder id, then the folder, then the name. Without the folder id the
+                        // URL read "?path=/name.genome" and a reload found nothing. Where the
+                        // server did not say, /myfiles/ stands for the signed-in user's own.
+                        const rel = (spath ? (spath.replace(/^\/+|\/+$/g, '') + '/') : '') + name;
+                        rs = { status: 'saved', path: '/' + (up.folder || 'myfiles') + '/' + rel };
                     } else {
                         // Small: the endpoint that has always taken these, unchanged, so a
                         // handful of variants saves exactly as it did.
