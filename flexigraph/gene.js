@@ -4969,7 +4969,12 @@ function (progress, options) {
                 // distance between them is pitch * yscale, and yscale falls as the
                 // y range grows. Zooming out therefore squeezes stacked tracks
                 // together until they read as one smear.
-                this.MIN_TRACK_GAP_PX = 5;
+                // 5px was never calibrated, because the clamp below read the canvas size off
+                // the wrong object and so never ran once: at five pixels apart seven tracks
+                // still arrive as a single dark band with their cards on top of each other.
+                // 14px keeps each track's own body visible while still allowing a wide
+                // overview -- two dozen stacked tracks are nowhere near it on a full window.
+                this.MIN_TRACK_GAP_PX = 14;
 
                 // Smallest spacing between stacked tracks, in data units (center to
                 // center, which stays meaningful when track heights differ or
@@ -5011,7 +5016,12 @@ function (progress, options) {
                 this.clampYRangeForTracks = (ymin, ymax) => {
                     const pitch = this.minTrackPitchWorld();
                     if (!isFinite(pitch) || pitch <= 0) return [ymin, ymax];
-                    const g = this.graph;
+                    // The canvas size is on graph.GRID; graph itself has no height, so this
+                    // read undefined, made `usable` 0 and returned the range untouched every
+                    // time. The guard below has never once fired: zooming out squeezed seven
+                    // tracks into forty pixels of cards stacked on each other, which is the
+                    // exact state it was written to prevent.
+                    const g = (this.graph && this.graph.grid) || this.graph || {};
                     const usable = (g.height || 0) - 2 * (g.yinset || 0);
                     const range = ymax - ymin;
                     if (!isFinite(usable) || usable <= 0 || !(range > 0)) return [ymin, ymax];
