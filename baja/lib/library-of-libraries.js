@@ -77,6 +77,17 @@ function (graph, genegraph_panel_layout) {
                         open: openDesignLibrary
                     },
                     {
+                        // ONLY WITH TWO TRACKS. One track has nothing to be compared against,
+                        // and a card that cannot answer its own question is worse than no card;
+                        // SHELVES is built per open, so the board decides whether this is here.
+                        name: 'Across the Tracks',
+                        blurb: 'What two or more tracks share and what they do not: draw a line between the '
+                            + 'mutations that are the same across tracks, highlight the ones only one track '
+                            + 'carries, and read which track each change sits on.',
+                        path: 'baja/manchester/menu/across-tracks.js',
+                        needsTracks: 2
+                    },
+                    {
                         name: 'Data Resources Library',
                         blurb: 'The catalogue of loadable data: RNASeq coverage, variants, conservation, '
                             + 'microRNA sites, patents, your own files and public resources. Datasets land '
@@ -157,6 +168,9 @@ function (graph, genegraph_panel_layout) {
             head.style.cssText = 'flex:0 0 auto;display:flex;align-items:flex-end;gap:16px;padding:16px 22px 14px;'
                 + 'background:#0b2545;border-bottom:1px solid rgba(255,255,255,0.12);'
                 + 'box-shadow:0 6px 20px rgba(0,0,0,0.35);';
+            // A card that needs more tracks than the board has is not listed at all.
+            const nTracks = ((graph && graph.track) || []).filter(Boolean).length;
+            for (const sh of SHELVES) sh.items = sh.items.filter((it) => !it.needsTracks || nTracks >= it.needsTracks);
             const total = SHELVES.reduce((n, s) => n + s.items.length, 0);
             head.innerHTML = '<div><div style="font:700 22px Georgia,\'Times New Roman\',serif;">Institute for GeneTx Design</div>'
                 + '<div style="font:12.5px Arial;color:#9fb3c8;margin-top:3px;">'
