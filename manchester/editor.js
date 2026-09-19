@@ -3659,6 +3659,19 @@ function (path, config) {
                 // Read once and deleted immediately: a reload of this tab must not load the
                 // same hand-off a second time, and the key must not sit in storage after it
                 // has been used. The query parameter goes too, for the same reason.
+                // ON SCREEN FIRST. The hand-off used to load on a fixed 350 ms timer and frame
+                // the variant 300 ms later, which on a cold tab ran while the editor was still
+                // being laid out: the canvas had no size yet, so the zoom either did nothing or
+                // was undone by the layout that followed, and the gene appeared unzoomed. Wait
+                // for the canvas to have a size (and the tab to be visible), then for two frames
+                // -- the first lays the tracks out, the second has them drawn.
+                const __editorOnScreen = async (ms) => {
+                    const t0 = Date.now();
+                    const ok = () => { try { return document.visibilityState !== 'hidden' && graph.graph && +graph.graph.width > 0 && +graph.graph.height > 0; } catch (e) { return false; } };
+                    while (!ok() && (Date.now() - t0) < (ms || 12000)) await new Promise((res) => setTimeout(res, 100));
+                    try { await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))); } catch (e) { }
+                    return ok();
+                };
                 try {
                     const __hk = ('' + (new URL(window.location.href).searchParams.get('handoff') || '')).trim();
                     if (__hk && /^baja\.editorHandoff\./.test(__hk)) {
@@ -3678,6 +3691,7 @@ function (path, config) {
                                     try {
                                         graph.setMessage(' Loading ' + __ids.length + ' transcript' + (__ids.length === 1 ? '' : 's')
                                             + ' from the genome viewer\u2026 ');
+                                        await __editorOnScreen(12000);
                                         await exec('baja/data/load-transcripts-with-variants.js',
                                             window['env']['apiUrl'], graph, genegraph_panel_layout, __ids, __vars);
                                         // LAND ON THE CHANGE, not merely in the right gene. The
@@ -3686,6 +3700,8 @@ function (path, config) {
                                         // because a variant's position is a track coordinate.
                                         const F = H.focus;
                                         if (F && F.chr && F.pos > 0) {
+                                            // The tracks are in; let them lay out and be drawn before framing one.
+                                            await __editorOnScreen(6000);
                                             await new Promise((res) => setTimeout(res, 300));
                                             for (const t of (graph.track || [])) {
                                                 let wx = null;
