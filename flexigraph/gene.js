@@ -4977,7 +4977,7 @@ function (progress, options) {
                 this.minTrackPitchWorld = () => {
                     const ys = [];
                     for (const t of (this.track || [])) {
-                        const g = t && t.tgraph;
+                        const g = t && (t.tgraph || t.grid);   // track.js vs track-flexi
                         if (g && typeof g.yi === 'number' && isFinite(g.yi)) ys.push(g.yi);
                     }
                     if (ys.length < 2) return Infinity;
@@ -7882,20 +7882,84 @@ pattern, GGGG | Required`
                 if (this.wake) this.wake();
             }
 
-            // Zoom the viewport out to encompass every track (x span + vertical stack).
+            // Zoom the viewport out to encompass every track (x span + vertical stack), with a
+            // buffer on all four sides.
+            //
+            // The buffer is set in SCREEN PIXELS, because what it has to make room for is drawn
+            // in pixels: the transcript names at either end of a track and its title card sit
+            // outside the track's box at a fixed size whatever the zoom, so a margin of 3% of the
+            // genomic span (what this used) cut them off at both edges of a 139 kb gene. The top
+            // margin is the largest: the title card and the features above a track sit over its
+            // baseline, and the zoom buttons float over the top of the canvas. The margins shrink
+            // together on a small window rather than leaving no room for the tracks.
+            //
+            // Each track's full box counts (yi and yi + height), not just its baseline, which is
+            // all a fixed +-2 around the baselines ever framed.
             async viewAllTracks() {
-                const ts = (this.track || []).filter(t => t && t.tgraph && isFinite(t.tgraph.xi) && isFinite(t.tgraph.width));
+                // track.js keeps its box on .tgraph and track-flexi on .grid, as zoomToTrack
+                // already allows for: filtering on tgraph alone left every flexi track out of
+                // the extent, so "view all" framed all of the tracks except those.
+                const boxOf = (t) => (t && (t.tgraph || t.grid)) || null;
+                const ts = (this.track || []).filter(t => {
+                    const g = boxOf(t);
+                    return g && isFinite(g.xi) && isFinite(g.width);
+                });
                 if (!ts.length) return;
-                let minXi = Infinity, maxXf = -Infinity, minYi = Infinity, maxYi = -Infinity;
+                let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
                 for (const t of ts) {
-                    const g = t.tgraph;
-                    minXi = Math.min(minXi, g.xi);
-                    maxXf = Math.max(maxXf, g.xi + g.width);
-                    minYi = Math.min(minYi, g.yi);
-                    maxYi = Math.max(maxYi, g.yi);
+                    const g = boxOf(t);
+                    x0 = Math.min(x0, g.xi);
+                    x1 = Math.max(x1, g.xi + g.width);
+                    const ya = g.yi, yb = g.yi + (isFinite(g.height) ? g.height : 0);
+                    y0 = Math.min(y0, ya, yb);
+                    y1 = Math.max(y1, ya, yb);
                 }
-                const xpad = Math.max(50, (maxXf - minXi) * 0.03);
-                try { await this.zoomRect(minXi - xpad, maxXf + xpad, maxYi + 2, minYi - 2, 150); } catch (e) { }
+                // The PIXEL grid is graph.grid; graph itself carries the view's coordinates and
+                // has no width of its own, so reading sizes off it gave undefined and collapsed
+                // every margin below to nothing.
+                const G = (this.graph && this.graph.grid) || this.graph || {};
+                // The drawable area the world range is mapped onto (see grid.js __rescale).
+                const Wu = Math.max(1, (G.width || 0) - 2 * (G.xinset || 0));
+                const Hu = Math.max(1, (G.height || 0) - 2 * (G.yinset || 0));
+                const yspan0 = Math.max(y1 - y0, this.trackVerticalSpacing || 1.6);
+                let side = Math.max(110, Wu * 0.07);
+                let top = Math.max(170, Hu * 0.18);
+                let bottom = Math.max(115, Hu * 0.11);   // exon numbers hang below the bottom track
+                // A buffer is only a buffer while the tracks still have the view. On a short
+                // window the pixel minimums above would have taken half the height between
+                // them and squeezed seven tracks into the rest, so they are held to a share
+                // of it -- a quarter across, a third down -- and shrink together from there.
+                const fx = Math.min(1, (Wu * 0.25) / (2 * side));
+                let fy = Math.min(1, (Hu * 0.33) / (top + bottom));
+                // And a buffer must never cost the tracks their separation: a stack squeezed
+                // until its cards overlap is harder to read than one sitting close to the edge.
+                // Each track needs about this many pixels for its title card, its body and the
+                // exon numbers under it, so the margins give way until the pitch is met.
+                const MIN_TRACK_PITCH_PX = 75;
+                const pitch = this.minTrackPitchWorld ? this.minTrackPitchWorld() : Infinity;
+                if (isFinite(pitch) && pitch > 0) {
+                    const needed = MIN_TRACK_PITCH_PX * (yspan0 / pitch);   // pixels the stack wants
+                    const room = Math.max(0, Hu - needed);                  // what is left for margins
+                    fy = Math.min(fy, room / (top + bottom));
+                }
+                side *= fx; top *= Math.max(0, fy); bottom *= Math.max(0, fy);
+
+                const xspan = Math.max(1, x1 - x0);
+                const sx = xspan / Math.max(1, Wu - 2 * side);          // world units per pixel
+                const xmin = x0 - side * sx, xmax = x1 + side * sx;
+
+                // A single track (or a stack with no height) still needs a y extent to divide.
+                const yspan = yspan0;
+                const yc = (y0 + y1) / 2;
+                y0 = yc - yspan / 2; y1 = yc + yspan / 2;
+                const sy = yspan / Math.max(1, Hu - top - bottom);
+                // Which end of the stack is at the top of the screen: the views do not agree on
+                // which way y runs, so ask the grid rather than assume one of them.
+                let y0OnTop = false;
+                try { y0OnTop = G.Y(y0) < G.Y(y1); } catch (e) { }
+                const ymin = y0 - (y0OnTop ? top : bottom) * sy;
+                const ymax = y1 + (y0OnTop ? bottom : top) * sy;
+                try { await this.zoomRect(xmin, xmax, ymax, ymin, 150); } catch (e) { }
                 if (this.wake) this.wake();
             }
 
