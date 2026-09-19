@@ -8383,11 +8383,12 @@ function (path, config) {
             if (gt === GT_NONE) return 'uncalled';
             return 'both';
         };
-        // THE SECOND HIT. For each tumor suppressor in a tract: every variant either sample
-        // carries inside it, its consequence (loss-matrix.py, the same reading the loss
-        // matrix uses), whether it is germline or the tumor's own, and where the tumor's
-        // reads put it. A damaging change on the only copy left is biallelic inactivation.
-        const lohSecondHits = async (genes, spec, say) => {
+        // EVERY VARIANT EITHER SAMPLE CARRIES INSIDE THESE GENES, placed: its consequence
+        // (loss-matrix.py, the same reading the loss matrix uses), whether it is germline or
+        // the tumor's own, and where the tumor's reads put it. `keep`, when given, drops a
+        // variant before its consequence is asked for -- the essential-gene scan wants only
+        // the tumor-specific ones, and sending the rest would be most of the server's work.
+        const lohGeneVariants = async (genes, spec, say, keep) => {
             const recs = [], perGene = new Map();
             for (const g of genes) {
                 const ci = g.ci, d = vdata[ci];
@@ -8410,13 +8411,14 @@ function (path, config) {
                     const ab = allelesAt(ci, k);
                     const ak = d.pos[k] + ':' + ab[0] + ':' + ab[1], key = ci + ':' + ak;
                     if (seen.has(key)) continue;
-                    let inN, inT, gtT, bT;
+                    let inN, inT, gtT, bT, gN = GT_NONE;
                     if (spec.kind === 'sample') {
-                        const gN = gtOf(d, k, spec.normal); gtT = gtOf(d, k, spec.tumor); bT = bafOf(d, k, spec.tumor);
+                        gN = gtOf(d, k, spec.normal); gtT = gtOf(d, k, spec.tumor); bT = bafOf(d, k, spec.tumor);
                         inN = gN >= GT_HET; inT = gtT >= GT_HET;
                     } else {
                         const tk = tumorAt.has(ak) ? tumorAt.get(ak) : -1;
                         inN = normalAt.has(ak);
+                        if (inN) gN = d.gtw ? gtOfSide(d, normalAt.get(ak), spec.normal) : GT_HET;
                         if (tk >= 0) {
                             gtT = d.gtw ? gtOfSide(d, tk, spec.tumor) : GT_HET; bT = bafOfSide(d, tk, spec.tumor);
                             inT = gtT !== GT_REF;
@@ -8429,7 +8431,8 @@ function (path, config) {
                     seen.add(key);
                     const v = { key: key, ci: ci, pos: d.pos[k], ref: ab[0], alt: ab[1],
                         origin: inN ? 'germline' : 'somatic', state: tumorAlleleState(gtT, bT),
-                        baf: bT };
+                        baf: bT, inT: inT, germHet: inN && isHetCall(gN) };
+                    if (keep && !keep(v)) continue;
                     list.push(v);
                     recs.push(v);
                 }
@@ -8445,6 +8448,17 @@ function (path, config) {
                     return Object.assign(v, { effect: e ? e.effect : 'intergenic', gene: e ? e.gene : '', hgvs: e ? (e.hgvs_p || e.hgvs_c || '') : '' });
                 }).filter((v) => v.gene && ('' + v.gene).toUpperCase() === ('' + g.gene).toUpperCase() && v.effect !== 'intronic' && v.effect !== 'intergenic');
                 vs.sort((x, y) => dmmSev(x.effect) - dmmSev(y.effect) || x.pos - y.pos);
+                out.set(g.gene, vs);
+            }
+            return out;
+        };
+        // THE SECOND HIT. For each tumor suppressor in a tract: is the copy left also broken?
+        // A damaging change on the only copy left is biallelic inactivation.
+        const lohSecondHits = async (genes, spec, say) => {
+            const byGene = await lohGeneVariants(genes, spec, say, null);
+            const out = new Map();
+            for (const g of genes) {
+                const vs = byGene.get(g.gene) || [];
                 const lofOnKept = vs.find((v) => DMM_LOF.has(v.effect) && v.state === 'retained');
                 const protOnKept = vs.find((v) => DMM_PROTEIN.has(v.effect) && v.state === 'retained');
                 const lofBoth = vs.find((v) => DMM_LOF.has(v.effect) && v.state === 'both');
@@ -8459,6 +8473,61 @@ function (path, config) {
                 out.set(g.gene, { verdict: verdict, rank: rank, variants: vs });
             }
             return out;
+        };
+        // ESSENTIAL GENES THE TUMOR HAS CHANGED, and whether any change opens a window.
+        //
+        // The genes come from DepMap (py/bio/loh-selective-lethality.py 'essential'); the
+        // variants from this genome, kept only when they are the tumor's own -- somatic, or a
+        // germline heterozygote whose other allele the tumor has lost -- because a change
+        // every normal cell also carries gives no selectivity at all. Protein-altering ones
+        // are handed to Claude with the dependency numbers ('assess'), together with the
+        // essential genes that sit in a tract unmutated, the single-copy kind. What comes
+        // back is a set of hypotheses, and the report prints it as one.
+        const LOH_SL_SCRIPT = server + '/py/bio/loh-selective-lethality.py';
+        const lohSelectiveLethality = async (R, spec, tracts, say) => {
+            const res = { candidates: [], single: [], assessment: null, model: '', error: '', nEssential: 0, nModels: 0 };
+            const species = ('' + (r.species || 'human')).toLowerCase();
+            if (species !== 'human') { res.error = 'DepMap is a human screen, so there is no essentiality data for ' + species + '.'; return res; }
+            const em = new EngineMonitor((m) => { try { log(m); say(m); } catch (e) { } });
+            say('Reading which genes cancer cells cannot do without (DepMap)...');
+            const es = await exec(LOH_SL_SCRIPT, em, 'essential', species);
+            if (!es || !es.ok) { res.error = (es && es.error) || 'the essential-gene list could not be read'; return res; }
+            let rows = [];
+            try { rows = JSON.parse(es.genes || '[]'); } catch (e) { rows = []; }
+            res.nEssential = rows.length; res.nModels = +es.n_models || 0;
+            const ess = rows.map((x) => ({ gene: x[0], ci: chromIndexOf(x[1]), start: +x[2], end: +x[3], strand: x[4],
+                effect_mean: +x[5], dep_frac: +x[6], cls: x[7] })).filter((g) => g.ci >= 0 && vdata[g.ci] && vdata[g.ci].n);
+            const inTract = (g) => tracts.some((t) => t.ci === g.ci && g.end >= t.lo && g.start <= t.hi);
+            say('Looking for the tumor\'s own changes in ' + ess.length.toLocaleString() + ' essential genes...');
+            const tumorOwn = (v) => v.inT && (v.origin === 'somatic' || (v.germHet && v.state === 'retained'));
+            const byGene = await lohGeneVariants(ess, spec, say, tumorOwn);
+            for (const g of ess) {
+                const vs = (byGene.get(g.gene) || []).filter((v) => DMM_PROTEIN.has(v.effect));
+                if (!vs.length) continue;
+                res.candidates.push({ g: g, loh: inTract(g), variants: vs });
+            }
+            // Damaging changes first, then the genes the cells need most.
+            const worst = (c) => Math.min.apply(null, c.variants.map((v) => dmmSev(v.effect)));
+            res.candidates.sort((a, b) => worst(a) - worst(b) || b.g.dep_frac - a.g.dep_frac);
+            const mutated = new Set(res.candidates.map((c) => c.g.gene));
+            res.single = ess.filter((g) => !mutated.has(g.gene) && inTract(g)).sort((a, b) => b.dep_frac - a.dep_frac);
+            const payload = {
+                tumor: spec.labelT, germline: spec.labelN, species: species, n_models: res.nModels,
+                context: 'LOH scan: ' + R.loh + ' of ' + R.het + ' heterozygous sites lost an allele, in ' + tracts.length + ' tract(s): '
+                    + tracts.slice(0, 12).map((t) => (bandSpan(t.c, t.lo, t.hi) || t.c.name) + ' (' + t.ext.word + ')').join(', ') + '.',
+                candidates: res.candidates.slice(0, 80).map((c) => ({
+                    gene: c.g.gene, depmap: { effect_mean: c.g.effect_mean, dep_frac: c.g.dep_frac, class: c.g.cls }, in_loh: c.loh,
+                    variants: c.variants.slice(0, 8).map((v) => ({ change: v.hgvs || (v.ref + '>' + v.alt + ' at ' + v.pos), effect: v.effect,
+                        origin: v.origin === 'somatic' ? 'somatic' : 'germline_lost_wt', tumor_state: v.state, tumor_vaf: v.baf >= 0 ? Math.round(v.baf * 100) / 100 : -1 })),
+                })),
+                single_copy: res.single.slice(0, 60).map((g) => ({ gene: g.gene, effect_mean: g.effect_mean, dep_frac: g.dep_frac, class: g.cls })),
+            };
+            say('Asking Claude which of these could be selectively lethal (this takes a minute or two)...');
+            const as = await exec(LOH_SL_SCRIPT, em, 'assess', JSON.stringify(payload));
+            if (!as || !as.ok) { res.error = (as && as.error) || 'the assessment could not be made'; return res; }
+            try { res.assessment = JSON.parse(as.assessment || '{}'); } catch (e) { res.assessment = null; }
+            res.model = as.model || '';
+            return res;
         };
         // THE GENOME MAP: every chromosome as a bar at scale, the tracts over it, the
         // centromere marked, the tumor suppressors inside a tract named, and each
@@ -8525,7 +8594,44 @@ function (path, config) {
             });
             return cv.toDataURL('image/png');
         };
-        const lohReportPDF = async () => {
+        // opts: { germ: { normal, label }, claude: true|false }. The germline is the track
+        // every variant's origin is read against (somatic = absent from it); the tumor is the
+        // LOH scan's. Without opts, the scan's own normal and no Claude assessment.
+        // BEFORE THE REPORT: WHICH TRACK IS THE GERMLINE. Every variant's origin is read
+        // against it -- somatic means absent from it -- and with more than two samples loaded
+        // the LOH scan's normal is not necessarily the one to compare against. The scan's
+        // normal comes first and is the default.
+        const lohReportStart = () => {
+            try { if (typeof hideAllModal === 'function') hideAllModal(); } catch (e) { }
+            const R = lohResult;
+            if (!R) { dlMsg('Run the loss-of-heterozygosity scan first.'); return; }
+            const opts = [];
+            if (R.spec.kind === 'sample') {
+                for (let i = 0; i < SAMPLES.length; i++) {
+                    if (i === R.spec.tumor || !phaseCounts(i).all) continue;
+                    opts.push({ normal: i, label: SAMPLES[i] });
+                }
+            } else {
+                opts.push({ normal: R.spec.normal, label: R.spec.labelN });
+            }
+            opts.sort((x, y) => (y.normal === R.spec.normal) - (x.normal === R.spec.normal));
+            const isHuman = ('' + (r.species || 'human')).toLowerCase() === 'human';
+            const books = [{ section: 'Germline', note: true, title: 'Which track is the germline for ' + R.spec.labelT + '? Each variant\'s origin is read against it, '
+                + 'and the essential genes carrying a change the tumor has and the germline does not are handed to Claude, which judges whether any of them '
+                + 'could make the tumor selectively lethal. That takes a minute or two.' + (isHuman ? '' : ' (Essentiality comes from DepMap, a human screen, so it is left out for this genome.)') }];
+            opts.forEach((o) => books.push({ section: 'Germline', accent: 'run', title: o.label, icon: 'person',
+                badge: o.normal === R.spec.normal ? 'the LOH scan\'s normal' : 'germline', ready: !lohReportBusy, readyNote: 'a report is being built',
+                blurb: 'Compare ' + R.spec.labelT + ' against ' + o.label + ', then build the report with the selective-lethality assessment.',
+                open: () => { lohMenu(); lohReportPDF({ germ: o, claude: isHuman }); } }));
+            books.push({ section: 'Germline', title: 'The report without the Claude assessment', icon: 'picture_as_pdf', badge: 'faster', ready: !lohReportBusy,
+                blurb: 'The loss itself, the tract map and the tumor suppressors, read against ' + R.spec.labelN + '. No essential-gene scan, no model.',
+                open: () => { lohMenu(); lohReportPDF({ claude: false }); } });
+            books.push({ section: 'Back', title: 'Loss of heterozygosity', badge: 'back', icon: 'arrow_back', back: true, ready: true, blurb: 'The scan\'s results.', open: () => lohMenu() });
+            exec('baja/lib/shelf.js', { id: 'baja-karyo-analysis', title: 'LOH report', subtitle: 'Choose the germline to compare ' + R.spec.labelT + ' against',
+                graph: graph, books: books });
+        };
+        const lohReportPDF = async (opts) => {
+            const O = opts || {};
             if (lohReportBusy) { dlMsg('The report is still being built.'); return; }
             const R = lohResult;
             if (!R) { dlMsg('Run the loss-of-heterozygosity scan first.'); return; }
@@ -8542,9 +8648,11 @@ function (path, config) {
                 const mb = (n) => (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + ' Mb';
                 const genes = R.genes || [];
                 const tsgs = genes.filter(lossIsTsg);
+                const spec = Object.assign({}, R.spec, O.germ ? { normal: O.germ.normal, labelN: O.germ.label } : {});
+                const germOther = spec.normal !== R.spec.normal;
                 dlMsg('Reading the tumor suppressors in the tracts for a second hit...');
                 let hits = new Map();
-                try { hits = await lohSecondHits(tsgs, R.spec, (m) => dlMsg(m)); }
+                try { hits = await lohSecondHits(tsgs, spec, (m) => dlMsg(m)); }
                 catch (e) { step('second hits: ' + e); }
                 const tracts = [];
                 for (const c2 of R.chroms) for (const t of (c2.runs || [])) {
@@ -8564,6 +8672,12 @@ function (path, config) {
                 const hrd = tracts.filter((t) => t.len > LOH_HRD_MIN && !t.ext.whole).length;
                 const biallelic = tsgs.filter((g) => { const h = hits.get(g.gene); return h && h.rank === 0; });
                 const possible = tsgs.filter((g) => { const h = hits.get(g.gene); return h && (h.rank === 1 || h.rank === 2); });
+                let SL = null;
+                if (O.claude) {
+                    try { SL = await lohSelectiveLethality(R, spec, tracts, (m) => dlMsg(m)); }
+                    catch (e) { SL = { error: '' + (e && e.message ? e.message : e), candidates: [], single: [] }; }
+                }
+                const slFind = (SL && SL.assessment && SL.assessment.findings) || [];
 
                 // THE HEADLINE, in sentences, for the reader who reads nothing else.
                 const lines = [];
@@ -8575,12 +8689,20 @@ function (path, config) {
                 if (tsgs.length) lines.push(tsgs.length + ' tumor suppressor' + (tsgs.length === 1 ? ' is' : 's are') + ' inside a tract (' + tsgs.map((g) => g.gene).join(', ') + ')'
                     + (tsgs.length - biallelic.length ? '; ' + (tsgs.length - biallelic.length) + ' of them ' + ((tsgs.length - biallelic.length) === 1 ? 'is' : 'are') + ' down to one copy with no second hit seen' : '') + '.');
                 else if (genes.length) lines.push('No gene on the tumor-suppressor list lies inside a tract.');
+                if (SL && !SL.error) {
+                    const hi = slFind.filter((f) => f.confidence !== 'low');
+                    lines.push(SL.candidates.length + ' essential gene' + (SL.candidates.length === 1 ? ' carries' : 's carry') + ' a protein-altering change specific to the tumor. '
+                        + (slFind.length ? 'Claude proposes ' + slFind.length + ' selective-lethality hypothes' + (slFind.length === 1 ? 'is' : 'es')
+                            + (hi.length ? ', ' + hi.length + ' at medium or high confidence: ' + hi.slice(0, 4).map((f) => f.gene + ' (' + f.mechanism + ')').join(', ') : ', all at low confidence')
+                            + '.' : 'Claude found no selective-lethality window it would stand behind.'));
+                }
 
                 // PAGE ONE is the headline and the map: what someone handed this report sees
                 // without turning a page. The numbers behind the headline follow.
                 const sheets = [];
                 sheets.push({ name: 'Summary', rows: [{
-                    'Samples': R.spec.labelT + ' (tumor) against ' + R.spec.labelN + ' (normal), '
+                    'Samples': R.spec.labelT + ' (tumor) against ' + spec.labelN + ' (germline)'
+                        + (germOther ? ', chosen for this report; the LOH scan itself used ' + R.spec.labelN + ' as its normal' : '') + '; '
                         + (R.spec.kind === 'sample' ? 'two sample columns of one VCF' : 'two VCF files matched by position')
                         + '; ' + dlSpecies() + (dlAssembly() ? ' ' + dlAssembly() : '') + (R.at ? '; scanned ' + new Date(R.at).toLocaleString() : ''),
                     'In short': lines.join(' '),
@@ -8631,6 +8753,36 @@ function (path, config) {
                     };
                 }) : [{ 'Result': genes.length ? 'No gene on the tumor-suppressor list lies inside a tract.' : 'No tract, so no gene is down to one copy.' }] });
 
+                if (O.claude) {
+                    if (!SL || SL.error) {
+                        sheets.push({ name: 'Selective lethality', rows: [{ 'Not assessed': (SL && SL.error) || 'the assessment did not run' }] });
+                    } else {
+                        const dep = (g) => g.cls + ', a dependency in ' + Math.round(g.dep_frac * 100) + '% of ' + (SL.nModels || '') + ' cell lines (mean effect ' + g.effect_mean.toFixed(2) + ')';
+                        const vw = (v) => dmmWord(v.effect) + (v.hgvs ? ' ' + v.hgvs : ' ' + v.ref + '>' + v.alt) + ' - '
+                            + (v.origin === 'somatic' ? 'somatic' : 'germline, other allele lost') + ', '
+                            + ({ retained: 'on every copy left', both: 'tumor reads both alleles', lost: 'lost', uncalled: 'not called' }[v.state] || v.state)
+                            + (v.baf >= 0 ? ' (VAF ' + Math.round(v.baf * 100) + '%)' : '');
+                        sheets.push({ name: 'Essential genes with tumor-specific changes', rows: SL.candidates.length ? SL.candidates.slice(0, 60).map((c) => ({
+                            'Gene': c.g.gene + (c.loh ? ' (in an LOH tract)' : ''),
+                            'DepMap': dep(c.g),
+                            'Changes': c.variants.slice(0, 6).map(vw).join('; ') + (c.variants.length > 6 ? '; and ' + (c.variants.length - 6) + ' more' : ''),
+                        })).concat(SL.candidates.length > 60 ? [{ 'More': (SL.candidates.length - 60) + ' further genes, less damaging or less essential, were given to the model but are not listed here.' }] : [])
+                            : [{ 'Result': 'None of the ' + SL.nEssential.toLocaleString() + ' essential genes carries a protein-altering change that is the tumor\'s own.' }] });
+                        const As = SL.assessment || {};
+                        sheets.push({ name: 'Selective lethality - assessed by Claude', rows: [{
+                            'What this is': 'Hypotheses, not findings: ' + (SL.model || 'Claude') + ' was given the genes above, the essential genes in LOH tracts with no mutation (' + SL.single.length + '), '
+                                + 'and their DepMap numbers, and asked which tumor-specific change could open a therapeutic window. Every item needs checking before it is acted on.',
+                            'Summary': As.summary || '',
+                        }].concat(slFind.map((f, i) => ({
+                            'Hypothesis': (i + 1) + '. ' + f.gene + ' - ' + f.variant,
+                            'Mechanism': f.mechanism + ' (' + f.confidence + ' confidence)',
+                            'Rationale': f.rationale,
+                            'Approach': f.approach,
+                            'In normal cells': f.normal_cells,
+                            'Caveats': f.caveats,
+                        }))).concat(As.not_pursued ? [{ 'Not pursued': As.not_pursued }] : []) });
+                    }
+                }
                 sheets.push({ name: 'By chromosome', rows: [drawn.map((c, ci) => R.chroms.find((x) => x.ci === ci)).filter(Boolean).reduce((row, c2) => {
                     row[c2.name] = pct(c2.frac) + ' LOH - ' + c2.loh.toLocaleString() + ' of ' + c2.het.toLocaleString() + ' heterozygous sites lost'
                         + (c2.uncalled ? ', ' + c2.uncalled.toLocaleString() + ' not called' : '')
@@ -8670,6 +8822,8 @@ function (path, config) {
                     'Extent': 'Whole chromosome or arm-level when a tract covers at least ' + Math.round(LOH_ARM_COVER * 100) + '% of every informative arm, or of one arm. Acrocentric short arms carry no called sites and are not counted. Large segment >= 10 Mb; focal below that.',
                     'Second hit': 'Each variant inside a tumor suppressor is read on the MANE transcript (frameshift, stop-gained, splice-site, and hotspot or ClinVar-pathogenic missense count as damaging). On the copy left means the tumor\'s reads carry it on all remaining copies; germline means the normal carries it too.',
                     'What a VCF cannot show': 'Whether a tract is a deletion (one copy) or copy-neutral LOH (two identical copies): that needs copy number. A second hit by deletion, promoter methylation or a structural variant is also invisible here, so "no second hit" means none in these calls.',
+                    'Germline': 'Origins are read against ' + spec.labelN + ': a change it does not carry is somatic. A germline heterozygote the tumor now carries on every remaining copy is the tumor\'s own too, because the tumor lost the other allele.',
+                    'Selective lethality': O.claude ? 'Essential genes are those DepMap (CRISPR, Chronos) calls a dependency (effect below -0.5) in at least 20% of cell lines. Only protein-altering changes the tumor carries and the germline does not (or carries on one allele only, with the other lost in the tumor) are considered. The assessment is written by a language model from those data and general knowledge; it is a list of ideas to test.' : 'Not run for this report.',
                     'Source': 'oligodesigner.com Genome Viewer, ' + new Date().toLocaleString(),
                 }] });
 
@@ -10173,8 +10327,9 @@ function (path, config) {
                 blurb: 'The loss written up: how much of the genome lost an allele, the large chromosomal losses by cytoband '
                     + '(whole-chromosome, arm-level, segmental), a genome map, and every tumor suppressor inside a tract with '
                     + 'whether its remaining copy also carries a damaging change.'
+                    + ' Choose the germline to compare against, and Claude judges whether any essential gene the tumor has changed could make it selectively lethal.'
                     + (R.genes ? '' : ' Lists the genes in the tracts first if that has not been done.'),
-                open: () => { lohReportPDF(); } });
+                open: () => { lohReportStart(); } });
             const tracts = (R.chroms || []).reduce((a, c2) => a + (c2.runs ? c2.runs.length : 0), 0);
             books.push({ section: 'Loss of heterozygosity', accent: 'run', title: R.genes ? 'Read the genes again' : 'List the genes in the tracts',
                 badge: R.genes ? R.genes.length + ' genes' : (tracts + ' tract' + (tracts === 1 ? '' : 's')), icon: 'biotech',
