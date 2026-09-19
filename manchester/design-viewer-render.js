@@ -203,21 +203,7 @@ function () {
                 doc.singleCopy.map((g) => geneRow(g.gene, chip(g.cls, '#60a5fa'), '')).join(''));
         }
 
-        // THE ASSESSMENT
-        const A = doc.assessment;
-        if (A) {
-            const confCol = { high: '#86efac', medium: '#fbbf24', low: '#94a3b8' };
-            h += section('Selective lethality assessment', '',
-                card('<div style="font:12px Arial;color:#9fb3c8;">Hypotheses, not findings, written by a language model'
-                    + (A.assessedAt ? ' on ' + esc(new Date(A.assessedAt).toLocaleString()) : '') + '.</div>'
-                    + '<div style="font:13px Arial;color:#e8f0fb;margin-top:6px;line-height:1.5;">' + esc(A.summary || '') + '</div>')
-                + (A.findings || []).map((f) => geneRow(f.gene, chip(f.mechanism, '#c4b5fd') + ' ' + chip(f.confidence + ' confidence', confCol[f.confidence] || '#94a3b8'),
-                    '<b>' + esc(f.variant) + '</b><br/>' + esc(f.rationale)
-                    + '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#8ab4ff;">Approach, normal cells, caveats</summary>'
-                    + '<div style="margin-top:6px;"><b>Approach:</b> ' + esc(f.approach) + '</div><div style="margin-top:4px;"><b>In normal cells:</b> ' + esc(f.normal_cells) + '</div>'
-                    + '<div style="margin-top:4px;"><b>Caveats:</b> ' + esc(f.caveats) + '</div></details>')).join('')
-                + (A.not_pursued ? card('<div style="font:12px Arial;color:#9fb3c8;"><b>Not pursued:</b> ' + esc(A.not_pursued) + '</div>') : ''));
-        }
+        // The assessment is not shown here: the strategy is the genes and their changes.
         h += '</div>';
         root.innerHTML = h;
 

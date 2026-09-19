@@ -9840,29 +9840,9 @@ function (path, config) {
                             fnHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc) + tpmHtml(DM && DM[('' + c.g.gene).toUpperCase()], esc))).join('')
                             : card('None of the essential genes carries a protein-altering change that is the tumor\'s own.'));
                     h += depmapCiteHtml(esc);
-                    // CLAUDE
-                    const A = ESS.assessment;
-                    let inner = '';
-                    if (!A) {
-                        inner = card('<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;"><div style="flex:1;min-width:240px;font:12.5px Arial;color:#cfe0f5;">'
-                            + 'The assessment reads the genes above -- essential, single-copy, and oncogene changes -- and proposes which specific change could make the tumor selectively lethal, '
-                            + 'with the reasoning, an approach, and the caveats. About a minute and a half.' + (ESS.assessError ? '<br/><span style="color:#fca5a5;">' + esc(ESS.assessError) + '</span>' : '') + '</div>'
-                            + '<button id="lu-ask" style="cursor:pointer;border-radius:8px;padding:9px 16px;font:700 12.5px Arial;border:1px solid #f59e0b;background:transparent;color:#fbbf24;">Run the assessment</button></div>');
-                    } else {
-                        const confCol = { high: '#86efac', medium: '#fbbf24', low: '#94a3b8' };
-                        inner = card('<div style="font:12px Arial;color:#9fb3c8;">Hypotheses, not findings, written by a language model' + (ESS.assessedAt ? ' on ' + esc(new Date(ESS.assessedAt).toLocaleString()) : '') + '. '
-                                + '<a href="#" id="lu-reask" style="color:#8ab4ff;">Run again</a></div><div style="font:13px Arial;color:#e8f0fb;margin-top:6px;line-height:1.5;">' + esc(A.summary || '') + '</div>')
-                            + (A.findings || []).map((f) => {
-                                const it = byGene.get(('' + f.gene).toUpperCase()) || itemFor(f.gene, -1);
-                                return geneRow(it, chip(f.mechanism, '#c4b5fd') + ' ' + chip(f.confidence + ' confidence', confCol[f.confidence] || '#94a3b8'),
-                                    '<b>' + esc(f.variant) + '</b><br/>' + esc(f.rationale)
-                                    + '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#8ab4ff;">Approach, normal cells, caveats</summary>'
-                                    + '<div style="margin-top:6px;"><b>Approach:</b> ' + esc(f.approach) + '</div><div style="margin-top:4px;"><b>In normal cells:</b> ' + esc(f.normal_cells) + '</div>'
-                                    + '<div style="margin-top:4px;"><b>Caveats:</b> ' + esc(f.caveats) + '</div></details>');
-                            }).join('')
-                            + (A.not_pursued ? card('<div style="font:12px Arial;color:#9fb3c8;"><b>Not pursued:</b> ' + esc(A.not_pursued) + '</div>') : '');
-                    }
-                    h += section('Selective lethality assessment', '', inner);
+                    // NO ASSESSMENT SECTION HERE. The strategy is the genes and their
+                    // changes, each one a button into the editor; the model's hypotheses
+                    // are in the PDF report, which is where they are read as prose.
                 }
                 h += '</div>';
                 body.innerHTML = h;
@@ -10023,7 +10003,10 @@ function (path, config) {
             };
             q('#lu-close').onclick = () => close();
             q('#lu-design').onclick = () => { const list = Array.from(picked).map((i) => items[i]).filter(Boolean); if (list.length) design(list); };
-            q('#lu-pdf').onclick = () => { lohReportPDF({ germ: O.germ, claude: !!(ESS && ESS.assessment) }); };
+            // The assessment is no longer a section on this screen, so the PDF is where it is
+            // read: the report runs it (about a minute and a half) rather than only including
+            // one that happened to have been run here already.
+            q('#lu-pdf').onclick = () => { lohReportPDF({ germ: O.germ, claude: ('' + (r.species || 'human')).toLowerCase() === 'human' }); };
             render();
         };
         // ---- SYNTHETIC LETHALITY FROM THE LOSS OF HETEROZYGOSITY -----------------
