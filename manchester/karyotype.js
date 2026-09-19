@@ -17886,6 +17886,25 @@ function (path, config) {
             const lofPrivate = g.vars.some((x) => x.who !== 'S' && DMM_LOF.has(x.effect));
             return { n: n, worstA: worst('A'), worstB: worst('B'), call: call, lofPrivate: lofPrivate, shown: g.vars.filter(inF) };
         };
+        // ALLELE-SELECTIVE DESIGN FROM THE MATRIX. The editor opens with two tracks of the same
+        // transcript -- one for A, one for B -- each carrying only the alleles that sample has,
+        // so an oligo can be walked across the site and checked against the other sample's
+        // sequence. A single variant can be aimed at: the editor opens on it.
+        const dmmDesign = async (R, g, focusVar) => {
+            if (!g || !g.transcript) { graph.setMessage(' That gene has no transcript to open. '); return; }
+            const S = R.spec, A = S.labelA || 'A', B = S.labelB || 'B';
+            const ids = [{ id: g.transcript, group: 'A', label: 'A \u2014 ' + A }, { id: g.transcript, group: 'B', label: 'B \u2014 ' + B }];
+            const vars = [];
+            for (const v of (g.vars || []).slice(0, 400)) {
+                const base = lohHandoffVariant(v.ci, { pos: v.pos, ref: v.ref, alt: v.alt, hgvs: v.hgvs_p || v.hgvs_c || '', effect: v.effect }, g.gene);
+                base.annotations.push('CARRIED_BY=' + (v.who === 'S' ? 'both' : v.who === 'A' ? A : B));
+                if (focusVar && v === focusVar) base.annotations.push('ALLELE_SELECTIVE_TARGET=1');
+                if (v.who === 'A' || v.who === 'S') vars.push(Object.assign({}, base, { group: 'A' }));
+                if (v.who === 'B' || v.who === 'S') vars.push(Object.assign({}, base, { group: 'B' }));
+            }
+            const f = focusVar ? { chr: drawn[focusVar.ci].name, pos: focusVar.pos } : (g.vars && g.vars[0] ? { chr: drawn[g.vars[0].ci].name, pos: g.vars[0].pos } : null);
+            await handToEditor(ids, vars, f);
+        };
         // THE MATRIX AS A FILE (.mutmax). Everything the matrix viewer needs without the genome
         // it came from: the pair, the counts, the spectrum and every gene's variants as shown.
         const MUTMAX_EXT = '.mutmax';
@@ -18041,11 +18060,14 @@ function (path, config) {
                             + cell('A', x.n.A, maxN) + cell('S', x.n.S, maxN) + cell('B', x.n.B, maxN)
                             + '<td style="padding:8px;font:12.5px Arial;color:' + (DMM_LOF.has(x.worstA) ? '#fca5a5' : '#cfe0f5') + ';">' + esc3(dmmWord(x.worstA) || '—') + '</td>'
                             + '<td style="padding:8px;font:12.5px Arial;color:' + (DMM_LOF.has(x.worstB) ? '#93c5fd' : '#cfe0f5') + ';">' + esc3(dmmWord(x.worstB) || '—') + '</td>'
-                            + '<td style="padding:8px 10px;border-radius:0 8px 8px 0;">' + chip(callWho, x.call) + '</td></tr>';
+                            + '<td style="padding:8px 10px;border-radius:0 8px 8px 0;">' + chip(callWho, x.call)
+                            + (g.transcript ? ' <button class="dmm-design" data-g="' + esc3(g.gene) + '" title="Open both samples in the oligo editor, one track each"'
+                                + ' style="cursor:pointer;margin-left:8px;border-radius:7px;padding:5px 10px;font:700 11.5px Arial;border:1px solid #22c55e;background:transparent;color:#86efac;">Design ASO</button>' : '')
+                            + '</td></tr>';
                         if (!open) continue;
                         h += '<tr><td colspan="7" style="padding:4px 10px 12px 28px;"><table style="width:100%;border-collapse:collapse;font:12px Arial;">'
                             + '<tr style="color:#9fb3c8;"><td style="padding:4px 6px;">Position</td><td>Change</td><td>Consequence</td><td>Protein</td>'
-                            + '<td>A (' + esc3(S.labelA) + ')</td><td>B (' + esc3(S.labelB) + ')</td><td>The other sample shows</td></tr>'
+                            + '<td>A (' + esc3(S.labelA) + ')</td><td>B (' + esc3(S.labelB) + ')</td><td>The other sample shows</td><td></td></tr>'
                             + x.shown.map((v) => '<tr style="border-top:1px solid rgba(255,255,255,0.08);">'
                                 + '<td style="padding:5px 6px;white-space:nowrap;">' + esc3(drawn[v.ci].name + ':' + human(v.pos)) + '</td>'
                                 + '<td style="font-family:monospace;">' + esc3((v.ref.length > 12 ? v.ref.slice(0, 12) + '…' : v.ref) + '>' + (v.alt.length > 12 ? v.alt.slice(0, 12) + '…' : v.alt)) + '</td>'
@@ -18053,7 +18075,10 @@ function (path, config) {
                                 + '<td>' + esc3(v.hgvs_p || v.hgvs_c || '') + '</td>'
                                 + '<td style="color:' + (v.A ? DMM_COL.A : '#6b819b') + ';">' + esc3(dmmGtText(S, v, 'A') || '—') + '</td>'
                                 + '<td style="color:' + (v.B ? DMM_COL.B : '#6b819b') + ';">' + esc3(dmmGtText(S, v, 'B') || '—') + '</td>'
-                                + '<td style="color:' + (v.absence === 'confident reference' ? '#8ff0b0' : '#fcd34d') + ';">' + esc3(v.absence || '') + '</td></tr>').join('')
+                                + '<td style="color:' + (v.absence === 'confident reference' ? '#8ff0b0' : '#fcd34d') + ';">' + esc3(v.absence || '') + '</td>'
+                                + '<td style="text-align:right;">' + (g.transcript ? '<button class="dmm-vdesign" data-g="' + esc3(g.gene) + '" data-v="' + esc3(v.pos + ':' + v.ref + ':' + v.alt) + '"'
+                                    + ' title="Design an allele-selective oligo against this change" style="cursor:pointer;border-radius:6px;padding:3px 8px;font:700 11px Arial;'
+                                    + 'border:1px solid ' + DMM_COL[v.who] + '99;background:transparent;color:' + DMM_COL[v.who] + ';">Design against this</button>' : '') + '</td></tr>').join('')
                             + '</table></td></tr>';
                     }
                     h += '</table>';
@@ -18070,6 +18095,25 @@ function (path, config) {
                 if (ps) ps.onchange = () => { pairIdx = +ps.value; spec = pairs[pairIdx]; compute(); };
                 Array.prototype.forEach.call(panel.querySelectorAll('.dmm-g'), (tr) => {
                     tr.onclick = () => { const gname = tr.getAttribute('data-g'); if (expanded.has(gname)) expanded.delete(gname); else expanded.add(gname); render(); };
+                });
+                // Both samples into the editor: the whole gene, or aimed at one change.
+                const geneByName = (nm) => R.genes.find((g) => ('' + g.gene) === nm);
+                Array.prototype.forEach.call(panel.querySelectorAll('.dmm-design'), (b2) => {
+                    b2.onclick = async (e) => {
+                        e.stopPropagation();
+                        const g = geneByName(b2.getAttribute('data-g'));
+                        if (g) await dmmDesign(R, g, null);
+                    };
+                });
+                Array.prototype.forEach.call(panel.querySelectorAll('.dmm-vdesign'), (b2) => {
+                    b2.onclick = async (e) => {
+                        e.stopPropagation();
+                        const g = geneByName(b2.getAttribute('data-g'));
+                        if (!g) return;
+                        const k = ('' + b2.getAttribute('data-v')).split(':');
+                        const v = (g.vars || []).find((x) => x.pos === +k[0] && x.ref === k[1] && x.alt === k[2]);
+                        await dmmDesign(R, g, v || null);
+                    };
                 });
             };
             let run = 0;

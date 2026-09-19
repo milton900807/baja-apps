@@ -58,6 +58,7 @@ function () {
                 + (O.onShare ? btn('mx-share', 'Share', 'border:1px solid #f59e0b;background:transparent;color:#fbbf24;') : '')
                 + btn('mx-csv', 'Download CSV', 'border:1px solid #22c55e;background:#22c55e;color:#04210f;')
                 + '</div></div>'
+                + '<div id="mx-note" style="display:none;padding:10px 22px;background:#08203c;border-bottom:1px solid rgba(255,255,255,0.10);font:12.5px Arial;color:#cfe0f5;"></div>'
                 + '<div style="max-width:1100px;margin:0 auto;padding:22px 22px 40px;">'
                 + '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
                 + [['A', 'only in A · ' + P.labelA, T.A], ['S', 'in both', T.S], ['B', 'only in B · ' + P.labelB, T.B]].map((t) =>
@@ -97,11 +98,14 @@ function () {
                         + cell('A', x.n.A, maxN) + cell('S', x.n.S, maxN) + cell('B', x.n.B, maxN)
                         + '<td style="padding:8px;font:12.5px Arial;color:' + (LOF.has(x.worstA) ? '#fca5a5' : '#cfe0f5') + ';">' + esc(word(x.worstA) || '—') + '</td>'
                         + '<td style="padding:8px;font:12.5px Arial;color:' + (LOF.has(x.worstB) ? '#93c5fd' : '#cfe0f5') + ';">' + esc(word(x.worstB) || '—') + '</td>'
-                        + '<td style="padding:8px 10px;border-radius:0 8px 8px 0;">' + chip(callWho, x.call) + '</td></tr>';
+                        + '<td style="padding:8px 10px;border-radius:0 8px 8px 0;">' + chip(callWho, x.call)
+                        + (g.transcript ? ' <button class="mx-design" data-g="' + esc(g.gene) + '" title="Open both samples in the oligo editor, one track each"'
+                            + ' style="cursor:pointer;margin-left:8px;border-radius:7px;padding:5px 10px;font:700 11.5px Arial;border:1px solid #22c55e;background:transparent;color:#86efac;">Design ASO</button>' : '')
+                        + '</td></tr>';
                     if (!open) continue;
                     h += '<tr><td colspan="7" style="padding:4px 10px 12px 28px;"><table style="width:100%;border-collapse:collapse;font:12px Arial;">'
                         + '<tr style="color:#9fb3c8;"><td style="padding:4px 6px;">Position</td><td>Change</td><td>Consequence</td><td>Protein</td>'
-                        + '<td>A (' + esc(P.labelA) + ')</td><td>B (' + esc(P.labelB) + ')</td><td>The other sample shows</td></tr>'
+                        + '<td>A (' + esc(P.labelA) + ')</td><td>B (' + esc(P.labelB) + ')</td><td>The other sample shows</td><td></td></tr>'
                         + x.shown.map((v) => '<tr style="border-top:1px solid rgba(255,255,255,0.08);">'
                             + '<td style="padding:5px 6px;white-space:nowrap;">' + esc(v.chr + ':' + (+v.pos).toLocaleString()) + '</td>'
                             + '<td style="font-family:monospace;">' + esc((v.ref.length > 12 ? v.ref.slice(0, 12) + '…' : v.ref) + '>' + (v.alt.length > 12 ? v.alt.slice(0, 12) + '…' : v.alt)) + '</td>'
@@ -109,7 +113,10 @@ function () {
                             + '<td>' + esc(v.hgvs_p || v.hgvs_c || '') + '</td>'
                             + '<td style="color:' + (v.who === 'A' || v.who === 'S' ? COL.A : '#6b819b') + ';">' + esc(v.gtA || '—') + '</td>'
                             + '<td style="color:' + (v.who === 'B' || v.who === 'S' ? COL.B : '#6b819b') + ';">' + esc(v.gtB || '—') + '</td>'
-                            + '<td style="color:' + (v.absence === 'confident reference' ? '#8ff0b0' : '#fcd34d') + ';">' + esc(v.absence || '') + '</td></tr>').join('')
+                            + '<td style="color:' + (v.absence === 'confident reference' ? '#8ff0b0' : '#fcd34d') + ';">' + esc(v.absence || '') + '</td>'
+                            + '<td style="text-align:right;">' + (g.transcript ? '<button class="mx-vdesign" data-g="' + esc(g.gene) + '" data-v="' + esc(v.pos + ':' + v.ref + ':' + v.alt) + '"'
+                                + ' title="Design an allele-selective oligo against this change" style="cursor:pointer;border-radius:6px;padding:3px 8px;font:700 11px Arial;'
+                                + 'border:1px solid ' + COL[v.who] + '99;background:transparent;color:' + COL[v.who] + ';">Design against this</button>' : '') + '</td></tr>').join('')
                         + '</table></td></tr>';
                 }
                 h += '</table>';
@@ -138,10 +145,56 @@ function () {
             if (q('#mx-share') && O.onShare) q('#mx-share').onclick = () => O.onShare();
             if (q('#mx-prot')) q('#mx-prot').onchange = (e) => { protOnly = !!e.target.checked; render(); };
             if (q('#mx-csv')) q('#mx-csv').onclick = () => csv();
+            const geneByName = (nm) => (doc.genes || []).find((g) => ('' + g.gene) === nm);
+            Array.prototype.forEach.call(root.querySelectorAll('.mx-design'), (b2) => {
+                b2.onclick = (e) => { e.stopPropagation(); design(geneByName(b2.getAttribute('data-g')), null); };
+            });
+            Array.prototype.forEach.call(root.querySelectorAll('.mx-vdesign'), (b2) => {
+                b2.onclick = (e) => {
+                    e.stopPropagation();
+                    const g = geneByName(b2.getAttribute('data-g'));
+                    if (!g) return;
+                    const k = ('' + b2.getAttribute('data-v')).split(':');
+                    design(g, (g.vars || []).find((x) => x.pos === +k[0] && x.ref === k[1] && x.alt === k[2]) || null);
+                };
+            });
             Array.prototype.forEach.call(root.querySelectorAll('.mx-g'), (tr2) => {
                 tr2.onclick = () => { const g = tr2.getAttribute('data-g'); if (expanded.has(g)) expanded.delete(g); else expanded.add(g); render(); };
             });
         };
+
+        // ALLELE-SELECTIVE DESIGN. The editor opens with two tracks of the same transcript --
+        // one per sample -- each carrying only the alleles that sample has, so an oligo can be
+        // aimed at one allele and checked against the other. A single change can be targeted.
+        const MAX_VARS = 4000;
+        const design = async (g, target) => {
+            if (!g || !g.transcript) { note('That gene has no transcript in this file.'); return; }
+            const ids = [{ id: g.transcript, group: 'A', label: 'A \u2014 ' + (P.labelA || 'A') }, { id: g.transcript, group: 'B', label: 'B \u2014 ' + (P.labelB || 'B') }];
+            const vars = [];
+            for (const v of (g.vars || []).slice(0, 400)) {
+                const annots = ['GENE=' + g.gene, 'CONSEQUENCE=' + (v.effect || ''),
+                    'CARRIED_BY=' + (v.who === 'S' ? 'both' : v.who === 'A' ? (P.labelA || 'A') : (P.labelB || 'B'))];
+                if (v.hgvs_p || v.hgvs_c) annots.push('HGVS=' + (v.hgvs_p || v.hgvs_c));
+                if (target && v === target) annots.push('ALLELE_SELECTIVE_TARGET=1');
+                const base = { chr: ('' + v.chr).replace(/^chr/, ''), pos: v.pos, ref: v.ref, alt: v.alt,
+                    name: g.gene + ' ' + (v.hgvs_p || v.hgvs_c || (v.ref + '>' + v.alt)), source: 'VCF', annotations: annots };
+                if (v.who === 'A' || v.who === 'S') vars.push(Object.assign({}, base, { group: 'A', genotypes: [v.gtA || ''], samples: [P.labelA || 'A'] }));
+                if (v.who === 'B' || v.who === 'S') vars.push(Object.assign({}, base, { group: 'B', genotypes: [v.gtB || ''], samples: [P.labelB || 'B'] }));
+            }
+            const f = target || (g.vars || [])[0];
+            const payload = { v: 1, from: 'mutmatrix', at: Date.now(), species: doc.species || 'human', list: ids,
+                focus: f ? { chr: ('' + f.chr).replace(/^chr/, ''), pos: f.pos } : null, variants: vars.slice(0, MAX_VARS) };
+            const key = 'baja.editorHandoff.' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            try { localStorage.setItem(key, JSON.stringify(payload)); }
+            catch (e) { note('The browser would not hold the hand-off: ' + (e && e.message ? e.message : e)); return; }
+            const url = window.location.origin + '/app/manchester/editor?handoff=' + encodeURIComponent(key);
+            let win = null;
+            try { win = window.open(url, '_blank'); } catch (e) { win = null; }
+            if (win) { note('Opening ' + g.gene + ' in the oligo editor in a new tab: one track per sample' + (target ? ', on ' + (target.hgvs_p || target.hgvs_c || (target.ref + '>' + target.alt)) : '') + '.'); return; }
+            window.location.assign(url);
+        };
+        // A line under the header, for what just happened.
+        const note = (t) => { const n = root.querySelector('#mx-note'); if (n) { n.textContent = t; n.style.display = 'block'; } };
 
         // The same columns the Genome Viewer's CSV has, from the file.
         const csv = () => {
